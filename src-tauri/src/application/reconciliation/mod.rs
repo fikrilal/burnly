@@ -3,8 +3,14 @@
 //! Reconciliation is the only path that mutates imported usage facts. This phase
 //! establishes the run lifecycle records that later chunks attach facts to.
 
+mod daily;
 mod run;
 
+#[allow(
+    unused_imports,
+    reason = "reconciliation re-exports the run lifecycle contract for callers and adapters"
+)]
+pub(crate) use daily::{DailyReconciliationRequest, DailyReconciliationSummary};
 #[allow(
     unused_imports,
     reason = "reconciliation re-exports the run lifecycle contract for callers and adapters"

@@ -2,7 +2,7 @@
 
 mod error;
 mod migrations;
-mod run_store;
+mod reconciliation_store;
 #[cfg(test)]
 mod test_database;
 
@@ -113,6 +113,10 @@ impl Database {
 
     pub(super) fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    pub(super) fn connection_mut(&mut self) -> &mut Connection {
+        &mut self.connection
     }
 }
 
