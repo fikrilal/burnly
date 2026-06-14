@@ -61,14 +61,14 @@ internal contract probe.
 ## Checklist
 
 - [x] Revalidate this plan against completed Phase 2B output.
-- [ ] Implement typed invocation and envelope unwrapping.
-- [ ] Implement application and synthetic transport error mapping.
-- [ ] Add focused runtime schemas for bootstrap and contract metadata.
-- [ ] Add exact integer validation and conversion.
-- [ ] Implement typed event subscription and cleanup primitives.
-- [ ] Strengthen architecture enforcement for direct Tauri imports.
-- [ ] Add frontend client tests and run `pnpm verify`.
-- [ ] Update the Phase 2 overview and activate Phase 2D.
+- [x] Implement typed invocation and envelope unwrapping.
+- [x] Implement application and synthetic transport error mapping.
+- [x] Add focused runtime schemas for bootstrap and contract metadata.
+- [x] Add exact integer validation and conversion.
+- [x] Implement typed event subscription and cleanup primitives.
+- [x] Strengthen architecture enforcement for direct Tauri imports.
+- [x] Add frontend client tests and run `pnpm verify`.
+- [x] Update the Phase 2 overview and activate Phase 2D.
 
 ## Test Plan
 
@@ -88,11 +88,22 @@ internal contract probe.
 
 - Feature code may receive unwrapped data or a small result object when metadata is
   semantically required; it will never receive raw Tauri rejection values.
+- The command helper stays narrow until Phase 2D adds real product commands. A
+  broad generic command abstraction would be speculative with only the internal
+  contract probe available.
+- Event payload transport accepts raw `unknown` and validates at the `src/ipc/`
+  boundary before feature code receives payloads.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: active; implementation not started.
+- Outcome: passed on June 14, 2026.
+- Frontend suite: three test files and nine tests passed.
+- Rust suite: 33 tests passed.
+- Clippy, TypeScript strict checks, lint, architecture, public API, contracts,
+  migration, collector-fixture, and duplication checks passed.
+- Architecture harness now rejects direct `invoke` or `listen` calls outside
+  `src/ipc/`.
 
 ## Runtime Evidence
 

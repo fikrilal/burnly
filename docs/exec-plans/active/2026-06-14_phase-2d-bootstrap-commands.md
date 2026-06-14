@@ -7,7 +7,7 @@ their real data through the typed frontend client.
 
 ## Dependency
 
-Phase 2C must provide the verified typed frontend IPC boundary.
+Phase 2C provides the verified typed frontend IPC boundary.
 
 ## Acceptance Criteria
 
@@ -62,7 +62,7 @@ Phase 2C must provide the verified typed frontend IPC boundary.
 
 ## Checklist
 
-- [ ] Revalidate this queued plan against completed Phase 2C behavior.
+- [x] Revalidate this plan against completed Phase 2C behavior.
 - [ ] Define application bootstrap and capability read models.
 - [ ] Add only the persistence reads required for persisted settings and health.
 - [ ] Define dedicated IPC DTOs and mappings.
@@ -96,7 +96,7 @@ Phase 2C must provide the verified typed frontend IPC boundary.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: active; implementation not started.
 
 ## Runtime Evidence
 
@@ -105,3 +105,12 @@ Phase 2C must provide the verified typed frontend IPC boundary.
 ## Follow-Up Debt
 
 - None.
+
+## Activation Review
+
+- Activated after the frontend IPC client passed strict TypeScript, lint,
+  architecture, and full repository verification.
+- Phase 2D can use `src/ipc/client.ts` for real command calls and must not expose
+  raw envelopes or Tauri transport details to React feature code.
+- The command helper remains intentionally narrow; extend it only around the real
+  bootstrap and capability commands added in this chunk.

@@ -344,6 +344,15 @@ async function checkFrontendBoundaries() {
     }
 
     if (
+      !rel.startsWith("src/ipc/") &&
+      /\b(?:invoke|listen)\s*\(/.test(content)
+    ) {
+      failures.push(
+        `${rel}: direct Tauri invoke/listen calls must stay behind src/ipc.`,
+      );
+    }
+
+    if (
       rel.startsWith("src/components/ui/") &&
       /from\s+["'](?:\.\.\/)*\.\.\/features\//.test(content)
     ) {
