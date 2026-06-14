@@ -183,7 +183,7 @@ function renderContracts(contract) {
 export const CONTRACT_VERSION = 1 as const;
 
 export interface ResponseMeta {
-  contractVersion: typeof CONTRACT_VERSION;
+  contractVersion: number;
   requestId: string;
   generatedAt: string;
 }
@@ -229,12 +229,12 @@ export type IpcResponse<TData> =
 
 export interface ContractProbeResponse {
   status: "ok";
-  contractVersion: typeof CONTRACT_VERSION;
+  contractVersion: number;
 }
 
 export interface AppBootstrapResponse {
   appVersion: string;
-  contractVersion: typeof CONTRACT_VERSION;
+  contractVersion: number;
   database: {
     status: "ready";
     schemaVersion: number;

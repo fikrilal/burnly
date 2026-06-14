@@ -62,14 +62,14 @@ React shell.
 
 ## Checklist
 
-- [ ] Revalidate this queued plan against completed Phase 2D behavior.
-- [ ] Implement the runtime contract-major compatibility gate.
-- [ ] Add bounded mismatch and bootstrap transport-failure states.
-- [ ] Prove command/event registry completeness and clean regeneration.
-- [ ] Add listener lifecycle and compatibility tests.
-- [ ] Extend desktop evidence to invoke real bootstrap and capability commands.
-- [ ] Run `pnpm verify`, contract drift checks, and desktop evidence.
-- [ ] Complete and archive the Phase 2 overview.
+- [x] Revalidate this queued plan against completed Phase 2D behavior.
+- [x] Implement the runtime contract-major compatibility gate.
+- [x] Add bounded mismatch and bootstrap transport-failure states.
+- [x] Prove command/event registry completeness and clean regeneration.
+- [x] Add listener lifecycle and compatibility tests.
+- [x] Extend desktop evidence to invoke real bootstrap and capability commands.
+- [x] Run `pnpm verify`, contract drift checks, and desktop evidence.
+- [x] Complete and archive the Phase 2 overview.
 
 ## Test Plan
 
@@ -95,11 +95,12 @@ React shell.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: passed on 2026-06-14.
 
 ## Runtime Evidence
 
-- Required before Phase 2 is complete.
+- Command: `pnpm evidence:desktop`
+- Outcome: passed on 2026-06-14.
 
 ## Follow-Up Debt
 

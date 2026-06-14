@@ -6,10 +6,12 @@ import {
   getAppCapabilities,
   type CommandResult,
 } from "../ipc/client";
+import { BurnlyClientError } from "../ipc/errors";
 import type {
   AppBootstrapResponse,
   AppCapabilitiesResponse,
 } from "../ipc/generated/contracts";
+import { CONTRACT_VERSION } from "../ipc/generated/contracts";
 
 type LoadBootstrap = () => Promise<CommandResult<AppBootstrapResponse>>;
 type LoadCapabilities = () => Promise<CommandResult<AppCapabilitiesResponse>>;
@@ -30,51 +32,20 @@ type AppState =
     }
   | {
       status: "failed";
+      title: string;
       message: string;
+    }
+  | {
+      status: "incompatible";
+      runtimeContractVersion: number;
+      frontendContractVersion: number;
     };
 
 export function App({
   loadBootstrap = getAppBootstrap,
   loadCapabilities = getAppCapabilities,
 }: AppProps) {
-  const [state, setState] = useState<AppState>({ status: "loading" });
-
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      try {
-        const [bootstrap, capabilities] = await Promise.all([
-          loadBootstrap(),
-          loadCapabilities(),
-        ]);
-
-        if (active) {
-          setState({
-            status: "ready",
-            bootstrap: bootstrap.data,
-            capabilities: capabilities.data,
-          });
-        }
-      } catch (error) {
-        if (active) {
-          setState({
-            status: "failed",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Burnly could not load local runtime state.",
-          });
-        }
-      }
-    }
-
-    void load();
-
-    return () => {
-      active = false;
-    };
-  }, [loadBootstrap, loadCapabilities]);
+  const state = useStartupState(loadBootstrap, loadCapabilities);
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-50">
@@ -100,6 +71,59 @@ export function App({
   );
 }
 
+function useStartupState(
+  loadBootstrap: LoadBootstrap,
+  loadCapabilities: LoadCapabilities,
+): AppState {
+  const [state, setState] = useState<AppState>({ status: "loading" });
+
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      try {
+        const bootstrap = await loadBootstrap();
+
+        if (!isCompatibleContractVersion(bootstrap.data.contractVersion)) {
+          if (active) {
+            setState({
+              status: "incompatible",
+              runtimeContractVersion: bootstrap.data.contractVersion,
+              frontendContractVersion: CONTRACT_VERSION,
+            });
+          }
+          return;
+        }
+
+        const capabilities = await loadCapabilities();
+
+        if (active) {
+          setState({
+            status: "ready",
+            bootstrap: bootstrap.data,
+            capabilities: capabilities.data,
+          });
+        }
+      } catch (error) {
+        if (active) {
+          setState({
+            status: "failed",
+            ...failureContent(error),
+          });
+        }
+      }
+    }
+
+    void load();
+
+    return () => {
+      active = false;
+    };
+  }, [loadBootstrap, loadCapabilities]);
+
+  return state;
+}
+
 function renderCards(state: AppState) {
   if (state.status === "loading") {
     return (
@@ -117,8 +141,19 @@ function renderCards(state: AppState) {
       <StatusCard
         icon={Activity}
         label="Runtime"
-        value="Unavailable"
+        value={state.title}
         detail={state.message}
+      />
+    );
+  }
+
+  if (state.status === "incompatible") {
+    return (
+      <StatusCard
+        icon={ShieldCheck}
+        label="Contract"
+        value="Incompatible"
+        detail={`Frontend v${state.frontendContractVersion}, runtime v${state.runtimeContractVersion}`}
       />
     );
   }
@@ -153,6 +188,30 @@ function sourceValue(bootstrap: AppBootstrapResponse): string {
 
 function capabilityDetail(capabilities: AppCapabilitiesResponse): string {
   return capabilities.tray.status.replace("_", " ");
+}
+
+function isCompatibleContractVersion(runtimeContractVersion: number): boolean {
+  return runtimeContractVersion === CONTRACT_VERSION;
+}
+
+function failureContent(error: unknown): { title: string; message: string } {
+  if (error instanceof BurnlyClientError) {
+    return {
+      title:
+        error.kind === "application"
+          ? "Application error"
+          : "Runtime unavailable",
+      message: error.message,
+    };
+  }
+
+  return {
+    title: "Runtime unavailable",
+    message:
+      error instanceof Error
+        ? error.message
+        : "Burnly could not load local runtime state.",
+  };
 }
 
 interface StatusCardProps {

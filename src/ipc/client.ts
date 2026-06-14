@@ -20,7 +20,7 @@ import {
 } from "./generated/contracts";
 
 const responseMetaSchema: z.ZodType<ResponseMeta> = z.object({
-  contractVersion: z.literal(CONTRACT_VERSION),
+  contractVersion: z.number().int().positive(),
   requestId: z.string().min(1),
   generatedAt: z.iso.datetime({ offset: true }),
 });
@@ -69,7 +69,7 @@ const contractProbeDataSchema = z.object({
 
 const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
   appVersion: z.string().min(1),
-  contractVersion: z.literal(CONTRACT_VERSION),
+  contractVersion: z.number().int().positive(),
   database: z.object({
     status: z.literal("ready"),
     schemaVersion: z.number().int().nonnegative(),

@@ -98,9 +98,24 @@ fn initialize(
 
 #[cfg(test)]
 mod tests {
+    use crate::application::bootstrap::{BootstrapError, BootstrapStorage, BootstrapStore};
+
     use rusqlite::Connection;
+    use serde_json::Value;
+    use tauri::webview::InvokeRequest;
 
     use super::*;
+
+    struct FixedBootstrapStore;
+
+    impl BootstrapStore for FixedBootstrapStore {
+        fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
+            Ok(BootstrapStorage {
+                reporting_timezone: "Asia/Jakarta".to_owned(),
+                schema_version: 1,
+            })
+        }
+    }
 
     #[test]
     fn fresh_startup_creates_migrates_and_seeds_database() {
@@ -202,6 +217,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn tauri_bridge_invokes_bootstrap_command_with_real_envelope() {
+        let response = invoke("app_get_bootstrap");
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["appVersion"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(response["data"]["contractVersion"], CONTRACT_VERSION);
+        assert_eq!(response["data"]["database"]["status"], "ready");
+        assert_eq!(
+            response["data"]["settings"]["reportingTimezone"],
+            "Asia/Jakarta"
+        );
+        assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
+    #[test]
+    fn tauri_bridge_invokes_capabilities_command_with_explicit_states() {
+        let response = invoke("app_get_capabilities");
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["tray"]["supported"], false);
+        assert_eq!(response["data"]["tray"]["status"], "not_implemented");
+        assert_eq!(response["data"]["diagnostics"]["desktopEvidence"], true);
+        assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
     fn settings_count(connection: &Connection) -> i64 {
         connection
             .query_row("SELECT COUNT(*) FROM app_settings", [], |row| row.get(0))
@@ -239,5 +280,43 @@ mod tests {
         connection
             .pragma_query_value(None, name, |row| row.get(0))
             .expect("query pragma")
+    }
+
+    fn invoke(command: &str) -> Value {
+        let app = tauri::test::mock_builder()
+            .invoke_handler(crate::ipc::invoke_handler())
+            .manage(BootstrapService::new(
+                env!("CARGO_PKG_VERSION"),
+                CONTRACT_VERSION,
+                FixedBootstrapStore,
+            ))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build mock tauri app");
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("build mock webview");
+
+        tauri::test::get_ipc_response(&webview, request(command))
+            .expect("invoke command")
+            .deserialize::<Value>()
+            .expect("deserialize command response")
+    }
+
+    fn request(command: &str) -> InvokeRequest {
+        InvokeRequest {
+            cmd: command.into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: if cfg!(any(windows, target_os = "android")) {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .expect("parse tauri url"),
+            body: tauri::ipc::InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_owned(),
+        }
     }
 }

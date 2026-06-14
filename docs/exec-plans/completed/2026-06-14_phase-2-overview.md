@@ -35,7 +35,7 @@ depend on.
 | Phase 2B: Contract registration | Completed | Phase 2A   | [Plan](../completed/2026-06-14_phase-2b-contract-registration.md) |
 | Phase 2C: Frontend IPC client   | Completed | Phase 2B   | [Plan](../completed/2026-06-14_phase-2c-frontend-ipc-client.md)   |
 | Phase 2D: Bootstrap commands    | Completed | Phase 2C   | [Plan](../completed/2026-06-14_phase-2d-bootstrap-commands.md)    |
-| Phase 2E: Compatibility proof   | Queued    | Phase 2D   | [Plan](../queued/2026-06-14_phase-2e-compatibility-proof.md)      |
+| Phase 2E: Compatibility proof   | Completed | Phase 2D   | [Plan](../completed/2026-06-14_phase-2e-compatibility-proof.md)   |
 
 ## Dependency Rules
 
@@ -80,8 +80,8 @@ depend on.
 - [x] Phase 2B completed and verified.
 - [x] Phase 2C completed and verified.
 - [x] Phase 2D completed and verified.
-- [ ] Phase 2E completed and verified.
-- [ ] Phase-level exit criteria verified.
+- [x] Phase 2E completed and verified.
+- [x] Phase-level exit criteria verified.
 
 ## Decisions
 
@@ -94,10 +94,13 @@ depend on.
 ## Verification
 
 - Phase 2D verification: `pnpm verify` passed on 2026-06-14.
+- Phase 2E verification: `pnpm verify` passed on 2026-06-14.
+- Phase exit verification: `pnpm evidence:desktop` passed on 2026-06-14.
 
 ## Runtime Evidence
 
-- Required in Phase 2E for real command invocation and compatibility behavior.
+- `pnpm evidence:desktop` passed on 2026-06-14 with Tauri prerequisite,
+  generated-contract, frontend-build, and IPC bridge evidence.
 
 ## Follow-Up Debt
 
