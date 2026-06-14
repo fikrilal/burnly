@@ -13,6 +13,7 @@ use std::time::Duration;
 use rusqlite::Connection;
 
 pub use error::{PersistenceError, PersistenceErrorKind};
+pub(crate) use reconciliation_store::SqliteReconciliationStore;
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const BUSY_TIMEOUT_MS: i64 = 5_000;

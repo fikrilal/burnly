@@ -2,6 +2,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
 
+use crate::application::ports::clock::Clock;
+
+/// System-backed clock adapter for the application `Clock` port.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now_epoch_ms(&self) -> i64 {
+        now_epoch_ms().unwrap_or(0)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ClockError {
     #[error("system time is before the Unix epoch")]

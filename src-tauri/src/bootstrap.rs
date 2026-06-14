@@ -4,15 +4,22 @@
 //! modules receive constructed dependencies instead of constructing their own.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use iana_time_zone::GetTimezoneError;
 use tauri::{Manager, Runtime};
 use thiserror::Error;
 
 use crate::application::bootstrap::BootstrapService;
+use crate::application::collection::CollectorFailure;
+use crate::application::refresh::RefreshCoordinator;
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
-use crate::infrastructure::database::{Database, PersistenceError, PersistenceErrorKind};
+use crate::infrastructure::collectors::ccusage::CcusageCollector;
+use crate::infrastructure::database::{
+    Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
+};
 use crate::ipc::CONTRACT_VERSION;
+use crate::platform::system_clock::SystemClock;
 use crate::platform::{database_path, system_clock, system_timezone};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +27,8 @@ pub(crate) enum StartupErrorKind {
     DatabasePath,
     Timezone,
     Clock,
+    ResourceDir,
+    Collector,
     Persistence(PersistenceErrorKind),
 }
 
@@ -34,6 +43,12 @@ pub(crate) enum StartupError {
     #[error("failed to read the system clock")]
     Clock(#[source] system_clock::ClockError),
 
+    #[error("failed to resolve the application resource directory")]
+    ResourceDir(#[source] tauri::Error),
+
+    #[error("failed to initialize the usage collector")]
+    Collector(#[source] CollectorFailure),
+
     #[error("failed to initialize persistence")]
     Persistence(#[source] PersistenceError),
 }
@@ -44,6 +59,8 @@ impl StartupError {
             Self::DatabasePath(_) => StartupErrorKind::DatabasePath,
             Self::Timezone(_) => StartupErrorKind::Timezone,
             Self::Clock(_) => StartupErrorKind::Clock,
+            Self::ResourceDir(_) => StartupErrorKind::ResourceDir,
+            Self::Collector(_) => StartupErrorKind::Collector,
             Self::Persistence(error) => StartupErrorKind::Persistence(error.kind()),
         }
     }
@@ -69,12 +86,40 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
 
+    app.manage(build_refresh_coordinator(app, &database_path)?);
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
         CONTRACT_VERSION,
         SqliteBootstrapStore::new(database),
     ));
     Ok(())
+}
+
+fn build_refresh_coordinator<R: Runtime>(
+    app: &tauri::App<R>,
+    database_path: &Path,
+) -> Result<RefreshCoordinator, StartupError> {
+    let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    let aggregation_timezone = write_database
+        .reporting_timezone()
+        .map_err(StartupError::Persistence)?;
+    let store = Arc::new(SqliteReconciliationStore::new(write_database));
+    let clock = Arc::new(SystemClock);
+    let resource_directory = app
+        .path()
+        .resource_dir()
+        .map_err(StartupError::ResourceDir)?;
+    let collector =
+        Arc::new(CcusageCollector::packaged(resource_directory).map_err(StartupError::Collector)?);
+
+    Ok(RefreshCoordinator::new(
+        collector,
+        store.clone(),
+        store,
+        clock,
+        env!("CARGO_PKG_VERSION"),
+        aggregation_timezone,
+    ))
 }
 
 fn initialize(

@@ -78,6 +78,14 @@ impl CollectionResult {
     pub(crate) const fn process_summary(&self) -> &ProcessSummary {
         &self.process_summary
     }
+
+    pub(crate) const fn metadata(&self) -> &CollectionMetadata {
+        &self.metadata
+    }
+
+    pub(crate) fn rejection_count(&self) -> usize {
+        self.rejections.len()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,6 +127,18 @@ impl CollectionMetadata {
             started_at: period.started_at,
             finished_at: period.finished_at,
         })
+    }
+
+    pub(crate) const fn collector(&self) -> &CollectorKey {
+        &self.collector
+    }
+
+    pub(crate) fn collector_version(&self) -> &str {
+        &self.collector_version
+    }
+
+    pub(crate) const fn profile_version(&self) -> u16 {
+        self.profile_version
     }
 }
 

@@ -73,27 +73,29 @@ transaction discipline right here prevents whole classes of corruption later.
 
 ## Checklist
 
-- [ ] Define the refresh-state model and refresh-request types.
-- [ ] Implement the coordinator: collect, then reconcile, then complete runs.
-- [ ] Map collection outcome (complete/partial/empty/failed) to run status.
-- [ ] Coalesce duplicate concurrent requests into one active run.
-- [ ] Keep collection strictly outside the write transaction.
-- [ ] Add a wired `cancelling` entry point skeleton.
-- [ ] Wire the coordinator into bootstrap dependency construction.
-- [ ] Add lifecycle tests with a fake collector and real SQLite for success,
-      empty, partial, failed, and duplicate-request coalescing.
-- [ ] Run `pnpm verify` and prepare Phase 4F for activation.
+- [x] Define the refresh-state model and refresh-request types.
+- [x] Implement the coordinator: collect, then reconcile, then complete runs.
+- [x] Map collection outcome (complete/partial/empty/failed) to run status.
+- [x] Coalesce duplicate concurrent requests into one active run.
+- [x] Keep collection strictly outside the write transaction.
+- [x] Add a wired `cancelling` entry point skeleton.
+- [x] Wire the coordinator into bootstrap dependency construction.
+- [x] Add lifecycle tests with a fake collector for success, empty, partial,
+      failed, duplicate-request coalescing, and cancellation.
+- [x] Run `pnpm verify` and prepare Phase 4F for activation.
 
 ## Test Plan
 
-- Behavior and invariants to prove: single active run, correct status mapping,
-  transaction-after-collection ordering, request coalescing, and failed/partial
-  fact safety.
-- Lowest stable test layer: application tests with deterministic fakes and real
-  SQLite.
+- Behavior and invariants proven: single active run via coalescing, correct
+  status mapping for complete/empty/partial/failed, reconcile invoked with the
+  collection outcome, failed collection records failure and reconciles nothing,
+  and the cancellation skeleton moves an active run to `cancelling`.
+- Lowest stable test layer: application tests with fake ports.
 - Failure paths: collector failure, partial collection, and a second request
-  arriving during an active run.
-- Fixtures or fakes: fake collector returning scripted outcomes; real SQLite.
+  during an active (gated) run.
+- Fixtures or fakes: scripted and gated fake collectors; fake run/usage stores;
+  fake clock. Real-SQLite reconciliation correctness is covered by the Phase 4C/4D
+  store tests.
 - Runtime or platform evidence: not required at this chunk (added in 4F).
 - Relevant commands: `cargo test`, `pnpm architecture:check`, `pnpm verify`.
 
@@ -103,17 +105,39 @@ transaction discipline right here prevents whole classes of corruption later.
   cooperative collector cancellation completes in Phase 7.
 - The coordinator is the sole submitter of reconciliation work; no other code path
   may write imported facts.
+- The coordinator unit tests use fake store ports, not real SQLite, because the
+  architecture boundary forbids the application layer from referencing
+  infrastructure. Reconciliation against real SQLite is already proven by the
+  Phase 4C/4D `SqliteReconciliationStore` tests; these tests prove orchestration.
+- A `Clock` port was added in `application/ports`; `platform::SystemClock`
+  implements it (epoch ms, `0` before the epoch).
+- Absent rows are detected by import id, so each refresh uses a distinct import
+  run; the coordinator's unique job id and per-import run id satisfy this.
+- Bootstrap opens a second SQLite connection for the write/reconciliation path
+  (`SqliteReconciliationStore`), separate from the bootstrap read connection, and
+  constructs the `ccusage` collector from the Tauri resource directory. The
+  coordinator is constructed and managed but not yet invoked until the Phase 4F
+  IPC commands land.
+- Run lifecycle is recorded for successful and partial imports; a failed
+  collection records the refresh run as `failed` without an import run.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet.
+- Outcome: passed on 2026-06-14.
+- Rust test evidence: 120 passed, 1 ignored opt-in smoke test, including 6 new
+  coordinator lifecycle tests.
+- Harness evidence: architecture, public API, contracts, migrations, collector
+  fixtures, and duplication report completed; the single reported clone is the
+  pre-existing Phase 3F test-cancellation helper.
 
 ## Runtime Evidence
 
-- Not required.
+- Not required at this chunk; the Tauri runtime evidence for the refresh surface
+  is added in Phase 4F.
 
 ## Follow-Up Debt
 
 - Full cooperative cancellation, background scheduling, and wake/resume handling
-  remain for Phase 7.
+  remain for Phase 7. Asynchronous (non-blocking) refresh execution also remains
+  for Phase 7; the skeleton runs the job synchronously on the caller.
