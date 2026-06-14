@@ -9,7 +9,7 @@
     reason = "Daily reconciliation is wired into the Phase 4E refresh coordinator"
 )]
 
-use crate::application::collection::{CollectionScope, DailyUsageCandidate};
+use crate::application::collection::{CollectionOutcome, CollectionScope, DailyUsageCandidate};
 use crate::application::reconciliation::{ImportRunId, SourceId};
 
 /// One transactional reconciliation of daily candidates for a single source.
@@ -18,6 +18,7 @@ pub(crate) struct DailyReconciliationRequest {
     source_id: SourceId,
     import_run_id: ImportRunId,
     scope: CollectionScope,
+    outcome: CollectionOutcome,
     observed_at_ms: i64,
     candidates: Vec<DailyUsageCandidate>,
 }
@@ -27,6 +28,7 @@ impl DailyReconciliationRequest {
         source_id: SourceId,
         import_run_id: ImportRunId,
         scope: CollectionScope,
+        outcome: CollectionOutcome,
         observed_at_ms: i64,
         candidates: Vec<DailyUsageCandidate>,
     ) -> Self {
@@ -34,6 +36,7 @@ impl DailyReconciliationRequest {
             source_id,
             import_run_id,
             scope,
+            outcome,
             observed_at_ms,
             candidates,
         }
@@ -49,6 +52,10 @@ impl DailyReconciliationRequest {
 
     pub(crate) const fn scope(&self) -> &CollectionScope {
         &self.scope
+    }
+
+    pub(crate) const fn outcome(&self) -> CollectionOutcome {
+        self.outcome
     }
 
     pub(crate) const fn observed_at_ms(&self) -> i64 {

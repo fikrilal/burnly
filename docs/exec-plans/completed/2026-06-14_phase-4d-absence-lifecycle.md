@@ -71,29 +71,29 @@ integrity. Isolating them from the upsert path keeps each provable.
 
 ## Checklist
 
-- [ ] Compute the set of persisted active/missing keys not observed in a
+- [x] Compute the set of persisted active/missing keys not observed in a
       successful full-scope result.
-- [ ] Implement `active -> missing -> removed` transitions honoring the schema
+- [x] Implement `active -> missing -> removed` transitions honoring the schema
       CHECK and setting `removed_at_ms` only at removal.
-- [ ] Implement reappearance reset back to `active`.
-- [ ] Gate absence evaluation on `full` scope and a successful (non-partial)
+- [x] Implement reappearance reset back to `active`.
+- [x] Gate absence evaluation on `full` scope and a successful (non-partial)
       outcome.
-- [ ] Confirm incremental and partial imports leave out-of-scope and unseen
+- [x] Confirm incremental and partial imports leave out-of-scope and unseen
       records untouched.
-- [ ] Add tests for first absence, second absence, reappearance, partial-import
+- [x] Add tests for first absence, second absence, reappearance, partial-import
       safety, and incremental out-of-scope safety.
-- [ ] Confirm removed records are excluded from active-state queries.
-- [ ] Run `pnpm verify` and prepare Phase 4E for activation.
+- [x] Confirm removed records are excluded from active-state queries.
+- [x] Run `pnpm verify` and prepare Phase 4E for activation.
 
 ## Test Plan
 
-- Behavior and invariants to prove: the full transition cycle, reappearance reset,
-  partial-import no-op on absence, incremental out-of-scope protection, and
-  removed-record exclusion from totals.
+- Behavior and invariants proven: the full `active -> missing -> removed` cycle,
+  reappearance reset, partial-import no-op on absence, incremental out-of-scope
+  protection, and removed-record exclusion from active queries.
 - Lowest stable test layer: reconciliation tests on temporary SQLite.
-- Failure paths: an attempted transition that would violate the schema CHECK fails
-  the transaction rather than persisting an invalid state.
-- Fixtures or fakes: multi-run candidate sequences; real SQLite, never mocked.
+- Failure paths: a transition that would violate the schema CHECK fails the
+  transaction rather than persisting an invalid state.
+- Fixtures or fakes: multi-import candidate sequences; real SQLite, never mocked.
 - Runtime or platform evidence: not required.
 - Relevant commands: `cargo test`, `pnpm migrations:check`, `pnpm verify`.
 
@@ -101,17 +101,32 @@ integrity. Isolating them from the upsert path keeps each provable.
 
 - Absence advances only on successful full-scope imports, matching the locked
   missing-record policy; partial success never advances absence.
+- Absent rows are detected by comparing `latest_import_id` against the current
+  import id rather than passing the observed-key set: every present row is stamped
+  with the current import id during upsert, so any active/missing row of the source
+  still carrying an older id was absent. This is robust against timestamp
+  collisions and avoids a large `NOT IN` list. It requires each reconciliation to
+  use a distinct import-run id, which the coordinator guarantees.
+- `missing -> removed` is applied before `active -> missing` in the same
+  transaction so a freshly missing row advances exactly one step per import.
+- Reappearance reset is handled by the Phase 4C upsert (a present day is set to
+  `active`, `absence_count = 0`, `removed_at_ms = NULL`); 4D adds the test.
 - Removed records are retained, not purged; purge timing remains a deferred
   data-ingestion decision.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet.
+- Outcome: passed on 2026-06-14.
+- Rust test evidence: 114 passed, 1 ignored opt-in smoke test, including 5 new
+  absence-lifecycle tests.
+- Harness evidence: architecture, public API, contracts, migrations, collector
+  fixtures, and duplication report completed; the single reported clone is the
+  pre-existing Phase 3F test-cancellation helper.
 
 ## Runtime Evidence
 
-- Not required.
+- Not required; absence transitions run against temporary real SQLite databases.
 
 ## Follow-Up Debt
 

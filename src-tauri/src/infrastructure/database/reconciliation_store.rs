@@ -15,7 +15,8 @@ use std::sync::Mutex;
 use rusqlite::{params, Connection, Transaction};
 
 use crate::application::collection::{
-    CollectionProjection, CollectionScope, DailyUsageCandidate, ModelUsageCandidate,
+    CollectionOutcome, CollectionProjection, CollectionScope, DailyUsageCandidate,
+    ModelUsageCandidate,
 };
 use crate::application::ports::run_store::{RunStore, RunStoreError};
 use crate::application::ports::usage_store::{UsageStore, UsageStoreError};
@@ -244,12 +245,64 @@ fn reconcile_daily_in_transaction(
         observed_source_keys.push(candidate.source_key.clone());
     }
 
+    if should_evaluate_absence(request.scope(), request.outcome()) {
+        advance_absences(transaction, source_id, import_run_id, observed_at_ms)?;
+    }
+
     let upserted_days =
         u32::try_from(observed_source_keys.len()).map_err(|_| UsageStoreError::ValueOutOfRange)?;
     Ok(DailyReconciliationSummary::new(
         upserted_days,
         observed_source_keys,
     ))
+}
+
+/// Absence advances only on a successful full-scope import. Partial imports may
+/// be missing records for transient reasons, and incremental imports do not
+/// describe the full set of days, so neither may remove records.
+fn should_evaluate_absence(scope: &CollectionScope, outcome: CollectionOutcome) -> bool {
+    matches!(scope, CollectionScope::Full) && !matches!(outcome, CollectionOutcome::Partial)
+}
+
+/// Advances the absence state of rows not touched by the current import.
+///
+/// Rows upserted in this transaction carry the current `latest_import_id`; any
+/// active or missing row of this source still carrying an older import id was
+/// absent from the result. Each absent row advances exactly one step per import:
+/// `missing -> removed` is applied before `active -> missing` so a freshly missing
+/// row is not removed in the same pass.
+fn advance_absences(
+    transaction: &Transaction<'_>,
+    source_id: SourceId,
+    import_run_id: ImportRunId,
+    now_ms: i64,
+) -> Result<(), UsageStoreError> {
+    transaction
+        .execute(
+            "UPDATE daily_usage
+            SET record_state = 'removed',
+                absence_count = absence_count + 1,
+                removed_at_ms = ?3
+            WHERE source_id = ?1
+                AND latest_import_id != ?2
+                AND record_state = 'missing'",
+            params![source_id.value(), import_run_id.value(), now_ms],
+        )
+        .map_err(|_| UsageStoreError::Backend)?;
+
+    transaction
+        .execute(
+            "UPDATE daily_usage
+            SET record_state = 'missing',
+                absence_count = 1
+            WHERE source_id = ?1
+                AND latest_import_id != ?2
+                AND record_state = 'active'",
+            params![source_id.value(), import_run_id.value()],
+        )
+        .map_err(|_| UsageStoreError::Backend)?;
+
+    Ok(())
 }
 
 fn upsert_daily_usage(
@@ -831,9 +884,43 @@ mod tests {
             source_id,
             import_run_id,
             CollectionScope::Full,
+            CollectionOutcome::Complete,
             120,
             candidates,
         )
+    }
+
+    fn source_and_refresh(store: &SqliteReconciliationStore) -> (SourceId, RefreshRunId) {
+        let source_id = store
+            .resolve_source(SourceKey::ClaudeCode, 100)
+            .expect("resolve source");
+        let refresh_run_id = store
+            .begin_refresh_run(refresh_spec("refresh-1"), 100)
+            .expect("begin refresh run");
+
+        (source_id, refresh_run_id)
+    }
+
+    fn next_import(
+        store: &SqliteReconciliationStore,
+        source_id: SourceId,
+        refresh_run_id: RefreshRunId,
+    ) -> ImportRunId {
+        store
+            .begin_import_run(daily_import_spec(refresh_run_id, source_id), 110)
+            .expect("begin import run")
+    }
+
+    fn record_state(store: &SqliteReconciliationStore, source_key: &str) -> (String, i64) {
+        let database = store.database.lock().expect("lock store");
+        database
+            .connection()
+            .query_row(
+                "SELECT record_state, absence_count FROM daily_usage WHERE source_key = ?1",
+                params![source_key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("record state query")
     }
 
     fn count(store: &SqliteReconciliationStore, table: &str) -> i64 {
@@ -1074,5 +1161,209 @@ mod tests {
             .expect("total query after reopen");
 
         assert_eq!(total, 100);
+    }
+
+    #[test]
+    fn absent_day_advances_active_to_missing_then_removed() {
+        let (_directory, store) = migrated_store();
+        let (source_id, refresh_run_id) = source_and_refresh(&store);
+        let present = "claude-code:daily:v1:UTC:2026-06-12";
+        let absent = "claude-code:daily:v1:UTC:2026-06-13";
+
+        let first = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                first,
+                vec![
+                    candidate(present, 100, "claude-sonnet-4"),
+                    candidate(absent, 100, "claude-sonnet-4"),
+                ],
+            ))
+            .expect("first import");
+        assert_eq!(record_state(&store, absent), ("active".to_owned(), 0));
+
+        let second = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                second,
+                vec![candidate(present, 100, "claude-sonnet-4")],
+            ))
+            .expect("second import");
+        assert_eq!(record_state(&store, absent), ("missing".to_owned(), 1));
+
+        let third = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                third,
+                vec![candidate(present, 100, "claude-sonnet-4")],
+            ))
+            .expect("third import");
+        assert_eq!(record_state(&store, absent), ("removed".to_owned(), 2));
+    }
+
+    #[test]
+    fn reappearing_day_resets_to_active() {
+        let (_directory, store) = migrated_store();
+        let (source_id, refresh_run_id) = source_and_refresh(&store);
+        let present = "claude-code:daily:v1:UTC:2026-06-12";
+        let intermittent = "claude-code:daily:v1:UTC:2026-06-13";
+
+        let first = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                first,
+                vec![
+                    candidate(present, 100, "claude-sonnet-4"),
+                    candidate(intermittent, 100, "claude-sonnet-4"),
+                ],
+            ))
+            .expect("first import");
+
+        let second = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                second,
+                vec![candidate(present, 100, "claude-sonnet-4")],
+            ))
+            .expect("second import");
+        assert_eq!(
+            record_state(&store, intermittent),
+            ("missing".to_owned(), 1)
+        );
+
+        let third = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                third,
+                vec![
+                    candidate(present, 100, "claude-sonnet-4"),
+                    candidate(intermittent, 100, "claude-sonnet-4"),
+                ],
+            ))
+            .expect("third import");
+        assert_eq!(record_state(&store, intermittent), ("active".to_owned(), 0));
+    }
+
+    #[test]
+    fn partial_import_never_advances_absence() {
+        let (_directory, store) = migrated_store();
+        let (source_id, refresh_run_id) = source_and_refresh(&store);
+        let present = "claude-code:daily:v1:UTC:2026-06-12";
+        let absent = "claude-code:daily:v1:UTC:2026-06-13";
+
+        let first = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                first,
+                vec![
+                    candidate(present, 100, "claude-sonnet-4"),
+                    candidate(absent, 100, "claude-sonnet-4"),
+                ],
+            ))
+            .expect("first import");
+
+        let second = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(DailyReconciliationRequest::new(
+                source_id,
+                second,
+                CollectionScope::Full,
+                CollectionOutcome::Partial,
+                120,
+                vec![candidate(present, 100, "claude-sonnet-4")],
+            ))
+            .expect("partial import");
+
+        assert_eq!(record_state(&store, absent), ("active".to_owned(), 0));
+    }
+
+    #[test]
+    fn incremental_import_never_advances_absence() {
+        let (_directory, store) = migrated_store();
+        let (source_id, refresh_run_id) = source_and_refresh(&store);
+        let present = "claude-code:daily:v1:UTC:2026-06-12";
+        let out_of_scope = "claude-code:daily:v1:UTC:2026-06-13";
+
+        let first = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                first,
+                vec![
+                    candidate(present, 100, "claude-sonnet-4"),
+                    candidate(out_of_scope, 100, "claude-sonnet-4"),
+                ],
+            ))
+            .expect("first import");
+
+        let incremental = CollectionScope::incremental(
+            NaiveDate::from_ymd_opt(2026, 6, 12).expect("start"),
+            NaiveDate::from_ymd_opt(2026, 6, 12).expect("end"),
+        )
+        .expect("incremental scope");
+        let second = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(DailyReconciliationRequest::new(
+                source_id,
+                second,
+                incremental,
+                CollectionOutcome::Complete,
+                120,
+                vec![candidate(present, 100, "claude-sonnet-4")],
+            ))
+            .expect("incremental import");
+
+        assert_eq!(record_state(&store, out_of_scope), ("active".to_owned(), 0));
+    }
+
+    #[test]
+    fn removed_days_are_excluded_from_active_queries() {
+        let (_directory, store) = migrated_store();
+        let (source_id, refresh_run_id) = source_and_refresh(&store);
+        let present = "claude-code:daily:v1:UTC:2026-06-12";
+        let absent = "claude-code:daily:v1:UTC:2026-06-13";
+
+        let first = next_import(&store, source_id, refresh_run_id);
+        store
+            .reconcile_daily(request(
+                source_id,
+                first,
+                vec![
+                    candidate(present, 100, "claude-sonnet-4"),
+                    candidate(absent, 100, "claude-sonnet-4"),
+                ],
+            ))
+            .expect("first import");
+
+        for _ in 0..2 {
+            let import_run_id = next_import(&store, source_id, refresh_run_id);
+            store
+                .reconcile_daily(request(
+                    source_id,
+                    import_run_id,
+                    vec![candidate(present, 100, "claude-sonnet-4")],
+                ))
+                .expect("subsequent import");
+        }
+
+        assert_eq!(record_state(&store, absent), ("removed".to_owned(), 2));
+
+        let database = store.database.lock().expect("lock store");
+        let active_days: i64 = database
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM daily_usage WHERE record_state <> 'removed'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("active count query");
+        assert_eq!(active_days, 1);
     }
 }
