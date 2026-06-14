@@ -31,8 +31,8 @@ behavior.
 | Chunk                          | Status    | Dependency | Plan                                                             |
 | ------------------------------ | --------- | ---------- | ---------------------------------------------------------------- |
 | Phase 1A: Rust module skeleton | Completed | Phase 0    | [Plan](../completed/2026-06-14_phase-1a-rust-module-skeleton.md) |
-| Phase 1B: SQLite runtime       | Active    | Phase 1A   | [Plan](./2026-06-14_phase-1b-sqlite-runtime.md)                  |
-| Phase 1C: Initial migration    | Queued    | Phase 1B   | [Plan](../queued/2026-06-14_phase-1c-initial-migration.md)       |
+| Phase 1B: SQLite runtime       | Completed | Phase 1A   | [Plan](../completed/2026-06-14_phase-1b-sqlite-runtime.md)       |
+| Phase 1C: Initial migration    | Active    | Phase 1B   | [Plan](./2026-06-14_phase-1c-initial-migration.md)               |
 | Phase 1D: Startup integration  | Queued    | Phase 1C   | [Plan](../queued/2026-06-14_phase-1d-startup-integration.md)     |
 
 ## Dependency Rules
@@ -72,7 +72,7 @@ behavior.
 ## Progress
 
 - [x] Phase 1A completed and verified.
-- [ ] Phase 1B completed and verified.
+- [x] Phase 1B completed and verified.
 - [ ] Phase 1C completed and verified.
 - [ ] Phase 1D completed and verified.
 - [ ] Phase-level exit criteria verified.

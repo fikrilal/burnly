@@ -51,6 +51,8 @@ Phase 1C must provide the verified initial schema and migration runner.
 
 - [ ] Revalidate this queued plan against completed Phase 1C behavior.
 - [ ] Compose the startup sequence.
+- [ ] Remove the temporary Phase 1B `dead_code` expectations when startup begins
+      consuming the database path and runtime.
 - [ ] Add health and integrity checks.
 - [ ] Add idempotent seed initialization.
 - [ ] Add startup and failure integration tests.

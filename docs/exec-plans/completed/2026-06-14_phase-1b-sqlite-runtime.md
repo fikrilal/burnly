@@ -49,13 +49,13 @@ Phase 1A is completed and its module boundaries are verified.
 ## Checklist
 
 - [x] Revalidate this plan against the completed Phase 1A code.
-- [ ] Add pinned SQLite dependencies.
-- [ ] Implement application-data path resolution.
-- [ ] Implement connection initialization and verification.
-- [ ] Add temporary database test support.
-- [ ] Add failure classification.
-- [ ] Run focused persistence tests and `pnpm verify`.
-- [ ] Update the Phase 1 overview.
+- [x] Add pinned SQLite dependencies.
+- [x] Implement application-data path resolution.
+- [x] Implement connection initialization and verification.
+- [x] Add temporary database test support.
+- [x] Add failure classification.
+- [x] Run focused persistence tests and `pnpm verify`.
+- [x] Update the Phase 1 overview.
 
 ## Test Plan
 
@@ -67,7 +67,13 @@ Phase 1A is completed and its module boundaries are verified.
 
 ## Verification
 
-- Outcome: active; implementation not started.
+- Command: `pnpm verify`
+- Outcome: passed on June 14, 2026.
+- Persistence tests: 6 passed.
+- Verified policy: foreign keys enabled, 5-second busy timeout, WAL journal
+  mode, and `FULL` synchronous durability.
+- Harness: exact SQLite dependency versions and required features are checked
+  through Cargo metadata.
 
 ## Activation Review
 
@@ -80,4 +86,5 @@ Phase 1A is completed and its module boundaries are verified.
 
 ## Follow-Up Debt
 
-- None.
+- Phase 1D must remove the scoped temporary `dead_code` expectations by consuming
+  the path resolver and database runtime from startup composition.

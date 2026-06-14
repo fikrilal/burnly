@@ -6,7 +6,7 @@ Implement the approved initial SQLite schema and forward-only migration harness.
 
 ## Dependency
 
-Phase 1B must provide a verified SQLite runtime and temporary-database support.
+Phase 1B provides a verified SQLite runtime and temporary-database support.
 
 ## Acceptance Criteria
 
@@ -46,7 +46,7 @@ Phase 1B must provide a verified SQLite runtime and temporary-database support.
 
 ## Checklist
 
-- [ ] Revalidate this queued plan against completed Phase 1B behavior.
+- [x] Revalidate this plan against completed Phase 1B behavior.
 - [ ] Translate the approved schema into `0001_initial.sql`.
 - [ ] Wire the migration registry and version checks.
 - [ ] Add migration, constraint, integrity, and idempotency tests.
@@ -65,7 +65,16 @@ Phase 1B must provide a verified SQLite runtime and temporary-database support.
 
 ## Verification
 
-- Outcome: queued; not run yet.
+- Outcome: active; implementation not started.
+
+## Activation Review
+
+- Activated after the file-backed SQLite runtime passed six tests and the full
+  verification gate.
+- Migration code will remain inside `infrastructure/database`.
+- Migration tests will reuse the Phase 1B `TestDatabase` fixture.
+- The initial migration must follow the approved database design; no repository
+  or IPC behavior is added in this chunk.
 
 ## Follow-Up Debt
 
