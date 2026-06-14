@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(result.daily_candidates().len(), 2);
         assert_eq!(
             result.daily_candidates()[0].source_key,
-            "daily:v1:2026-06-13"
+            "claude-code:daily:v1:UTC:2026-06-13"
         );
         assert_eq!(result.daily_candidates()[0].tokens.total_tokens(), 1_650);
         assert_eq!(result.daily_candidates()[0].model_breakdowns.len(), 2);

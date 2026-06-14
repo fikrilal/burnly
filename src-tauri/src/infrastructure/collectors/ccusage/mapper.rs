@@ -6,6 +6,7 @@ use crate::{
         CandidateProvenance, CollectionId, CollectorKey, DailyUsageCandidate, ModelUsageCandidate,
     },
     domain::{
+        identity::{daily_source_key, IdentityError},
         source::SourceKey,
         usage::{
             CostKind, CurrencyCode, DataQuality, TokenUsage, UsageCost, UsageValidationError,
@@ -16,7 +17,6 @@ use crate::{
 
 use super::envelopes::claude_daily::{ClaudeDailyReport, ClaudeDailyRow, ModelBreakdown};
 
-const IDENTITY_VERSION: u16 = 1;
 const COST_MICROS_PER_UNIT: f64 = 1_000_000.0;
 
 pub(crate) fn map_daily(
@@ -51,7 +51,11 @@ fn map_row(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(DailyUsageCandidate {
         provenance: context.provenance(),
-        source_key: daily_source_key(usage_date),
+        source_key: daily_source_key(
+            SourceKey::ClaudeCode,
+            usage_date,
+            &context.aggregation_timezone,
+        )?,
         usage_date,
         aggregation_timezone: context.aggregation_timezone.clone(),
         tokens,
@@ -160,10 +164,6 @@ fn map_cost(value: f64, total_tokens: u64) -> Result<UsageCost, MappingError> {
     })
 }
 
-fn daily_source_key(date: NaiveDate) -> String {
-    format!("daily:v{IDENTITY_VERSION}:{date}")
-}
-
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum MappingError {
     #[error("Claude daily mapping requires a collector version")]
@@ -180,6 +180,8 @@ pub(crate) enum MappingError {
     InvalidCost,
     #[error("Claude daily cost exceeded the supported micro-unit range")]
     CostOutOfRange,
+    #[error(transparent)]
+    Identity(#[from] IdentityError),
     #[error(transparent)]
     Usage(#[from] UsageValidationError),
 }
@@ -213,7 +215,10 @@ mod tests {
         .expect("mapped candidates");
 
         let first = &candidates[0];
-        assert_eq!(first.source_key, "daily:v1:2026-06-13");
+        assert_eq!(
+            first.source_key,
+            "claude-code:daily:v1:Asia/Jakarta:2026-06-13"
+        );
         assert_eq!(first.aggregation_timezone, "Asia/Jakarta");
         assert_eq!(first.tokens.total_tokens(), 1_650);
         assert_eq!(first.tokens.unclassified_tokens(), Some(0));

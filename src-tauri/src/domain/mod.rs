@@ -2,5 +2,6 @@
 //!
 //! Domain modules are added only when implemented behavior requires them.
 
+pub(crate) mod identity;
 pub(crate) mod source;
 pub(crate) mod usage;
