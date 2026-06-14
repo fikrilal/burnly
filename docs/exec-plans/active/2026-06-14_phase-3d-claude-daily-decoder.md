@@ -81,7 +81,7 @@ Phase 3C provides bounded process output as bytes/text and structured failures.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: active; not run yet.
 
 ## Runtime Evidence
 

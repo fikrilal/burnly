@@ -4,5 +4,8 @@
 )]
 
 mod capability_profiles;
+mod command;
 mod manifest;
+mod process;
+mod sidecar;
 mod source_registry;

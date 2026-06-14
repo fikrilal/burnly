@@ -55,14 +55,14 @@ Phase 3B provides the pinned manifest and supported capability profile.
 
 ## Checklist
 
-- [ ] Define sidecar location resolution for packaged and development modes.
-- [ ] Implement integrity/version verification against the manifest.
-- [ ] Implement controlled empty config creation and cleanup policy.
-- [ ] Define the environment allowlist and command builder.
-- [ ] Implement bounded process execution and stderr summarization.
-- [ ] Implement timeout, cancellation, termination, and reaping.
-- [ ] Add fake executable tests for success and every failure category.
-- [ ] Run `pnpm verify` and activate Phase 3D.
+- [x] Define sidecar location resolution for packaged and development modes.
+- [x] Implement integrity/version verification against the manifest.
+- [x] Implement controlled empty config creation and cleanup policy.
+- [x] Define the environment allowlist and command builder.
+- [x] Implement bounded process execution and stderr summarization.
+- [x] Implement timeout, cancellation, termination, and reaping.
+- [x] Add fake executable tests for success and every failure category.
+- [x] Run `pnpm verify` and activate Phase 3D.
 
 ## Test Plan
 
@@ -80,17 +80,29 @@ Phase 3B provides the pinned manifest and supported capability profile.
 
 - No arbitrary user arguments, executable paths, or inherited `ccusage` config.
 - No collector process runs inside a database transaction.
+- A prepared command owns its temporary workspace so the controlled config and
+  working directory remain alive for the entire child process.
+- Unix invocations run in a dedicated process group; timeout and cancellation
+  terminate and reap the group to avoid leaving descendant processes or open
+  capture pipes behind.
+- Packaged paths resolve only beneath the supplied application resource directory;
+  development uses an explicit binary path and remains unverified by design.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: active; not run yet.
+- Outcome: passed on 2026-06-14 with 16 frontend tests, 74 Rust tests, Clippy with
+  warnings denied, all architecture/contract harnesses, and zero duplicate-code
+  findings.
 
 ## Runtime Evidence
 
-- Fake-process execution evidence required.
+- Linux x64 fake-process tests prove direct execution, closed stdin, filtered
+  environment, redacted stderr, stdout/stderr limits, timeout, running
+  cancellation, process-group cleanup, nonzero exit, non-UTF-8 output, missing
+  binary, checksum mismatch, and version mismatch.
 
 ## Follow-Up Debt
 
-- Cross-platform process behavior remains Phase 10 hardening after the initial
-  implementation is proven on supported development environments.
+- Windows and macOS real-machine process behavior remains Phase 10 hardening after
+  the initial Linux implementation evidence.

@@ -38,6 +38,10 @@ impl SidecarManifest {
         self.entries.iter().find(|entry| entry.target == target)
     }
 
+    pub(crate) fn expected_version(&self) -> &str {
+        &self.expected_version
+    }
+
     pub(crate) fn descriptor(
         &self,
         target: BinaryTarget,
@@ -171,6 +175,17 @@ impl IntegrityPolicy {
             }
         }
     }
+
+    pub(crate) fn expected_sha256(&self) -> Option<&str> {
+        match self {
+            Self::ReleaseSha256 { sha256 } => Some(sha256),
+            Self::UnverifiedDev => None,
+        }
+    }
+
+    pub(crate) const fn is_development(&self) -> bool {
+        matches!(self, Self::UnverifiedDev)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
@@ -220,6 +235,24 @@ impl BinaryTarget {
         match self {
             Self::WindowsArm64 | Self::WindowsX64 => "ccusage.exe",
             _ => "ccusage",
+        }
+    }
+
+    pub(crate) const fn current() -> Option<Self> {
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            Some(Self::DarwinArm64)
+        } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+            Some(Self::DarwinX64)
+        } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+            Some(Self::LinuxArm64)
+        } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            Some(Self::LinuxX64)
+        } else if cfg!(all(target_os = "windows", target_arch = "aarch64")) {
+            Some(Self::WindowsArm64)
+        } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+            Some(Self::WindowsX64)
+        } else {
+            None
         }
     }
 }

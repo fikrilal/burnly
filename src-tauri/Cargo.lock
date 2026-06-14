@@ -328,10 +328,12 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "iana-time-zone",
+ "libc",
  "rusqlite",
  "rusqlite_migration",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",

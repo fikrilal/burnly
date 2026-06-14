@@ -19,6 +19,19 @@ const manifestPath = path.join(
   "development-manifest.json",
 );
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const processFixtures = ["fake-collector.sh", "fake-collector-old.sh"];
+
+for (const fixture of processFixtures) {
+  const content = await readFile(
+    path.join(fixturesDir, "process", fixture),
+    "utf8",
+  );
+  if (!content.startsWith("#!/bin/sh\n")) {
+    throw new Error(
+      `collector process fixture ${fixture} has an invalid header`,
+    );
+  }
+}
 
 assertEqual(manifest.collectorKey, "ccusage", "collector key");
 assertEqual(manifest.expectedVersion, "20.0.11", "expected version");
@@ -43,7 +56,7 @@ for (const entry of manifest.entries) {
 }
 
 console.log(
-  "Collector manifest and fixture checks passed. No collector fixtures exist yet.",
+  "Collector manifest and process fixture checks passed. No JSON envelope fixtures exist yet.",
 );
 
 function assertEqual(actual, expected, field) {
