@@ -1,0 +1,16 @@
+{
+  "collectorKey": "ccusage",
+  "displayName": "ccusage",
+  "expectedVersion": "20.0.11",
+  "sourceRevision": "43836bcec1558fec9da7cb73017928c51443b32b",
+  "adapterVersion": 1,
+  "entries": [
+    {
+      "target": "linux-x64",
+      "executableName": "ccusage",
+      "integrity": {
+        "kind": "unverified_dev"
+      }
+    }
+  ]
+}

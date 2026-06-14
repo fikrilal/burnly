@@ -32,14 +32,14 @@ This phase introduces execution of an external binary and trust-boundary parsing
 
 ## Chunk Plan
 
-| Chunk                                      | Status    | Dependency | Plan                                                              |
-| ------------------------------------------ | --------- | ---------- | ----------------------------------------------------------------- |
-| Phase 3A: Collector port and types         | Completed | Phase 2    | [Plan](../completed/2026-06-14_phase-3a-collector-port.md)        |
-| Phase 3B: ccusage profile and manifest     | Active    | Phase 3A   | [Plan](./2026-06-14_phase-3b-ccusage-profile.md)                  |
-| Phase 3C: Sidecar process boundary         | Queued    | Phase 3B   | [Plan](../queued/2026-06-14_phase-3c-sidecar-process-boundary.md) |
-| Phase 3D: Claude daily decoder             | Queued    | Phase 3C   | [Plan](../queued/2026-06-14_phase-3d-claude-daily-decoder.md)     |
-| Phase 3E: Canonical daily mapping          | Queued    | Phase 3D   | [Plan](../queued/2026-06-14_phase-3e-canonical-daily-mapping.md)  |
-| Phase 3F: End-to-end collector composition | Queued    | Phase 3E   | [Plan](../queued/2026-06-14_phase-3f-collector-end-to-end.md)     |
+| Chunk                                      | Status    | Dependency | Plan                                                             |
+| ------------------------------------------ | --------- | ---------- | ---------------------------------------------------------------- |
+| Phase 3A: Collector port and types         | Completed | Phase 2    | [Plan](../completed/2026-06-14_phase-3a-collector-port.md)       |
+| Phase 3B: ccusage profile and manifest     | Completed | Phase 3A   | [Plan](../completed/2026-06-14_phase-3b-ccusage-profile.md)      |
+| Phase 3C: Sidecar process boundary         | Active    | Phase 3B   | [Plan](./2026-06-14_phase-3c-sidecar-process-boundary.md)        |
+| Phase 3D: Claude daily decoder             | Queued    | Phase 3C   | [Plan](../queued/2026-06-14_phase-3d-claude-daily-decoder.md)    |
+| Phase 3E: Canonical daily mapping          | Queued    | Phase 3D   | [Plan](../queued/2026-06-14_phase-3e-canonical-daily-mapping.md) |
+| Phase 3F: End-to-end collector composition | Queued    | Phase 3E   | [Plan](../queued/2026-06-14_phase-3f-collector-end-to-end.md)    |
 
 ## Dependency Rules
 
@@ -80,7 +80,7 @@ This phase introduces execution of an external binary and trust-boundary parsing
 ## Progress
 
 - [x] Phase 3A completed and verified.
-- [ ] Phase 3B completed and verified.
+- [x] Phase 3B completed and verified.
 - [ ] Phase 3C completed and verified.
 - [ ] Phase 3D completed and verified.
 - [ ] Phase 3E completed and verified.
@@ -97,6 +97,7 @@ This phase introduces execution of an external binary and trust-boundary parsing
 ## Verification
 
 - Phase 3A verification: `pnpm verify` passed on 2026-06-14.
+- Phase 3B verification: `pnpm verify` passed on 2026-06-14.
 
 ## Runtime Evidence
 

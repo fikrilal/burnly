@@ -84,7 +84,7 @@ Phase 3B provides the pinned manifest and supported capability profile.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: active; not run yet.
 
 ## Runtime Evidence
 

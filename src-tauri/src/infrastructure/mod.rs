@@ -4,4 +4,5 @@
 //! representations inside the adapter that owns them.
 
 pub(crate) mod bootstrap_store;
+pub(crate) mod collectors;
 pub mod database;

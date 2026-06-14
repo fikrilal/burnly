@@ -57,14 +57,14 @@ Phase 3A provides the collector port and canonical types.
 
 ## Checklist
 
-- [ ] Create the approved `ccusage` adapter module layout.
-- [ ] Define and parse the sidecar manifest format.
-- [ ] Pin the initial expected `ccusage` version and target naming policy.
-- [ ] Define the Claude Code source descriptor.
-- [ ] Define the Claude daily capability profile.
-- [ ] Reject unsupported source/projection combinations through profile lookup.
-- [ ] Add manifest/profile tests and harness coverage.
-- [ ] Run `pnpm verify` and activate Phase 3C.
+- [x] Create the approved `ccusage` adapter module layout.
+- [x] Define and parse the sidecar manifest format.
+- [x] Pin the initial expected `ccusage` version and target naming policy.
+- [x] Define the Claude Code source descriptor.
+- [x] Define the Claude daily capability profile.
+- [x] Reject unsupported source/projection combinations through profile lookup.
+- [x] Add manifest/profile tests and harness coverage.
+- [x] Run `pnpm verify` and activate Phase 3C.
 
 ## Test Plan
 
@@ -81,11 +81,19 @@ Phase 3A provides the collector port and canonical types.
 
 - Exact version matching is preferred initially.
 - Supporting a new source requires a new reviewed profile and fixtures.
+- The initial collector identity is `ccusage` `20.0.11` at source revision
+  `43836bcec1558fec9da7cb73017928c51443b32b`.
+- Development manifests declare `unverified_dev`; release manifests require a
+  lowercase SHA-256 and accept only an observed verified or mismatch state.
+- The development manifest declares only the current Linux x64 target because no
+  reviewed release checksums are available yet.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: passed on 2026-06-14. This included 16 frontend tests, 63 Rust tests,
+  Clippy with warnings denied, architecture and contract harnesses, collector
+  manifest validation, and duplicate-code reporting with zero clones.
 
 ## Runtime Evidence
 
