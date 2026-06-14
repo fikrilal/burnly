@@ -53,14 +53,14 @@ Phase 3C provides bounded process output as bytes/text and structured failures.
 
 ## Checklist
 
-- [ ] Capture and sanitize representative Claude daily output.
-- [ ] Add valid, empty, additive-field, invalid-JSON, and incompatible fixtures.
-- [ ] Define typed Claude daily envelope structs.
-- [ ] Implement decoding and profile-level compatibility checks.
-- [ ] Ensure errors expose no raw payload or sensitive local data.
-- [ ] Extend `collectors:fixtures` to require and verify the supported matrix.
-- [ ] Add decoder tests for all fixtures.
-- [ ] Run `pnpm verify` and activate Phase 3E.
+- [x] Capture and sanitize representative Claude daily output.
+- [x] Add valid, empty, additive-field, invalid-JSON, and incompatible fixtures.
+- [x] Define typed Claude daily envelope structs.
+- [x] Implement decoding and profile-level compatibility checks.
+- [x] Ensure errors expose no raw payload or sensitive local data.
+- [x] Extend `collectors:fixtures` to require and verify the supported matrix.
+- [x] Add decoder tests for all fixtures.
+- [x] Run `pnpm verify` and activate Phase 3E.
 
 ## Test Plan
 
@@ -77,11 +77,18 @@ Phase 3C provides bounded process output as bytes/text and structured failures.
 
 - Do not decode canonical imports through unrestricted `serde_json::Value`.
 - Fixtures represent only reviewed fields required by the supported profile.
+- Unknown additive fields are tolerated, while known project-grouping shapes are
+  rejected because Phase 3 uses the ungrouped Claude daily command.
+- Compatibility validation covers dates, finite non-negative costs, token
+  overflow, duplicate identities, model membership, and exact row-to-total token
+  consistency without reconstructing authoritative row totals.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: active; not run yet.
+- Outcome: passed on 2026-06-14 with 16 frontend tests, 77 Rust tests, Clippy with
+  warnings denied, the sanitized collector fixture matrix, all harness checks,
+  and zero duplicate-code findings.
 
 ## Runtime Evidence
 

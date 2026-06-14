@@ -5,6 +5,7 @@
 
 mod capability_profiles;
 mod command;
+mod envelopes;
 mod manifest;
 mod process;
 mod sidecar;

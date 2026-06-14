@@ -3,3 +3,4 @@ node_modules
 src-tauri/target
 src-tauri/gen
 pnpm-lock.yaml
+tests/fixtures/collectors/ccusage/claude-daily/invalid-json.json

@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 const fixturesDir = path.join(
@@ -33,6 +33,37 @@ for (const fixture of processFixtures) {
   }
 }
 
+const envelopeDirectory = path.join(fixturesDir, "claude-daily");
+const expectedEnvelopeFixtures = [
+  "additive-fields.json",
+  "empty.json",
+  "incompatible-envelope.json",
+  "invalid-date.json",
+  "invalid-json.json",
+  "invalid-number.json",
+  "valid.json",
+];
+const actualEnvelopeFixtures = (await readdir(envelopeDirectory)).sort();
+
+if (
+  JSON.stringify(actualEnvelopeFixtures) !==
+  JSON.stringify(expectedEnvelopeFixtures)
+) {
+  throw new Error(
+    "Claude daily fixture matrix does not match the reviewed set",
+  );
+}
+
+for (const fixture of actualEnvelopeFixtures) {
+  const content = await readFile(path.join(envelopeDirectory, fixture), "utf8");
+  if (fixture === "invalid-json.json") {
+    assertInvalidJson(content, fixture);
+    continue;
+  }
+  const envelope = JSON.parse(content);
+  assertSanitized(envelope, fixture);
+}
+
 assertEqual(manifest.collectorKey, "ccusage", "collector key");
 assertEqual(manifest.expectedVersion, "20.0.11", "expected version");
 assertEqual(
@@ -56,7 +87,7 @@ for (const entry of manifest.entries) {
 }
 
 console.log(
-  "Collector manifest and process fixture checks passed. No JSON envelope fixtures exist yet.",
+  "Collector manifest, process fixtures, and Claude daily envelope matrix passed.",
 );
 
 function assertEqual(actual, expected, field) {
@@ -83,4 +114,48 @@ function validateIntegrity(integrity, target) {
   }
 
   throw new Error(`target ${target} has an invalid integrity policy`);
+}
+
+function assertInvalidJson(content, fixture) {
+  try {
+    JSON.parse(content);
+  } catch {
+    return;
+  }
+  throw new Error(`collector fixture ${fixture} must remain invalid JSON`);
+}
+
+function assertSanitized(value, fixture) {
+  const forbiddenKeys = new Set([
+    "prompt",
+    "projectPath",
+    "requestId",
+    "sessionId",
+    "transcriptPath",
+  ]);
+  visit(value, (key, entry) => {
+    if (forbiddenKeys.has(key)) {
+      throw new Error(
+        `collector fixture ${fixture} contains sensitive key ${key}`,
+      );
+    }
+    if (
+      typeof entry === "string" &&
+      /(?:\/home\/|\/Users\/|[A-Z]:\\)/.test(entry)
+    ) {
+      throw new Error(`collector fixture ${fixture} contains a local path`);
+    }
+  });
+}
+
+function visit(value, inspect) {
+  if (Array.isArray(value)) {
+    for (const entry of value) visit(entry, inspect);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  for (const [key, entry] of Object.entries(value)) {
+    inspect(key, entry);
+    visit(entry, inspect);
+  }
 }

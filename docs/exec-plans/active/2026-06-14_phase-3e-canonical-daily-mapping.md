@@ -83,7 +83,7 @@ Phase 3D provides typed, profile-validated Claude daily rows.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: active; not run yet.
 
 ## Runtime Evidence
 
