@@ -2,6 +2,7 @@
 
 mod error;
 mod migrations;
+mod run_store;
 #[cfg(test)]
 mod test_database;
 
@@ -108,6 +109,10 @@ impl Database {
         self.connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|source| PersistenceError::read("user_version", source))
+    }
+
+    pub(super) fn connection(&self) -> &Connection {
+        &self.connection
     }
 }
 
