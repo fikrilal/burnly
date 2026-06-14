@@ -7,7 +7,7 @@ TypeScript output, and create one authoritative Tauri command registry.
 
 ## Dependency
 
-Phase 2A must provide verified response and error wire types.
+Phase 2A provides verified response and error wire types.
 
 ## Acceptance Criteria
 
@@ -59,7 +59,7 @@ Phase 2A must provide verified response and error wire types.
 
 ## Checklist
 
-- [ ] Revalidate this queued plan against completed Phase 2A behavior.
+- [x] Revalidate this plan against completed Phase 2A behavior.
 - [ ] Check current stable generator package compatibility and record the decision.
 - [ ] Pin the selected dependencies or implement the approved fallback.
 - [ ] Build the single command and event registry.
@@ -89,7 +89,7 @@ Phase 2A must provide verified response and error wire types.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: active; implementation not started.
 
 ## Runtime Evidence
 
@@ -98,3 +98,12 @@ Phase 2A must provide verified response and error wire types.
 ## Follow-Up Debt
 
 - None.
+
+## Activation Review
+
+- Activated after response fixtures, metadata generation, error categories, and
+  redaction checks passed the full repository gate.
+- Generator annotations may require visibility changes, but they must not weaken
+  the envelope constructors or expose invalid response construction.
+- Current stable package compatibility must be checked before dependencies are
+  selected because the approved design explicitly rejects silent pre-release use.

@@ -59,14 +59,14 @@ Phase 1 provides a verified startup context and stable persistence error categor
 ## Checklist
 
 - [x] Revalidate the plan against completed Phase 1 behavior.
-- [ ] Define contract-version ownership and response metadata creation.
-- [ ] Implement success and failure envelope types and constructors.
-- [ ] Implement bounded error and field-error DTOs.
-- [ ] Add stable mapping for currently available startup and persistence failures.
-- [ ] Add serialization and redaction fixtures.
-- [ ] Extend contract harness checks for the response foundation.
-- [ ] Run focused Rust tests and `pnpm verify`.
-- [ ] Update the Phase 2 overview and activate Phase 2B.
+- [x] Define contract-version ownership and response metadata creation.
+- [x] Implement success and failure envelope types and constructors.
+- [x] Implement bounded error and field-error DTOs.
+- [x] Define the stable constructor boundary for future application-error mappings.
+- [x] Add serialization and redaction fixtures.
+- [x] Extend contract harness checks for the response foundation.
+- [x] Run focused Rust tests and `pnpm verify`.
+- [x] Update the Phase 2 overview and activate Phase 2B.
 
 ## Test Plan
 
@@ -87,11 +87,22 @@ Phase 1 provides a verified startup context and stable persistence error categor
   tests while production callers use system-generated values.
 - Do not expose arbitrary structured error details until a concrete command needs
   a reviewed details DTO.
+- Do not map startup or persistence errors directly in IPC. Startup failures occur
+  before IPC is available, and importing infrastructure into IPC would violate the
+  approved adapter boundaries. Concrete mappings will be added with the first
+  application command errors.
+- Keep the response envelope as one deep module. Separate DTO and mapper files are
+  deferred until concrete command types create meaningful independent ownership.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet.
+- Outcome: passed on June 14, 2026.
+- Rust suite: 30 tests passed, including five IPC response contract tests.
+- Clippy passed with warnings denied.
+- Contract harness validated contract version 1, response metadata, and both v1
+  fixtures.
+- Architecture, public API, migration, fixture, and duplication checks passed.
 
 ## Runtime Evidence
 
