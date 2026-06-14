@@ -57,14 +57,14 @@ Phase 2 must be complete and verified.
 
 ## Checklist
 
-- [ ] Review approved collector contract and canonical data invariants.
-- [ ] Define source, projection, scope, request, descriptor, result, and diagnostic types.
-- [ ] Define canonical daily candidate and model-breakdown candidate types.
-- [ ] Define stable collector failure kinds without infrastructure details.
-- [ ] Define the narrow collector port signature.
-- [ ] Add invariant and failure-classification tests.
-- [ ] Update architecture/public-API harness budgets only when justified.
-- [ ] Run `pnpm verify` and activate Phase 3B.
+- [x] Review approved collector contract and canonical data invariants.
+- [x] Define source, projection, scope, request, descriptor, result, and diagnostic types.
+- [x] Define canonical daily candidate and model-breakdown candidate types.
+- [x] Define stable collector failure kinds without infrastructure details.
+- [x] Define the narrow collector port signature.
+- [x] Add invariant and failure-classification tests.
+- [x] Update architecture/public-API harness budgets only when justified.
+- [x] Run `pnpm verify` and activate Phase 3B.
 
 ## Test Plan
 
@@ -85,7 +85,7 @@ Phase 2 must be complete and verified.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: passed on 2026-06-14.
 
 ## Runtime Evidence
 

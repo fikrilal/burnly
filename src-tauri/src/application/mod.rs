@@ -4,3 +4,5 @@
 //! infrastructure implementations.
 
 pub(crate) mod bootstrap;
+pub(crate) mod collection;
+pub(crate) mod ports;
