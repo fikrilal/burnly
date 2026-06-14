@@ -28,12 +28,12 @@ behavior.
 
 ## Chunk Plan
 
-| Chunk                          | Status    | Dependency | Plan                                                             |
-| ------------------------------ | --------- | ---------- | ---------------------------------------------------------------- |
-| Phase 1A: Rust module skeleton | Completed | Phase 0    | [Plan](../completed/2026-06-14_phase-1a-rust-module-skeleton.md) |
-| Phase 1B: SQLite runtime       | Completed | Phase 1A   | [Plan](../completed/2026-06-14_phase-1b-sqlite-runtime.md)       |
-| Phase 1C: Initial migration    | Completed | Phase 1B   | [Plan](../completed/2026-06-14_phase-1c-initial-migration.md)    |
-| Phase 1D: Startup integration  | Active    | Phase 1C   | [Plan](./2026-06-14_phase-1d-startup-integration.md)             |
+| Chunk                          | Status    | Dependency | Plan                                                  |
+| ------------------------------ | --------- | ---------- | ----------------------------------------------------- |
+| Phase 1A: Rust module skeleton | Completed | Phase 0    | [Plan](./2026-06-14_phase-1a-rust-module-skeleton.md) |
+| Phase 1B: SQLite runtime       | Completed | Phase 1A   | [Plan](./2026-06-14_phase-1b-sqlite-runtime.md)       |
+| Phase 1C: Initial migration    | Completed | Phase 1B   | [Plan](./2026-06-14_phase-1c-initial-migration.md)    |
+| Phase 1D: Startup integration  | Completed | Phase 1C   | [Plan](./2026-06-14_phase-1d-startup-integration.md)  |
 
 ## Dependency Rules
 
@@ -74,8 +74,8 @@ behavior.
 - [x] Phase 1A completed and verified.
 - [x] Phase 1B completed and verified.
 - [x] Phase 1C completed and verified.
-- [ ] Phase 1D completed and verified.
-- [ ] Phase-level exit criteria verified.
+- [x] Phase 1D completed and verified.
+- [x] Phase-level exit criteria verified.
 
 ## Decisions
 
@@ -85,7 +85,11 @@ behavior.
 
 ## Verification
 
-- Phase verification: not run yet.
+- Phase verification completed on June 14, 2026.
+- `pnpm verify`: passed with 25 Rust tests and one frontend test.
+- Fresh, repeated, unhealthy, and unsupported-newer-schema startup paths passed.
+- The real Tauri desktop process started against an isolated app-data directory
+  and produced a healthy migrated database with the required settings seed.
 
 ## Follow-Up Debt
 

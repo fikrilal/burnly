@@ -13,6 +13,8 @@ pub enum PersistenceErrorKind {
     Configure,
     PolicyMismatch,
     Migration,
+    HealthCheck,
+    Seed,
 }
 
 #[derive(Debug, Error)]
@@ -50,6 +52,19 @@ pub enum PersistenceError {
 
     #[error("database migration failed")]
     Migration(#[source] MigrationError),
+
+    #[error("database health check failed: {check}")]
+    HealthCheckQuery {
+        check: &'static str,
+        #[source]
+        source: SqliteError,
+    },
+
+    #[error("database is unhealthy: {check} returned {detail}")]
+    Unhealthy { check: &'static str, detail: String },
+
+    #[error("failed to initialize application settings")]
+    Seed(#[source] SqliteError),
 }
 
 impl PersistenceError {
@@ -61,6 +76,10 @@ impl PersistenceError {
             Self::Configure { .. } => PersistenceErrorKind::Configure,
             Self::PolicyMismatch { .. } => PersistenceErrorKind::PolicyMismatch,
             Self::Migration(_) => PersistenceErrorKind::Migration,
+            Self::HealthCheckQuery { .. } | Self::Unhealthy { .. } => {
+                PersistenceErrorKind::HealthCheck
+            }
+            Self::Seed(_) => PersistenceErrorKind::Seed,
         }
     }
 
@@ -90,5 +109,20 @@ impl PersistenceError {
 
     pub(super) fn migration(source: MigrationError) -> Self {
         Self::Migration(source)
+    }
+
+    pub(super) fn health_check(check: &'static str, source: SqliteError) -> Self {
+        Self::HealthCheckQuery { check, source }
+    }
+
+    pub(super) fn unhealthy(check: &'static str, detail: impl Into<String>) -> Self {
+        Self::Unhealthy {
+            check,
+            detail: detail.into(),
+        }
+    }
+
+    pub(super) fn seed(source: SqliteError) -> Self {
+        Self::Seed(source)
     }
 }

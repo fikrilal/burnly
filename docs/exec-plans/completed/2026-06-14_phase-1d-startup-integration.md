@@ -50,15 +50,15 @@ Phase 1C provides the verified initial schema and migration runner.
 ## Checklist
 
 - [x] Revalidate this plan against completed Phase 1C behavior.
-- [ ] Compose the startup sequence.
-- [ ] Remove the temporary Phase 1B `dead_code` expectations when startup begins
+- [x] Compose the startup sequence.
+- [x] Remove the temporary Phase 1B `dead_code` expectations when startup begins
       consuming the database path and runtime.
-- [ ] Add health and integrity checks.
-- [ ] Add idempotent seed initialization.
-- [ ] Add startup and failure integration tests.
-- [ ] Run isolated desktop startup evidence.
-- [ ] Run `pnpm verify` and Phase 1 exit checks.
-- [ ] Complete the Phase 1 overview.
+- [x] Add health and integrity checks.
+- [x] Add idempotent seed initialization.
+- [x] Add startup and failure integration tests.
+- [x] Run isolated desktop startup evidence.
+- [x] Run `pnpm verify` and Phase 1 exit checks.
+- [x] Complete the Phase 1 overview.
 
 ## Test Plan
 
@@ -70,7 +70,20 @@ Phase 1C provides the verified initial schema and migration runner.
 
 ## Verification
 
-- Outcome: active; implementation not started.
+- Outcome: completed and verified on June 14, 2026.
+- `pnpm verify`: passed.
+- Rust suite: 25 tests passed, including five startup integration tests.
+- Clippy passed with warnings denied.
+- Architecture, public API, migration, contract, fixture, and duplication harnesses
+  passed.
+- `pnpm evidence:desktop`: Tauri prerequisites passed on Ubuntu 24.04 X11.
+- Isolated runtime evidence used a temporary `XDG_DATA_HOME` and
+  `pnpm tauri dev --no-watch`.
+- The real desktop binary started, created `burnly.sqlite3`, migrated to schema
+  version 1, inserted exactly one settings row using `Asia/Jakarta`, and returned
+  `ok` from `PRAGMA quick_check`.
+- The development process was stopped intentionally with `Ctrl-C` after evidence
+  collection.
 
 ## Activation Review
 

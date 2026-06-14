@@ -11,10 +11,6 @@ pub enum DatabasePathError {
     AppDataUnavailable(#[source] tauri::Error),
 }
 
-#[expect(
-    dead_code,
-    reason = "the Tauri path resolver is consumed by startup in Phase 1D"
-)]
 pub fn resolve<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, DatabasePathError> {
     app.path()
         .app_data_dir()

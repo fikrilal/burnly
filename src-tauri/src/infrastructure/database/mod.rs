@@ -11,12 +11,13 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
-pub use error::PersistenceError;
+pub use error::{PersistenceError, PersistenceErrorKind};
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const BUSY_TIMEOUT_MS: i64 = 5_000;
 const JOURNAL_MODE: &str = "wal";
 const SYNCHRONOUS_FULL: i64 = 2;
+const DEFAULT_REFRESH_INTERVAL_MINUTES: i64 = 15;
 
 pub struct Database {
     connection: Connection,
@@ -37,6 +38,60 @@ impl Database {
 
     pub fn migrate_to_latest(&mut self) -> Result<(), PersistenceError> {
         migrations::to_latest(&mut self.connection)
+    }
+
+    pub fn verify_health(&self) -> Result<(), PersistenceError> {
+        let integrity: String = self
+            .connection
+            .pragma_query_value(None, "quick_check", |row| row.get(0))
+            .map_err(|source| PersistenceError::health_check("quick_check", source))?;
+
+        if integrity != "ok" {
+            return Err(PersistenceError::unhealthy("quick_check", integrity));
+        }
+
+        let has_foreign_key_violation: bool = self
+            .connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|source| PersistenceError::health_check("foreign_key_check", source))?;
+
+        if has_foreign_key_violation {
+            return Err(PersistenceError::unhealthy(
+                "foreign_key_check",
+                "constraint violation",
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub fn ensure_app_settings(
+        &self,
+        reporting_timezone: &str,
+        created_at_ms: i64,
+    ) -> Result<(), PersistenceError> {
+        self.connection
+            .execute(
+                "INSERT INTO app_settings (
+                    id, reporting_timezone, background_refresh_enabled,
+                    refresh_interval_minutes, launch_at_login, close_behavior,
+                    notifications_enabled, store_project_paths,
+                    created_at_ms, updated_at_ms
+                ) VALUES (1, ?1, 0, ?2, 0, 'quit', 0, 0, ?3, ?3)
+                ON CONFLICT(id) DO NOTHING",
+                (
+                    reporting_timezone,
+                    DEFAULT_REFRESH_INTERVAL_MINUTES,
+                    created_at_ms,
+                ),
+            )
+            .map_err(PersistenceError::seed)?;
+
+        Ok(())
     }
 }
 
