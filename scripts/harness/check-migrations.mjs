@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
@@ -66,9 +66,48 @@ const migrationsDir = path.join(root, "src-tauri", "migrations");
 
 try {
   await access(migrationsDir);
-  console.log("Migration dependency and directory checks passed.");
-} catch {
-  console.log(
-    "Migration dependency check passed. Migration files begin in Phase 1C.",
+  const migrationFiles = (await readdir(migrationsDir)).sort();
+  const expectedFiles = ["0001_initial.sql"];
+
+  if (JSON.stringify(migrationFiles) !== JSON.stringify(expectedFiles)) {
+    failures.push(
+      `migration files must be ${expectedFiles.join(", ")}; found ${migrationFiles.join(", ")}.`,
+    );
+  }
+
+  const initialMigration = await readFile(
+    path.join(migrationsDir, "0001_initial.sql"),
+    "utf8",
   );
+  const tableCount = [...initialMigration.matchAll(/CREATE TABLE /g)].length;
+  const strictCount = [...initialMigration.matchAll(/\) STRICT;/g)].length;
+
+  if (tableCount !== 13 || strictCount !== 13) {
+    failures.push(
+      `0001_initial.sql must define 13 STRICT tables; found ${tableCount} tables and ${strictCount} STRICT declarations.`,
+    );
+  }
+
+  if (/PRAGMA\s+foreign_keys/i.test(initialMigration)) {
+    failures.push(
+      "migration SQL must not toggle foreign_keys inside the migration transaction.",
+    );
+  }
+
+  if (/\bREAL\b/i.test(initialMigration)) {
+    failures.push("migration SQL must not use floating-point REAL storage.");
+  }
+
+  if (failures.length > 0) {
+    console.error("Migration check failed:");
+    for (const failure of failures) {
+      console.error(`- ${failure}`);
+    }
+    process.exit(1);
+  }
+
+  console.log("Migration dependency, naming, and schema checks passed.");
+} catch {
+  console.error("Migration check failed: src-tauri/migrations is missing.");
+  process.exit(1);
 }

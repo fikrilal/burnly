@@ -7,7 +7,7 @@ and required seed state into Burnly's explicit application startup sequence.
 
 ## Dependency
 
-Phase 1C must provide the verified initial schema and migration runner.
+Phase 1C provides the verified initial schema and migration runner.
 
 ## Acceptance Criteria
 
@@ -49,7 +49,7 @@ Phase 1C must provide the verified initial schema and migration runner.
 
 ## Checklist
 
-- [ ] Revalidate this queued plan against completed Phase 1C behavior.
+- [x] Revalidate this plan against completed Phase 1C behavior.
 - [ ] Compose the startup sequence.
 - [ ] Remove the temporary Phase 1B `dead_code` expectations when startup begins
       consuming the database path and runtime.
@@ -70,7 +70,17 @@ Phase 1C must provide the verified initial schema and migration runner.
 
 ## Verification
 
-- Outcome: queued; not run yet.
+- Outcome: active; implementation not started.
+
+## Activation Review
+
+- Activated after the initial migration passed the full verification gate.
+- Startup can depend on one infrastructure operation to migrate to the latest
+  supported schema.
+- The schema contains 13 verified `STRICT` tables and rejects unsupported newer
+  versions without changing the database.
+- Phase 1D will own startup ordering, health checks, and seed initialization; it
+  will not add product IPC or collector behavior.
 
 ## Follow-Up Debt
 

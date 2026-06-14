@@ -30,4 +30,8 @@ impl TestDatabase {
     pub(super) fn database(&self) -> &Database {
         &self.database
     }
+
+    pub(super) fn database_mut(&mut self) -> &mut Database {
+        &mut self.database
+    }
 }

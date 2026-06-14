@@ -1,6 +1,7 @@
 //! SQLite connection ownership and policy enforcement.
 
 mod error;
+mod migrations;
 #[cfg(test)]
 mod test_database;
 
@@ -32,6 +33,10 @@ impl Database {
         configure_connection(&connection)?;
 
         Ok(Self { connection })
+    }
+
+    pub fn migrate_to_latest(&mut self) -> Result<(), PersistenceError> {
+        migrations::to_latest(&mut self.connection)
     }
 }
 

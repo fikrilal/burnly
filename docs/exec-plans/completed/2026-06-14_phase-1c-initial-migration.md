@@ -47,12 +47,12 @@ Phase 1B provides a verified SQLite runtime and temporary-database support.
 ## Checklist
 
 - [x] Revalidate this plan against completed Phase 1B behavior.
-- [ ] Translate the approved schema into `0001_initial.sql`.
-- [ ] Wire the migration registry and version checks.
-- [ ] Add migration, constraint, integrity, and idempotency tests.
-- [ ] Test unsupported newer schema handling.
-- [ ] Run `pnpm migrations:check` and `pnpm verify`.
-- [ ] Update the Phase 1 overview.
+- [x] Translate the approved schema into `0001_initial.sql`.
+- [x] Wire the migration registry and version checks.
+- [x] Add migration, constraint, integrity, and idempotency tests.
+- [x] Test unsupported newer schema handling.
+- [x] Run `pnpm migrations:check` and `pnpm verify`.
+- [x] Update the Phase 1 overview.
 
 ## Test Plan
 
@@ -65,7 +65,13 @@ Phase 1B provides a verified SQLite runtime and temporary-database support.
 
 ## Verification
 
-- Outcome: active; implementation not started.
+- Outcome: completed and verified on June 14, 2026.
+- `pnpm verify`: passed.
+- Rust suite: 18 tests passed, including 12 migration and schema tests.
+- Migration harness: passed dependency, naming, and schema checks.
+- Initial schema: 13 production tables, all using SQLite `STRICT` mode.
+- Fresh, repeated, failed, and unsupported-newer-schema paths passed.
+- Foreign-key, integrity, canonical constraint, and cascade checks passed.
 
 ## Activation Review
 

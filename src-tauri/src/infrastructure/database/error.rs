@@ -2,6 +2,7 @@ use std::io;
 use std::path::PathBuf;
 
 use rusqlite::Error as SqliteError;
+use rusqlite_migration::Error as MigrationError;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +12,7 @@ pub enum PersistenceErrorKind {
     Open,
     Configure,
     PolicyMismatch,
+    Migration,
 }
 
 #[derive(Debug, Error)]
@@ -45,6 +47,9 @@ pub enum PersistenceError {
         expected: String,
         actual: String,
     },
+
+    #[error("database migration failed")]
+    Migration(#[source] MigrationError),
 }
 
 impl PersistenceError {
@@ -55,6 +60,7 @@ impl PersistenceError {
             Self::Open { .. } => PersistenceErrorKind::Open,
             Self::Configure { .. } => PersistenceErrorKind::Configure,
             Self::PolicyMismatch { .. } => PersistenceErrorKind::PolicyMismatch,
+            Self::Migration(_) => PersistenceErrorKind::Migration,
         }
     }
 
@@ -80,5 +86,9 @@ impl PersistenceError {
             expected,
             actual,
         }
+    }
+
+    pub(super) fn migration(source: MigrationError) -> Self {
+        Self::Migration(source)
     }
 }
