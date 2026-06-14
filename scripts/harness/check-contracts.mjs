@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import prettier from "prettier";
 
 const root = process.cwd();
 const generatedDir = path.join(root, "src", "ipc", "generated");
@@ -28,7 +29,9 @@ const contractSource = await readFile(contractSourceFile, "utf8");
 const ipcModuleSource = await readFile(ipcModuleFile, "utf8");
 const responseSource = await readFile(responseModule, "utf8");
 const contract = readContractRegistry(contractSource);
-const generated = renderContracts(contract);
+const generated = await prettier.format(renderContracts(contract), {
+  filepath: generatedFile,
+});
 
 if (shouldGenerate) {
   await mkdir(generatedDir, { recursive: true });
@@ -160,7 +163,7 @@ function renderContracts(contract) {
     .map(
       (command) => `export function ${command.exportName}(
   invoke: CommandInvoker,
-): Promise<IpcResponse<${command.responseType}>> {
+): Promise<unknown> {
   return invoke(COMMAND_NAMES.${commandKey(command.exportName)}, {});
 }`,
     )
@@ -229,6 +232,52 @@ export interface ContractProbeResponse {
   contractVersion: typeof CONTRACT_VERSION;
 }
 
+export interface AppBootstrapResponse {
+  appVersion: string;
+  contractVersion: typeof CONTRACT_VERSION;
+  database: {
+    status: "ready";
+    schemaVersion: number;
+  };
+  settings: {
+    reportingTimezone: string;
+  };
+  features: {
+    usageOverview: boolean;
+    collectorRefresh: boolean;
+    budgets: boolean;
+    settings: boolean;
+  };
+  sources: {
+    status: "not_configured";
+    detectedCount: number;
+    configuredCount: number;
+    enabledCount: number;
+  };
+  refresh: {
+    status: "idle";
+    currentJobId: string | null;
+    lastSuccessfulRefreshAt: string | null;
+  };
+  onboardingComplete: boolean;
+}
+
+export interface AppCapabilitiesResponse {
+  tray: DesktopCapability;
+  launchAtLogin: DesktopCapability;
+  nativeNotifications: DesktopCapability;
+  updates: DesktopCapability;
+  exportFormats: string[];
+  diagnostics: {
+    desktopEvidence: boolean;
+  };
+}
+
+export interface DesktopCapability {
+  supported: boolean;
+  status: "not_implemented";
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {
@@ -245,10 +294,10 @@ export interface CommandResponses {
 ${commandResponses}
 }
 
-export type CommandInvoker = <TCommand extends CommandName>(
-  command: TCommand,
-  request: CommandRequests[TCommand],
-) => Promise<CommandResponses[TCommand]>;
+export type CommandInvoker = (
+  command: CommandName,
+  request: CommandRequests[CommandName],
+) => Promise<unknown>;
 
 ${commandWrappers}
 

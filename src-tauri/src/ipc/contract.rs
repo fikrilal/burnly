@@ -8,12 +8,26 @@
 
 use super::response::CONTRACT_VERSION;
 
-pub(super) const COMMANDS: &[CommandSpec] = &[CommandSpec {
-    name: "__burnly_contract_probe",
-    export_name: "invokeContractProbe",
-    request_type: "Record<string, never>",
-    response_type: "ContractProbeResponse",
-}];
+pub(super) const COMMANDS: &[CommandSpec] = &[
+    CommandSpec {
+        name: "__burnly_contract_probe",
+        export_name: "invokeContractProbe",
+        request_type: "Record<string, never>",
+        response_type: "ContractProbeResponse",
+    },
+    CommandSpec {
+        name: "app_get_bootstrap",
+        export_name: "invokeAppGetBootstrap",
+        request_type: "Record<string, never>",
+        response_type: "AppBootstrapResponse",
+    },
+    CommandSpec {
+        name: "app_get_capabilities",
+        export_name: "invokeAppGetCapabilities",
+        request_type: "Record<string, never>",
+        response_type: "AppCapabilitiesResponse",
+    },
+];
 
 pub(super) const EVENTS: &[EventSpec] = &[
     EventSpec {

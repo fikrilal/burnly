@@ -2,7 +2,7 @@ use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-pub(super) const CONTRACT_VERSION: u16 = 1;
+pub(crate) const CONTRACT_VERSION: u16 = 1;
 
 #[derive(Debug, Serialize)]
 #[serde(transparent)]

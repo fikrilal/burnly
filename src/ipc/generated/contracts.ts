@@ -53,31 +53,93 @@ export interface ContractProbeResponse {
   contractVersion: typeof CONTRACT_VERSION;
 }
 
+export interface AppBootstrapResponse {
+  appVersion: string;
+  contractVersion: typeof CONTRACT_VERSION;
+  database: {
+    status: "ready";
+    schemaVersion: number;
+  };
+  settings: {
+    reportingTimezone: string;
+  };
+  features: {
+    usageOverview: boolean;
+    collectorRefresh: boolean;
+    budgets: boolean;
+    settings: boolean;
+  };
+  sources: {
+    status: "not_configured";
+    detectedCount: number;
+    configuredCount: number;
+    enabledCount: number;
+  };
+  refresh: {
+    status: "idle";
+    currentJobId: string | null;
+    lastSuccessfulRefreshAt: string | null;
+  };
+  onboardingComplete: boolean;
+}
+
+export interface AppCapabilitiesResponse {
+  tray: DesktopCapability;
+  launchAtLogin: DesktopCapability;
+  nativeNotifications: DesktopCapability;
+  updates: DesktopCapability;
+  exportFormats: string[];
+  diagnostics: {
+    desktopEvidence: boolean;
+  };
+}
+
+export interface DesktopCapability {
+  supported: boolean;
+  status: "not_implemented";
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {
   contractProbe: "__burnly_contract_probe",
+  appGetBootstrap: "app_get_bootstrap",
+  appGetCapabilities: "app_get_capabilities",
 } as const;
 
 export type CommandName = (typeof COMMAND_NAMES)[keyof typeof COMMAND_NAMES];
 
 export interface CommandRequests {
   [COMMAND_NAMES.contractProbe]: Record<string, never>;
+  [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
+  [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
 }
 
 export interface CommandResponses {
   [COMMAND_NAMES.contractProbe]: IpcResponse<ContractProbeResponse>;
+  [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
+  [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
 }
 
-export type CommandInvoker = <TCommand extends CommandName>(
-  command: TCommand,
-  request: CommandRequests[TCommand],
-) => Promise<CommandResponses[TCommand]>;
+export type CommandInvoker = (
+  command: CommandName,
+  request: CommandRequests[CommandName],
+) => Promise<unknown>;
 
-export function invokeContractProbe(
-  invoke: CommandInvoker,
-): Promise<IpcResponse<ContractProbeResponse>> {
+export function invokeContractProbe(invoke: CommandInvoker): Promise<unknown> {
   return invoke(COMMAND_NAMES.contractProbe, {});
+}
+
+export function invokeAppGetBootstrap(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.appGetBootstrap, {});
+}
+
+export function invokeAppGetCapabilities(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.appGetCapabilities, {});
 }
 
 export const EVENT_NAMES = {

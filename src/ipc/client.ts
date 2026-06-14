@@ -5,6 +5,10 @@ import { BurnlyClientError } from "./errors";
 import {
   COMMAND_NAMES,
   CONTRACT_VERSION,
+  invokeAppGetBootstrap,
+  invokeAppGetCapabilities,
+  type AppBootstrapResponse,
+  type AppCapabilitiesResponse,
   type CommandInvoker,
   type CommandName,
   type CommandRequests,
@@ -63,6 +67,52 @@ const contractProbeDataSchema = z.object({
   contractVersion: z.literal(CONTRACT_VERSION),
 });
 
+const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
+  appVersion: z.string().min(1),
+  contractVersion: z.literal(CONTRACT_VERSION),
+  database: z.object({
+    status: z.literal("ready"),
+    schemaVersion: z.number().int().nonnegative(),
+  }),
+  settings: z.object({
+    reportingTimezone: z.string().min(1),
+  }),
+  features: z.object({
+    usageOverview: z.boolean(),
+    collectorRefresh: z.boolean(),
+    budgets: z.boolean(),
+    settings: z.boolean(),
+  }),
+  sources: z.object({
+    status: z.literal("not_configured"),
+    detectedCount: z.number().int().nonnegative(),
+    configuredCount: z.number().int().nonnegative(),
+    enabledCount: z.number().int().nonnegative(),
+  }),
+  refresh: z.object({
+    status: z.literal("idle"),
+    currentJobId: z.string().min(1).nullable(),
+    lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
+  }),
+  onboardingComplete: z.boolean(),
+});
+
+const capabilitySchema = z.object({
+  supported: z.boolean(),
+  status: z.literal("not_implemented"),
+});
+
+const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
+  tray: capabilitySchema,
+  launchAtLogin: capabilitySchema,
+  nativeNotifications: capabilitySchema,
+  updates: capabilitySchema,
+  exportFormats: z.array(z.string().min(1)),
+  diagnostics: z.object({
+    desktopEvidence: z.boolean(),
+  }),
+});
+
 export interface CommandResult<TData> {
   data: TData;
   meta: ResponseMeta;
@@ -76,10 +126,10 @@ export async function invokeCommand<TCommand extends CommandName>(
   command: TCommand,
   request: CommandRequests[TCommand],
   invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<ContractProbeResponse>> {
+): Promise<CommandResult<unknown>> {
   try {
     const response = await invoker(command, request);
-    return unwrapResponse(response);
+    return unwrapResponse(validateUnknownResponse(response));
   } catch (error) {
     if (error instanceof BurnlyClientError) {
       throw error;
@@ -94,6 +144,22 @@ export async function getContractProbe(
 ): Promise<CommandResult<ContractProbeResponse>> {
   const response = await invoker(COMMAND_NAMES.contractProbe, {});
   const parsed = validateContractProbeResponse(response);
+  return unwrapResponse(parsed);
+}
+
+export async function getAppBootstrap(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<AppBootstrapResponse>> {
+  const response = await invokeAppGetBootstrap(invoker);
+  const parsed = validateBootstrapResponse(response);
+  return unwrapResponse(parsed);
+}
+
+export async function getAppCapabilities(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<AppCapabilitiesResponse>> {
+  const response = await invokeAppGetCapabilities(invoker);
+  const parsed = validateCapabilitiesResponse(response);
   return unwrapResponse(parsed);
 }
 
@@ -136,23 +202,66 @@ function unwrapResponse<TData>(
 }
 
 function validateContractProbeResponse(
-  response: IpcResponse<ContractProbeResponse>,
+  response: unknown,
 ): IpcResponse<ContractProbeResponse> {
-  const meta = responseMetaSchema.parse(response.meta);
+  return validateResponse(response, contractProbeDataSchema);
+}
 
-  if (!response.ok) {
-    const error = toIpcError(ipcErrorSchema.parse(response.error));
+function validateBootstrapResponse(
+  response: unknown,
+): IpcResponse<AppBootstrapResponse> {
+  return validateResponse(response, bootstrapDataSchema);
+}
+
+function validateCapabilitiesResponse(
+  response: unknown,
+): IpcResponse<AppCapabilitiesResponse> {
+  return validateResponse(response, capabilitiesDataSchema);
+}
+
+function validateUnknownResponse(response: unknown): IpcResponse<unknown> {
+  return validateResponse(response, z.unknown());
+}
+
+function validateResponse<TData>(
+  response: unknown,
+  dataSchema: z.ZodType<TData>,
+): IpcResponse<TData> {
+  const envelope = z
+    .object({
+      ok: z.boolean(),
+      meta: responseMetaSchema,
+    })
+    .parse(response);
+
+  if (!envelope.ok) {
+    const failure = z
+      .object({
+        ok: z.literal(false),
+        error: ipcErrorSchema,
+        meta: responseMetaSchema,
+      })
+      .parse(response);
+    const error = toIpcError(failure.error);
     return {
       ok: false,
       error,
-      meta,
+      meta: failure.meta,
     };
   }
 
+  const success = z
+    .object({
+      ok: z.literal(true),
+      data: dataSchema,
+      meta: responseMetaSchema,
+    })
+    .parse(response);
+
   return {
     ok: true,
-    data: contractProbeDataSchema.parse(response.data),
-    meta,
+    data: success.data,
+    meta: success.meta,
   };
 }
 

@@ -63,14 +63,14 @@ Phase 2C provides the verified typed frontend IPC boundary.
 ## Checklist
 
 - [x] Revalidate this plan against completed Phase 2C behavior.
-- [ ] Define application bootstrap and capability read models.
-- [ ] Add only the persistence reads required for persisted settings and health.
-- [ ] Define dedicated IPC DTOs and mappings.
-- [ ] Register both Tauri commands through the Phase 2B registry.
-- [ ] Add versioned event names and typed subscription registration.
-- [ ] Replace the placeholder React shell data with typed command results.
-- [ ] Add Rust command and frontend rendering tests.
-- [ ] Run `pnpm verify` and update the Phase 2 overview.
+- [x] Define application bootstrap and capability read models.
+- [x] Add only the persistence reads required for persisted settings and health.
+- [x] Define dedicated IPC DTOs and mappings.
+- [x] Register both Tauri commands through the Phase 2B registry.
+- [x] Add versioned event names and typed subscription registration.
+- [x] Replace the placeholder React shell data with typed command results.
+- [x] Add Rust command and frontend rendering tests.
+- [x] Run `pnpm verify` and update the Phase 2 overview.
 
 ## Test Plan
 
@@ -96,7 +96,7 @@ Phase 2C provides the verified typed frontend IPC boundary.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: active; implementation not started.
+- Outcome: passed on 2026-06-14.
 
 ## Runtime Evidence
 

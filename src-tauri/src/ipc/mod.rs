@@ -14,6 +14,12 @@ mod contract;
 )]
 mod response;
 
+pub(crate) use response::CONTRACT_VERSION;
+
 pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool {
-    tauri::generate_handler![commands::__burnly_contract_probe]
+    tauri::generate_handler![
+        commands::__burnly_contract_probe,
+        commands::app_get_bootstrap,
+        commands::app_get_capabilities
+    ]
 }

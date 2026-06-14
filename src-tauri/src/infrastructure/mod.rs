@@ -3,4 +3,5 @@
 //! Infrastructure implements application-owned contracts and keeps external
 //! representations inside the adapter that owns them.
 
+pub(crate) mod bootstrap_store;
 pub mod database;

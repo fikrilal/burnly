@@ -4,13 +4,15 @@
 //! modules receive constructed dependencies instead of constructing their own.
 
 use std::path::Path;
-use std::sync::Mutex;
 
 use iana_time_zone::GetTimezoneError;
 use tauri::{Manager, Runtime};
 use thiserror::Error;
 
+use crate::application::bootstrap::BootstrapService;
+use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::database::{Database, PersistenceError, PersistenceErrorKind};
+use crate::ipc::CONTRACT_VERSION;
 use crate::platform::{database_path, system_clock, system_timezone};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,7 +69,11 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
 
-    app.manage(Mutex::new(database));
+    app.manage(BootstrapService::new(
+        env!("CARGO_PKG_VERSION"),
+        CONTRACT_VERSION,
+        SqliteBootstrapStore::new(database),
+    ));
     Ok(())
 }
 

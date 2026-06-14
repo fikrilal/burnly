@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
 import {
+  getAppBootstrap,
+  getAppCapabilities,
   getContractProbe,
   invokeCommand,
   validateInt64String,
@@ -11,6 +13,7 @@ import {
   COMMAND_NAMES,
   CONTRACT_VERSION,
   type CommandInvoker,
+  type IpcResponse,
 } from "./generated/contracts";
 
 const meta = {
@@ -21,15 +24,7 @@ const meta = {
 
 describe("IPC command responses", () => {
   it("unwraps successful command envelopes with metadata", async () => {
-    const invoker: CommandInvoker = () =>
-      Promise.resolve({
-        ok: true,
-        data: {
-          status: "ok",
-          contractVersion: CONTRACT_VERSION,
-        },
-        meta,
-      });
+    const invoker: CommandInvoker = () => Promise.resolve(contractProbe());
 
     const result = await getContractProbe(invoker);
 
@@ -37,26 +32,28 @@ describe("IPC command responses", () => {
     expect(result.meta.requestId).toBe(meta.requestId);
   });
 
+  it("validates bootstrap data from the desktop runtime", async () => {
+    const invoker: CommandInvoker = () => Promise.resolve(bootstrap());
+
+    const result = await getAppBootstrap(invoker);
+
+    expect(result.data.database.status).toBe("ready");
+    expect(result.data.settings.reportingTimezone).toBe("Asia/Jakarta");
+    expect(result.data.sources.status).toBe("not_configured");
+  });
+
+  it("validates desktop capability data from the desktop runtime", async () => {
+    const invoker: CommandInvoker = () => Promise.resolve(capabilities());
+
+    const result = await getAppCapabilities(invoker);
+
+    expect(result.data.tray.status).toBe("not_implemented");
+    expect(result.data.exportFormats).toEqual([]);
+    expect(result.data.diagnostics.desktopEvidence).toBe(true);
+  });
+
   it("maps application error envelopes to typed client errors", async () => {
-    const invoker: CommandInvoker = () =>
-      Promise.resolve({
-        ok: false,
-        error: {
-          code: "validation.invalid_date_range",
-          message: "The selected date range is invalid.",
-          category: "validation",
-          retryable: false,
-          fieldErrors: [
-            {
-              field: "dateRange.startDate",
-              code: "validation.before_end_date",
-              message: "Start date must not be after end date.",
-            },
-          ],
-          details: null,
-        },
-        meta,
-      });
+    const invoker: CommandInvoker = () => Promise.resolve(validationError());
 
     await expect(getContractProbe(invoker)).rejects.toMatchObject({
       kind: "application",
@@ -70,6 +67,99 @@ describe("IPC command responses", () => {
     });
   });
 });
+
+function contractProbe(): IpcResponse<{
+  status: "ok";
+  contractVersion: typeof CONTRACT_VERSION;
+}> {
+  return {
+    ok: true,
+    data: {
+      status: "ok",
+      contractVersion: CONTRACT_VERSION,
+    },
+    meta,
+  };
+}
+
+function bootstrap(): IpcResponse<unknown> {
+  return {
+    ok: true,
+    data: {
+      appVersion: "0.1.0",
+      contractVersion: CONTRACT_VERSION,
+      database: {
+        status: "ready",
+        schemaVersion: 1,
+      },
+      settings: {
+        reportingTimezone: "Asia/Jakarta",
+      },
+      features: {
+        usageOverview: false,
+        collectorRefresh: false,
+        budgets: false,
+        settings: false,
+      },
+      sources: {
+        status: "not_configured",
+        detectedCount: 0,
+        configuredCount: 0,
+        enabledCount: 0,
+      },
+      refresh: {
+        status: "idle",
+        currentJobId: null,
+        lastSuccessfulRefreshAt: null,
+      },
+      onboardingComplete: false,
+    },
+    meta,
+  };
+}
+
+function capabilities(): IpcResponse<unknown> {
+  const capability = {
+    supported: false,
+    status: "not_implemented",
+  } as const;
+
+  return {
+    ok: true,
+    data: {
+      tray: capability,
+      launchAtLogin: capability,
+      nativeNotifications: capability,
+      updates: capability,
+      exportFormats: [],
+      diagnostics: {
+        desktopEvidence: true,
+      },
+    },
+    meta,
+  };
+}
+
+function validationError(): IpcResponse<unknown> {
+  return {
+    ok: false,
+    error: {
+      code: "validation.invalid_date_range",
+      message: "The selected date range is invalid.",
+      category: "validation",
+      retryable: false,
+      fieldErrors: [
+        {
+          field: "dateRange.startDate",
+          code: "validation.before_end_date",
+          message: "Start date must not be after end date.",
+        },
+      ],
+      details: null,
+    },
+    meta,
+  };
+}
 
 describe("IPC transport and validation failures", () => {
   it("maps invocation rejection to a synthetic transport error", async () => {

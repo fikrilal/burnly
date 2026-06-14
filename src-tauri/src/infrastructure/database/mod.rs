@@ -93,6 +93,22 @@ impl Database {
 
         Ok(())
     }
+
+    pub fn reporting_timezone(&self) -> Result<String, PersistenceError> {
+        self.connection
+            .query_row(
+                "SELECT reporting_timezone FROM app_settings WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|source| PersistenceError::read("app_settings.reporting_timezone", source))
+    }
+
+    pub fn schema_version(&self) -> Result<i64, PersistenceError> {
+        self.connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(|source| PersistenceError::read("user_version", source))
+    }
 }
 
 fn ensure_parent_directory(path: &Path) -> Result<(), PersistenceError> {
@@ -231,6 +247,22 @@ mod tests {
             .expect_err("mismatched policy should fail");
 
         assert_eq!(error.kind(), error::PersistenceErrorKind::PolicyMismatch);
+    }
+
+    #[test]
+    fn reads_seeded_reporting_timezone_and_schema_version() {
+        let mut test_database = TestDatabase::open();
+        let database = test_database.database_mut();
+        database.migrate_to_latest().expect("migrate database");
+        database
+            .ensure_app_settings("Asia/Jakarta", 100)
+            .expect("seed settings");
+
+        assert_eq!(
+            database.reporting_timezone().expect("timezone"),
+            "Asia/Jakarta"
+        );
+        assert_eq!(database.schema_version().expect("schema version"), 1);
     }
 
     fn pragma_i64(connection: &Connection, name: &str) -> i64 {

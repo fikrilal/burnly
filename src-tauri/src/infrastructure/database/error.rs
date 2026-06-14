@@ -15,6 +15,7 @@ pub enum PersistenceErrorKind {
     Migration,
     HealthCheck,
     Seed,
+    Read,
 }
 
 #[derive(Debug, Error)]
@@ -65,6 +66,13 @@ pub enum PersistenceError {
 
     #[error("failed to initialize application settings")]
     Seed(#[source] SqliteError),
+
+    #[error("failed to read database value: {operation}")]
+    Read {
+        operation: &'static str,
+        #[source]
+        source: SqliteError,
+    },
 }
 
 impl PersistenceError {
@@ -80,6 +88,7 @@ impl PersistenceError {
                 PersistenceErrorKind::HealthCheck
             }
             Self::Seed(_) => PersistenceErrorKind::Seed,
+            Self::Read { .. } => PersistenceErrorKind::Read,
         }
     }
 
@@ -124,5 +133,9 @@ impl PersistenceError {
 
     pub(super) fn seed(source: SqliteError) -> Self {
         Self::Seed(source)
+    }
+
+    pub(super) fn read(operation: &'static str, source: SqliteError) -> Self {
+        Self::Read { operation, source }
     }
 }
