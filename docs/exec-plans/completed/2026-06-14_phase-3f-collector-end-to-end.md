@@ -60,14 +60,14 @@ Phase 3E provides validated canonical mapping for decoded Claude daily rows.
 
 ## Checklist
 
-- [ ] Implement the concrete `ccusage` collector adapter.
-- [ ] Wire profile lookup, sidecar verification, command execution, decoding, and mapping.
-- [ ] Add fake-process end-to-end success and empty-output tests.
-- [ ] Add end-to-end tests for every structured failure family.
-- [ ] Prove diagnostics are bounded and redacted.
-- [ ] Add an opt-in real-sidecar smoke test and documented invocation.
-- [ ] Run clean contract, fixture, architecture, and full verification gates.
-- [ ] Complete and archive the Phase 3 overview.
+- [x] Implement the concrete `ccusage` collector adapter.
+- [x] Wire profile lookup, sidecar verification, command execution, decoding, and mapping.
+- [x] Add fake-process end-to-end success and empty-output tests.
+- [x] Add end-to-end tests for every structured failure family.
+- [x] Prove diagnostics are bounded and redacted.
+- [x] Add an opt-in real-sidecar smoke test and documented invocation.
+- [x] Run clean contract, fixture, architecture, and full verification gates.
+- [x] Complete and archive the Phase 3 overview.
 
 ## Test Plan
 
@@ -85,15 +85,31 @@ Phase 3E provides validated canonical mapping for decoded Claude daily rows.
 
 - Phase 3 is complete when canonical candidates are returned in memory.
 - Phase 4 exclusively owns import records, reconciliation, and SQLite writes.
+- The fake-process adapter tests own end-to-end behavior evidence; the real
+  sidecar test is ignored by default and requires an explicit
+  `BURNLY_CCUSAGE_DEV_BINARY`.
+- The small duplicate test cancellation helper reported by `jscpd` remains
+  local to each test module because extracting it would couple independent
+  infrastructure tests without simplifying production code.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: active; not run yet.
+- Outcome: passed on 2026-06-14.
+- Rust test evidence: 86 passed, 1 ignored opt-in smoke test.
+- JavaScript test evidence: 16 passed.
+- Harness evidence: architecture, public API, contracts, migrations, collector
+  fixtures, and duplication report completed.
 
 ## Runtime Evidence
 
-- Required through fake-process integration and the opt-in real-sidecar smoke test.
+- Fake-process integration covers success, empty output, unsupported requests,
+  binary failures, version mismatch, process exits, UTF-8 failures, JSON failures,
+  envelope incompatibility, output limits, timeout, and cancellation.
+- Opt-in real-sidecar smoke command:
+  `BURNLY_CCUSAGE_DEV_BINARY=/path/to/ccusage cargo test --manifest-path src-tauri/Cargo.toml smoke_tests_opt_in_real_sidecar_shape -- --ignored`
+- The real-sidecar smoke test was not run during this chunk because no executable
+  `ccusage` binary was present under `/home/fikrilal/devs/personal/ccusage`.
 
 ## Follow-Up Debt
 

@@ -84,7 +84,7 @@ impl ProcessLimits {
     }
 
     #[cfg(test)]
-    const fn test(timeout: Duration, stdout_bytes: usize, stderr_bytes: usize) -> Self {
+    pub(crate) const fn test(timeout: Duration, stdout_bytes: usize, stderr_bytes: usize) -> Self {
         Self {
             timeout,
             stdout_bytes,

@@ -13,6 +13,7 @@ use super::{
     process::{execute, ProcessLimits},
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SidecarLocation {
     PackagedResourceDirectory(PathBuf),
     DevelopmentBinary(PathBuf),

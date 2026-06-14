@@ -74,6 +74,10 @@ impl CollectionResult {
     pub(crate) fn daily_candidates(&self) -> &[DailyUsageCandidate] {
         &self.daily_candidates
     }
+
+    pub(crate) const fn process_summary(&self) -> &ProcessSummary {
+        &self.process_summary
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

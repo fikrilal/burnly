@@ -1,8 +1,9 @@
 #![expect(
     dead_code,
-    reason = "Phase 3B metadata is consumed by sidecar execution starting in Phase 3C"
+    reason = "ccusage collector modules are composed by later refresh orchestration"
 )]
 
+mod adapter;
 mod capability_profiles;
 mod command;
 mod envelopes;
@@ -11,3 +12,9 @@ mod mapper;
 mod process;
 mod sidecar;
 mod source_registry;
+
+#[allow(
+    unused_imports,
+    reason = "Concrete collector is wired by later application composition"
+)]
+pub(crate) use adapter::CcusageCollector;

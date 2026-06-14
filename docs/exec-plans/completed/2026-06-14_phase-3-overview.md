@@ -39,7 +39,7 @@ This phase introduces execution of an external binary and trust-boundary parsing
 | Phase 3C: Sidecar process boundary         | Completed | Phase 3B   | [Plan](../completed/2026-06-14_phase-3c-sidecar-process-boundary.md) |
 | Phase 3D: Claude daily decoder             | Completed | Phase 3C   | [Plan](../completed/2026-06-14_phase-3d-claude-daily-decoder.md)     |
 | Phase 3E: Canonical daily mapping          | Completed | Phase 3D   | [Plan](../completed/2026-06-14_phase-3e-canonical-daily-mapping.md)  |
-| Phase 3F: End-to-end collector composition | Active    | Phase 3E   | [Plan](./2026-06-14_phase-3f-collector-end-to-end.md)                |
+| Phase 3F: End-to-end collector composition | Completed | Phase 3E   | [Plan](./2026-06-14_phase-3f-collector-end-to-end.md)                |
 
 ## Dependency Rules
 
@@ -84,8 +84,8 @@ This phase introduces execution of an external binary and trust-boundary parsing
 - [x] Phase 3C completed and verified.
 - [x] Phase 3D completed and verified.
 - [x] Phase 3E completed and verified.
-- [ ] Phase 3F completed and verified.
-- [ ] Phase-level exit criteria verified.
+- [x] Phase 3F completed and verified.
+- [x] Phase-level exit criteria verified.
 
 ## Decisions
 
@@ -101,11 +101,15 @@ This phase introduces execution of an external binary and trust-boundary parsing
 - Phase 3C verification: `pnpm verify` passed on 2026-06-14.
 - Phase 3D verification: `pnpm verify` passed on 2026-06-14.
 - Phase 3E verification: `pnpm verify` passed on 2026-06-14.
+- Phase 3F verification: `pnpm verify` passed on 2026-06-14.
+- Phase-level verification: `pnpm verify` passed on 2026-06-14.
 
 ## Runtime Evidence
 
-- Required in Phase 3F through fake-process integration and an opt-in real-sidecar
-  smoke test.
+- Phase 3F fake-process integration covers the complete in-memory collector path.
+- The real-sidecar smoke test is checked in as an ignored opt-in test requiring
+  `BURNLY_CCUSAGE_DEV_BINARY`; it was not run because no local built `ccusage`
+  binary was present.
 
 ## Follow-Up Debt
 
