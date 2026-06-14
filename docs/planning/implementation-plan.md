@@ -628,12 +628,12 @@ After approval, create the first small implementation plan for Phase 0 and the b
 
 ## References
 
-- [Burnly product definition](./product.md)
-- [Burnly technology stack](./tech-stack.md)
-- [Burnly data and ingestion design](./data-ingestion-design.md)
-- [Burnly application architecture](./application-architecture.md)
-- [Burnly project structure](./project-structure.md)
-- [Burnly SQLite database and migration design](./database-design.md)
-- [Burnly IPC and application contract design](./ipc-contract-design.md)
-- [Burnly collector adapter contract design](./collector-adapter-contract-design.md)
-- [Burnly harness engineering design](./harness-engineering-design.md)
+- [Burnly product definition](../product/product.md)
+- [Burnly technology stack](../engineering/tech-stack.md)
+- [Burnly data and ingestion design](../architecture/data-ingestion-design.md)
+- [Burnly application architecture](../architecture/application-architecture.md)
+- [Burnly project structure](../architecture/project-structure.md)
+- [Burnly SQLite database and migration design](../architecture/database-design.md)
+- [Burnly IPC and application contract design](../contracts/ipc-contract-design.md)
+- [Burnly collector adapter contract design](../contracts/collector-adapter-contract-design.md)
+- [Burnly harness engineering design](../engineering/harness-engineering-design.md)

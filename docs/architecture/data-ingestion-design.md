@@ -133,28 +133,28 @@ The following models describe the logical contract. They are not a final databas
 
 Every imported record carries:
 
-| Field | Meaning |
-| --- | --- |
-| `source` | Stable Burnly identifier for the coding tool |
-| `collector` | Collector used to obtain the data |
-| `collector_version` | Exact collector version |
-| `import_id` | Import operation that produced the record |
-| `observed_at` | UTC time when Burnly collected the record |
-| `source_key` | Deterministic identity within the source and projection |
-| `data_quality` | Completeness and reliability classification |
+| Field               | Meaning                                                 |
+| ------------------- | ------------------------------------------------------- |
+| `source`            | Stable Burnly identifier for the coding tool            |
+| `collector`         | Collector used to obtain the data                       |
+| `collector_version` | Exact collector version                                 |
+| `import_id`         | Import operation that produced the record               |
+| `observed_at`       | UTC time when Burnly collected the record               |
+| `source_key`        | Deterministic identity within the source and projection |
+| `data_quality`      | Completeness and reliability classification             |
 
 ### Token usage
 
 Token values are represented as non-negative integers.
 
-| Field | Meaning |
-| --- | --- |
-| `input_tokens` | Non-cached input tokens, when reported |
-| `output_tokens` | Output tokens, when reported |
-| `cache_creation_tokens` | Tokens used to create or write cache entries |
-| `cache_read_tokens` | Tokens read from cache |
-| `total_tokens` | Total reported by the collector |
-| `unclassified_tokens` | Difference between the reported total and classified components |
+| Field                   | Meaning                                                         |
+| ----------------------- | --------------------------------------------------------------- |
+| `input_tokens`          | Non-cached input tokens, when reported                          |
+| `output_tokens`         | Output tokens, when reported                                    |
+| `cache_creation_tokens` | Tokens used to create or write cache entries                    |
+| `cache_read_tokens`     | Tokens read from cache                                          |
+| `total_tokens`          | Total reported by the collector                                 |
+| `unclassified_tokens`   | Difference between the reported total and classified components |
 
 Unavailable values are `null`, not zero.
 
@@ -181,12 +181,12 @@ A positive `unclassified_tokens` value may include reasoning tokens or another p
 
 Cost is represented without floating-point storage.
 
-| Field | Meaning |
-| --- | --- |
-| `cost_amount_micros` | Monetary amount in millionths of the currency unit |
-| `cost_currency` | ISO 4217 currency code, initially `USD` |
-| `cost_kind` | How the value was obtained |
-| `cost_status` | Whether the value is available and trustworthy enough to display |
+| Field                | Meaning                                                          |
+| -------------------- | ---------------------------------------------------------------- |
+| `cost_amount_micros` | Monetary amount in millionths of the currency unit               |
+| `cost_currency`      | ISO 4217 currency code, initially `USD`                          |
+| `cost_kind`          | How the value was obtained                                       |
+| `cost_status`        | Whether the value is available and trustworthy enough to display |
 
 Proposed `cost_kind` values:
 
@@ -215,14 +215,14 @@ If collector-calculated cost is zero while token usage is positive, Burnly shoul
 
 One record represents usage attributed to a local calendar date.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `source` | Yes | Coding tool |
-| `usage_date` | Yes | Calendar date used by the collector |
-| `aggregation_timezone` | Yes | Timezone used to assign activity to the date |
-| `raw_model_id` | No | Source-reported model identifier |
-| Token fields | Partial | Usage totals for this grain |
-| Cost fields | No | Cost or estimate for this grain |
+| Field                  | Required | Meaning                                      |
+| ---------------------- | -------- | -------------------------------------------- |
+| `source`               | Yes      | Coding tool                                  |
+| `usage_date`           | Yes      | Calendar date used by the collector          |
+| `aggregation_timezone` | Yes      | Timezone used to assign activity to the date |
+| `raw_model_id`         | No       | Source-reported model identifier             |
+| Token fields           | Partial  | Usage totals for this grain                  |
+| Cost fields            | No       | Cost or estimate for this grain              |
 
 Proposed deterministic identity:
 
@@ -245,13 +245,13 @@ Daily records drive:
 
 One logical session stores source-level metadata shared by its model usage records.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `source` | Yes | Coding tool |
-| `source_session_id` | Yes | Full source-reported session identifier |
-| `first_activity_at` | No | Earliest known RFC 3339 activity timestamp |
-| `last_activity_at` | No | Latest known RFC 3339 activity timestamp |
-| `project_id` | No | Burnly-local project reference |
+| Field               | Required | Meaning                                    |
+| ------------------- | -------- | ------------------------------------------ |
+| `source`            | Yes      | Coding tool                                |
+| `source_session_id` | Yes      | Full source-reported session identifier    |
+| `first_activity_at` | No       | Earliest known RFC 3339 activity timestamp |
+| `last_activity_at`  | No       | Latest known RFC 3339 activity timestamp   |
+| `project_id`        | No       | Burnly-local project reference             |
 
 Proposed deterministic identity:
 
@@ -265,12 +265,12 @@ A session identifier must never be assumed globally unique without the source.
 
 One record represents a model's aggregate usage within a source-defined session.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `session_id` | Yes | Burnly-local session reference |
-| `raw_model_id` | No | Source-reported model identifier |
-| Token fields | Partial | Usage totals for this session and model |
-| Cost fields | No | Cost or estimate for this session and model |
+| Field          | Required | Meaning                                     |
+| -------------- | -------- | ------------------------------------------- |
+| `session_id`   | Yes      | Burnly-local session reference              |
+| `raw_model_id` | No       | Source-reported model identifier            |
+| Token fields   | Partial  | Usage totals for this session and model     |
+| Cost fields    | No       | Cost or estimate for this session and model |
 
 Proposed deterministic identity:
 
@@ -291,14 +291,14 @@ Session totals must not be used to produce the activity calendar because a multi
 
 Project data is local and sensitive.
 
-| Field | Meaning |
-| --- | --- |
-| `project_id` | Burnly-local stable identifier |
-| `source` | Coding tool that reported the project |
-| `raw_path` | Original local path, when available |
-| `display_name` | User-visible project name |
-| `path_fingerprint` | One-way local fingerprint for matching |
-| `identity_kind` | Whether identity came from a path, source key, label, or is unavailable |
+| Field              | Meaning                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| `project_id`       | Burnly-local stable identifier                                          |
+| `source`           | Coding tool that reported the project                                   |
+| `raw_path`         | Original local path, when available                                     |
+| `display_name`     | User-visible project name                                               |
+| `path_fingerprint` | One-way local fingerprint for matching                                  |
+| `identity_kind`    | Whether identity came from a path, source key, label, or is unavailable |
 
 Project identity should be based on a normalized path when a path is available. Burnly must preserve the original path for local display while using a stable fingerprint for matching.
 
@@ -310,19 +310,19 @@ The `ccusage` field named `projectPath` is not always a filesystem path. Several
 
 Each collection attempt creates an import record.
 
-| Field | Meaning |
-| --- | --- |
-| `import_id` | Unique Burnly import identifier |
-| `source` | Coding tool being collected |
-| `projection` | `daily` or `session` |
-| `collector_version` | Exact collector version |
-| `started_at` | UTC start time |
-| `finished_at` | UTC completion time |
-| `status` | Result of the import |
-| `records_seen` | Number of records accepted |
-| `records_rejected` | Number of invalid records |
-| `error_code` | Stable diagnostic code, when applicable |
-| `error_detail` | Local diagnostic detail |
+| Field               | Meaning                                 |
+| ------------------- | --------------------------------------- |
+| `import_id`         | Unique Burnly import identifier         |
+| `source`            | Coding tool being collected             |
+| `projection`        | `daily` or `session`                    |
+| `collector_version` | Exact collector version                 |
+| `started_at`        | UTC start time                          |
+| `finished_at`       | UTC completion time                     |
+| `status`            | Result of the import                    |
+| `records_seen`      | Number of records accepted              |
+| `records_rejected`  | Number of invalid records               |
+| `error_code`        | Stable diagnostic code, when applicable |
+| `error_detail`      | Local diagnostic detail                 |
 
 Proposed statuses:
 

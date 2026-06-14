@@ -56,12 +56,13 @@ Recommended documents:
 
 ```text
 docs/
-├── product.md
-├── tech-stack.md
-├── data-ingestion-design.md
-├── application-architecture.md
-├── project-structure.md
-└── database-design.md
+├── README.md
+├── product/
+├── architecture/
+├── contracts/
+├── engineering/
+├── planning/
+└── exec-plans/
 ```
 
 Architecture and data decisions should be updated deliberately rather than inferred from code after behavior changes.
@@ -798,18 +799,18 @@ Avoid aliases that obscure dependency direction or encourage arbitrary cross-mod
 
 ## Example Change Placement
 
-| Change | Primary location |
-| --- | --- |
-| Add an overview chart | `src/features/overview/` |
-| Add a shared button variant | `src/components/ui/` |
-| Add a new usage query | `src-tauri/src/application/usage/` |
-| Implement its SQL | `src-tauri/src/infrastructure/database/queries/` |
-| Expose it to React | `src-tauri/src/ipc/commands/` and `dto/` |
-| Add a `ccusage` source envelope | `src-tauri/src/infrastructure/collectors/ccusage/envelopes/` |
-| Add reconciliation behavior | `src-tauri/src/domain/` or `application/`, depending on external dependencies |
-| Add tray menu behavior | `src-tauri/src/platform/tray/` |
-| Add a schema migration | `src-tauri/migrations/` |
-| Add collector JSON fixtures | `tests/fixtures/collectors/ccusage/` |
+| Change                          | Primary location                                                              |
+| ------------------------------- | ----------------------------------------------------------------------------- |
+| Add an overview chart           | `src/features/overview/`                                                      |
+| Add a shared button variant     | `src/components/ui/`                                                          |
+| Add a new usage query           | `src-tauri/src/application/usage/`                                            |
+| Implement its SQL               | `src-tauri/src/infrastructure/database/queries/`                              |
+| Expose it to React              | `src-tauri/src/ipc/commands/` and `dto/`                                      |
+| Add a `ccusage` source envelope | `src-tauri/src/infrastructure/collectors/ccusage/envelopes/`                  |
+| Add reconciliation behavior     | `src-tauri/src/domain/` or `application/`, depending on external dependencies |
+| Add tray menu behavior          | `src-tauri/src/platform/tray/`                                                |
+| Add a schema migration          | `src-tauri/migrations/`                                                       |
+| Add collector JSON fixtures     | `tests/fixtures/collectors/ccusage/`                                          |
 
 ## Architectural Invariants Preserved
 
@@ -847,6 +848,6 @@ Create only the directories required by the first implementation slice. Preserve
 
 - [Burnly application architecture](./application-architecture.md)
 - [Burnly data and ingestion design](./data-ingestion-design.md)
-- [Burnly technology stack](./tech-stack.md)
+- [Burnly technology stack](../engineering/tech-stack.md)
 - [Tauri project structure](https://v2.tauri.app/start/project-structure/)
 - [Tauri external binaries and sidecars](https://v2.tauri.app/develop/sidecar/)

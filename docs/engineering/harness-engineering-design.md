@@ -61,23 +61,29 @@ Burnly should evolve from a flat `docs/` folder into an indexed knowledge base:
 ```text
 docs/
 ├── README.md
-├── product.md
-├── tech-stack.md
-├── data-ingestion-design.md
-├── application-architecture.md
-├── project-structure.md
-├── database-design.md
-├── ipc-contract-design.md
-├── collector-adapter-contract-design.md
-├── harness-engineering-design.md
-├── implementation-plan.md
+├── product/
+│   └── product.md
+├── architecture/
+│   ├── data-ingestion-design.md
+│   ├── application-architecture.md
+│   ├── project-structure.md
+│   └── database-design.md
+├── contracts/
+│   ├── ipc-contract-design.md
+│   └── collector-adapter-contract-design.md
 ├── engineering/
+│   ├── tech-stack.md
+│   ├── harness-engineering-design.md
 │   ├── agent-pr-loop.md
 │   ├── guardrails.md
+│   ├── design-principles.md
+│   ├── testing-strategy.md
 │   ├── desktop-runtime-evidence.md
 │   ├── duplication-harness.md
 │   ├── architecture-boundaries.md
 │   └── parallel-agent-workflow.md
+├── planning/
+│   └── implementation-plan.md
 └── exec-plans/
     ├── README.md
     ├── _template.md
@@ -523,8 +529,8 @@ After approval, update the implementation roadmap and make the first small imple
 - [Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/)
 - Local reference: `/home/fikrilal/devs/core/mobile-core-kit`
 - Local reference: `/home/fikrilal/devs/core/backend-core-kit`
-- [Burnly application architecture](./application-architecture.md)
-- [Burnly project structure](./project-structure.md)
-- [Burnly IPC and application contract design](./ipc-contract-design.md)
-- [Burnly collector adapter contract design](./collector-adapter-contract-design.md)
-- [Burnly big-picture implementation plan](./implementation-plan.md)
+- [Burnly application architecture](../architecture/application-architecture.md)
+- [Burnly project structure](../architecture/project-structure.md)
+- [Burnly IPC and application contract design](../contracts/ipc-contract-design.md)
+- [Burnly collector adapter contract design](../contracts/collector-adapter-contract-design.md)
+- [Burnly big-picture implementation plan](../planning/implementation-plan.md)

@@ -270,18 +270,18 @@ app_settings
 
 Stores stable Burnly source identities and local detection state.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `source_key` | TEXT | No | Stable identity such as `claude-code` |
-| `display_name` | TEXT | No | User-visible source name |
-| `enabled` | INTEGER | No | User-controlled collection state |
-| `detection_state` | TEXT | No | `unknown`, `available`, `not_found`, `permission_denied`, or `unsupported` |
-| `first_detected_at_ms` | INTEGER | Yes | First successful detection |
-| `last_checked_at_ms` | INTEGER | Yes | Most recent detection attempt |
-| `last_available_at_ms` | INTEGER | Yes | Most recent successful detection |
-| `created_at_ms` | INTEGER | No | Creation time |
-| `updated_at_ms` | INTEGER | No | Last update |
+| Column                 | Type    | Null | Notes                                                                      |
+| ---------------------- | ------- | ---- | -------------------------------------------------------------------------- |
+| `id`                   | INTEGER | No   | Primary key                                                                |
+| `source_key`           | TEXT    | No   | Stable identity such as `claude-code`                                      |
+| `display_name`         | TEXT    | No   | User-visible source name                                                   |
+| `enabled`              | INTEGER | No   | User-controlled collection state                                           |
+| `detection_state`      | TEXT    | No   | `unknown`, `available`, `not_found`, `permission_denied`, or `unsupported` |
+| `first_detected_at_ms` | INTEGER | Yes  | First successful detection                                                 |
+| `last_checked_at_ms`   | INTEGER | Yes  | Most recent detection attempt                                              |
+| `last_available_at_ms` | INTEGER | Yes  | Most recent successful detection                                           |
+| `created_at_ms`        | INTEGER | No   | Creation time                                                              |
+| `updated_at_ms`        | INTEGER | No   | Last update                                                                |
 
 Constraints:
 
@@ -296,15 +296,15 @@ Source capability profiles remain code-owned and versioned with the collector ad
 
 Stores real source-reported model identifiers.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `source_id` | INTEGER | No | References `sources` |
-| `raw_model_id` | TEXT | No | Exact source-reported identifier |
-| `display_name` | TEXT | Yes | Optional Burnly display override |
-| `provider_key` | TEXT | Yes | Optional normalized provider |
-| `first_seen_at_ms` | INTEGER | No | First observation |
-| `last_seen_at_ms` | INTEGER | No | Latest observation |
+| Column             | Type    | Null | Notes                            |
+| ------------------ | ------- | ---- | -------------------------------- |
+| `id`               | INTEGER | No   | Primary key                      |
+| `source_id`        | INTEGER | No   | References `sources`             |
+| `raw_model_id`     | TEXT    | No   | Exact source-reported identifier |
+| `display_name`     | TEXT    | Yes  | Optional Burnly display override |
+| `provider_key`     | TEXT    | Yes  | Optional normalized provider     |
+| `first_seen_at_ms` | INTEGER | No   | First observation                |
+| `last_seen_at_ms`  | INTEGER | No   | Latest observation               |
 
 Constraints:
 
@@ -319,17 +319,17 @@ Unknown models are represented by a `NULL model_id` in usage breakdown tables. B
 
 Stores source-specific project metadata when a capability profile marks it as meaningful.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `source_id` | INTEGER | No | References `sources` |
-| `identity_key` | TEXT | No | Deterministic source-specific identity |
-| `identity_kind` | TEXT | No | `path`, `source_key`, or `label` |
-| `raw_path` | TEXT | Yes | Sensitive local path |
-| `path_fingerprint` | BLOB | Yes | Stable local matching fingerprint |
-| `display_name` | TEXT | Yes | User-visible project name |
-| `first_seen_at_ms` | INTEGER | No | First observation |
-| `last_seen_at_ms` | INTEGER | No | Latest observation |
+| Column             | Type    | Null | Notes                                  |
+| ------------------ | ------- | ---- | -------------------------------------- |
+| `id`               | INTEGER | No   | Primary key                            |
+| `source_id`        | INTEGER | No   | References `sources`                   |
+| `identity_key`     | TEXT    | No   | Deterministic source-specific identity |
+| `identity_kind`    | TEXT    | No   | `path`, `source_key`, or `label`       |
+| `raw_path`         | TEXT    | Yes  | Sensitive local path                   |
+| `path_fingerprint` | BLOB    | Yes  | Stable local matching fingerprint      |
+| `display_name`     | TEXT    | Yes  | User-visible project name              |
+| `first_seen_at_ms` | INTEGER | No   | First observation                      |
+| `last_seen_at_ms`  | INTEGER | No   | Latest observation                     |
 
 Constraints:
 
@@ -348,18 +348,18 @@ Deleting or disabling raw-path retention sets `raw_path` to `NULL`; usage record
 
 Stores one user-visible refresh operation spanning one or more source/projection imports.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `job_key` | TEXT | No | Stable refresh identifier used by events |
-| `trigger` | TEXT | No | `launch`, `manual`, `scheduled`, `file_change`, `resume`, or `reconcile` |
-| `status` | TEXT | No | `queued`, `running`, `cancelling`, `succeeded`, `partial`, `failed`, or `cancelled` |
-| `started_at_ms` | INTEGER | Yes | Start time |
-| `finished_at_ms` | INTEGER | Yes | Terminal time |
-| `requested_by_app_version` | TEXT | No | Burnly version |
-| `error_code` | TEXT | Yes | Stable redacted summary code |
-| `error_summary` | TEXT | Yes | User-safe local summary |
-| `created_at_ms` | INTEGER | No | Queue time |
+| Column                     | Type    | Null | Notes                                                                               |
+| -------------------------- | ------- | ---- | ----------------------------------------------------------------------------------- |
+| `id`                       | INTEGER | No   | Primary key                                                                         |
+| `job_key`                  | TEXT    | No   | Stable refresh identifier used by events                                            |
+| `trigger`                  | TEXT    | No   | `launch`, `manual`, `scheduled`, `file_change`, `resume`, or `reconcile`            |
+| `status`                   | TEXT    | No   | `queued`, `running`, `cancelling`, `succeeded`, `partial`, `failed`, or `cancelled` |
+| `started_at_ms`            | INTEGER | Yes  | Start time                                                                          |
+| `finished_at_ms`           | INTEGER | Yes  | Terminal time                                                                       |
+| `requested_by_app_version` | TEXT    | No   | Burnly version                                                                      |
+| `error_code`               | TEXT    | Yes  | Stable redacted summary code                                                        |
+| `error_summary`            | TEXT    | Yes  | User-safe local summary                                                             |
+| `created_at_ms`            | INTEGER | No   | Queue time                                                                          |
 
 Constraints:
 
@@ -374,26 +374,26 @@ Refresh progress remains in memory while running. The table stores durable lifec
 
 Stores one collection attempt for one source and one projection.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `refresh_run_id` | INTEGER | No | References `refresh_runs` |
-| `source_id` | INTEGER | No | References `sources` |
-| `collector_key` | TEXT | No | Collector identity |
-| `collector_version` | TEXT | No | Exact collector version |
-| `profile_version` | INTEGER | No | Burnly capability-profile version |
-| `projection` | TEXT | No | `daily` or `session` |
-| `scope_kind` | TEXT | No | `full` or `incremental` |
-| `scope_start_date` | TEXT | Yes | Inclusive daily/activity scope |
-| `scope_end_date` | TEXT | Yes | Inclusive daily/activity scope |
-| `aggregation_timezone` | TEXT | Yes | Required for daily imports |
-| `status` | TEXT | No | `running`, `succeeded`, `partial`, `failed`, or `cancelled` |
-| `records_seen` | INTEGER | No | Accepted aggregate records |
-| `records_rejected` | INTEGER | No | Rejected records |
-| `started_at_ms` | INTEGER | No | Start time |
-| `finished_at_ms` | INTEGER | Yes | Terminal time |
-| `error_code` | TEXT | Yes | Stable failure code |
-| `error_detail` | TEXT | Yes | Redacted local detail |
+| Column                 | Type    | Null | Notes                                                       |
+| ---------------------- | ------- | ---- | ----------------------------------------------------------- |
+| `id`                   | INTEGER | No   | Primary key                                                 |
+| `refresh_run_id`       | INTEGER | No   | References `refresh_runs`                                   |
+| `source_id`            | INTEGER | No   | References `sources`                                        |
+| `collector_key`        | TEXT    | No   | Collector identity                                          |
+| `collector_version`    | TEXT    | No   | Exact collector version                                     |
+| `profile_version`      | INTEGER | No   | Burnly capability-profile version                           |
+| `projection`           | TEXT    | No   | `daily` or `session`                                        |
+| `scope_kind`           | TEXT    | No   | `full` or `incremental`                                     |
+| `scope_start_date`     | TEXT    | Yes  | Inclusive daily/activity scope                              |
+| `scope_end_date`       | TEXT    | Yes  | Inclusive daily/activity scope                              |
+| `aggregation_timezone` | TEXT    | Yes  | Required for daily imports                                  |
+| `status`               | TEXT    | No   | `running`, `succeeded`, `partial`, `failed`, or `cancelled` |
+| `records_seen`         | INTEGER | No   | Accepted aggregate records                                  |
+| `records_rejected`     | INTEGER | No   | Rejected records                                            |
+| `started_at_ms`        | INTEGER | No   | Start time                                                  |
+| `finished_at_ms`       | INTEGER | Yes  | Terminal time                                               |
+| `error_code`           | TEXT    | Yes  | Stable failure code                                         |
+| `error_detail`         | TEXT    | Yes  | Redacted local detail                                       |
 
 Constraints:
 
@@ -415,16 +415,16 @@ Constraints:
 
 Authoritative aggregate tables contain:
 
-| Column | Meaning |
-| --- | --- |
-| `source_key` | Deterministic record identity |
-| `identity_version` | Version of Burnly's identity algorithm |
-| `record_state` | `active`, `missing`, or `removed` |
-| `absence_count` | Consecutive successful full reconciliations where absent |
-| `first_seen_at_ms` | First import observation |
-| `last_seen_at_ms` | Latest import observation |
-| `removed_at_ms` | Time transitioned to removed |
-| `latest_import_id` | Import that last changed the record |
+| Column             | Meaning                                                  |
+| ------------------ | -------------------------------------------------------- |
+| `source_key`       | Deterministic record identity                            |
+| `identity_version` | Version of Burnly's identity algorithm                   |
+| `record_state`     | `active`, `missing`, or `removed`                        |
+| `absence_count`    | Consecutive successful full reconciliations where absent |
+| `first_seen_at_ms` | First import observation                                 |
+| `last_seen_at_ms`  | Latest import observation                                |
+| `removed_at_ms`    | Time transitioned to removed                             |
+| `latest_import_id` | Import that last changed the record                      |
 
 Constraints:
 
@@ -460,17 +460,17 @@ The database does not recompute `unclassified_tokens` with a generated column be
 
 Stores authoritative totals at the supported daily grain.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `source_id` | INTEGER | No | References `sources` |
-| `source_key` | TEXT | No | Deterministic daily identity |
-| `identity_version` | INTEGER | No | Identity algorithm version |
-| `usage_date` | TEXT | No | Local `YYYY-MM-DD` date |
-| `aggregation_timezone` | TEXT | No | IANA timezone |
-| `project_id` | INTEGER | Yes | Optional supported project grain |
-| Shared metrics |  |  | Authoritative totals |
-| Shared lifecycle |  |  | Reconciliation state |
+| Column                 | Type    | Null | Notes                            |
+| ---------------------- | ------- | ---- | -------------------------------- |
+| `id`                   | INTEGER | No   | Primary key                      |
+| `source_id`            | INTEGER | No   | References `sources`             |
+| `source_key`           | TEXT    | No   | Deterministic daily identity     |
+| `identity_version`     | INTEGER | No   | Identity algorithm version       |
+| `usage_date`           | TEXT    | No   | Local `YYYY-MM-DD` date          |
+| `aggregation_timezone` | TEXT    | No   | IANA timezone                    |
+| `project_id`           | INTEGER | Yes  | Optional supported project grain |
+| Shared metrics         |         |      | Authoritative totals             |
+| Shared lifecycle       |         |      | Reconciliation state             |
 
 Constraints:
 
@@ -489,17 +489,17 @@ When a source gains reliable project grouping, Burnly increments the identity ve
 
 Stores optional model attribution for one authoritative daily aggregate.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `daily_usage_id` | INTEGER | No | References `daily_usage` |
-| `source_id` | INTEGER | No | Redundant source key for integrity |
-| `model_id` | INTEGER | Yes | References `source_models` |
-| Token component columns | INTEGER | Yes | Model-attributed components |
-| `cost_amount_micros` | INTEGER | Yes | Model-attributed estimate |
-| `cost_currency` | TEXT | Yes | Currency when cost exists |
-| `cost_status` | TEXT | No | `estimated` or `unavailable` initially |
-| `latest_import_id` | INTEGER | No | Import supplying the breakdown |
+| Column                  | Type    | Null | Notes                                  |
+| ----------------------- | ------- | ---- | -------------------------------------- |
+| `id`                    | INTEGER | No   | Primary key                            |
+| `daily_usage_id`        | INTEGER | No   | References `daily_usage`               |
+| `source_id`             | INTEGER | No   | Redundant source key for integrity     |
+| `model_id`              | INTEGER | Yes  | References `source_models`             |
+| Token component columns | INTEGER | Yes  | Model-attributed components            |
+| `cost_amount_micros`    | INTEGER | Yes  | Model-attributed estimate              |
+| `cost_currency`         | TEXT    | Yes  | Currency when cost exists              |
+| `cost_status`           | TEXT    | No   | `estimated` or `unavailable` initially |
+| `latest_import_id`      | INTEGER | No   | Import supplying the breakdown         |
 
 Constraints:
 
@@ -516,18 +516,18 @@ The repository replaces all breakdown rows for an affected daily aggregate insid
 
 Stores authoritative source-defined session totals and metadata.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `source_id` | INTEGER | No | References `sources` |
-| `source_key` | TEXT | No | Deterministic Burnly identity |
-| `identity_version` | INTEGER | No | Identity algorithm version |
-| `source_session_id` | TEXT | No | Full source-reported identifier |
-| `project_id` | INTEGER | Yes | Optional project |
-| `first_activity_at_ms` | INTEGER | Yes | Earliest known activity |
-| `last_activity_at_ms` | INTEGER | Yes | Latest known activity |
-| Shared metrics |  |  | Authoritative session totals |
-| Shared lifecycle |  |  | Reconciliation state |
+| Column                 | Type    | Null | Notes                           |
+| ---------------------- | ------- | ---- | ------------------------------- |
+| `id`                   | INTEGER | No   | Primary key                     |
+| `source_id`            | INTEGER | No   | References `sources`            |
+| `source_key`           | TEXT    | No   | Deterministic Burnly identity   |
+| `identity_version`     | INTEGER | No   | Identity algorithm version      |
+| `source_session_id`    | TEXT    | No   | Full source-reported identifier |
+| `project_id`           | INTEGER | Yes  | Optional project                |
+| `first_activity_at_ms` | INTEGER | Yes  | Earliest known activity         |
+| `last_activity_at_ms`  | INTEGER | Yes  | Latest known activity           |
+| Shared metrics         |         |      | Authoritative session totals    |
+| Shared lifecycle       |         |      | Reconciliation state            |
 
 Constraints:
 
@@ -558,18 +558,18 @@ Imported usage can be rebuilt from local source logs. The following tables conta
 
 Stores one typed settings row.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Fixed value `1` |
-| `reporting_timezone` | TEXT | No | IANA timezone |
-| `background_refresh_enabled` | INTEGER | No | Boolean |
-| `refresh_interval_minutes` | INTEGER | No | Positive bounded value |
-| `launch_at_login` | INTEGER | No | Boolean |
-| `close_behavior` | TEXT | No | `hide` or `quit` |
-| `notifications_enabled` | INTEGER | No | Boolean |
-| `store_project_paths` | INTEGER | No | Boolean |
-| `created_at_ms` | INTEGER | No | Creation time |
-| `updated_at_ms` | INTEGER | No | Last update |
+| Column                       | Type    | Null | Notes                  |
+| ---------------------------- | ------- | ---- | ---------------------- |
+| `id`                         | INTEGER | No   | Fixed value `1`        |
+| `reporting_timezone`         | TEXT    | No   | IANA timezone          |
+| `background_refresh_enabled` | INTEGER | No   | Boolean                |
+| `refresh_interval_minutes`   | INTEGER | No   | Positive bounded value |
+| `launch_at_login`            | INTEGER | No   | Boolean                |
+| `close_behavior`             | TEXT    | No   | `hide` or `quit`       |
+| `notifications_enabled`      | INTEGER | No   | Boolean                |
+| `store_project_paths`        | INTEGER | No   | Boolean                |
+| `created_at_ms`              | INTEGER | No   | Creation time          |
+| `updated_at_ms`              | INTEGER | No   | Last update            |
 
 Constraints:
 
@@ -587,18 +587,18 @@ Purely presentational preferences may remain frontend-local until durability is 
 
 Stores user-defined budget rules.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | INTEGER | No | Primary key |
-| `name` | TEXT | No | User-visible label |
-| `metric` | TEXT | No | `tokens` or `cost` |
-| `period` | TEXT | No | `daily`, `weekly`, or `monthly` |
-| `limit_value` | INTEGER | No | Tokens or money micros |
-| `currency` | TEXT | Yes | Required only for cost |
-| `source_id` | INTEGER | Yes | Optional source-specific budget |
-| `enabled` | INTEGER | No | Boolean |
-| `created_at_ms` | INTEGER | No | Creation time |
-| `updated_at_ms` | INTEGER | No | Last update |
+| Column          | Type    | Null | Notes                           |
+| --------------- | ------- | ---- | ------------------------------- |
+| `id`            | INTEGER | No   | Primary key                     |
+| `name`          | TEXT    | No   | User-visible label              |
+| `metric`        | TEXT    | No   | `tokens` or `cost`              |
+| `period`        | TEXT    | No   | `daily`, `weekly`, or `monthly` |
+| `limit_value`   | INTEGER | No   | Tokens or money micros          |
+| `currency`      | TEXT    | Yes  | Required only for cost          |
+| `source_id`     | INTEGER | Yes  | Optional source-specific budget |
+| `enabled`       | INTEGER | No   | Boolean                         |
+| `created_at_ms` | INTEGER | No   | Creation time                   |
+| `updated_at_ms` | INTEGER | No   | Last update                     |
 
 Constraints:
 
@@ -613,11 +613,11 @@ The first release supports global or source-specific budgets. Model-specific and
 
 Stores warning thresholds for a budget.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `budget_id` | INTEGER | No | References `budgets` |
-| `threshold_bps` | INTEGER | No | Basis points, where 10,000 equals 100% |
-| `enabled` | INTEGER | No | Boolean |
+| Column          | Type    | Null | Notes                                  |
+| --------------- | ------- | ---- | -------------------------------------- |
+| `budget_id`     | INTEGER | No   | References `budgets`                   |
+| `threshold_bps` | INTEGER | No   | Basis points, where 10,000 equals 100% |
+| `enabled`       | INTEGER | No   | Boolean                                |
 
 Primary key:
 
@@ -637,15 +637,15 @@ Using basis points avoids floating-point comparisons and supports values such as
 
 Prevents repeated notifications for the same budget threshold and period.
 
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `budget_id` | INTEGER | No | References `budgets` |
-| `period_start_date` | TEXT | No | Period identity in reporting timezone |
-| `aggregation_timezone` | TEXT | No | Timezone used for evaluation |
-| `threshold_bps` | INTEGER | No | Triggered threshold |
-| `observed_value` | INTEGER | No | Tokens or micros at notification |
-| `notified_at_ms` | INTEGER | No | Delivery decision time |
-| `delivery_status` | TEXT | No | `delivered`, `failed`, or `suppressed` |
+| Column                 | Type    | Null | Notes                                  |
+| ---------------------- | ------- | ---- | -------------------------------------- |
+| `budget_id`            | INTEGER | No   | References `budgets`                   |
+| `period_start_date`    | TEXT    | No   | Period identity in reporting timezone  |
+| `aggregation_timezone` | TEXT    | No   | Timezone used for evaluation           |
+| `threshold_bps`        | INTEGER | No   | Triggered threshold                    |
+| `observed_value`       | INTEGER | No   | Tokens or micros at notification       |
+| `notified_at_ms`       | INTEGER | No   | Delivery decision time                 |
+| `delivery_status`      | TEXT    | No   | `delivered`, `failed`, or `suppressed` |
 
 Primary key:
 
@@ -666,14 +666,14 @@ Notification delivery failure does not roll back usage reconciliation. A failed 
 
 Deletion behavior is explicit in the initial migration:
 
-| Relationship | Action | Reason |
-| --- | --- | --- |
-| Source to imported data, models, projects, imports, and budgets | `RESTRICT` | A source is a stable identity and cannot disappear while referenced |
-| Refresh run to import runs | `CASCADE` | Import runs are subordinate refresh diagnostics; referenced imports still block deletion through provenance restrictions |
-| Import run to imported usage provenance | `RESTRICT` | Referenced provenance cannot be pruned |
-| Daily/session aggregate to model breakdowns | `CASCADE` | Breakdown rows have no independent meaning |
-| Budget to thresholds | `CASCADE` | Thresholds belong only to one budget |
-| Threshold to notification state | `CASCADE` | Notification identity depends on the configured threshold |
+| Relationship                                                    | Action     | Reason                                                                                                                   |
+| --------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Source to imported data, models, projects, imports, and budgets | `RESTRICT` | A source is a stable identity and cannot disappear while referenced                                                      |
+| Refresh run to import runs                                      | `CASCADE`  | Import runs are subordinate refresh diagnostics; referenced imports still block deletion through provenance restrictions |
+| Import run to imported usage provenance                         | `RESTRICT` | Referenced provenance cannot be pruned                                                                                   |
+| Daily/session aggregate to model breakdowns                     | `CASCADE`  | Breakdown rows have no independent meaning                                                                               |
+| Budget to thresholds                                            | `CASCADE`  | Thresholds belong only to one budget                                                                                     |
+| Threshold to notification state                                 | `CASCADE`  | Notification identity depends on the configured threshold                                                                |
 
 Routine source disablement updates `sources.enabled`; it never deletes the source row. Source deletion is allowed only as part of an explicit reset after all dependent rows are removed in a controlled transaction.
 

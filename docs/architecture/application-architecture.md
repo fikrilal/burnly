@@ -837,4 +837,4 @@ Resolve the deferred implementation values in focused documents and measured spi
 - [Calling the frontend from Rust](https://v2.tauri.app/develop/_sections/frontend-listen/)
 - [Tauri Debian packaging](https://v2.tauri.app/distribute/debian/)
 - [Burnly data and ingestion design](./data-ingestion-design.md)
-- [Burnly technology stack](./tech-stack.md)
+- [Burnly technology stack](../engineering/tech-stack.md)

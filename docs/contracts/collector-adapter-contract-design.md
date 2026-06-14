@@ -191,16 +191,16 @@ It returns canonical candidates and diagnostics. It does not persist or reconcil
 
 `CollectorDescriptor` contains:
 
-| Field | Meaning |
-| --- | --- |
-| `collector_key` | Stable Burnly collector identity, initially `ccusage` |
-| `display_name` | Diagnostic display name |
-| `runtime_version` | Version reported by the actual executable |
-| `expected_version` | Version pinned by the application build |
-| `adapter_version` | Burnly adapter contract implementation version |
-| `binary_target` | Platform and architecture |
-| `integrity_state` | `verified`, `mismatch`, or `unverified_dev` |
-| `profiles` | Supported source capability profile descriptors |
+| Field              | Meaning                                               |
+| ------------------ | ----------------------------------------------------- |
+| `collector_key`    | Stable Burnly collector identity, initially `ccusage` |
+| `display_name`     | Diagnostic display name                               |
+| `runtime_version`  | Version reported by the actual executable             |
+| `expected_version` | Version pinned by the application build               |
+| `adapter_version`  | Burnly adapter contract implementation version        |
+| `binary_target`    | Platform and architecture                             |
+| `integrity_state`  | `verified`, `mismatch`, or `unverified_dev`           |
+| `profiles`         | Supported source capability profile descriptors       |
 
 Collection is disabled when the runtime version or checksum does not match the signed manifest, except in an explicit development configuration.
 
@@ -210,15 +210,15 @@ Burnly owns a compile-time source registry.
 
 Each source descriptor contains:
 
-| Field | Meaning |
-| --- | --- |
-| `source_key` | Stable Burnly identity |
-| `display_name` | User-visible name |
-| `collector_key` | Selected collector implementation |
-| `collector_source_key` | Collector command namespace |
-| `default_enabled` | Product default |
-| `release_stage` | `supported`, `experimental`, or `disabled` |
-| `profile_version` | Capability interpretation version |
+| Field                  | Meaning                                    |
+| ---------------------- | ------------------------------------------ |
+| `source_key`           | Stable Burnly identity                     |
+| `display_name`         | User-visible name                          |
+| `collector_key`        | Selected collector implementation          |
+| `collector_source_key` | Collector command namespace                |
+| `default_enabled`      | Product default                            |
+| `release_stage`        | `supported`, `experimental`, or `disabled` |
+| `profile_version`      | Capability interpretation version          |
 
 Initial priority sources:
 
@@ -348,15 +348,15 @@ It does not contain arbitrary filesystem paths from React. Overrides come from t
 
 `DetectionResult` contains:
 
-| Field | Meaning |
-| --- | --- |
-| `source_key` | Burnly source |
-| `state` | Detection state |
-| `supported_projections` | Profile-supported projections |
-| `data_roots_found` | Count only, not raw paths |
+| Field                   | Meaning                              |
+| ----------------------- | ------------------------------------ |
+| `source_key`            | Burnly source                        |
+| `state`                 | Detection state                      |
+| `supported_projections` | Profile-supported projections        |
+| `data_roots_found`      | Count only, not raw paths            |
 | `usage_artifacts_found` | Whether likely usage artifacts exist |
-| `checked_at` | UTC timestamp |
-| `issues` | Structured redacted issues |
+| `checked_at`            | UTC timestamp                        |
+| `issues`                | Structured redacted issues           |
 
 Detection states:
 
@@ -403,15 +403,15 @@ Detection deduplicates normalized roots without exposing them to ordinary UI res
 
 `CollectionRequest` contains:
 
-| Field | Meaning |
-| --- | --- |
-| `collection_id` | Correlation identifier |
-| `source_key` | Exactly one source |
-| `projection` | `daily` or `session` |
-| `scope` | Full or bounded incremental scope |
-| `aggregation_timezone` | Required for daily |
-| `collector_settings` | Typed source-specific approved settings |
-| `requested_at` | UTC timestamp |
+| Field                  | Meaning                                 |
+| ---------------------- | --------------------------------------- |
+| `collection_id`        | Correlation identifier                  |
+| `source_key`           | Exactly one source                      |
+| `projection`           | `daily` or `session`                    |
+| `scope`                | Full or bounded incremental scope       |
+| `aggregation_timezone` | Required for daily                      |
+| `collector_settings`   | Typed source-specific approved settings |
+| `requested_at`         | UTC timestamp                           |
 
 ### Scope
 
@@ -446,22 +446,22 @@ Defaults are decided by Burnly and recorded in provenance.
 
 `CollectionResult` contains:
 
-| Field | Meaning |
-| --- | --- |
-| `collection_id` | Request correlation |
-| `collector` | Collector identity and runtime version |
-| `source_key` | Source collected |
-| `projection` | Projection collected |
-| `effective_scope` | Scope actually represented |
-| `profile_version` | Capability profile used |
-| `started_at` | UTC timestamp |
-| `finished_at` | UTC timestamp |
-| `outcome` | `complete`, `partial`, or `empty` |
-| `daily_candidates` | Present only for daily |
-| `session_candidates` | Present only for session |
-| `rejections` | Bounded structured rejected-record summaries |
-| `warnings` | Structured warnings |
-| `process_summary` | Redacted execution metadata |
+| Field                | Meaning                                      |
+| -------------------- | -------------------------------------------- |
+| `collection_id`      | Request correlation                          |
+| `collector`          | Collector identity and runtime version       |
+| `source_key`         | Source collected                             |
+| `projection`         | Projection collected                         |
+| `effective_scope`    | Scope actually represented                   |
+| `profile_version`    | Capability profile used                      |
+| `started_at`         | UTC timestamp                                |
+| `finished_at`        | UTC timestamp                                |
+| `outcome`            | `complete`, `partial`, or `empty`            |
+| `daily_candidates`   | Present only for daily                       |
+| `session_candidates` | Present only for session                     |
+| `rejections`         | Bounded structured rejected-record summaries |
+| `warnings`           | Structured warnings                          |
+| `process_summary`    | Redacted execution metadata                  |
 
 The result never contains both daily and session candidates.
 
@@ -1026,15 +1026,15 @@ Date-filter semantics for session commands are documented per profile. Current f
 
 `CollectorFailure` contains:
 
-| Field | Meaning |
-| --- | --- |
-| `code` | Stable machine code |
-| `category` | Failure category |
-| `retryable` | Retry guidance |
-| `source_key` | Affected source when known |
-| `projection` | Affected projection when known |
-| `message` | User-safe summary |
-| `diagnostic_context` | Bounded redacted context |
+| Field                | Meaning                        |
+| -------------------- | ------------------------------ |
+| `code`               | Stable machine code            |
+| `category`           | Failure category               |
+| `retryable`          | Retry guidance                 |
+| `source_key`         | Affected source when known     |
+| `projection`         | Affected projection when known |
+| `message`            | User-safe summary              |
+| `diagnostic_context` | Bounded redacted context       |
 
 ### Failure categories
 
@@ -1452,11 +1452,11 @@ After approval, the engineering design foundation is sufficient to scaffold the 
 
 ## References
 
-- [Burnly product definition](./product.md)
-- [Burnly data and ingestion design](./data-ingestion-design.md)
-- [Burnly application architecture](./application-architecture.md)
-- [Burnly project structure](./project-structure.md)
-- [Burnly SQLite database and migration design](./database-design.md)
+- [Burnly product definition](../product/product.md)
+- [Burnly data and ingestion design](../architecture/data-ingestion-design.md)
+- [Burnly application architecture](../architecture/application-architecture.md)
+- [Burnly project structure](../architecture/project-structure.md)
+- [Burnly SQLite database and migration design](../architecture/database-design.md)
 - [Burnly IPC and application contract design](./ipc-contract-design.md)
 - [ccusage repository](https://github.com/ccusage/ccusage)
 - [ccusage JSON output guide](https://github.com/ccusage/ccusage/blob/main/docs/guide/json-output.md)

@@ -1,0 +1,7 @@
+{
+  "src/components/ui/index.ts": 1,
+  "src/features/overview/index.ts": 1,
+  "src/lib/format/index.ts": 1,
+  "src/lib/query/index.ts": 1,
+  "src/lib/validation/index.ts": 1
+}
