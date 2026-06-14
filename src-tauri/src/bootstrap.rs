@@ -50,6 +50,7 @@ impl StartupError {
 pub(crate) fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .invoke_handler(crate::ipc::invoke_handler())
         .setup(|app| {
             setup_runtime(app).map_err(|error| {
                 eprintln!("Burnly startup failed ({:?})", error.kind());

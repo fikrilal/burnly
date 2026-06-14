@@ -29,13 +29,13 @@ depend on.
 
 ## Chunk Plan
 
-| Chunk                           | Status    | Dependency | Plan                                                            |
-| ------------------------------- | --------- | ---------- | --------------------------------------------------------------- |
-| Phase 2A: Response foundation   | Completed | Phase 1    | [Plan](../completed/2026-06-14_phase-2a-response-foundation.md) |
-| Phase 2B: Contract registration | Active    | Phase 2A   | [Plan](./2026-06-14_phase-2b-contract-registration.md)          |
-| Phase 2C: Frontend IPC client   | Queued    | Phase 2B   | [Plan](../queued/2026-06-14_phase-2c-frontend-ipc-client.md)    |
-| Phase 2D: Bootstrap commands    | Queued    | Phase 2C   | [Plan](../queued/2026-06-14_phase-2d-bootstrap-commands.md)     |
-| Phase 2E: Compatibility proof   | Queued    | Phase 2D   | [Plan](../queued/2026-06-14_phase-2e-compatibility-proof.md)    |
+| Chunk                           | Status    | Dependency | Plan                                                              |
+| ------------------------------- | --------- | ---------- | ----------------------------------------------------------------- |
+| Phase 2A: Response foundation   | Completed | Phase 1    | [Plan](../completed/2026-06-14_phase-2a-response-foundation.md)   |
+| Phase 2B: Contract registration | Completed | Phase 2A   | [Plan](../completed/2026-06-14_phase-2b-contract-registration.md) |
+| Phase 2C: Frontend IPC client   | Active    | Phase 2B   | [Plan](./2026-06-14_phase-2c-frontend-ipc-client.md)              |
+| Phase 2D: Bootstrap commands    | Queued    | Phase 2C   | [Plan](../queued/2026-06-14_phase-2d-bootstrap-commands.md)       |
+| Phase 2E: Compatibility proof   | Queued    | Phase 2D   | [Plan](../queued/2026-06-14_phase-2e-compatibility-proof.md)      |
 
 ## Dependency Rules
 
@@ -77,7 +77,7 @@ depend on.
 ## Progress
 
 - [x] Phase 2A completed and verified.
-- [ ] Phase 2B completed and verified.
+- [x] Phase 2B completed and verified.
 - [ ] Phase 2C completed and verified.
 - [ ] Phase 2D completed and verified.
 - [ ] Phase 2E completed and verified.

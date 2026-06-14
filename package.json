@@ -21,7 +21,7 @@
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml",
     "rust:check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "deps:check": "pnpm install --frozen-lockfile --ignore-scripts",
-    "contracts:generate": "node scripts/harness/check-contracts.mjs --generate-placeholder",
+    "contracts:generate": "node scripts/harness/check-contracts.mjs --generate",
     "contracts:check": "node scripts/harness/check-contracts.mjs",
     "migrations:check": "node scripts/harness/check-migrations.mjs",
     "collectors:fixtures": "node scripts/harness/check-collectors-fixtures.mjs",

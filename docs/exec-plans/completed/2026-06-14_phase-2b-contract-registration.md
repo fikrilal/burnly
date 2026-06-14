@@ -60,13 +60,13 @@ Phase 2A provides verified response and error wire types.
 ## Checklist
 
 - [x] Revalidate this plan against completed Phase 2A behavior.
-- [ ] Check current stable generator package compatibility and record the decision.
-- [ ] Pin the selected dependencies or implement the approved fallback.
-- [ ] Build the single command and event registry.
-- [ ] Generate deterministic TypeScript contracts and wrappers.
-- [ ] Replace the placeholder contract harness with drift enforcement.
-- [ ] Prove generated files compile and registration cannot silently diverge.
-- [ ] Run `pnpm verify` and update the Phase 2 overview.
+- [x] Check current stable generator package compatibility and record the decision.
+- [x] Pin the selected dependencies or implement the approved fallback.
+- [x] Build the single command and event registry.
+- [x] Generate deterministic TypeScript contracts and wrappers.
+- [x] Replace the placeholder contract harness with drift enforcement.
+- [x] Prove generated files compile and registration cannot silently diverge.
+- [x] Run `pnpm verify` and update the Phase 2 overview.
 
 ## Test Plan
 
@@ -83,13 +83,29 @@ Phase 2A provides verified response and error wire types.
 
 ## Decisions
 
-- Generator selection is intentionally deferred until activation because package
-  stability is time-sensitive.
+- `tauri-specta` v2 remains on the `2.0.0-rc.*` release-candidate track as of
+  June 14, 2026, so Burnly did not add it as permanent infrastructure.
+- `specta-typescript` is published as `0.0.x` and currently depends on Specta
+  `2.0.0-rc.*`, so Burnly also avoided the Specta fallback for this chunk.
+- Burnly uses the approved no-pre-release fallback: a small Rust-owned contract
+  registry plus a deterministic Node generator.
+- Generated wrappers accept an injected transport function. Phase 2C owns actual
+  Tauri invocation and transport-error behavior.
+- The only registered command is an internal contract probe. Product commands
+  remain deferred to Phase 2D.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: active; implementation not started.
+- Outcome: passed on June 14, 2026.
+- Rust suite: 33 tests passed, including three contract-registry tests and five
+  IPC response tests.
+- TypeScript generated contracts compiled under strict mode.
+- Contract harness checks deterministic generation, stale output, registry
+  uniqueness, v1 event names, response fixtures, and Tauri invoke-handler
+  registration.
+- Clippy, architecture, public API, migration, collector-fixture, and duplication
+  checks passed.
 
 ## Runtime Evidence
 

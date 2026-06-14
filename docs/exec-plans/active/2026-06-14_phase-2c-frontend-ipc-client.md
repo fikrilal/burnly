@@ -7,7 +7,8 @@ unwrapping, runtime validation, transport errors, and event subscriptions.
 
 ## Dependency
 
-Phase 2B must provide deterministic generated or registered TypeScript contracts.
+Phase 2B provides deterministic generated TypeScript contracts and a registered
+internal contract probe.
 
 ## Acceptance Criteria
 
@@ -59,7 +60,7 @@ Phase 2B must provide deterministic generated or registered TypeScript contracts
 
 ## Checklist
 
-- [ ] Revalidate this queued plan against completed Phase 2B output.
+- [x] Revalidate this plan against completed Phase 2B output.
 - [ ] Implement typed invocation and envelope unwrapping.
 - [ ] Implement application and synthetic transport error mapping.
 - [ ] Add focused runtime schemas for bootstrap and contract metadata.
@@ -91,7 +92,7 @@ Phase 2B must provide deterministic generated or registered TypeScript contracts
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: active; implementation not started.
 
 ## Runtime Evidence
 
@@ -100,3 +101,12 @@ Phase 2B must provide deterministic generated or registered TypeScript contracts
 ## Follow-Up Debt
 
 - None.
+
+## Activation Review
+
+- Activated after generated contracts compiled under strict TypeScript and the
+  contract harness proved registry drift checks.
+- The generated wrappers accept an injected transport function; Phase 2C must own
+  Tauri invocation, envelope validation, and synthetic transport errors.
+- The internal contract probe can be used for client tests, but product bootstrap
+  commands remain deferred to Phase 2D.
