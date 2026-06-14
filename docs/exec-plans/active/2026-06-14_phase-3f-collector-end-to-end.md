@@ -89,7 +89,7 @@ Phase 3E provides validated canonical mapping for decoded Claude daily rows.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: queued; not run yet.
+- Outcome: active; not run yet.
 
 ## Runtime Evidence
 

@@ -55,14 +55,14 @@ Phase 3D provides typed, profile-validated Claude daily rows.
 
 ## Checklist
 
-- [ ] Define deterministic daily source-key construction.
-- [ ] Map date, authoritative totals, optional components, and model breakdowns.
-- [ ] Implement unclassified-token rules.
-- [ ] Implement cost status, currency, and provenance rules.
-- [ ] Validate non-negative values and aggregate/breakdown consistency.
-- [ ] Add mapping tests over sanitized decoded fixtures.
-- [ ] Prove no collector envelope types cross the application boundary.
-- [ ] Run `pnpm verify` and activate Phase 3F.
+- [x] Define deterministic daily source-key construction.
+- [x] Map date, authoritative totals, optional components, and model breakdowns.
+- [x] Implement unclassified-token rules.
+- [x] Implement cost status, currency, and provenance rules.
+- [x] Validate non-negative values and aggregate/breakdown consistency.
+- [x] Add mapping tests over sanitized decoded fixtures.
+- [x] Prove no collector envelope types cross the application boundary.
+- [x] Run `pnpm verify` and activate Phase 3F.
 
 ## Test Plan
 
@@ -79,11 +79,22 @@ Phase 3D provides typed, profile-validated Claude daily rows.
 
 - Canonical totals are never reconstructed from optional model breakdowns.
 - Mapping does not silently repair incompatible collector output.
+- Daily identity version 1 uses `daily:v1:YYYY-MM-DD`; changing the grain or
+  identity semantics requires a new identity version.
+- Claude token categories are profile-supported and therefore map as known values,
+  including explicit zeroes. Domain construction computes unclassified tokens.
+- Positive calculated cost maps to USD micros with `collector_calculated` and
+  `estimated`; positive usage with zero cost maps to unavailable, while zero usage
+  with zero cost maps to not applicable.
+- The mapper constructs complete provenance internally from a narrow validated
+  context so envelope and interpretation details do not cross into application
+  code.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: active; not run yet.
+- Outcome: passed on 2026-06-14 with 16 frontend tests, 80 Rust tests, Clippy with
+  warnings denied, all harness checks, and zero duplicate-code findings.
 
 ## Runtime Evidence
 

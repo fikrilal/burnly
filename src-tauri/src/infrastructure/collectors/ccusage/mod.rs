@@ -7,6 +7,7 @@ mod capability_profiles;
 mod command;
 mod envelopes;
 mod manifest;
+mod mapper;
 mod process;
 mod sidecar;
 mod source_registry;
