@@ -47,8 +47,8 @@ warns against hiding weak reconciliation behind UI work.
 | Chunk                                   | Status    | Dependency | Plan                                                            |
 | --------------------------------------- | --------- | ---------- | --------------------------------------------------------------- |
 | Phase 4A: Daily source key and identity | Completed | Phase 3    | [Plan](../completed/2026-06-14_phase-4a-source-key-identity.md) |
-| Phase 4B: Run records persistence       | Active    | Phase 4A   | [Plan](../active/2026-06-14_phase-4b-run-records.md)            |
-| Phase 4C: Daily reconciliation core     | Queued    | Phase 4B   | [Plan](../queued/2026-06-14_phase-4c-daily-reconciliation.md)   |
+| Phase 4B: Run records persistence       | Completed | Phase 4A   | [Plan](../completed/2026-06-14_phase-4b-run-records.md)         |
+| Phase 4C: Daily reconciliation core     | Active    | Phase 4B   | [Plan](../active/2026-06-14_phase-4c-daily-reconciliation.md)   |
 | Phase 4D: Missing and absence lifecycle | Queued    | Phase 4C   | [Plan](../queued/2026-06-14_phase-4d-absence-lifecycle.md)      |
 | Phase 4E: Refresh coordinator skeleton  | Queued    | Phase 4D   | [Plan](../queued/2026-06-14_phase-4e-refresh-coordinator.md)    |
 | Phase 4F: Refresh IPC and events        | Queued    | Phase 4E   | [Plan](../queued/2026-06-14_phase-4f-refresh-ipc-events.md)     |
@@ -119,7 +119,7 @@ warns against hiding weak reconciliation behind UI work.
 ## Progress
 
 - [x] Phase 4A completed and verified.
-- [ ] Phase 4B completed and verified.
+- [x] Phase 4B completed and verified.
 - [ ] Phase 4C completed and verified.
 - [ ] Phase 4D completed and verified.
 - [ ] Phase 4E completed and verified.

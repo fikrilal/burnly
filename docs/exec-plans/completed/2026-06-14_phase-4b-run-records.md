@@ -71,15 +71,15 @@ testable against temporary SQLite.
 
 ## Checklist
 
-- [ ] Define application-owned run lifecycle types and a store port.
-- [ ] Implement source get-or-create against the `sources` table.
-- [ ] Implement refresh-run create and terminal-completion repository methods.
-- [ ] Implement import-run create and completion repository methods with counts
+- [x] Define application-owned run lifecycle types and a store port.
+- [x] Implement source get-or-create against the `sources` table.
+- [x] Implement refresh-run create and terminal-completion repository methods.
+- [x] Implement import-run create and completion repository methods with counts
       and redacted errors.
-- [ ] Enforce daily timezone and scope-date invariants before writing.
-- [ ] Add persistence tests against temporary real SQLite for every status path.
-- [ ] Prove redaction: no raw output, paths, or session ids in run rows.
-- [ ] Run `pnpm verify` and prepare Phase 4C for activation.
+- [x] Enforce daily timezone and scope-date invariants before writing.
+- [x] Add persistence tests against temporary real SQLite for every status path.
+- [x] Prove redaction: no raw output, paths, or session ids in run rows.
+- [x] Run `pnpm verify` and prepare Phase 4C for activation.
 
 ## Test Plan
 
@@ -87,7 +87,7 @@ testable against temporary SQLite.
   accuracy, source get-or-create idempotency, and schema-constraint compliance.
 - Lowest stable test layer: persistence tests on temporary SQLite.
 - Failure paths: missing daily timezone, incremental scope without dates,
-  duplicate `job_key`, and terminal status without a finish timestamp.
+  duplicate `job_key`, and completing a non-existent run.
 - Fixtures or fakes: in-memory run context values; real SQLite, never mocked.
 - Runtime or platform evidence: not required.
 - Relevant commands: `cargo test`, `pnpm migrations:check`, `pnpm verify`.
@@ -96,19 +96,38 @@ testable against temporary SQLite.
 
 - `job_key` is a deterministic, unique per-attempt identifier supplied by the
   caller (finalized when the coordinator lands in Phase 4E); 4B validates
-  uniqueness and non-emptiness.
+  uniqueness and non-emptiness, mapping the SQLite `UNIQUE` violation to a typed
+  `DuplicateJobKey` error.
 - Source get-or-create lives with run persistence because both are prerequisites
-  for any imported fact.
+  for any imported fact. A newly created `sources` row uses
+  `detection_state = 'unknown'` and `enabled = 1`; detection state and a proper
+  display name are owned by later source-management work, so `display_name`
+  defaults to the source key for now.
+- Run lifecycle types live in a new `application/reconciliation` module; the
+  `RunStore` port lives in `application/ports`; the SQLite implementation lives in
+  `infrastructure/database/run_store.rs` and owns the enum-to-column mapping.
+- Collector identity (`collector_key`, `collector_version`, `profile_version`) was
+  grouped into an `ImportCollector` value to keep the spec constructor cohesive
+  and within the argument-count budget.
+- The `SqliteRunStore` is not yet wired into bootstrap; consolidating it onto a
+  single shared write connection is deferred to the Phase 4E coordinator wiring.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet.
+- Outcome: passed on 2026-06-14.
+- Rust test evidence: 101 passed, 1 ignored opt-in smoke test, including 11 new
+  run lifecycle and persistence tests.
+- Harness evidence: architecture, public API, contracts, migrations, collector
+  fixtures, and duplication report completed; the single reported clone is the
+  pre-existing Phase 3F test-cancellation helper.
 
 ## Runtime Evidence
 
-- Not required.
+- Not required; persistence tests run against temporary real SQLite databases.
 
 ## Follow-Up Debt
 
-- None expected.
+- `SqliteRunStore` connection sharing and bootstrap wiring are completed in
+  Phase 4E. Source `display_name` and `detection_state` refinement belong to
+  later source-management work.
