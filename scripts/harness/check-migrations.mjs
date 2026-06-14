@@ -7,5 +7,5 @@ try {
   await access(migrationsDir);
   console.log("Migration check passed.");
 } catch {
-  console.log("Migration check passed. No migrations exist in Phase 0.");
+  console.log("Migration check passed. No migrations exist yet.");
 }

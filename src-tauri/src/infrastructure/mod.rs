@@ -1,0 +1,4 @@
+//! Technical adapters for persistence, collectors, and external systems.
+//!
+//! Infrastructure implements application-owned contracts and keeps external
+//! representations inside the adapter that owns them.

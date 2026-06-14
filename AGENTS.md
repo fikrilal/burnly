@@ -27,6 +27,7 @@ Burnly is a local desktop app for AI coding-tool token usage.
 - Test observable behavior and invariants at the lowest stable layer.
 - Prefer small fakes at architectural boundaries; do not mock internal details or SQLite.
 - Use execution plans for non-trivial implementation work.
+- Keep only the current implementation chunk active; future dependent plans stay queued.
 - Update harness checks when the same mistake repeats.
 
 ## Verification
