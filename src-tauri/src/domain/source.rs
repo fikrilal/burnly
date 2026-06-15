@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Phase 3A source identities are constructed by collector adapters starting in Phase 3B"
-    )
-)]
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SourceKey {
     ClaudeCode,
@@ -17,6 +9,18 @@ impl SourceKey {
         match self {
             Self::ClaudeCode => "claude-code",
             Self::Codex => "codex",
+        }
+    }
+
+    #[allow(
+        dead_code,
+        reason = "Phase 5A storage decoding is wired through IPC in Phase 5B"
+    )]
+    pub(crate) fn from_storage(value: &str) -> Option<Self> {
+        match value {
+            "claude-code" => Some(Self::ClaudeCode),
+            "codex" => Some(Self::Codex),
+            _ => None,
         }
     }
 }
