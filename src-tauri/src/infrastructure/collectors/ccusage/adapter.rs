@@ -25,6 +25,7 @@ use super::{
 #[derive(Debug, Clone)]
 pub(crate) struct CcusageCollector {
     target: BinaryTarget,
+    manifest: super::manifest::SidecarManifest,
     location: SidecarLocation,
     limits: ProcessLimits,
 }
@@ -35,6 +36,7 @@ impl CcusageCollector {
     ) -> Result<Self, CollectorFailure> {
         Ok(Self {
             target: current_target()?,
+            manifest: development_manifest().clone(),
             location: SidecarLocation::DevelopmentBinary(binary.into()),
             limits: ProcessLimits::collection(),
         })
@@ -43,9 +45,19 @@ impl CcusageCollector {
     pub(crate) fn packaged(
         resource_directory: impl Into<std::path::PathBuf>,
     ) -> Result<Self, CollectorFailure> {
+        let resource_directory = resource_directory.into();
+        let manifest_path = resource_directory
+            .join("sidecars")
+            .join("ccusage")
+            .join("manifest.json");
+        let manifest_json = std::fs::read_to_string(manifest_path)
+            .map_err(|_| failure(CollectorFailureCode::BinaryMissing))?;
+        let manifest = super::manifest::SidecarManifest::parse(&manifest_json)
+            .map_err(|_| failure(CollectorFailureCode::VersionMismatch))?;
         Ok(Self {
             target: current_target()?,
-            location: SidecarLocation::PackagedResourceDirectory(resource_directory.into()),
+            manifest,
+            location: SidecarLocation::PackagedResourceDirectory(resource_directory),
             limits: ProcessLimits::collection(),
         })
     }
@@ -61,7 +73,7 @@ impl CcusageCollector {
         cancellation: &dyn CancellationSignal,
     ) -> Result<VerifiedSidecar, CollectorFailure> {
         verify(
-            development_manifest(),
+            &self.manifest,
             self.target,
             self.location.clone(),
             cancellation,
@@ -347,6 +359,14 @@ mod tests {
             missing.collect(session_request(), &TestCancellation::active()),
             CollectorFailureCode::UnsupportedProjection,
         );
+    }
+
+    #[test]
+    fn packaged_collector_requires_a_release_manifest() {
+        let directory = tempfile::tempdir().expect("packaged resource directory");
+        let error = CcusageCollector::packaged(directory.path()).expect_err("missing manifest");
+
+        assert_eq!(error.code, CollectorFailureCode::BinaryMissing);
     }
 
     #[test]

@@ -106,14 +106,11 @@ establishes the refresh control contract that Phases 5 and 7 depend on.
   generic `UnknownEventPayload` because events are notifications and the frontend
   must re-query authoritative state; the Rust side emits minimal hint payloads
   (`{ status }` and `{ scope: "usage" }`).
-- Events are emitted by the IPC `refresh_request` handler (the delivery layer),
-  not by the coordinator, because the application layer must not depend on Tauri.
-  The synchronous skeleton emits one progress event with the final state and a
-  `data-invalidated` event on a succeeded/partial outcome. Intermediate progress
-  events and an application-side event-publisher port arrive with the async
-  coordinator in Phase 7.
-- `refresh_request` is generic over the Tauri runtime so it can take an
-  `AppHandle<R>` under the runtime-generic invoke handler.
+- The 2026-06-15 corrective review moved publication behind the application-owned
+  refresh event sink. Tauri implements that boundary in IPC, while the
+  coordinator publishes accepted and terminal transitions without depending on
+  Tauri. `data-invalidated` is emitted only when reconciliation committed usage
+  changes.
 - `refresh_cancel` is exposed now against the Phase 4E skeleton; its full behavior
   lands in Phase 7.
 - The refresh command DTO is named `RefreshStatusResponse` to avoid colliding with
@@ -138,6 +135,5 @@ establishes the refresh control contract that Phases 5 and 7 depend on.
 
 ## Follow-Up Debt
 
-- Full cancellation behavior, intermediate progress events, an application-side
-  event-publisher port, and tray/background refresh integration remain for
-  Phase 7.
+- Full cancellation behavior, richer intermediate progress details, and
+  tray/scheduled refresh integration remain for Phase 7.

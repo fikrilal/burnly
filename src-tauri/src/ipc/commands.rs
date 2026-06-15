@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use serde::Serialize;
+use std::sync::Arc;
 use tauri::{Emitter, State};
 
 use crate::application::bootstrap::{
@@ -9,7 +10,7 @@ use crate::application::bootstrap::{
 };
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
-    RefreshCoordinator, RefreshSnapshot, RefreshStatus as RefreshLifecycleStatus,
+    RefreshCoordinator, RefreshEventSink, RefreshSnapshot, RefreshStatus as RefreshLifecycleStatus,
 };
 
 use super::response::{ErrorCategory, IpcError, IpcResponse, CONTRACT_VERSION};
@@ -270,12 +271,10 @@ pub(super) fn refresh_get_state(
 }
 
 #[tauri::command]
-pub(super) fn refresh_request<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
+pub(super) fn refresh_request(
     coordinator: State<'_, RefreshCoordinator>,
 ) -> IpcResponse<RefreshStatusResponse> {
     let snapshot = coordinator.request_refresh(RefreshTrigger::Manual);
-    publish_refresh_events(&app, &snapshot);
     IpcResponse::success(snapshot.into())
 }
 
@@ -300,26 +299,32 @@ struct DataInvalidatedEvent {
 
 /// Publishes refresh notifications. Events carry only hints; the frontend must
 /// re-query authoritative state after `data-invalidated`.
-fn publish_refresh_events<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    snapshot: &RefreshSnapshot,
-) {
-    let _ = app.emit(
-        "burnly://v1/refresh-progress",
-        RefreshProgressEvent {
-            status: refresh_lifecycle_value(snapshot.status),
-        },
-    );
+struct TauriRefreshEventSink<R: tauri::Runtime> {
+    app: tauri::AppHandle<R>,
+}
 
-    if matches!(
-        snapshot.status,
-        RefreshLifecycleStatus::Succeeded | RefreshLifecycleStatus::Partial
-    ) {
-        let _ = app.emit(
-            "burnly://v1/data-invalidated",
-            DataInvalidatedEvent { scope: "usage" },
+impl<R: tauri::Runtime> RefreshEventSink for TauriRefreshEventSink<R> {
+    fn publish(&self, snapshot: RefreshSnapshot, usage_changed: bool) {
+        let _ = self.app.emit(
+            "burnly://v1/refresh-progress",
+            RefreshProgressEvent {
+                status: refresh_lifecycle_value(snapshot.status),
+            },
         );
+
+        if usage_changed {
+            let _ = self.app.emit(
+                "burnly://v1/data-invalidated",
+                DataInvalidatedEvent { scope: "usage" },
+            );
+        }
     }
+}
+
+pub(crate) fn refresh_event_sink<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Arc<dyn RefreshEventSink> {
+    Arc::new(TauriRefreshEventSink { app })
 }
 
 impl From<RefreshSnapshot> for RefreshStatusResponse {

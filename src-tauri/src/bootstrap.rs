@@ -18,6 +18,7 @@ use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
 };
+use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{database_path, system_clock, system_timezone};
@@ -99,24 +100,39 @@ fn build_refresh_coordinator<R: Runtime>(
     app: &tauri::App<R>,
     database_path: &Path,
 ) -> Result<RefreshCoordinator, StartupError> {
+    let resource_directory = app
+        .path()
+        .resource_dir()
+        .map_err(StartupError::ResourceDir)?;
+    let collector = Arc::new(
+        match std::env::var_os("BURNLY_CCUSAGE_DEV_BINARY") {
+            Some(binary) => CcusageCollector::development(binary),
+            None => CcusageCollector::packaged(resource_directory),
+        }
+        .map_err(StartupError::Collector)?,
+    );
+
+    compose_refresh_coordinator(app, database_path, collector)
+}
+
+fn compose_refresh_coordinator<R: Runtime>(
+    app: &tauri::App<R>,
+    database_path: &Path,
+    collector: Arc<CcusageCollector>,
+) -> Result<RefreshCoordinator, StartupError> {
     let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let aggregation_timezone = write_database
         .reporting_timezone()
         .map_err(StartupError::Persistence)?;
     let store = Arc::new(SqliteReconciliationStore::new(write_database));
     let clock = Arc::new(SystemClock);
-    let resource_directory = app
-        .path()
-        .resource_dir()
-        .map_err(StartupError::ResourceDir)?;
-    let collector =
-        Arc::new(CcusageCollector::packaged(resource_directory).map_err(StartupError::Collector)?);
 
-    Ok(RefreshCoordinator::new(
+    Ok(RefreshCoordinator::with_event_sink(
         collector,
         store.clone(),
         store,
         clock,
+        refresh_event_sink(app.handle().clone()),
         env!("CARGO_PKG_VERSION"),
         aggregation_timezone,
     ))
@@ -299,7 +315,15 @@ mod tests {
             .expect("seed settings");
 
         let store = Arc::new(SqliteReconciliationStore::new(database));
-        let collector = Arc::new(CcusageCollector::packaged(directory.path()).expect("collector"));
+        let collector = Arc::new(
+            CcusageCollector::development(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .expect("workspace root")
+                    .join("tests/fixtures/collectors/ccusage/process/fake-collector.sh"),
+            )
+            .expect("collector"),
+        );
         let coordinator = RefreshCoordinator::new(
             collector,
             store.clone(),
@@ -332,6 +356,71 @@ mod tests {
         assert_eq!(response["data"]["status"], "idle");
         assert_eq!(response["data"]["jobId"], Value::Null);
         assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tauri_bridge_executes_composed_refresh_and_persists_usage() {
+        use std::{thread, time::Duration};
+
+        let directory = tempfile::TempDir::new().expect("create app data directory");
+        let database_path = directory.path().join("burnly.sqlite3");
+        drop(initialize(&database_path, "UTC", 100).expect("initialize application"));
+
+        let app = tauri::test::mock_builder()
+            .invoke_handler(crate::ipc::invoke_handler())
+            .manage(BootstrapService::new(
+                env!("CARGO_PKG_VERSION"),
+                CONTRACT_VERSION,
+                FixedBootstrapStore,
+            ))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build mock tauri app");
+        let collector = Arc::new(
+            CcusageCollector::development(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .expect("workspace root")
+                    .join("tests/fixtures/collectors/ccusage/process/fake-collector.sh"),
+            )
+            .expect("development collector"),
+        );
+        let coordinator =
+            compose_refresh_coordinator(&app, &database_path, collector).expect("coordinator");
+        assert!(app.manage(coordinator));
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("build mock webview");
+
+        let submitted = tauri::test::get_ipc_response(&webview, request("refresh_request"))
+            .expect("invoke refresh request")
+            .deserialize::<Value>()
+            .expect("deserialize refresh response");
+        assert_eq!(submitted["ok"], true);
+        assert_eq!(submitted["data"]["status"], "running");
+
+        let terminal = (0..1_000)
+            .find_map(|_| {
+                let response =
+                    tauri::test::get_ipc_response(&webview, request("refresh_get_state"))
+                        .expect("invoke refresh state")
+                        .deserialize::<Value>()
+                        .expect("deserialize refresh state");
+                if response["data"]["status"] == "running" {
+                    thread::sleep(Duration::from_millis(1));
+                    None
+                } else {
+                    Some(response)
+                }
+            })
+            .expect("refresh reaches terminal state");
+
+        assert_eq!(terminal["data"]["status"], "succeeded");
+        let connection = Connection::open(&database_path).expect("open persisted database");
+        let daily_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM daily_usage", [], |row| row.get(0))
+            .expect("count daily usage");
+        assert_eq!(daily_count, 2);
     }
 
     fn settings_count(connection: &Connection) -> i64 {

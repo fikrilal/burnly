@@ -13,12 +13,13 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 use chrono::DateTime;
 
 use crate::application::collection::{
     CollectionId, CollectionOutcome, CollectionProjection, CollectionRequest, CollectionResult,
-    CollectionScope, CollectorFailure,
+    CollectionScope,
 };
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::{CancellationSignal, Collector};
@@ -50,15 +51,27 @@ impl CoordinatorState {
     }
 }
 
+pub(crate) trait RefreshEventSink: Send + Sync {
+    fn publish(&self, snapshot: RefreshSnapshot, usage_changed: bool);
+}
+
+struct NoopRefreshEventSink;
+
+impl RefreshEventSink for NoopRefreshEventSink {
+    fn publish(&self, _snapshot: RefreshSnapshot, _usage_changed: bool) {}
+}
+
+#[derive(Clone)]
 pub(crate) struct RefreshCoordinator {
     collector: Arc<dyn Collector>,
     run_store: Arc<dyn RunStore>,
     usage_store: Arc<dyn UsageStore>,
     clock: Arc<dyn Clock>,
+    event_sink: Arc<dyn RefreshEventSink>,
     app_version: String,
     aggregation_timezone: String,
-    sequence: AtomicU64,
-    state: Mutex<CoordinatorState>,
+    sequence: Arc<AtomicU64>,
+    state: Arc<Mutex<CoordinatorState>>,
 }
 
 impl RefreshCoordinator {
@@ -70,20 +83,41 @@ impl RefreshCoordinator {
         app_version: impl Into<String>,
         aggregation_timezone: impl Into<String>,
     ) -> Self {
+        Self::with_event_sink(
+            collector,
+            run_store,
+            usage_store,
+            clock,
+            Arc::new(NoopRefreshEventSink),
+            app_version,
+            aggregation_timezone,
+        )
+    }
+
+    pub(crate) fn with_event_sink(
+        collector: Arc<dyn Collector>,
+        run_store: Arc<dyn RunStore>,
+        usage_store: Arc<dyn UsageStore>,
+        clock: Arc<dyn Clock>,
+        event_sink: Arc<dyn RefreshEventSink>,
+        app_version: impl Into<String>,
+        aggregation_timezone: impl Into<String>,
+    ) -> Self {
         Self {
             collector,
             run_store,
             usage_store,
             clock,
+            event_sink,
             app_version: app_version.into(),
             aggregation_timezone: aggregation_timezone.into(),
-            sequence: AtomicU64::new(0),
-            state: Mutex::new(CoordinatorState {
+            sequence: Arc::new(AtomicU64::new(0)),
+            state: Arc::new(Mutex::new(CoordinatorState {
                 status: RefreshStatus::Idle,
                 job_id: None,
                 trigger: None,
                 last_successful_refresh_at_ms: None,
-            }),
+            })),
         }
     }
 
@@ -105,7 +139,7 @@ impl RefreshCoordinator {
         let now_ms = self.clock.now_epoch_ms();
         let job_id = self.next_job_id(now_ms);
 
-        {
+        let snapshot = {
             let mut state = self.lock_state();
             if state.status.is_active() {
                 return state.snapshot();
@@ -113,19 +147,25 @@ impl RefreshCoordinator {
             state.status = RefreshStatus::Running;
             state.job_id = Some(job_id.clone());
             state.trigger = Some(trigger);
-        }
+            state.snapshot()
+        };
+        self.event_sink.publish(snapshot.clone(), false);
 
-        let outcome = self.execute(trigger, &job_id, now_ms);
-
+        let worker = self.clone();
+        if thread::Builder::new()
+            .name("burnly-refresh".to_owned())
+            .spawn(move || worker.finish_refresh(trigger, job_id, now_ms))
+            .is_err()
         {
-            let mut state = self.lock_state();
-            state.status = outcome.status();
-            if matches!(outcome, RunOutcome::Succeeded) {
-                state.last_successful_refresh_at_ms = Some(now_ms);
-            }
+            let failed = {
+                let mut state = self.lock_state();
+                state.status = RefreshStatus::Failed;
+                state.snapshot()
+            };
+            self.event_sink.publish(failed.clone(), false);
+            return failed;
         }
-
-        self.snapshot()
+        snapshot
     }
 
     fn lock_state(&self) -> std::sync::MutexGuard<'_, CoordinatorState> {
@@ -137,55 +177,100 @@ impl RefreshCoordinator {
         format!("refresh-{now_ms}-{sequence}")
     }
 
-    fn execute(&self, trigger: RefreshTrigger, job_id: &str, now_ms: i64) -> RunOutcome {
-        self.try_execute(trigger, job_id, now_ms)
-            .unwrap_or(RunOutcome::Failed)
+    fn finish_refresh(&self, trigger: RefreshTrigger, job_id: String, started_at_ms: i64) {
+        let result = self.execute(trigger, &job_id, started_at_ms);
+        let snapshot = {
+            let mut state = self.lock_state();
+            state.status = result.outcome.status();
+            if matches!(result.outcome, RunOutcome::Succeeded) {
+                state.last_successful_refresh_at_ms = Some(result.finished_at_ms);
+            }
+            state.snapshot()
+        };
+        self.event_sink.publish(snapshot, result.usage_changed);
     }
 
-    fn try_execute(
+    fn execute(
         &self,
         trigger: RefreshTrigger,
         job_id: &str,
-        now_ms: i64,
-    ) -> Result<RunOutcome, CoordinatorError> {
-        let job_key = JobKey::new(job_id).map_err(|_| CoordinatorError)?;
-        let spec = RefreshRunSpec::new(job_key, trigger, self.app_version.clone())
-            .map_err(|_| CoordinatorError)?;
-        let refresh_run_id = self
-            .run_store
-            .begin_refresh_run(spec, now_ms)
-            .map_err(|_| CoordinatorError)?;
+        started_at_ms: i64,
+    ) -> ExecutionResult {
+        let job_key = match JobKey::new(job_id) {
+            Ok(job_key) => job_key,
+            Err(_) => return self.failed_result(false),
+        };
+        let spec = match RefreshRunSpec::new(job_key, trigger, self.app_version.clone()) {
+            Ok(spec) => spec,
+            Err(_) => return self.failed_result(false),
+        };
+        let refresh_run_id = match self.run_store.begin_refresh_run(spec, started_at_ms) {
+            Ok(id) => id,
+            Err(_) => return self.failed_result(false),
+        };
 
+        let result = self.execute_open_refresh(refresh_run_id, job_id, started_at_ms);
+        match result {
+            Ok(result) => result,
+            Err(failure) => {
+                if let Some(import_run_id) = failure.import_run_id {
+                    let _ = self.run_store.complete_import_run(
+                        import_run_id,
+                        ImportRunCompletion {
+                            outcome: ImportOutcome::Failed,
+                            records_seen: failure.records_seen,
+                            records_rejected: failure.records_rejected,
+                            finished_at_ms: failure.finished_at_ms,
+                            error: run_error(failure.code, failure.summary),
+                        },
+                    );
+                }
+                let _ = self.run_store.complete_refresh_run(
+                    refresh_run_id,
+                    RefreshRunCompletion {
+                        outcome: RefreshOutcome::Failed,
+                        finished_at_ms: failure.finished_at_ms,
+                        error: run_error(failure.code, failure.summary),
+                    },
+                );
+                ExecutionResult {
+                    outcome: RunOutcome::Failed,
+                    finished_at_ms: failure.finished_at_ms,
+                    usage_changed: failure.usage_changed,
+                }
+            }
+        }
+    }
+
+    fn execute_open_refresh(
+        &self,
+        refresh_run_id: crate::application::reconciliation::RefreshRunId,
+        job_id: &str,
+        started_at_ms: i64,
+    ) -> Result<ExecutionResult, ExecutionFailure> {
         let source_id = self
             .run_store
-            .resolve_source(SourceKey::ClaudeCode, now_ms)
-            .map_err(|_| CoordinatorError)?;
+            .resolve_source(SourceKey::ClaudeCode, started_at_ms)
+            .map_err(|_| self.failure("refresh.source", "Could not resolve the usage source."))?;
 
-        let requested_at = DateTime::from_timestamp_millis(now_ms).ok_or(CoordinatorError)?;
+        let requested_at = DateTime::from_timestamp_millis(started_at_ms)
+            .ok_or_else(|| self.failure("refresh.time", "Refresh time is invalid."))?;
         let request = CollectionRequest::daily(
-            CollectionId::new(job_id).map_err(|_| CoordinatorError)?,
+            CollectionId::new(job_id)
+                .map_err(|_| self.failure("refresh.request", "Refresh request is invalid."))?,
             SourceKey::ClaudeCode,
             CollectionScope::Full,
             self.aggregation_timezone.clone(),
             requested_at,
         )
-        .map_err(|_| CoordinatorError)?;
+        .map_err(|_| self.failure("refresh.request", "Refresh request is invalid."))?;
 
         match self.collector.collect(request, &NeverCancelled) {
-            Ok(collection) => self.persist(refresh_run_id, source_id, now_ms, &collection),
-            Err(failure) => {
-                self.run_store
-                    .complete_refresh_run(
-                        refresh_run_id,
-                        RefreshRunCompletion {
-                            outcome: RefreshOutcome::Failed,
-                            finished_at_ms: self.clock.now_epoch_ms(),
-                            error: collector_error(&failure),
-                        },
-                    )
-                    .map_err(|_| CoordinatorError)?;
-                Ok(RunOutcome::Failed)
-            }
+            Ok(collection) => self.persist(refresh_run_id, source_id, started_at_ms, &collection),
+            Err(failure) => Err(self.failure(
+                failure.code.code(),
+                "The collector could not complete the refresh.",
+            )),
         }
     }
 
@@ -195,14 +280,14 @@ impl RefreshCoordinator {
         source_id: crate::application::reconciliation::SourceId,
         now_ms: i64,
         collection: &CollectionResult,
-    ) -> Result<RunOutcome, CoordinatorError> {
+    ) -> Result<ExecutionResult, ExecutionFailure> {
         let metadata = collection.metadata();
         let import_collector = ImportCollector::new(
             metadata.collector().as_str(),
             metadata.collector_version(),
             metadata.profile_version(),
         )
-        .map_err(|_| CoordinatorError)?;
+        .map_err(|_| self.failure("refresh.metadata", "Collector metadata is invalid."))?;
         let import_spec = ImportRunSpec::new(
             refresh_run_id,
             source_id,
@@ -211,11 +296,11 @@ impl RefreshCoordinator {
             CollectionScope::Full,
             Some(self.aggregation_timezone.clone()),
         )
-        .map_err(|_| CoordinatorError)?;
+        .map_err(|_| self.failure("refresh.import", "Import metadata is invalid."))?;
         let import_run_id = self
             .run_store
             .begin_import_run(import_spec, now_ms)
-            .map_err(|_| CoordinatorError)?;
+            .map_err(|_| self.failure("refresh.import", "Could not begin the import run."))?;
 
         let collection_outcome = collection.outcome();
         let reconciliation = DailyReconciliationRequest::new(
@@ -226,14 +311,23 @@ impl RefreshCoordinator {
             now_ms,
             collection.daily_candidates().to_vec(),
         );
+        let records_seen = clamp_count(collection.daily_candidates().len());
+        let records_rejected = clamp_count(collection.rejection_count());
         self.usage_store
             .reconcile_daily(reconciliation)
-            .map_err(|_| CoordinatorError)?;
+            .map_err(|_| {
+                self.import_failure(
+                    import_run_id,
+                    records_seen,
+                    records_rejected,
+                    false,
+                    "refresh.reconciliation",
+                    "Could not reconcile collected usage.",
+                )
+            })?;
 
         let outcome = RunOutcome::from_collection(collection_outcome);
         let finished_at_ms = self.clock.now_epoch_ms();
-        let records_seen = clamp_count(collection.daily_candidates().len());
-        let records_rejected = clamp_count(collection.rejection_count());
 
         self.run_store
             .complete_import_run(
@@ -246,7 +340,16 @@ impl RefreshCoordinator {
                     error: None,
                 },
             )
-            .map_err(|_| CoordinatorError)?;
+            .map_err(|_| {
+                self.import_failure(
+                    import_run_id,
+                    records_seen,
+                    records_rejected,
+                    true,
+                    "refresh.import_completion",
+                    "Could not complete the import run.",
+                )
+            })?;
         self.run_store
             .complete_refresh_run(
                 refresh_run_id,
@@ -256,9 +359,61 @@ impl RefreshCoordinator {
                     error: None,
                 },
             )
-            .map_err(|_| CoordinatorError)?;
+            .map_err(|_| ExecutionFailure {
+                import_run_id: None,
+                records_seen,
+                records_rejected,
+                finished_at_ms,
+                usage_changed: true,
+                code: "refresh.completion",
+                summary: "Could not complete the refresh run.",
+            })?;
 
-        Ok(outcome)
+        Ok(ExecutionResult {
+            outcome,
+            finished_at_ms,
+            usage_changed: true,
+        })
+    }
+
+    fn failed_result(&self, usage_changed: bool) -> ExecutionResult {
+        ExecutionResult {
+            outcome: RunOutcome::Failed,
+            finished_at_ms: self.clock.now_epoch_ms(),
+            usage_changed,
+        }
+    }
+
+    fn failure(&self, code: &'static str, summary: &'static str) -> ExecutionFailure {
+        ExecutionFailure {
+            import_run_id: None,
+            records_seen: 0,
+            records_rejected: 0,
+            finished_at_ms: self.clock.now_epoch_ms(),
+            usage_changed: false,
+            code,
+            summary,
+        }
+    }
+
+    fn import_failure(
+        &self,
+        import_run_id: crate::application::reconciliation::ImportRunId,
+        records_seen: u32,
+        records_rejected: u32,
+        usage_changed: bool,
+        code: &'static str,
+        summary: &'static str,
+    ) -> ExecutionFailure {
+        ExecutionFailure {
+            import_run_id: Some(import_run_id),
+            records_seen,
+            records_rejected,
+            finished_at_ms: self.clock.now_epoch_ms(),
+            usage_changed,
+            code,
+            summary,
+        }
     }
 }
 
@@ -310,10 +465,24 @@ impl RunOutcome {
     }
 }
 
-struct CoordinatorError;
+struct ExecutionResult {
+    outcome: RunOutcome,
+    finished_at_ms: i64,
+    usage_changed: bool,
+}
 
-fn collector_error(failure: &CollectorFailure) -> Option<RunError> {
-    RunError::new(failure.code.code(), failure.to_string()).ok()
+struct ExecutionFailure {
+    import_run_id: Option<crate::application::reconciliation::ImportRunId>,
+    records_seen: u32,
+    records_rejected: u32,
+    finished_at_ms: i64,
+    usage_changed: bool,
+    code: &'static str,
+    summary: &'static str,
+}
+
+fn run_error(code: &'static str, summary: &'static str) -> Option<RunError> {
+    RunError::new(code, summary).ok()
 }
 
 fn clamp_count(value: usize) -> u32 {
@@ -322,17 +491,18 @@ fn clamp_count(value: usize) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
+    use std::time::Duration;
 
     use chrono::{TimeZone, Utc};
 
     use super::*;
     use crate::application::collection::{
         CandidateProvenance, CollectionMetadata, CollectionPeriod, CollectorDescriptor,
-        CollectorFailureCode, DailyUsageCandidate, DetectionRequest, DetectionResult,
-        ProcessSummary, RejectedRecord,
+        CollectorFailure, CollectorFailureCode, DailyUsageCandidate, DetectionRequest,
+        DetectionResult, ProcessSummary, RejectedRecord,
     };
     use crate::application::ports::run_store::RunStoreError;
     use crate::application::ports::usage_store::UsageStoreError;
@@ -346,7 +516,16 @@ mod tests {
     struct FakeRunStore {
         refresh_outcomes: Mutex<Vec<RefreshOutcome>>,
         import_outcomes: Mutex<Vec<ImportOutcome>>,
+        failure: Mutex<Option<RunStoreFailure>>,
         next_id: AtomicUsize,
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum RunStoreFailure {
+        ResolveSource,
+        BeginImport,
+        CompleteImport,
+        CompleteRefresh,
     }
 
     impl FakeRunStore {
@@ -354,7 +533,22 @@ mod tests {
             Self {
                 refresh_outcomes: Mutex::new(Vec::new()),
                 import_outcomes: Mutex::new(Vec::new()),
+                failure: Mutex::new(None),
                 next_id: AtomicUsize::new(1),
+            }
+        }
+
+        fn fail_once(&self, failure: RunStoreFailure) {
+            *self.failure.lock().expect("lock") = Some(failure);
+        }
+
+        fn take_failure(&self, expected: RunStoreFailure) -> bool {
+            let mut failure = self.failure.lock().expect("lock");
+            if *failure == Some(expected) {
+                *failure = None;
+                true
+            } else {
+                false
             }
         }
 
@@ -377,6 +571,9 @@ mod tests {
             _source: SourceKey,
             _now_ms: i64,
         ) -> Result<SourceId, RunStoreError> {
+            if self.take_failure(RunStoreFailure::ResolveSource) {
+                return Err(RunStoreError::Backend);
+            }
             Ok(SourceId::new(1))
         }
 
@@ -393,6 +590,9 @@ mod tests {
             _id: RefreshRunId,
             completion: RefreshRunCompletion,
         ) -> Result<(), RunStoreError> {
+            if self.take_failure(RunStoreFailure::CompleteRefresh) {
+                return Err(RunStoreError::Backend);
+            }
             self.refresh_outcomes
                 .lock()
                 .expect("lock")
@@ -405,6 +605,9 @@ mod tests {
             _spec: ImportRunSpec,
             _now_ms: i64,
         ) -> Result<ImportRunId, RunStoreError> {
+            if self.take_failure(RunStoreFailure::BeginImport) {
+                return Err(RunStoreError::Backend);
+            }
             Ok(ImportRunId::new(self.next()))
         }
 
@@ -413,6 +616,9 @@ mod tests {
             _id: ImportRunId,
             completion: ImportRunCompletion,
         ) -> Result<(), RunStoreError> {
+            if self.take_failure(RunStoreFailure::CompleteImport) {
+                return Err(RunStoreError::Backend);
+            }
             self.import_outcomes
                 .lock()
                 .expect("lock")
@@ -423,13 +629,44 @@ mod tests {
 
     struct FakeUsageStore {
         reconciled: Mutex<Vec<CollectionOutcome>>,
+        fail: AtomicBool,
+    }
+
+    struct RecordingEventSink {
+        events: Mutex<Vec<(RefreshStatus, bool)>>,
+    }
+
+    impl RecordingEventSink {
+        fn new() -> Self {
+            Self {
+                events: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn events(&self) -> Vec<(RefreshStatus, bool)> {
+            self.events.lock().expect("lock").clone()
+        }
+    }
+
+    impl RefreshEventSink for RecordingEventSink {
+        fn publish(&self, snapshot: RefreshSnapshot, usage_changed: bool) {
+            self.events
+                .lock()
+                .expect("lock")
+                .push((snapshot.status, usage_changed));
+        }
     }
 
     impl FakeUsageStore {
         fn new() -> Self {
             Self {
                 reconciled: Mutex::new(Vec::new()),
+                fail: AtomicBool::new(false),
             }
+        }
+
+        fn fail(&self) {
+            self.fail.store(true, Ordering::Release);
         }
 
         fn reconciled_outcomes(&self) -> Vec<CollectionOutcome> {
@@ -442,6 +679,9 @@ mod tests {
             &self,
             request: DailyReconciliationRequest,
         ) -> Result<DailyReconciliationSummary, UsageStoreError> {
+            if self.fail.swap(false, Ordering::AcqRel) {
+                return Err(UsageStoreError::Backend);
+            }
             self.reconciled
                 .lock()
                 .expect("lock")
@@ -463,6 +703,14 @@ mod tests {
     impl Clock for FakeClock {
         fn now_epoch_ms(&self) -> i64 {
             self.now_ms
+        }
+    }
+
+    struct AdvancingClock(AtomicI64);
+
+    impl Clock for AdvancingClock {
+        fn now_epoch_ms(&self) -> i64 {
+            self.0.fetch_add(100, Ordering::Relaxed)
         }
     }
 
@@ -602,6 +850,17 @@ mod tests {
         (coordinator, run_store, usage_store)
     }
 
+    fn await_terminal(coordinator: &RefreshCoordinator) -> RefreshSnapshot {
+        for _ in 0..1_000 {
+            let snapshot = coordinator.snapshot();
+            if !snapshot.status.is_active() {
+                return snapshot;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        panic!("refresh did not reach a terminal state");
+    }
+
     #[test]
     fn complete_collection_reconciles_and_succeeds() {
         let collector = Arc::new(ScriptedCollector::new(|| {
@@ -609,7 +868,9 @@ mod tests {
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
 
-        let snapshot = coordinator.request_refresh(RefreshTrigger::Manual);
+        let submitted = coordinator.request_refresh(RefreshTrigger::Manual);
+        assert_eq!(submitted.status, RefreshStatus::Running);
+        let snapshot = await_terminal(&coordinator);
 
         assert_eq!(snapshot.status, RefreshStatus::Succeeded);
         assert_eq!(snapshot.last_successful_refresh_at_ms, Some(1_000));
@@ -626,13 +887,67 @@ mod tests {
     }
 
     #[test]
+    fn successful_refresh_records_completion_time() {
+        let collector = Arc::new(ScriptedCollector::new(|| {
+            Ok(collection(Vec::new(), Vec::new()))
+        }));
+        let run_store = Arc::new(FakeRunStore::new());
+        let usage_store = Arc::new(FakeUsageStore::new());
+        let coordinator = RefreshCoordinator::new(
+            collector,
+            run_store,
+            usage_store,
+            Arc::new(AdvancingClock(AtomicI64::new(1_000))),
+            "0.1.0",
+            "UTC",
+        );
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.last_successful_refresh_at_ms, Some(1_100));
+    }
+
+    #[test]
+    fn event_sink_observes_submission_and_committed_completion() {
+        let collector = Arc::new(ScriptedCollector::new(|| {
+            Ok(collection(vec![candidate()], Vec::new()))
+        }));
+        let run_store = Arc::new(FakeRunStore::new());
+        let usage_store = Arc::new(FakeUsageStore::new());
+        let events = Arc::new(RecordingEventSink::new());
+        let coordinator = RefreshCoordinator::with_event_sink(
+            collector,
+            run_store,
+            usage_store,
+            Arc::new(FakeClock { now_ms: 1_000 }),
+            events.clone(),
+            "0.1.0",
+            "UTC",
+        );
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        await_terminal(&coordinator);
+
+        assert_eq!(
+            events.events(),
+            vec![
+                (RefreshStatus::Running, false),
+                (RefreshStatus::Succeeded, true),
+            ]
+        );
+    }
+
+    #[test]
     fn empty_collection_succeeds_with_no_records() {
         let collector = Arc::new(ScriptedCollector::new(|| {
             Ok(collection(Vec::new(), Vec::new()))
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector);
 
-        let snapshot = coordinator.request_refresh(RefreshTrigger::Launch);
+        let submitted = coordinator.request_refresh(RefreshTrigger::Launch);
+        assert_eq!(submitted.status, RefreshStatus::Running);
+        let snapshot = await_terminal(&coordinator);
 
         assert_eq!(snapshot.status, RefreshStatus::Succeeded);
         assert_eq!(
@@ -658,7 +973,9 @@ mod tests {
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector);
 
-        let snapshot = coordinator.request_refresh(RefreshTrigger::Scheduled);
+        let submitted = coordinator.request_refresh(RefreshTrigger::Scheduled);
+        assert_eq!(submitted.status, RefreshStatus::Running);
+        let snapshot = await_terminal(&coordinator);
 
         assert_eq!(snapshot.status, RefreshStatus::Partial);
         assert_eq!(
@@ -680,12 +997,93 @@ mod tests {
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector);
 
-        let snapshot = coordinator.request_refresh(RefreshTrigger::Manual);
+        let submitted = coordinator.request_refresh(RefreshTrigger::Manual);
+        assert_eq!(submitted.status, RefreshStatus::Running);
+        let snapshot = await_terminal(&coordinator);
 
         assert_eq!(snapshot.status, RefreshStatus::Failed);
         assert_eq!(snapshot.last_successful_refresh_at_ms, None);
         assert!(usage_store.reconciled_outcomes().is_empty());
         assert!(run_store.import_outcomes().is_empty());
+        assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
+    }
+
+    #[test]
+    fn source_resolution_failure_terminalizes_the_refresh_run() {
+        let collector = Arc::new(ScriptedCollector::new(|| {
+            Ok(collection(Vec::new(), Vec::new()))
+        }));
+        let (coordinator, run_store, usage_store) = coordinator_with(collector);
+        run_store.fail_once(RunStoreFailure::ResolveSource);
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Failed);
+        assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
+        assert!(run_store.import_outcomes().is_empty());
+        assert!(usage_store.reconciled_outcomes().is_empty());
+    }
+
+    #[test]
+    fn import_creation_failure_terminalizes_the_refresh_run() {
+        let collector = Arc::new(ScriptedCollector::new(|| {
+            Ok(collection(Vec::new(), Vec::new()))
+        }));
+        let (coordinator, run_store, _usage_store) = coordinator_with(collector);
+        run_store.fail_once(RunStoreFailure::BeginImport);
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Failed);
+        assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
+        assert!(run_store.import_outcomes().is_empty());
+    }
+
+    #[test]
+    fn reconciliation_failure_terminalizes_import_and_refresh_runs() {
+        let collector = Arc::new(ScriptedCollector::new(|| {
+            Ok(collection(vec![candidate()], Vec::new()))
+        }));
+        let (coordinator, run_store, usage_store) = coordinator_with(collector);
+        usage_store.fail();
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Failed);
+        assert_eq!(run_store.import_outcomes(), vec![ImportOutcome::Failed]);
+        assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
+        assert!(usage_store.reconciled_outcomes().is_empty());
+    }
+
+    #[test]
+    fn completion_failures_retry_terminal_cleanup() {
+        let collector = Arc::new(ScriptedCollector::new(|| {
+            Ok(collection(vec![candidate()], Vec::new()))
+        }));
+        let (coordinator, run_store, _usage_store) = coordinator_with(collector);
+        run_store.fail_once(RunStoreFailure::CompleteImport);
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Failed);
+        assert_eq!(run_store.import_outcomes(), vec![ImportOutcome::Failed]);
+        assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
+
+        let collector = Arc::new(ScriptedCollector::new(|| {
+            Ok(collection(vec![candidate()], Vec::new()))
+        }));
+        let (coordinator, run_store, _usage_store) = coordinator_with(collector);
+        run_store.fail_once(RunStoreFailure::CompleteRefresh);
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Failed);
+        assert_eq!(run_store.import_outcomes(), vec![ImportOutcome::Succeeded]);
         assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
     }
 
@@ -764,15 +1162,18 @@ mod tests {
         let (coordinator, _run_store, _usage_store) = coordinator_with(collector.clone());
         let coordinator = Arc::new(coordinator);
 
-        let worker = coordinator.clone();
-        let handle = thread::spawn(move || worker.request_refresh(RefreshTrigger::Manual));
+        let submitted = coordinator.request_refresh(RefreshTrigger::Manual);
+        assert_eq!(submitted.status, RefreshStatus::Running);
 
         collector.wait_started();
         let coalesced = coordinator.request_refresh(RefreshTrigger::Scheduled);
         assert_eq!(coalesced.status, RefreshStatus::Running);
 
         collector.release();
-        handle.join().expect("join worker");
+        assert_eq!(
+            await_terminal(&coordinator).status,
+            RefreshStatus::Succeeded
+        );
 
         assert_eq!(collector.calls(), 1);
     }
@@ -783,14 +1184,16 @@ mod tests {
         let (coordinator, _run_store, _usage_store) = coordinator_with(collector.clone());
         let coordinator = Arc::new(coordinator);
 
-        let worker = coordinator.clone();
-        let handle = thread::spawn(move || worker.request_refresh(RefreshTrigger::Manual));
+        coordinator.request_refresh(RefreshTrigger::Manual);
 
         collector.wait_started();
         let cancelling = coordinator.cancel();
         assert_eq!(cancelling.status, RefreshStatus::Cancelling);
 
         collector.release();
-        handle.join().expect("join worker");
+        assert_eq!(
+            await_terminal(&coordinator).status,
+            RefreshStatus::Succeeded
+        );
     }
 }

@@ -155,8 +155,9 @@ warns against hiding weak reconciliation behind UI work.
 ## Follow-Up Debt
 
 - Phase 5 owns the `usage_get_overview` read model and overview UI.
-- Phase 7 owns asynchronous/background refresh, full cooperative cancellation,
-  intermediate progress events, an application-side event-publisher port, and
-  tray integration.
+- Phase 7 owns scheduled/background triggers, full cooperative cancellation,
+  richer intermediate progress details, and tray integration. Accepted manual
+  refresh work and event publication moved behind coordinator-owned boundaries
+  in the 2026-06-15 corrective review.
 - Removed-record retention/purge policy remains a deferred data-ingestion
   decision (see Phase 4D).

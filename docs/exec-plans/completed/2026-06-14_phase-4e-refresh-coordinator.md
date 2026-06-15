@@ -139,5 +139,5 @@ transaction discipline right here prevents whole classes of corruption later.
 ## Follow-Up Debt
 
 - Full cooperative cancellation, background scheduling, and wake/resume handling
-  remain for Phase 7. Asynchronous (non-blocking) refresh execution also remains
-  for Phase 7; the skeleton runs the job synchronously on the caller.
+  remain for Phase 7. The 2026-06-15 corrective review moved accepted refresh
+  work to the coordinator-owned background worker.
