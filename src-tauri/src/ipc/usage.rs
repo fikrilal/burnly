@@ -1,0 +1,265 @@
+use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
+use serde::{Deserialize, Serialize};
+use tauri::State;
+
+use crate::application::ports::overview_store::OverviewStoreError;
+use crate::application::usage::{
+    CostCompleteness, CostValuation, OverviewCost, OverviewDataStatus, OverviewPeriod,
+    OverviewQuery, OverviewQueryError, OverviewReadModel, OverviewSource,
+};
+
+use super::response::{ErrorCategory, FieldError, IpcError, IpcResponse};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct UsageOverviewRequest {
+    start_date: String,
+    end_date: String,
+    reporting_timezone: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct UsageOverviewResponse {
+    period: UsageOverviewPeriodResponse,
+    total_tokens: String,
+    active_days: u32,
+    cost: UsageOverviewCostResponse,
+    sources: Vec<UsageOverviewSourceResponse>,
+    as_of: String,
+    last_successful_refresh_at: Option<String>,
+    data_status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageOverviewPeriodResponse {
+    start_date: String,
+    end_date: String,
+    reporting_timezone: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageOverviewCostResponse {
+    amount_micros: Option<String>,
+    currency: Option<String>,
+    valuation: &'static str,
+    completeness: &'static str,
+    unavailable_days: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageOverviewSourceResponse {
+    source: &'static str,
+    total_tokens: String,
+    active_days: u32,
+    cost: UsageOverviewCostResponse,
+    has_partial_data: bool,
+}
+
+#[tauri::command]
+pub(super) fn usage_get_overview(
+    request: UsageOverviewRequest,
+    query: State<'_, OverviewQuery>,
+) -> IpcResponse<UsageOverviewResponse> {
+    let period = match period_from_request(request) {
+        Ok(period) => period,
+        Err(error) => return IpcResponse::failure(error),
+    };
+
+    match query.get(period) {
+        Ok(overview) => match UsageOverviewResponse::try_from(overview) {
+            Ok(response) => IpcResponse::success(response),
+            Err(error) => IpcResponse::failure(storage_error(error)),
+        },
+        Err(error) => IpcResponse::failure(query_error(error)),
+    }
+}
+
+fn period_from_request(request: UsageOverviewRequest) -> Result<OverviewPeriod, IpcError> {
+    let start_date = parse_date(&request.start_date, "request.startDate")?;
+    let end_date = parse_date(&request.end_date, "request.endDate")?;
+
+    OverviewPeriod::new(start_date, end_date, request.reporting_timezone).map_err(query_error)
+}
+
+fn parse_date(value: &str, field: &'static str) -> Result<NaiveDate, IpcError> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+        IpcError::new(
+            "validation.invalid_date",
+            "The selected date is invalid.",
+            ErrorCategory::Validation,
+            false,
+        )
+        .with_field_errors(vec![FieldError::new(
+            field,
+            "validation.date_format",
+            "Date must use YYYY-MM-DD format.",
+        )])
+    })
+}
+
+fn query_error(error: OverviewQueryError) -> IpcError {
+    match error {
+        OverviewQueryError::InvalidPeriod => IpcError::new(
+            "validation.invalid_date_range",
+            "The selected date range is invalid.",
+            ErrorCategory::Validation,
+            false,
+        )
+        .with_field_errors(vec![FieldError::new(
+            "request.startDate",
+            "validation.before_end_date",
+            "Start date must not be after end date.",
+        )]),
+        OverviewQueryError::EmptyAggregationTimezone => IpcError::new(
+            "validation.empty_reporting_timezone",
+            "A reporting timezone is required.",
+            ErrorCategory::Validation,
+            false,
+        )
+        .with_field_errors(vec![FieldError::new(
+            "request.reportingTimezone",
+            "validation.required",
+            "Reporting timezone is required.",
+        )]),
+        OverviewQueryError::Storage(storage) => storage_error(storage),
+    }
+}
+
+fn storage_error(error: OverviewStoreError) -> IpcError {
+    match error {
+        OverviewStoreError::Backend => IpcError::new(
+            "usage.overview_unavailable",
+            "Burnly could not read local usage data.",
+            ErrorCategory::Persistence,
+            true,
+        ),
+        OverviewStoreError::ValueOutOfRange | OverviewStoreError::MixedCurrencies => IpcError::new(
+            "usage.overview_inconsistent",
+            "Burnly found inconsistent local usage data.",
+            ErrorCategory::Persistence,
+            false,
+        ),
+    }
+}
+
+impl TryFrom<OverviewReadModel> for UsageOverviewResponse {
+    type Error = OverviewStoreError;
+
+    fn try_from(value: OverviewReadModel) -> Result<Self, Self::Error> {
+        Ok(Self {
+            period: UsageOverviewPeriodResponse {
+                start_date: value.period.start_date().to_string(),
+                end_date: value.period.end_date().to_string(),
+                reporting_timezone: value.period.aggregation_timezone().to_owned(),
+            },
+            total_tokens: value.total_tokens.to_string(),
+            active_days: value.active_days,
+            cost: value.cost.into(),
+            sources: value.sources.into_iter().map(Into::into).collect(),
+            as_of: to_rfc3339(value.as_of_ms)?,
+            last_successful_refresh_at: value
+                .last_successful_refresh_at_ms
+                .map(to_rfc3339)
+                .transpose()?,
+            data_status: data_status(value.data_status),
+        })
+    }
+}
+
+impl From<OverviewCost> for UsageOverviewCostResponse {
+    fn from(value: OverviewCost) -> Self {
+        Self {
+            amount_micros: value.amount_micros.map(|amount| amount.to_string()),
+            currency: value.currency.map(|currency| currency.as_str().to_owned()),
+            valuation: cost_valuation(value.valuation),
+            completeness: cost_completeness(value.completeness),
+            unavailable_days: value.unavailable_days,
+        }
+    }
+}
+
+impl From<OverviewSource> for UsageOverviewSourceResponse {
+    fn from(value: OverviewSource) -> Self {
+        Self {
+            source: value.source.as_str(),
+            total_tokens: value.total_tokens.to_string(),
+            active_days: value.active_days,
+            cost: value.cost.into(),
+            has_partial_data: value.has_partial_data,
+        }
+    }
+}
+
+const fn data_status(value: OverviewDataStatus) -> &'static str {
+    match value {
+        OverviewDataStatus::Current => "current",
+        OverviewDataStatus::Stale => "stale",
+        OverviewDataStatus::Partial => "partial",
+        OverviewDataStatus::Empty => "empty",
+    }
+}
+
+const fn cost_valuation(value: CostValuation) -> &'static str {
+    match value {
+        CostValuation::Available => "available",
+        CostValuation::Estimated => "estimated",
+        CostValuation::Unavailable => "unavailable",
+    }
+}
+
+const fn cost_completeness(value: CostCompleteness) -> &'static str {
+    match value {
+        CostCompleteness::Complete => "complete",
+        CostCompleteness::Partial => "partial",
+        CostCompleteness::Unavailable => "unavailable",
+    }
+}
+
+fn to_rfc3339(epoch_ms: i64) -> Result<String, OverviewStoreError> {
+    DateTime::<Utc>::from_timestamp_millis(epoch_ms)
+        .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Millis, true))
+        .ok_or(OverviewStoreError::ValueOutOfRange)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{to_value, Value};
+
+    use super::*;
+
+    #[test]
+    fn query_failures_map_to_stable_user_safe_errors() {
+        let validation = to_value(IpcResponse::<()>::failure(query_error(
+            OverviewQueryError::InvalidPeriod,
+        )))
+        .expect("serialize validation error");
+        let persistence = to_value(IpcResponse::<()>::failure(storage_error(
+            OverviewStoreError::Backend,
+        )))
+        .expect("serialize persistence error");
+
+        assert_eq!(validation["error"]["code"], "validation.invalid_date_range");
+        assert_eq!(validation["error"]["category"], "validation");
+        assert_eq!(validation["error"]["retryable"], false);
+        assert_eq!(
+            validation["error"]["fieldErrors"][0]["field"],
+            "request.startDate"
+        );
+        assert_eq!(persistence["error"]["code"], "usage.overview_unavailable");
+        assert_eq!(persistence["error"]["category"], "persistence");
+        assert_eq!(persistence["error"]["retryable"], true);
+        assert_eq!(persistence["error"]["details"], Value::Null);
+    }
+
+    #[test]
+    fn invalid_timestamps_fail_instead_of_serializing_empty_values() {
+        assert_eq!(
+            to_rfc3339(i64::MAX),
+            Err(OverviewStoreError::ValueOutOfRange)
+        );
+    }
+}

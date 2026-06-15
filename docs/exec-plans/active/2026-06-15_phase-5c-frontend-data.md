@@ -66,7 +66,10 @@ medium
 
 ## Decisions
 
-- Refine after Phase 5B locks the contract.
+- The feature calls `getUsageOverview` with explicit inclusive dates and the
+  reporting timezone obtained from bootstrap state.
+- Exact integer strings remain strings at the query boundary; presentation owns
+  any bounded conversion or `BigInt` formatting.
 
 ## Verification
 

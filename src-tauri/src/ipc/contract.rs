@@ -45,6 +45,12 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         request_type: "Record<string, never>",
         response_type: "RefreshStatusResponse",
     },
+    CommandSpec {
+        name: "usage_get_overview",
+        export_name: "invokeUsageGetOverview",
+        request_type: "UsageOverviewCommandRequest",
+        response_type: "UsageOverviewResponse",
+    },
 ];
 
 pub(super) const EVENTS: &[EventSpec] = &[

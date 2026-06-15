@@ -81,7 +81,7 @@ for (const event of contract.events) {
 }
 
 for (const command of contract.commands) {
-  if (!ipcModuleSource.includes(`commands::${command.name}`)) {
+  if (!new RegExp(`\\b[a-z_]+::${command.name}\\b`).test(ipcModuleSource)) {
     failures.push(
       `${command.name}: command is missing from the Tauri invoke handler.`,
     );
@@ -160,13 +160,7 @@ function renderContracts(contract) {
     )
     .join("\n");
   const commandWrappers = contract.commands
-    .map(
-      (command) => `export function ${command.exportName}(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.${commandKey(command.exportName)}, {});
-}`,
-    )
+    .map((command) => renderCommandWrapper(command))
     .join("\n\n");
   const eventNameEntries = contract.events
     .map((event) => `  ${event.exportName}: "${event.name}",`)
@@ -299,6 +293,41 @@ export interface RefreshStatusResponse {
   lastSuccessfulRefreshAt: string | null;
 }
 
+export interface UsageOverviewRequest {
+  startDate: string;
+  endDate: string;
+  reportingTimezone: string;
+}
+
+export interface UsageOverviewCommandRequest extends Record<string, unknown> {
+  request: UsageOverviewRequest;
+}
+
+export interface UsageOverviewCostResponse {
+  amountMicros: string | null;
+  currency: string | null;
+  valuation: "available" | "estimated" | "unavailable";
+  completeness: "complete" | "partial" | "unavailable";
+  unavailableDays: number;
+}
+
+export interface UsageOverviewResponse {
+  period: UsageOverviewRequest;
+  totalTokens: string;
+  activeDays: number;
+  cost: UsageOverviewCostResponse;
+  sources: {
+    source: string;
+    totalTokens: string;
+    activeDays: number;
+    cost: UsageOverviewCostResponse;
+    hasPartialData: boolean;
+  }[];
+  asOf: string;
+  lastSuccessfulRefreshAt: string | null;
+  dataStatus: "current" | "stale" | "partial" | "empty";
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {
@@ -338,6 +367,24 @@ function commandKey(exportName) {
   return exportName
     .replace(/^invoke/, "")
     .replace(/^./, (first) => first.toLowerCase());
+}
+
+function renderCommandWrapper(command) {
+  const key = commandKey(command.exportName);
+  if (command.requestType === "Record<string, never>") {
+    return `export function ${command.exportName}(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.${key}, {});
+}`;
+  }
+
+  return `export function ${command.exportName}(
+  invoke: CommandInvoker,
+  request: ${command.requestType},
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.${key}, request);
+}`;
 }
 
 function assertUnique(values, label) {

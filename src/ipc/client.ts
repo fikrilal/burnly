@@ -10,6 +10,7 @@ import {
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
+  invokeUsageGetOverview,
   type AppBootstrapResponse,
   type AppCapabilitiesResponse,
   type CommandInvoker,
@@ -21,6 +22,9 @@ import {
   type IpcResponse,
   type RefreshStatusResponse,
   type ResponseMeta,
+  type UsageOverviewCostResponse,
+  type UsageOverviewRequest,
+  type UsageOverviewResponse,
 } from "./generated/contracts";
 
 const responseMetaSchema: z.ZodType<ResponseMeta> = z.object({
@@ -141,6 +145,53 @@ const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
   lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
 });
 
+const uint64StringSchema = z
+  .string()
+  .regex(/^(0|[1-9][0-9]*)$/, "Expected a canonical unsigned integer string.");
+
+const usageOverviewCostSchema: z.ZodType<UsageOverviewCostResponse> =
+  z.discriminatedUnion("valuation", [
+    z.object({
+      amountMicros: uint64StringSchema,
+      currency: z.string().regex(/^[A-Z]{3}$/),
+      valuation: z.enum(["available", "estimated"]),
+      completeness: z.enum(["complete", "partial"]),
+      unavailableDays: z.number().int().nonnegative(),
+    }),
+    z.object({
+      amountMicros: z.null(),
+      currency: z.null(),
+      valuation: z.literal("unavailable"),
+      completeness: z.literal("unavailable"),
+      unavailableDays: z.number().int().nonnegative(),
+    }),
+  ]);
+
+const usageOverviewRequestSchema: z.ZodType<UsageOverviewRequest> = z.object({
+  startDate: z.iso.date(),
+  endDate: z.iso.date(),
+  reportingTimezone: z.string().trim().min(1),
+});
+
+const usageOverviewDataSchema: z.ZodType<UsageOverviewResponse> = z.object({
+  period: usageOverviewRequestSchema,
+  totalTokens: uint64StringSchema,
+  activeDays: z.number().int().nonnegative(),
+  cost: usageOverviewCostSchema,
+  sources: z.array(
+    z.object({
+      source: z.enum(["claude-code", "codex"]),
+      totalTokens: uint64StringSchema,
+      activeDays: z.number().int().nonnegative(),
+      cost: usageOverviewCostSchema,
+      hasPartialData: z.boolean(),
+    }),
+  ),
+  asOf: z.iso.datetime({ offset: true }),
+  lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
+  dataStatus: z.enum(["current", "stale", "partial", "empty"]),
+});
+
 export interface CommandResult<TData> {
   data: TData;
   meta: ResponseMeta;
@@ -210,6 +261,17 @@ export async function cancelRefresh(
 ): Promise<CommandResult<RefreshStatusResponse>> {
   const response = await invokeRefreshCancel(invoker);
   return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+}
+
+export async function getUsageOverview(
+  request: UsageOverviewRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<UsageOverviewResponse>> {
+  const parsedRequest = usageOverviewRequestSchema.parse(request);
+  const response = await invokeUsageGetOverview(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, usageOverviewDataSchema));
 }
 
 export function validateInt64String(value: string): bigint {

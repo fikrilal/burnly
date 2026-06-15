@@ -1,18 +1,13 @@
 //! SQLite overview read adapter.
 
-#![allow(
-    dead_code,
-    reason = "Phase 5A implements the adapter before Phase 5B runtime composition"
-)]
-
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::application::ports::overview_store::{OverviewStore, OverviewStoreError};
 use crate::application::usage::{
-    CostCompleteness, OverviewCost, OverviewPeriod, OverviewSource, OverviewStoreResult,
-    PersistedRefreshStatus,
+    CostCompleteness, CostValuation, OverviewCost, OverviewPeriod, OverviewSource,
+    OverviewStoreResult, PersistedRefreshStatus,
 };
 use crate::domain::source::SourceKey;
 use crate::domain::usage::CurrencyCode;
@@ -90,6 +85,10 @@ fn read_sources(
                     THEN 1 ELSE 0
                 END),
                 SUM(CASE
+                    WHEN daily_usage.cost_status = 'estimated'
+                    THEN 1 ELSE 0
+                END),
+                SUM(CASE
                     WHEN daily_usage.cost_status = 'unavailable'
                     THEN 1 ELSE 0
                 END),
@@ -126,10 +125,11 @@ fn read_sources(
                     active_days: row.get(2)?,
                     cost_amount_micros: row.get(3)?,
                     valued_days: row.get(4)?,
-                    unavailable_days: row.get(5)?,
-                    minimum_currency: row.get(6)?,
-                    maximum_currency: row.get(7)?,
-                    has_partial_data: row.get::<_, i64>(8)? != 0,
+                    estimated_days: row.get(5)?,
+                    unavailable_days: row.get(6)?,
+                    minimum_currency: row.get(7)?,
+                    maximum_currency: row.get(8)?,
+                    has_partial_data: row.get::<_, i64>(9)? != 0,
                 })
             },
         )
@@ -148,6 +148,7 @@ struct SourceRow {
     active_days: i64,
     cost_amount_micros: i64,
     valued_days: i64,
+    estimated_days: i64,
     unavailable_days: i64,
     minimum_currency: Option<String>,
     maximum_currency: Option<String>,
@@ -163,6 +164,7 @@ fn source_from_row(row: SourceRow) -> Result<OverviewSource, OverviewStoreError>
     let cost = cost_from_values(
         row.cost_amount_micros,
         row.valued_days,
+        row.estimated_days,
         row.unavailable_days,
         row.minimum_currency,
         row.maximum_currency,
@@ -180,6 +182,7 @@ fn source_from_row(row: SourceRow) -> Result<OverviewSource, OverviewStoreError>
 fn cost_from_values(
     amount_micros: i64,
     valued_days: i64,
+    estimated_days: i64,
     unavailable_days: i64,
     minimum_currency: Option<String>,
     maximum_currency: Option<String>,
@@ -190,6 +193,7 @@ fn cost_from_values(
         return Ok(OverviewCost {
             amount_micros: None,
             currency: None,
+            valuation: CostValuation::Unavailable,
             completeness: CostCompleteness::Unavailable,
             unavailable_days,
         });
@@ -206,6 +210,11 @@ fn cost_from_values(
     Ok(OverviewCost {
         amount_micros: Some(amount_micros),
         currency: Some(currency),
+        valuation: if estimated_days > 0 {
+            CostValuation::Estimated
+        } else {
+            CostValuation::Available
+        },
         completeness: if unavailable_days == 0 {
             CostCompleteness::Complete
         } else {
@@ -219,6 +228,7 @@ fn combine_costs(sources: &[OverviewSource]) -> Result<OverviewCost, OverviewSto
     let mut total = 0_u64;
     let mut currency: Option<CurrencyCode> = None;
     let mut valued = false;
+    let mut estimated = false;
     let mut unavailable_days = 0_u32;
 
     for source in sources {
@@ -226,6 +236,7 @@ fn combine_costs(sources: &[OverviewSource]) -> Result<OverviewCost, OverviewSto
             .checked_add(source.cost.unavailable_days)
             .ok_or(OverviewStoreError::ValueOutOfRange)?;
         if let Some(amount) = source.cost.amount_micros {
+            estimated |= source.cost.valuation == CostValuation::Estimated;
             let source_currency = source
                 .cost
                 .currency
@@ -248,6 +259,13 @@ fn combine_costs(sources: &[OverviewSource]) -> Result<OverviewCost, OverviewSto
     Ok(OverviewCost {
         amount_micros: valued.then_some(total),
         currency,
+        valuation: if !valued {
+            CostValuation::Unavailable
+        } else if estimated {
+            CostValuation::Estimated
+        } else {
+            CostValuation::Available
+        },
         completeness: if !valued {
             CostCompleteness::Unavailable
         } else if unavailable_days > 0 {
@@ -375,6 +393,7 @@ mod tests {
             Some("USD")
         );
         assert_eq!(overview.cost.completeness, CostCompleteness::Partial);
+        assert_eq!(overview.cost.valuation, CostValuation::Estimated);
         assert_eq!(overview.cost.unavailable_days, 1);
         assert!(overview.has_partial_data);
         assert_eq!(
@@ -385,8 +404,10 @@ mod tests {
         assert_eq!(overview.sources.len(), 2);
         assert_eq!(overview.sources[0].source, SourceKey::ClaudeCode);
         assert_eq!(overview.sources[0].total_tokens, 300);
+        assert_eq!(overview.sources[0].cost.valuation, CostValuation::Estimated);
         assert_eq!(overview.sources[1].source, SourceKey::Codex);
         assert_eq!(overview.sources[1].total_tokens, 50);
+        assert_eq!(overview.sources[1].cost.valuation, CostValuation::Available);
     }
 
     #[test]
@@ -492,7 +513,7 @@ mod tests {
     #[test]
     fn invalid_numeric_values_are_rejected_by_conversion() {
         assert_eq!(
-            cost_from_values(-1, 1, 0, Some("USD".to_owned()), Some("USD".to_owned())),
+            cost_from_values(-1, 1, 0, 0, Some("USD".to_owned()), Some("USD".to_owned()),),
             Err(OverviewStoreError::ValueOutOfRange)
         );
     }

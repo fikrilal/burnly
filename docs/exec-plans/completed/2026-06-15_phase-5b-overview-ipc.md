@@ -45,13 +45,13 @@ medium
 
 ## Checklist
 
-- [ ] Register usage_get_overview.
-- [ ] Define request and response DTOs.
-- [ ] Map the application model and errors.
-- [ ] Regenerate TypeScript and add Zod validation.
-- [ ] Add serialization, drift, client, and bridge tests.
-- [ ] Run contract, architecture, desktop bridge, and full verification.
-- [ ] Complete this plan and activate Phase 5C.
+- [x] Register usage_get_overview.
+- [x] Define request and response DTOs.
+- [x] Map the application model and errors.
+- [x] Regenerate TypeScript and add Zod validation.
+- [x] Add serialization, drift, client, and bridge tests.
+- [x] Run contract, architecture, desktop bridge, and full verification.
+- [x] Complete this plan and activate Phase 5C.
 
 ## Test Plan
 
@@ -65,16 +65,32 @@ medium
 
 ## Decisions
 
-- Refine after Phase 5A locks semantics.
+- The command accepts one nested `request` object containing an inclusive start
+  date, end date, and reporting timezone.
+- Tokens and cost micros cross IPC as canonical unsigned decimal strings.
+- Cost valuation and completeness are separate: valuation reports available,
+  estimated, or unavailable values; completeness reports complete, partial, or
+  unavailable coverage.
+- Dates use `YYYY-MM-DD`; timestamps use RFC 3339 UTC with a `Z` suffix.
+- Invalid requests are validation errors. Backend failures are retryable
+  persistence errors; inconsistent persisted values are non-retryable.
+- The generated contract harness now supports explicit command arguments while
+  preserving empty-object wrappers for existing commands.
 
 ## Verification
 
 - Command: pnpm verify
-- Outcome: queued; not run.
+- Outcome: passed on 2026-06-15.
+- Rust tests: 140 passed and 1 ignored opt-in real-sidecar smoke test.
+- Frontend tests: 20 passed.
+- Formatting, lint, type checking, Clippy, architecture, public API, contracts,
+  migrations, collector fixtures, and duplication reporting passed.
 
 ## Runtime Evidence
 
-- Required through the Tauri bridge.
+- `pnpm evidence:desktop` passed on 2026-06-15.
+- Four Tauri bridge tests passed, including refresh persistence followed by a
+  real `usage_get_overview` invocation.
 
 ## Follow-Up Debt
 

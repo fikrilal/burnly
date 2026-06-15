@@ -14,10 +14,6 @@ use std::time::Duration;
 use rusqlite::Connection;
 
 pub use error::{PersistenceError, PersistenceErrorKind};
-#[allow(
-    unused_imports,
-    reason = "Phase 5A exports the overview store for Phase 5B composition"
-)]
 pub(crate) use overview_store::SqliteOverviewStore;
 pub(crate) use reconciliation_store::SqliteReconciliationStore;
 

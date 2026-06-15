@@ -1,10 +1,5 @@
 //! Application-owned port for the overview read query.
 
-#![allow(
-    dead_code,
-    reason = "Phase 5A defines the overview port before Phase 5B composition"
-)]
-
 use thiserror::Error;
 
 use crate::application::usage::{OverviewPeriod, OverviewStoreResult};

@@ -56,10 +56,18 @@ pub(crate) enum CostCompleteness {
     Unavailable,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CostValuation {
+    Available,
+    Estimated,
+    Unavailable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OverviewCost {
     pub amount_micros: Option<u64>,
     pub currency: Option<CurrencyCode>,
+    pub valuation: CostValuation,
     pub completeness: CostCompleteness,
     pub unavailable_days: u32,
 }
@@ -308,6 +316,7 @@ mod tests {
         OverviewCost {
             amount_micros: None,
             currency: None,
+            valuation: CostValuation::Unavailable,
             completeness: CostCompleteness::Unavailable,
             unavailable_days: 0,
         }

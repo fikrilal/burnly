@@ -12,10 +12,6 @@ impl SourceKey {
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "Phase 5A storage decoding is wired through IPC in Phase 5B"
-    )]
     pub(crate) fn from_storage(value: &str) -> Option<Self> {
         match value {
             "claude-code" => Some(Self::ClaudeCode),

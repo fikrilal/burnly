@@ -6,6 +6,7 @@ import {
   getAppCapabilities,
   getContractProbe,
   getRefreshState,
+  getUsageOverview,
   invokeCommand,
   validateInt64String,
   validateUint64String,
@@ -15,6 +16,7 @@ import {
   CONTRACT_VERSION,
   type CommandInvoker,
   type IpcResponse,
+  type UsageOverviewResponse,
 } from "./generated/contracts";
 
 const meta = {
@@ -79,6 +81,36 @@ describe("IPC command responses", () => {
         },
       ],
     });
+  });
+});
+
+describe("usage overview IPC", () => {
+  it("invokes and validates the usage overview contract", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.usageGetOverview);
+      expect(request).toEqual({
+        request: {
+          startDate: "2026-06-13",
+          endDate: "2026-06-14",
+          reportingTimezone: "UTC",
+        },
+      });
+      return Promise.resolve(usageOverview());
+    };
+
+    const result = await getUsageOverview(
+      {
+        startDate: "2026-06-13",
+        endDate: "2026-06-14",
+        reportingTimezone: "UTC",
+      },
+      invoker,
+    );
+
+    expect(result.data.totalTokens).toBe("18446744073709551615");
+    expect(result.data.cost.valuation).toBe("estimated");
+    expect(result.data.cost.completeness).toBe("partial");
+    expect(result.data.dataStatus).toBe("partial");
   });
 });
 
@@ -167,6 +199,47 @@ function refreshState(): IpcResponse<unknown> {
   };
 }
 
+function usageOverview(): IpcResponse<UsageOverviewResponse> {
+  return {
+    ok: true,
+    data: {
+      period: {
+        startDate: "2026-06-13",
+        endDate: "2026-06-14",
+        reportingTimezone: "UTC",
+      },
+      totalTokens: "18446744073709551615",
+      activeDays: 2,
+      cost: {
+        amountMicros: "630000",
+        currency: "USD",
+        valuation: "estimated",
+        completeness: "partial",
+        unavailableDays: 1,
+      },
+      sources: [
+        {
+          source: "claude-code",
+          totalTokens: "18446744073709551615",
+          activeDays: 2,
+          cost: {
+            amountMicros: "630000",
+            currency: "USD",
+            valuation: "estimated",
+            completeness: "partial",
+            unavailableDays: 1,
+          },
+          hasPartialData: true,
+        },
+      ],
+      asOf: "2026-06-15T07:30:00.000Z",
+      lastSuccessfulRefreshAt: "2026-06-15T07:00:00.000Z",
+      dataStatus: "partial",
+    },
+    meta,
+  };
+}
+
 function validationError(): IpcResponse<unknown> {
   return {
     ok: false,
@@ -224,6 +297,48 @@ describe("IPC transport and validation failures", () => {
       );
 
     await expect(getContractProbe(invoker)).rejects.toBeInstanceOf(ZodError);
+  });
+});
+
+describe("usage overview IPC validation", () => {
+  it("rejects inconsistent overview cost and integer payloads", async () => {
+    const malformed = usageOverview();
+    if (malformed.ok) {
+      malformed.data.totalTokens = "01";
+      malformed.data.cost.valuation = "unavailable";
+    }
+    const invoker: CommandInvoker = () => Promise.resolve(malformed);
+
+    await expect(
+      getUsageOverview(
+        {
+          startDate: "2026-06-13",
+          endDate: "2026-06-14",
+          reportingTimezone: "UTC",
+        },
+        invoker,
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+  });
+
+  it("rejects invalid overview requests before transport", async () => {
+    let invoked = false;
+    const invoker: CommandInvoker = () => {
+      invoked = true;
+      return Promise.resolve(usageOverview());
+    };
+
+    await expect(
+      getUsageOverview(
+        {
+          startDate: "13-06-2026",
+          endDate: "2026-06-14",
+          reportingTimezone: "UTC",
+        },
+        invoker,
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+    expect(invoked).toBe(false);
   });
 });
 

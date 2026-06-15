@@ -30,8 +30,8 @@ wrong usage.
 | Chunk                            | Status    | Dependency | Plan                                                            |
 | -------------------------------- | --------- | ---------- | --------------------------------------------------------------- |
 | Phase 5A: Overview read model    | Completed | Phase 4    | [Plan](../completed/2026-06-15_phase-5a-overview-read-model.md) |
-| Phase 5B: Overview IPC contract  | Active    | Phase 5A   | [Plan](./2026-06-15_phase-5b-overview-ipc.md)                   |
-| Phase 5C: Frontend overview data | Queued    | Phase 5B   | [Plan](../queued/2026-06-15_phase-5c-frontend-data.md)          |
+| Phase 5B: Overview IPC contract  | Completed | Phase 5A   | [Plan](../completed/2026-06-15_phase-5b-overview-ipc.md)        |
+| Phase 5C: Frontend overview data | Active    | Phase 5B   | [Plan](./2026-06-15_phase-5c-frontend-data.md)                  |
 | Phase 5D: Overview interface     | Queued    | Phase 5C   | [Plan](../queued/2026-06-15_phase-5d-overview-interface.md)     |
 | Phase 5E: UI states and evidence | Queued    | Phase 5D   | [Plan](../queued/2026-06-15_phase-5e-states-evidence.md)        |
 
@@ -71,7 +71,7 @@ wrong usage.
 ## Progress
 
 - [x] Phase 5A completed and verified.
-- [ ] Phase 5B completed and verified.
+- [x] Phase 5B completed and verified.
 - [ ] Phase 5C completed and verified.
 - [ ] Phase 5D completed and verified.
 - [ ] Phase 5E completed and verified.
@@ -89,6 +89,8 @@ wrong usage.
 - Command: pnpm verify
 - Outcome: not run yet.
 - Phase 5A verification: pnpm verify passed on 2026-06-15.
+- Phase 5B verification: pnpm verify and pnpm evidence:desktop passed on
+  2026-06-15.
 
 ## Runtime Evidence
 

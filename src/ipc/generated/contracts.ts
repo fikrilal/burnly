@@ -120,6 +120,41 @@ export interface RefreshStatusResponse {
   lastSuccessfulRefreshAt: string | null;
 }
 
+export interface UsageOverviewRequest {
+  startDate: string;
+  endDate: string;
+  reportingTimezone: string;
+}
+
+export interface UsageOverviewCommandRequest extends Record<string, unknown> {
+  request: UsageOverviewRequest;
+}
+
+export interface UsageOverviewCostResponse {
+  amountMicros: string | null;
+  currency: string | null;
+  valuation: "available" | "estimated" | "unavailable";
+  completeness: "complete" | "partial" | "unavailable";
+  unavailableDays: number;
+}
+
+export interface UsageOverviewResponse {
+  period: UsageOverviewRequest;
+  totalTokens: string;
+  activeDays: number;
+  cost: UsageOverviewCostResponse;
+  sources: {
+    source: string;
+    totalTokens: string;
+    activeDays: number;
+    cost: UsageOverviewCostResponse;
+    hasPartialData: boolean;
+  }[];
+  asOf: string;
+  lastSuccessfulRefreshAt: string | null;
+  dataStatus: "current" | "stale" | "partial" | "empty";
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {
@@ -129,6 +164,7 @@ export const COMMAND_NAMES = {
   refreshGetState: "refresh_get_state",
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
+  usageGetOverview: "usage_get_overview",
 } as const;
 
 export type CommandName = (typeof COMMAND_NAMES)[keyof typeof COMMAND_NAMES];
@@ -140,6 +176,7 @@ export interface CommandRequests {
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
+  [COMMAND_NAMES.usageGetOverview]: UsageOverviewCommandRequest;
 }
 
 export interface CommandResponses {
@@ -149,6 +186,7 @@ export interface CommandResponses {
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
+  [COMMAND_NAMES.usageGetOverview]: IpcResponse<UsageOverviewResponse>;
 }
 
 export type CommandInvoker = (
@@ -184,6 +222,13 @@ export function invokeRefreshRequest(invoke: CommandInvoker): Promise<unknown> {
 
 export function invokeRefreshCancel(invoke: CommandInvoker): Promise<unknown> {
   return invoke(COMMAND_NAMES.refreshCancel, {});
+}
+
+export function invokeUsageGetOverview(
+  invoke: CommandInvoker,
+  request: UsageOverviewCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.usageGetOverview, request);
 }
 
 export const EVENT_NAMES = {

@@ -13,10 +13,12 @@ use thiserror::Error;
 use crate::application::bootstrap::BootstrapService;
 use crate::application::collection::CollectorFailure;
 use crate::application::refresh::RefreshCoordinator;
+use crate::application::usage::OverviewQuery;
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteOverviewStore,
+    SqliteReconciliationStore,
 };
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
@@ -88,12 +90,21 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
 
     app.manage(build_refresh_coordinator(app, &database_path)?);
+    app.manage(build_overview_query(&database_path)?);
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
         CONTRACT_VERSION,
         SqliteBootstrapStore::new(database),
     ));
     Ok(())
+}
+
+fn build_overview_query(database_path: &Path) -> Result<OverviewQuery, StartupError> {
+    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    Ok(OverviewQuery::new(
+        Arc::new(SqliteOverviewStore::new(database)),
+        Arc::new(SystemClock),
+    ))
 }
 
 fn build_refresh_coordinator<R: Runtime>(
@@ -162,7 +173,7 @@ mod tests {
     use crate::application::bootstrap::{BootstrapError, BootstrapStorage, BootstrapStore};
 
     use rusqlite::Connection;
-    use serde_json::Value;
+    use serde_json::{json, Value};
     use tauri::webview::InvokeRequest;
 
     use super::*;
@@ -388,6 +399,7 @@ mod tests {
         let coordinator =
             compose_refresh_coordinator(&app, &database_path, collector).expect("coordinator");
         assert!(app.manage(coordinator));
+        assert!(app.manage(build_overview_query(&database_path).expect("overview query")));
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
             .expect("build mock webview");
@@ -421,6 +433,36 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM daily_usage", [], |row| row.get(0))
             .expect("count daily usage");
         assert_eq!(daily_count, 2);
+        drop(connection);
+
+        let overview = tauri::test::get_ipc_response(
+            &webview,
+            request_with_body(
+                "usage_get_overview",
+                json!({
+                    "request": {
+                        "startDate": "2026-06-13",
+                        "endDate": "2026-06-14",
+                        "reportingTimezone": "UTC"
+                    }
+                }),
+            ),
+        )
+        .expect("invoke usage overview")
+        .deserialize::<Value>()
+        .expect("deserialize usage overview");
+
+        assert_eq!(overview["ok"], true);
+        assert_eq!(overview["data"]["totalTokens"], "2500");
+        assert_eq!(overview["data"]["activeDays"], 2);
+        assert_eq!(overview["data"]["cost"]["amountMicros"], "630000");
+        assert_eq!(overview["data"]["cost"]["valuation"], "estimated");
+        assert_eq!(overview["data"]["sources"][0]["source"], "claude-code");
+        assert_eq!(overview["data"]["dataStatus"], "current");
+        assert!(overview["data"]["asOf"]
+            .as_str()
+            .expect("snapshot timestamp")
+            .ends_with('Z'));
     }
 
     fn settings_count(connection: &Connection) -> i64 {
@@ -483,6 +525,10 @@ mod tests {
     }
 
     fn request(command: &str) -> InvokeRequest {
+        request_with_body(command, Value::Object(Default::default()))
+    }
+
+    fn request_with_body(command: &str, body: Value) -> InvokeRequest {
         InvokeRequest {
             cmd: command.into(),
             callback: tauri::ipc::CallbackFn(0),
@@ -494,7 +540,7 @@ mod tests {
             }
             .parse()
             .expect("parse tauri url"),
-            body: tauri::ipc::InvokeBody::default(),
+            body: tauri::ipc::InvokeBody::Json(body),
             headers: Default::default(),
             invoke_key: tauri::test::INVOKE_KEY.to_owned(),
         }
