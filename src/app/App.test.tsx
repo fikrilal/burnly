@@ -10,6 +10,10 @@ import type {
   AppCapabilitiesResponse,
 } from "../ipc/generated/contracts";
 
+vi.mock("../features/overview", () => ({
+  Overview: () => <div data-testid="overview-feature" />,
+}));
+
 const meta = {
   contractVersion: CONTRACT_VERSION,
   requestId: "018f5f4d-7758-7bb2-9d9b-6d7f22c4a901",
@@ -17,7 +21,7 @@ const meta = {
 } as const;
 
 describe("App", () => {
-  it("renders bootstrap and capability data from the IPC client boundary", async () => {
+  it("renders the Overview feature when the runtime is ready", async () => {
     render(
       <App
         loadBootstrap={() => Promise.resolve(bootstrapResult())}
@@ -28,9 +32,7 @@ describe("App", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Burnly" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("Schema 1")).toBeInTheDocument();
-    expect(screen.getByText("Asia/Jakarta")).toBeInTheDocument();
-    expect(screen.getByText("not implemented")).toBeInTheDocument();
+    expect(await screen.findByTestId("overview-feature")).toBeInTheDocument();
   });
 
   it("stops startup before capability loading when contract versions differ", async () => {

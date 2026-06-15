@@ -16,6 +16,8 @@ run(
   "Tauri IPC bridge evidence",
 );
 
+run("pnpm", ["test:e2e"], "Desktop UI states evidence");
+
 console.log("Desktop runtime evidence passed.");
 
 function run(command, args, label) {

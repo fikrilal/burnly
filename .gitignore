@@ -23,3 +23,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+playwright-report/
+screenshots/
+test-results/
+x11_sockets.txt

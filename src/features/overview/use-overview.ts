@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { getUsageOverview, requestRefresh } from "../../ipc/client";
 import { EVENT_NAMES, subscribeToEvent } from "../../ipc/events";
@@ -12,6 +12,7 @@ import type { UsageOverviewRequest } from "../../ipc/generated/contracts";
 export function useOverview(request: UsageOverviewRequest) {
   const queryClient = useQueryClient();
   const queryKey = ["usage", "overview", request];
+  const [refreshError, setRefreshError] = useState<Error | null>(null);
 
   const query = useQuery({
     queryKey,
@@ -50,8 +51,12 @@ export function useOverview(request: UsageOverviewRequest) {
 
   const manualRefresh = async () => {
     try {
+      setRefreshError(null);
       await requestRefresh();
     } catch (error) {
+      setRefreshError(
+        error instanceof Error ? error : new Error(String(error)),
+      );
       console.error("Manual refresh request failed", error);
     }
   };
@@ -59,5 +64,6 @@ export function useOverview(request: UsageOverviewRequest) {
   return {
     ...query,
     manualRefresh,
+    refreshError,
   };
 }
