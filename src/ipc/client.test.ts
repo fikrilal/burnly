@@ -5,6 +5,7 @@ import {
   getAppBootstrap,
   getAppCapabilities,
   getContractProbe,
+  getRefreshState,
   invokeCommand,
   validateInt64String,
   validateUint64String,
@@ -50,6 +51,19 @@ describe("IPC command responses", () => {
     expect(result.data.tray.status).toBe("not_implemented");
     expect(result.data.exportFormats).toEqual([]);
     expect(result.data.diagnostics.desktopEvidence).toBe(true);
+  });
+
+  it("validates refresh state from the desktop runtime", async () => {
+    const invoker: CommandInvoker = () => Promise.resolve(refreshState());
+
+    const result = await getRefreshState(invoker);
+
+    expect(result.data.status).toBe("succeeded");
+    expect(result.data.jobId).toBe("refresh-1000-0");
+    expect(result.data.trigger).toBe("manual");
+    expect(result.data.lastSuccessfulRefreshAt).toBe(
+      "2026-06-15T00:00:00+00:00",
+    );
   });
 
   it("maps application error envelopes to typed client errors", async () => {
@@ -135,6 +149,19 @@ function capabilities(): IpcResponse<unknown> {
       diagnostics: {
         desktopEvidence: true,
       },
+    },
+    meta,
+  };
+}
+
+function refreshState(): IpcResponse<unknown> {
+  return {
+    ok: true,
+    data: {
+      status: "succeeded",
+      jobId: "refresh-1000-0",
+      trigger: "manual",
+      lastSuccessfulRefreshAt: "2026-06-15T00:00:00+00:00",
     },
     meta,
   };

@@ -51,7 +51,7 @@ warns against hiding weak reconciliation behind UI work.
 | Phase 4C: Daily reconciliation core     | Completed | Phase 4B   | [Plan](../completed/2026-06-14_phase-4c-daily-reconciliation.md) |
 | Phase 4D: Missing and absence lifecycle | Completed | Phase 4C   | [Plan](../completed/2026-06-14_phase-4d-absence-lifecycle.md)    |
 | Phase 4E: Refresh coordinator skeleton  | Completed | Phase 4D   | [Plan](../completed/2026-06-14_phase-4e-refresh-coordinator.md)  |
-| Phase 4F: Refresh IPC and events        | Active    | Phase 4E   | [Plan](../active/2026-06-14_phase-4f-refresh-ipc-events.md)      |
+| Phase 4F: Refresh IPC and events        | Completed | Phase 4E   | [Plan](../completed/2026-06-14_phase-4f-refresh-ipc-events.md)   |
 
 ## Dependency Rules
 
@@ -123,8 +123,8 @@ warns against hiding weak reconciliation behind UI work.
 - [x] Phase 4C completed and verified.
 - [x] Phase 4D completed and verified.
 - [x] Phase 4E completed and verified.
-- [ ] Phase 4F completed and verified.
-- [ ] Phase-level exit criteria verified.
+- [x] Phase 4F completed and verified.
+- [x] Phase-level exit criteria verified.
 
 ## Decisions
 
@@ -139,13 +139,24 @@ warns against hiding weak reconciliation behind UI work.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet.
+- Outcome: passed on 2026-06-15 (all six chunks verified individually).
+- Final state: 121 Rust tests pass (1 ignored opt-in smoke test) and 17 frontend
+  tests pass. The persisted usage loop is exercised end to end: collect → reconcile
+  → run records → refresh state, queryable after restart, with idempotency,
+  replacement, absence transitions, and partial/failed safety proven against real
+  SQLite.
 
 ## Runtime Evidence
 
-- Not required at the phase level until Phase 4F adds the IPC surface; chunk plans
-  define their own evidence.
+- `pnpm evidence:desktop` passed on 2026-06-15 with Tauri prerequisite, generated
+  contract, frontend build, and IPC bridge evidence for bootstrap, capabilities,
+  and refresh-state commands.
 
 ## Follow-Up Debt
 
-- None yet.
+- Phase 5 owns the `usage_get_overview` read model and overview UI.
+- Phase 7 owns asynchronous/background refresh, full cooperative cancellation,
+  intermediate progress events, an application-side event-publisher port, and
+  tray integration.
+- Removed-record retention/purge policy remains a deferred data-ingestion
+  decision (see Phase 4D).

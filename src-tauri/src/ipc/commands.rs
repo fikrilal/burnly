@@ -1,10 +1,15 @@
+use chrono::DateTime;
 use serde::Serialize;
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
     Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary, Readiness,
     RefreshState, RefreshStatus, SettingsState, SourceStatus, SourceSummary,
+};
+use crate::application::reconciliation::RefreshTrigger;
+use crate::application::refresh::{
+    RefreshCoordinator, RefreshSnapshot, RefreshStatus as RefreshLifecycleStatus,
 };
 
 use super::response::{ErrorCategory, IpcError, IpcResponse, CONTRACT_VERSION};
@@ -246,4 +251,113 @@ fn bootstrap_error(error: BootstrapError) -> IpcError {
             true,
         ),
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RefreshStatusResponse {
+    status: &'static str,
+    job_id: Option<String>,
+    trigger: Option<&'static str>,
+    last_successful_refresh_at: Option<String>,
+}
+
+#[tauri::command]
+pub(super) fn refresh_get_state(
+    coordinator: State<'_, RefreshCoordinator>,
+) -> IpcResponse<RefreshStatusResponse> {
+    IpcResponse::success(coordinator.snapshot().into())
+}
+
+#[tauri::command]
+pub(super) fn refresh_request<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    coordinator: State<'_, RefreshCoordinator>,
+) -> IpcResponse<RefreshStatusResponse> {
+    let snapshot = coordinator.request_refresh(RefreshTrigger::Manual);
+    publish_refresh_events(&app, &snapshot);
+    IpcResponse::success(snapshot.into())
+}
+
+#[tauri::command]
+pub(super) fn refresh_cancel(
+    coordinator: State<'_, RefreshCoordinator>,
+) -> IpcResponse<RefreshStatusResponse> {
+    IpcResponse::success(coordinator.cancel().into())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RefreshProgressEvent {
+    status: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DataInvalidatedEvent {
+    scope: &'static str,
+}
+
+/// Publishes refresh notifications. Events carry only hints; the frontend must
+/// re-query authoritative state after `data-invalidated`.
+fn publish_refresh_events<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    snapshot: &RefreshSnapshot,
+) {
+    let _ = app.emit(
+        "burnly://v1/refresh-progress",
+        RefreshProgressEvent {
+            status: refresh_lifecycle_value(snapshot.status),
+        },
+    );
+
+    if matches!(
+        snapshot.status,
+        RefreshLifecycleStatus::Succeeded | RefreshLifecycleStatus::Partial
+    ) {
+        let _ = app.emit(
+            "burnly://v1/data-invalidated",
+            DataInvalidatedEvent { scope: "usage" },
+        );
+    }
+}
+
+impl From<RefreshSnapshot> for RefreshStatusResponse {
+    fn from(value: RefreshSnapshot) -> Self {
+        Self {
+            status: refresh_lifecycle_value(value.status),
+            job_id: value.job_id,
+            trigger: value.trigger.map(refresh_trigger_value),
+            last_successful_refresh_at: value.last_successful_refresh_at_ms.map(to_rfc3339),
+        }
+    }
+}
+
+const fn refresh_lifecycle_value(status: RefreshLifecycleStatus) -> &'static str {
+    match status {
+        RefreshLifecycleStatus::Idle => "idle",
+        RefreshLifecycleStatus::Queued => "queued",
+        RefreshLifecycleStatus::Running => "running",
+        RefreshLifecycleStatus::Cancelling => "cancelling",
+        RefreshLifecycleStatus::Succeeded => "succeeded",
+        RefreshLifecycleStatus::Partial => "partial",
+        RefreshLifecycleStatus::Failed => "failed",
+    }
+}
+
+const fn refresh_trigger_value(trigger: RefreshTrigger) -> &'static str {
+    match trigger {
+        RefreshTrigger::Launch => "launch",
+        RefreshTrigger::Manual => "manual",
+        RefreshTrigger::Scheduled => "scheduled",
+        RefreshTrigger::FileChange => "file_change",
+        RefreshTrigger::Resume => "resume",
+        RefreshTrigger::Reconcile => "reconcile",
+    }
+}
+
+fn to_rfc3339(epoch_ms: i64) -> String {
+    DateTime::from_timestamp_millis(epoch_ms)
+        .map(|timestamp| timestamp.to_rfc3339())
+        .unwrap_or_default()
 }

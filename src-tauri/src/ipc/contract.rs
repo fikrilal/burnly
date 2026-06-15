@@ -27,6 +27,24 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         request_type: "Record<string, never>",
         response_type: "AppCapabilitiesResponse",
     },
+    CommandSpec {
+        name: "refresh_get_state",
+        export_name: "invokeRefreshGetState",
+        request_type: "Record<string, never>",
+        response_type: "RefreshStatusResponse",
+    },
+    CommandSpec {
+        name: "refresh_request",
+        export_name: "invokeRefreshRequest",
+        request_type: "Record<string, never>",
+        response_type: "RefreshStatusResponse",
+    },
+    CommandSpec {
+        name: "refresh_cancel",
+        export_name: "invokeRefreshCancel",
+        request_type: "Record<string, never>",
+        response_type: "RefreshStatusResponse",
+    },
 ];
 
 pub(super) const EVENTS: &[EventSpec] = &[

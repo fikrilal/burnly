@@ -288,6 +288,52 @@ mod tests {
         assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
     }
 
+    #[test]
+    fn tauri_bridge_invokes_refresh_state_command() {
+        let directory = tempfile::TempDir::new().expect("create app data directory");
+        let database_path = directory.path().join("burnly.sqlite3");
+        let mut database = Database::open(&database_path).expect("open database");
+        database.migrate_to_latest().expect("migrate database");
+        database
+            .ensure_app_settings("UTC", 100)
+            .expect("seed settings");
+
+        let store = Arc::new(SqliteReconciliationStore::new(database));
+        let collector = Arc::new(CcusageCollector::packaged(directory.path()).expect("collector"));
+        let coordinator = RefreshCoordinator::new(
+            collector,
+            store.clone(),
+            store,
+            Arc::new(SystemClock),
+            env!("CARGO_PKG_VERSION"),
+            "UTC",
+        );
+
+        let app = tauri::test::mock_builder()
+            .invoke_handler(crate::ipc::invoke_handler())
+            .manage(coordinator)
+            .manage(BootstrapService::new(
+                env!("CARGO_PKG_VERSION"),
+                CONTRACT_VERSION,
+                FixedBootstrapStore,
+            ))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build mock tauri app");
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("build mock webview");
+
+        let response = tauri::test::get_ipc_response(&webview, request("refresh_get_state"))
+            .expect("invoke command")
+            .deserialize::<Value>()
+            .expect("deserialize command response");
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["status"], "idle");
+        assert_eq!(response["data"]["jobId"], Value::Null);
+        assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
     fn settings_count(connection: &Connection) -> i64 {
         connection
             .query_row("SELECT COUNT(*) FROM app_settings", [], |row| row.get(0))

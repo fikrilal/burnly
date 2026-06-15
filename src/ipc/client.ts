@@ -7,6 +7,9 @@ import {
   CONTRACT_VERSION,
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
+  invokeRefreshCancel,
+  invokeRefreshGetState,
+  invokeRefreshRequest,
   type AppBootstrapResponse,
   type AppCapabilitiesResponse,
   type CommandInvoker,
@@ -16,6 +19,7 @@ import {
   type FieldError,
   type IpcError,
   type IpcResponse,
+  type RefreshStatusResponse,
   type ResponseMeta,
 } from "./generated/contracts";
 
@@ -113,6 +117,30 @@ const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
   }),
 });
 
+const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
+  status: z.enum([
+    "idle",
+    "queued",
+    "running",
+    "cancelling",
+    "succeeded",
+    "partial",
+    "failed",
+  ]),
+  jobId: z.string().min(1).nullable(),
+  trigger: z
+    .enum([
+      "launch",
+      "manual",
+      "scheduled",
+      "file_change",
+      "resume",
+      "reconcile",
+    ])
+    .nullable(),
+  lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
+});
+
 export interface CommandResult<TData> {
   data: TData;
   meta: ResponseMeta;
@@ -161,6 +189,27 @@ export async function getAppCapabilities(
   const response = await invokeAppGetCapabilities(invoker);
   const parsed = validateCapabilitiesResponse(response);
   return unwrapResponse(parsed);
+}
+
+export async function getRefreshState(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<RefreshStatusResponse>> {
+  const response = await invokeRefreshGetState(invoker);
+  return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+}
+
+export async function requestRefresh(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<RefreshStatusResponse>> {
+  const response = await invokeRefreshRequest(invoker);
+  return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+}
+
+export async function cancelRefresh(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<RefreshStatusResponse>> {
+  const response = await invokeRefreshCancel(invoker);
+  return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
 }
 
 export function validateInt64String(value: string): bigint {

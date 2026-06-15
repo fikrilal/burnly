@@ -99,12 +99,36 @@ export interface DesktopCapability {
   status: "not_implemented";
 }
 
+export interface RefreshStatusResponse {
+  status:
+    | "idle"
+    | "queued"
+    | "running"
+    | "cancelling"
+    | "succeeded"
+    | "partial"
+    | "failed";
+  jobId: string | null;
+  trigger:
+    | "launch"
+    | "manual"
+    | "scheduled"
+    | "file_change"
+    | "resume"
+    | "reconcile"
+    | null;
+  lastSuccessfulRefreshAt: string | null;
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {
   contractProbe: "__burnly_contract_probe",
   appGetBootstrap: "app_get_bootstrap",
   appGetCapabilities: "app_get_capabilities",
+  refreshGetState: "refresh_get_state",
+  refreshRequest: "refresh_request",
+  refreshCancel: "refresh_cancel",
 } as const;
 
 export type CommandName = (typeof COMMAND_NAMES)[keyof typeof COMMAND_NAMES];
@@ -113,12 +137,18 @@ export interface CommandRequests {
   [COMMAND_NAMES.contractProbe]: Record<string, never>;
   [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
+  [COMMAND_NAMES.refreshGetState]: Record<string, never>;
+  [COMMAND_NAMES.refreshRequest]: Record<string, never>;
+  [COMMAND_NAMES.refreshCancel]: Record<string, never>;
 }
 
 export interface CommandResponses {
   [COMMAND_NAMES.contractProbe]: IpcResponse<ContractProbeResponse>;
   [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
+  [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
+  [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
+  [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
 }
 
 export type CommandInvoker = (
@@ -140,6 +170,20 @@ export function invokeAppGetCapabilities(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.appGetCapabilities, {});
+}
+
+export function invokeRefreshGetState(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.refreshGetState, {});
+}
+
+export function invokeRefreshRequest(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.refreshRequest, {});
+}
+
+export function invokeRefreshCancel(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.refreshCancel, {});
 }
 
 export const EVENT_NAMES = {

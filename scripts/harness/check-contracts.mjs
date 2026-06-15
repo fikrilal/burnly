@@ -278,6 +278,27 @@ export interface DesktopCapability {
   status: "not_implemented";
 }
 
+export interface RefreshStatusResponse {
+  status:
+    | "idle"
+    | "queued"
+    | "running"
+    | "cancelling"
+    | "succeeded"
+    | "partial"
+    | "failed";
+  jobId: string | null;
+  trigger:
+    | "launch"
+    | "manual"
+    | "scheduled"
+    | "file_change"
+    | "resume"
+    | "reconcile"
+    | null;
+  lastSuccessfulRefreshAt: string | null;
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {

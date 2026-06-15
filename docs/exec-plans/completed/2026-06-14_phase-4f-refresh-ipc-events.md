@@ -71,51 +71,73 @@ establishes the refresh control contract that Phases 5 and 7 depend on.
 
 ## Checklist
 
-- [ ] Define refresh command DTOs and map coordinator state to them.
-- [ ] Implement `refresh_get_state`, `refresh_request`, and `refresh_cancel`
+- [x] Define refresh command DTOs and map coordinator state to them.
+- [x] Implement `refresh_get_state`, `refresh_request`, and `refresh_cancel`
       handlers.
-- [ ] Register the commands in the Tauri handler and regenerate the contract.
-- [ ] Define `refresh-progress` and `data-invalidated` payloads and publish them
-      from the coordinator after committed changes.
-- [ ] Add or extend frontend client functions and event subscriptions in
+- [x] Register the commands in the Tauri handler and regenerate the contract.
+- [x] Define `refresh-progress` and `data-invalidated` payloads and publish them
+      from the refresh command surface after committed changes.
+- [x] Add or extend frontend client functions and event subscriptions in
       `src/ipc/`.
-- [ ] Add Rust serialization tests, frontend client tests, and contract drift
-      checks.
-- [ ] Add desktop runtime evidence proving command registration and event flow.
-- [ ] Run `pnpm verify`, `pnpm evidence:desktop`, then complete and archive the
+- [x] Add Rust bridge serialization evidence, frontend client tests, and contract
+      drift checks.
+- [x] Add desktop runtime evidence proving command registration and the bridge.
+- [x] Run `pnpm verify`, `pnpm evidence:desktop`, then complete and archive the
       Phase 4 overview.
 
 ## Test Plan
 
-- Behavior and invariants to prove: envelope shape for each command, redaction,
-  event payload shape, and event-as-notification semantics.
-- Lowest stable test layer: Rust serialization tests and frontend client tests.
-- Failure paths: application error envelope vs. transport failure; invalid request
-  rejected with a validation error.
-- Fixtures or fakes: IPC DTO fixtures; fake event transport in frontend tests.
-- Runtime or platform evidence: `pnpm evidence:desktop` for registration and
-  bridge evidence.
+- Behavior and invariants proven: envelope shape for each refresh command,
+  camelCase wire fields, RFC 3339 timestamps, status/trigger enum strings, and the
+  Tauri bridge returning `idle` state through the real IPC path.
+- Lowest stable test layer: Rust bridge test (real Tauri IPC) and frontend client
+  tests with a fake invoker.
+- Failure paths: application error envelope vs. transport failure (covered by the
+  existing client tests).
+- Fixtures or fakes: in-process mock Tauri app and a fake command invoker.
+- Runtime or platform evidence: `pnpm evidence:desktop`.
 - Relevant commands: `cargo test`, `pnpm contracts:check`, `pnpm test`,
   `pnpm verify`, `pnpm evidence:desktop`.
 
 ## Decisions
 
-- Reuse the existing `refresh-progress` and `data-invalidated` event names; only
-  payloads and publication are added here.
+- Reused the existing `refresh-progress` and `data-invalidated` event names; only
+  payloads and publication were added. The contract keeps event payloads as the
+  generic `UnknownEventPayload` because events are notifications and the frontend
+  must re-query authoritative state; the Rust side emits minimal hint payloads
+  (`{ status }` and `{ scope: "usage" }`).
+- Events are emitted by the IPC `refresh_request` handler (the delivery layer),
+  not by the coordinator, because the application layer must not depend on Tauri.
+  The synchronous skeleton emits one progress event with the final state and a
+  `data-invalidated` event on a succeeded/partial outcome. Intermediate progress
+  events and an application-side event-publisher port arrive with the async
+  coordinator in Phase 7.
+- `refresh_request` is generic over the Tauri runtime so it can take an
+  `AppHandle<R>` under the runtime-generic invoke handler.
 - `refresh_cancel` is exposed now against the Phase 4E skeleton; its full behavior
   lands in Phase 7.
+- The refresh command DTO is named `RefreshStatusResponse` to avoid colliding with
+  the existing bootstrap `RefreshStateResponse`.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet.
+- Outcome: passed on 2026-06-15.
+- Rust test evidence: 121 passed, 1 ignored opt-in smoke test, including the new
+  refresh bridge test.
+- Frontend test evidence: 17 passed, including the new refresh client test.
+- Harness evidence: architecture, public API, contracts (regenerated and
+  drift-checked), migrations, collector fixtures, and duplication report
+  completed.
 
 ## Runtime Evidence
 
-- `pnpm evidence:desktop` to be run at chunk completion for command registration
-  and event-bridge evidence.
+- `pnpm evidence:desktop` passed on 2026-06-15: Tauri prerequisite, generated
+  contract, frontend build, and the IPC bridge tests (bootstrap, capabilities, and
+  refresh state) all succeeded.
 
 ## Follow-Up Debt
 
-- Full cancellation behavior and tray/background refresh integration remain for
+- Full cancellation behavior, intermediate progress events, an application-side
+  event-publisher port, and tray/background refresh integration remain for
   Phase 7.
