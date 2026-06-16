@@ -119,9 +119,10 @@ fn build_calendar_query(database_path: &Path) -> Result<CalendarQuery, StartupEr
 
 fn build_day_detail_query(database_path: &Path) -> Result<DayDetailQuery, StartupError> {
     let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(DayDetailQuery::new(Arc::new(SqliteCalendarStore::new(
-        database,
-    ))))
+    Ok(DayDetailQuery::new(
+        Arc::new(SqliteCalendarStore::new(database)),
+        Arc::new(SystemClock),
+    ))
 }
 
 fn build_session_query(database_path: &Path) -> Result<SessionQuery, StartupError> {

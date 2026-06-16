@@ -158,10 +158,7 @@ export interface UsageOverviewResponse {
 export interface ActivityCalendarRequest {
   startDate: string;
   endDate: string;
-  metric: string;
-  timezone: string;
-  source: string | null;
-  project: string | null;
+  reportingTimezone: string;
 }
 
 export interface ActivityCalendarCommandRequest extends Record<
@@ -171,24 +168,21 @@ export interface ActivityCalendarCommandRequest extends Record<
   request: ActivityCalendarRequest;
 }
 
-export interface ActivityCalendarCellResponse {
+export interface ActivityCalendarDayResponse {
   date: string;
-  value: string;
-  intensity: number;
+  totalTokens: string;
+  activeSources: number;
+  cost: UsageOverviewCostResponse;
+  hasPartialData: boolean;
 }
 
 export interface ActivityCalendarResponse {
-  period: ActivityCalendarRequest;
-  cells: ActivityCalendarCellResponse[];
-  total: string;
-  asOf: string;
+  days: ActivityCalendarDayResponse[];
+  dataStatus: "current" | "stale" | "partial" | "empty";
 }
 
 export interface DayDetailRequest {
   date: string;
-  timezone: string;
-  source: string | null;
-  project: string | null;
 }
 
 export interface DayDetailCommandRequest extends Record<string, unknown> {

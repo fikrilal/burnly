@@ -1,47 +1,74 @@
 import { useMemo } from "react";
-import type { ActivityCalendarCellResponse } from "../../../ipc/generated/contracts";
+import type { ActivityCalendarDayResponse } from "../../../ipc/generated/contracts";
 
 interface CalendarHeatmapProps {
-  cells: ActivityCalendarCellResponse[];
+  days: ActivityCalendarDayResponse[];
+  startDate: string;
+  endDate: string;
   onSelectDate?: (date: string) => void;
   selectedDate?: string | null;
 }
 
 export function CalendarHeatmap({
-  cells,
+  days,
+  startDate,
+  endDate,
   onSelectDate,
   selectedDate,
 }: CalendarHeatmapProps) {
-  // Assuming the cells come in date order, but let's be sure.
-  const sortedCells = useMemo(
-    () => [...cells].sort((a, b) => a.date.localeCompare(b.date)),
-    [cells],
+  const allDays = useMemo(() => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const daysArray: {
+      date: string;
+      data: ActivityCalendarDayResponse | null;
+    }[] = [];
+
+    const daysMap = new Map(days.map((d) => [d.date, d]));
+
+    const current = new Date(start);
+    while (current <= end) {
+      const dateStr = current.toISOString().substring(0, 10);
+      daysArray.push({
+        date: dateStr,
+        data: daysMap.get(dateStr) ?? null,
+      });
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+    return daysArray;
+  }, [startDate, endDate, days]);
+
+  // Calculate offset for the first day
+  const startDayOfWeek = new Date(startDate).getUTCDay(); // 0 is Sunday
+
+  const maxTokens = Math.max(
+    ...days.map((d) => Number.parseInt(d.totalTokens, 10)),
+    0,
   );
 
-  if (sortedCells.length === 0) {
-    return (
-      <div className="flex h-32 items-center justify-center text-sm text-zinc-500">
-        No calendar data available.
-      </div>
-    );
-  }
-
-  // Create a grid of 7 rows (Sunday - Saturday)
-  // Calculate offset for the first day
-  const firstDateStr = sortedCells[0]?.date;
-  if (!firstDateStr) return null;
-  const firstDate = new Date(firstDateStr);
-  const startDayOfWeek = firstDate.getUTCDay(); // 0 is Sunday
+  const getIntensity = (totalTokens: string) => {
+    const tokens = Number.parseInt(totalTokens, 10);
+    if (tokens === 0) return 0;
+    if (maxTokens === 0) return 0;
+    const ratio = tokens / maxTokens;
+    if (ratio <= 0.25) return 1;
+    if (ratio <= 0.5) return 2;
+    if (ratio <= 0.75) return 3;
+    return 4;
+  };
 
   // Group cells into weeks
-  const weeks: (ActivityCalendarCellResponse | null)[][] = [];
-  let currentWeek: (ActivityCalendarCellResponse | null)[] = Array.from(
-    { length: startDayOfWeek },
-    () => null,
-  );
+  const weeks: ({
+    date: string;
+    data: ActivityCalendarDayResponse | null;
+  } | null)[][] = [];
+  let currentWeek: ({
+    date: string;
+    data: ActivityCalendarDayResponse | null;
+  } | null)[] = Array.from({ length: startDayOfWeek }, () => null);
 
-  for (const cell of sortedCells) {
-    currentWeek.push(cell);
+  for (const day of allDays) {
+    currentWeek.push(day);
     if (currentWeek.length === 7) {
       weeks.push(currentWeek);
       currentWeek = [];
@@ -75,8 +102,8 @@ export function CalendarHeatmap({
       <div className="flex gap-1" style={{ width: "max-content" }}>
         {weeks.map((week, weekIndex) => (
           <div key={weekIndex} className="flex flex-col gap-1">
-            {week.map((cell, dayIndex) => {
-              if (!cell) {
+            {week.map((day, dayIndex) => {
+              if (!day) {
                 return (
                   <div
                     key={`empty-${weekIndex}-${dayIndex}`}
@@ -85,20 +112,24 @@ export function CalendarHeatmap({
                 );
               }
 
-              const isSelected = selectedDate === cell.date;
+              const isSelected = selectedDate === day.date;
+              const intensity = day.data
+                ? getIntensity(day.data.totalTokens)
+                : 0;
+              const tokensDisplay = day.data ? day.data.totalTokens : "0";
 
               return (
                 <button
-                  key={cell.date}
+                  key={day.date}
                   type="button"
-                  title={`${cell.date}: ${cell.value} tokens`}
-                  onClick={() => onSelectDate?.(cell.date)}
+                  title={`${day.date}: ${tokensDisplay} tokens`}
+                  onClick={() => onSelectDate?.(day.date)}
                   className={`h-3 w-3 rounded-sm border transition-colors hover:border-zinc-400 ${
                     isSelected
                       ? "ring-1 ring-white ring-offset-1 ring-offset-zinc-950"
                       : ""
-                  } ${getIntensityClass(cell.intensity)}`}
-                  aria-label={`${cell.date}: ${cell.value} tokens`}
+                  } ${getIntensityClass(intensity)}`}
+                  aria-label={`${day.date}: ${tokensDisplay} tokens`}
                   aria-pressed={isSelected}
                 />
               );

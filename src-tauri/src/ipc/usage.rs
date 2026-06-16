@@ -6,9 +6,9 @@ use crate::application::ports::overview_store::OverviewStoreError;
 use crate::application::ports::session_store::{SessionPagination, SessionStoreError};
 use crate::application::usage::{
     CalendarDayInfo, CalendarPeriod, CalendarQuery, CalendarQueryError, CalendarReadModel,
-    CostCompleteness, CostValuation, DayDetailQuery, DayDetailQueryError, DayDetailReadModel,
-    OverviewCost, OverviewDataStatus, OverviewPeriod, OverviewQuery, OverviewQueryError,
-    OverviewReadModel, OverviewSource, SessionQuery,
+    CostCompleteness, CostValuation, DayDetailQuery, DayDetailQueryError,
+    DayDetailReadModel, OverviewCost, OverviewDataStatus, OverviewPeriod, OverviewQuery,
+    OverviewQueryError, OverviewReadModel, OverviewSource, SessionQuery,
 };
 use crate::domain::usage::{SessionDetail, UsageSession};
 
@@ -131,11 +131,21 @@ pub(super) struct DayDetailRequest {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(super) struct DayDetailModelResponse {
+    source: &'static str,
+    model: String,
+    tokens: String,
+    cost: UsageOverviewCostResponse,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct DayDetailResponse {
     date: String,
     total_tokens: String,
     cost: UsageOverviewCostResponse,
-    sources: Vec<UsageOverviewSourceResponse>,
+    models: Vec<DayDetailModelResponse>,
+    as_of: String,
 }
 
 #[tauri::command]
@@ -149,7 +159,10 @@ pub(super) fn usage_get_day_detail(
     };
 
     match query.get(date) {
-        Ok(Some(model)) => IpcResponse::success(Some(DayDetailResponse::from(model))),
+        Ok(Some(model)) => match DayDetailResponse::try_from(model) {
+            Ok(response) => IpcResponse::success(Some(response)),
+            Err(error) => IpcResponse::failure(error),
+        },
         Ok(None) => IpcResponse::success(None),
         Err(error) => IpcResponse::failure(day_detail_query_error(error)),
     }
@@ -375,14 +388,27 @@ impl From<CalendarDayInfo> for ActivityCalendarDayResponse {
     }
 }
 
-impl From<DayDetailReadModel> for DayDetailResponse {
-    fn from(value: DayDetailReadModel) -> Self {
-        Self {
+impl TryFrom<DayDetailReadModel> for DayDetailResponse {
+    type Error = IpcError;
+
+    fn try_from(value: DayDetailReadModel) -> Result<Self, Self::Error> {
+        let mut models = Vec::with_capacity(value.models.len());
+        for m in value.models {
+            models.push(DayDetailModelResponse {
+                source: m.source.as_str(),
+                model: m.model,
+                tokens: m.tokens.to_string(),
+                cost: m.cost.into(),
+            });
+        }
+
+        Ok(Self {
             date: value.date.to_string(),
             total_tokens: value.total_tokens.to_string(),
             cost: value.cost.into(),
-            sources: value.sources.into_iter().map(Into::into).collect(),
-        }
+            models,
+            as_of: to_rfc3339(value.as_of_ms).map_err(storage_error)?,
+        })
     }
 }
 

@@ -34,7 +34,6 @@ export function CalendarView() {
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
     reportingTimezone,
-    metric: "tokens",
   });
 
   const {
@@ -42,7 +41,7 @@ export function CalendarView() {
     isPending: isDayDetailPending,
     isError: isDayDetailError,
     error: dayDetailError,
-  } = useDayDetail(selectedDate, reportingTimezone);
+  } = useDayDetail(selectedDate);
 
   return (
     <div className="flex flex-col gap-8">
@@ -73,7 +72,9 @@ export function CalendarView() {
         ) : (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 overflow-x-auto">
             <CalendarHeatmap
-              cells={calendarData.cells}
+              days={calendarData.days}
+              startDate={dateRange.startDate}
+              endDate={dateRange.endDate}
               selectedDate={selectedDate}
               onSelectDate={setSelectedDate}
             />

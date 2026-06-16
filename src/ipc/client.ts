@@ -171,8 +171,11 @@ const usageOverviewCostSchema: z.ZodType<UsageOverviewCostResponse> =
       unavailableDays: z.number().int().nonnegative(),
     }),
     z.object({
-      amountMicros: z.null(),
-      currency: z.null(),
+      amountMicros: uint64StringSchema.nullable(),
+      currency: z
+        .string()
+        .regex(/^[A-Z]{3}$/)
+        .nullable(),
       valuation: z.literal("unavailable"),
       completeness: z.literal("unavailable"),
       unavailableDays: z.number().int().nonnegative(),
@@ -208,31 +211,25 @@ const activityCalendarRequestSchema: z.ZodType<ActivityCalendarRequest> =
   z.object({
     startDate: z.iso.date(),
     endDate: z.iso.date(),
-    metric: z.string(),
-    timezone: z.string().trim().min(1),
-    source: z.string().nullable(),
-    project: z.string().nullable(),
+    reportingTimezone: z.string().trim().min(1),
   });
 
 const activityCalendarDataSchema: z.ZodType<ActivityCalendarResponse> =
   z.object({
-    period: activityCalendarRequestSchema,
-    cells: z.array(
+    days: z.array(
       z.object({
         date: z.iso.date(),
-        value: uint64StringSchema,
-        intensity: z.number().int().min(0).max(4),
+        totalTokens: uint64StringSchema,
+        activeSources: z.number().int().min(0),
+        cost: usageOverviewCostSchema,
+        hasPartialData: z.boolean(),
       }),
     ),
-    total: uint64StringSchema,
-    asOf: z.iso.datetime({ offset: true }),
+    dataStatus: z.enum(["current", "stale", "partial", "empty"]),
   });
 
 const dayDetailRequestSchema: z.ZodType<DayDetailRequest> = z.object({
   date: z.iso.date(),
-  timezone: z.string().trim().min(1),
-  source: z.string().nullable(),
-  project: z.string().nullable(),
 });
 
 const dayDetailDataSchema: z.ZodType<DayDetailResponse> = z.object({
