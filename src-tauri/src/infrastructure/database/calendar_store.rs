@@ -194,8 +194,8 @@ impl DayDetailStore for SqliteCalendarStore {
         let model_rows = model_stmt
             .query_map([&date_str], |row| {
                 let source_key_str: String = row.get(0)?;
-                let source = SourceKey::from_storage(&source_key_str)
-                    .unwrap_or(SourceKey::ClaudeCode);
+                let source =
+                    SourceKey::from_storage(&source_key_str).unwrap_or(SourceKey::ClaudeCode);
                 let model_name: String = row.get(1)?;
                 let m_tokens: Option<i64> = row.get(2)?;
                 let m_cost: Option<i64> = row.get(3)?;
@@ -250,8 +250,8 @@ impl DayDetailStore for SqliteCalendarStore {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::{params, Connection};
     use super::*;
+    use rusqlite::{params, Connection};
 
     fn migrated_store() -> (tempfile::TempDir, SqliteCalendarStore) {
         let directory = tempfile::tempdir().expect("create temporary directory");
@@ -288,7 +288,13 @@ mod tests {
             .expect("seed source");
     }
 
-    fn seed_model(connection: &Connection, id: i64, source_id: i64, raw_model_id: &str, display_name: Option<&str>) {
+    fn seed_model(
+        connection: &Connection,
+        id: i64,
+        source_id: i64,
+        raw_model_id: &str,
+        display_name: Option<&str>,
+    ) {
         connection
             .execute(
                 "INSERT INTO source_models (
@@ -352,18 +358,13 @@ mod tests {
                 ) VALUES (?1, ?2, 1, ?3, 'UTC', ?4, NULL, NULL,
                     'collector_calculated', 'unavailable', 'complete',
                     'active', 0, 100, 200, ?5)",
-                params![
-                    source_id,
-                    source_key,
-                    date_str,
-                    total_tokens,
-                    import_id
-                ],
+                params![source_id, source_key, date_str, total_tokens, import_id],
             )
             .expect("seed daily usage");
         connection.last_insert_rowid()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn seed_daily_model_usage(
         connection: &Connection,
         daily_usage_id: i64,
@@ -401,19 +402,47 @@ mod tests {
         {
             let db = store.database.lock().expect("lock");
             let conn = db.connection();
-            seed_source(&conn, 1, "claude-code");
-            seed_model(&conn, 10, 1, "claude-3-5-sonnet", Some("Claude 3.5 Sonnet"));
-            seed_model(&conn, 11, 1, "claude-3-haiku", None);
+            seed_source(conn, 1, "claude-code");
+            seed_model(conn, 10, 1, "claude-3-5-sonnet", Some("Claude 3.5 Sonnet"));
+            seed_model(conn, 11, 1, "claude-3-haiku", None);
 
-            let refresh_id = seed_refresh(&conn, "succeeded", 200);
-            let import_id = seed_import(&conn, refresh_id, 1);
-            let daily_id = seed_daily_usage(&conn, 1, "claude-code:daily:v1:UTC:2026-06-13", "2026-06-13", 1000, import_id);
+            let refresh_id = seed_refresh(conn, "succeeded", 200);
+            let import_id = seed_import(conn, refresh_id, 1);
+            let daily_id = seed_daily_usage(
+                conn,
+                1,
+                "claude-code:daily:v1:UTC:2026-06-13",
+                "2026-06-13",
+                1000,
+                import_id,
+            );
 
-            seed_daily_model_usage(&conn, daily_id, 1, 10, 800, Some(2400), Some("USD"), "estimated", import_id);
-            seed_daily_model_usage(&conn, daily_id, 1, 11, 200, None, None, "unavailable", import_id);
+            seed_daily_model_usage(
+                conn,
+                daily_id,
+                1,
+                10,
+                800,
+                Some(2400),
+                Some("USD"),
+                "estimated",
+                import_id,
+            );
+            seed_daily_model_usage(
+                conn,
+                daily_id,
+                1,
+                11,
+                200,
+                None,
+                None,
+                "unavailable",
+                import_id,
+            );
         }
 
-        let detail = store.read_day_detail(NaiveDate::from_ymd_opt(2026, 6, 13).unwrap())
+        let detail = store
+            .read_day_detail(NaiveDate::from_ymd_opt(2026, 6, 13).unwrap())
             .expect("read day detail")
             .expect("should return some detail");
 
@@ -427,28 +456,41 @@ mod tests {
         assert_eq!(m1.tokens, 800);
         assert_eq!(m1.cost.amount_micros, Some(2400));
         assert_eq!(m1.cost.currency, Some(CurrencyCode::new("USD").unwrap()));
-        assert_eq!(m1.cost.valuation, crate::application::usage::CostValuation::Estimated);
+        assert_eq!(
+            m1.cost.valuation,
+            crate::application::usage::CostValuation::Estimated
+        );
 
         let m2 = &detail.models[1];
         assert_eq!(m2.source, SourceKey::ClaudeCode);
         assert_eq!(m2.model, "claude-3-haiku");
         assert_eq!(m2.tokens, 200);
         assert_eq!(m2.cost.amount_micros, None);
-        assert_eq!(m2.cost.valuation, crate::application::usage::CostValuation::Unavailable);
+        assert_eq!(
+            m2.cost.valuation,
+            crate::application::usage::CostValuation::Unavailable
+        );
     }
 
     #[test]
     fn reads_empty_day_detail() {
         let (_directory, store) = migrated_store();
-        
-        let detail = store.read_day_detail(NaiveDate::from_ymd_opt(2026, 6, 13).unwrap())
+
+        let detail = store
+            .read_day_detail(NaiveDate::from_ymd_opt(2026, 6, 13).unwrap())
             .expect("read day detail")
             .expect("should return some empty detail model");
 
         assert_eq!(detail.date, NaiveDate::from_ymd_opt(2026, 6, 13).unwrap());
         assert_eq!(detail.total_tokens, 0);
         assert_eq!(detail.models.len(), 0);
-        assert_eq!(detail.cost.valuation, crate::application::usage::CostValuation::Unavailable);
-        assert_eq!(detail.cost.completeness, crate::application::usage::CostCompleteness::Unavailable);
+        assert_eq!(
+            detail.cost.valuation,
+            crate::application::usage::CostValuation::Unavailable
+        );
+        assert_eq!(
+            detail.cost.completeness,
+            crate::application::usage::CostCompleteness::Unavailable
+        );
     }
 }

@@ -9,7 +9,9 @@ pub(crate) use calendar::{
     CalendarDayInfo, CalendarPeriod, CalendarQuery, CalendarQueryError, CalendarReadModel,
 };
 
-pub(crate) use day_detail::{DayDetailModel, DayDetailQuery, DayDetailQueryError, DayDetailReadModel};
+pub(crate) use day_detail::{
+    DayDetailModel, DayDetailQuery, DayDetailQueryError, DayDetailReadModel,
+};
 
 pub(crate) use overview::{
     CostCompleteness, CostValuation, OverviewCost, OverviewDataStatus, OverviewPeriod,
