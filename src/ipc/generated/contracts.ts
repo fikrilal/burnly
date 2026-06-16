@@ -155,6 +155,61 @@ export interface UsageOverviewResponse {
   dataStatus: "current" | "stale" | "partial" | "empty";
 }
 
+export interface ActivityCalendarRequest {
+  startDate: string;
+  endDate: string;
+  metric: string;
+  timezone: string;
+  source: string | null;
+  project: string | null;
+}
+
+export interface ActivityCalendarCommandRequest extends Record<
+  string,
+  unknown
+> {
+  request: ActivityCalendarRequest;
+}
+
+export interface ActivityCalendarCellResponse {
+  date: string;
+  value: string;
+  intensity: number;
+}
+
+export interface ActivityCalendarResponse {
+  period: ActivityCalendarRequest;
+  cells: ActivityCalendarCellResponse[];
+  total: string;
+  asOf: string;
+}
+
+export interface DayDetailRequest {
+  date: string;
+  timezone: string;
+  source: string | null;
+  project: string | null;
+}
+
+export interface DayDetailCommandRequest extends Record<string, unknown> {
+  request: DayDetailRequest;
+}
+
+export interface DayDetailModelResponse {
+  source: string;
+  model: string;
+  tokens: string;
+  cost: UsageOverviewCostResponse;
+}
+
+export interface DayDetailResponse {
+  date: string;
+  totalTokens: string;
+  cost: UsageOverviewCostResponse;
+  models: DayDetailModelResponse[];
+  asOf: string;
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {
@@ -165,6 +220,8 @@ export const COMMAND_NAMES = {
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
   usageGetOverview: "usage_get_overview",
+  usageGetCalendar: "usage_get_calendar",
+  usageGetDayDetail: "usage_get_day_detail",
 } as const;
 
 export type CommandName = (typeof COMMAND_NAMES)[keyof typeof COMMAND_NAMES];
@@ -177,6 +234,8 @@ export interface CommandRequests {
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
   [COMMAND_NAMES.usageGetOverview]: UsageOverviewCommandRequest;
+  [COMMAND_NAMES.usageGetCalendar]: ActivityCalendarCommandRequest;
+  [COMMAND_NAMES.usageGetDayDetail]: DayDetailCommandRequest;
 }
 
 export interface CommandResponses {
@@ -187,6 +246,8 @@ export interface CommandResponses {
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.usageGetOverview]: IpcResponse<UsageOverviewResponse>;
+  [COMMAND_NAMES.usageGetCalendar]: IpcResponse<ActivityCalendarResponse>;
+  [COMMAND_NAMES.usageGetDayDetail]: IpcResponse<DayDetailResponse>;
 }
 
 export type CommandInvoker = (
@@ -229,6 +290,20 @@ export function invokeUsageGetOverview(
   request: UsageOverviewCommandRequest,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.usageGetOverview, request);
+}
+
+export function invokeUsageGetCalendar(
+  invoke: CommandInvoker,
+  request: ActivityCalendarCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.usageGetCalendar, request);
+}
+
+export function invokeUsageGetDayDetail(
+  invoke: CommandInvoker,
+  request: DayDetailCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.usageGetDayDetail, request);
 }
 
 export const EVENT_NAMES = {

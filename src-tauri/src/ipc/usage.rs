@@ -4,8 +4,10 @@ use tauri::State;
 
 use crate::application::ports::overview_store::OverviewStoreError;
 use crate::application::usage::{
-    CostCompleteness, CostValuation, OverviewCost, OverviewDataStatus, OverviewPeriod,
-    OverviewQuery, OverviewQueryError, OverviewReadModel, OverviewSource,
+    CalendarDayInfo, CalendarPeriod, CalendarQuery, CalendarQueryError, CalendarReadModel,
+    CostCompleteness, CostValuation, DayDetailQuery, DayDetailQueryError, DayDetailReadModel,
+    OverviewCost, OverviewDataStatus, OverviewPeriod, OverviewQuery, OverviewQueryError,
+    OverviewReadModel, OverviewSource,
 };
 
 use super::response::{ErrorCategory, FieldError, IpcError, IpcResponse};
@@ -78,11 +80,91 @@ pub(super) fn usage_get_overview(
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ActivityCalendarRequest {
+    start_date: String,
+    end_date: String,
+    reporting_timezone: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ActivityCalendarResponse {
+    days: Vec<ActivityCalendarDayResponse>,
+    data_status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActivityCalendarDayResponse {
+    date: String,
+    total_tokens: String,
+    active_sources: u32,
+    cost: UsageOverviewCostResponse,
+    has_partial_data: bool,
+}
+
+#[tauri::command]
+pub(super) fn usage_get_calendar(
+    request: ActivityCalendarRequest,
+    query: State<'_, CalendarQuery>,
+) -> IpcResponse<ActivityCalendarResponse> {
+    let period = match calendar_period_from_request(request) {
+        Ok(period) => period,
+        Err(error) => return IpcResponse::failure(error),
+    };
+
+    match query.get(period) {
+        Ok(model) => IpcResponse::success(ActivityCalendarResponse::from(model)),
+        Err(error) => IpcResponse::failure(calendar_query_error(error)),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DayDetailRequest {
+    date: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DayDetailResponse {
+    date: String,
+    total_tokens: String,
+    cost: UsageOverviewCostResponse,
+    sources: Vec<UsageOverviewSourceResponse>,
+}
+
+#[tauri::command]
+pub(super) fn usage_get_day_detail(
+    request: DayDetailRequest,
+    query: State<'_, DayDetailQuery>,
+) -> IpcResponse<Option<DayDetailResponse>> {
+    let date = match parse_date(&request.date, "request.date") {
+        Ok(date) => date,
+        Err(error) => return IpcResponse::failure(error),
+    };
+
+    match query.get(date) {
+        Ok(Some(model)) => IpcResponse::success(Some(DayDetailResponse::from(model))),
+        Ok(None) => IpcResponse::success(None),
+        Err(error) => IpcResponse::failure(day_detail_query_error(error)),
+    }
+}
+
 fn period_from_request(request: UsageOverviewRequest) -> Result<OverviewPeriod, IpcError> {
     let start_date = parse_date(&request.start_date, "request.startDate")?;
     let end_date = parse_date(&request.end_date, "request.endDate")?;
 
     OverviewPeriod::new(start_date, end_date, request.reporting_timezone).map_err(query_error)
+}
+
+fn calendar_period_from_request(request: ActivityCalendarRequest) -> Result<CalendarPeriod, IpcError> {
+    let start_date = parse_date(&request.start_date, "request.startDate")?;
+    let end_date = parse_date(&request.end_date, "request.endDate")?;
+
+    CalendarPeriod::new(start_date, end_date, request.reporting_timezone).map_err(calendar_query_error)
 }
 
 fn parse_date(value: &str, field: &'static str) -> Result<NaiveDate, IpcError> {
@@ -144,6 +226,48 @@ fn storage_error(error: OverviewStoreError) -> IpcError {
             false,
         ),
     }
+}
+
+fn calendar_query_error(error: CalendarQueryError) -> IpcError {
+    match error {
+        CalendarQueryError::InvalidPeriod => IpcError::new(
+            "validation.invalid_date_range",
+            "The selected date range is invalid.",
+            ErrorCategory::Validation,
+            false,
+        )
+        .with_field_errors(vec![FieldError::new(
+            "request.startDate",
+            "validation.before_end_date",
+            "Start date must not be after end date.",
+        )]),
+        CalendarQueryError::EmptyAggregationTimezone => IpcError::new(
+            "validation.empty_reporting_timezone",
+            "A reporting timezone is required.",
+            ErrorCategory::Validation,
+            false,
+        )
+        .with_field_errors(vec![FieldError::new(
+            "request.reportingTimezone",
+            "validation.required",
+            "Reporting timezone is required.",
+        )]),
+        CalendarQueryError::Storage(_) => IpcError::new(
+            "usage.calendar_unavailable",
+            "Burnly could not read local calendar data.",
+            ErrorCategory::Persistence,
+            true,
+        ),
+    }
+}
+
+fn day_detail_query_error(_error: DayDetailQueryError) -> IpcError {
+    IpcError::new(
+        "usage.day_detail_unavailable",
+        "Burnly could not read local day detail data.",
+        ErrorCategory::Persistence,
+        true,
+    )
 }
 
 impl TryFrom<OverviewReadModel> for UsageOverviewResponse {
@@ -223,6 +347,38 @@ fn to_rfc3339(epoch_ms: i64) -> Result<String, OverviewStoreError> {
     DateTime::<Utc>::from_timestamp_millis(epoch_ms)
         .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Millis, true))
         .ok_or(OverviewStoreError::ValueOutOfRange)
+}
+
+impl From<CalendarReadModel> for ActivityCalendarResponse {
+    fn from(value: CalendarReadModel) -> Self {
+        Self {
+            days: value.days.into_iter().map(Into::into).collect(),
+            data_status: data_status(value.data_status),
+        }
+    }
+}
+
+impl From<CalendarDayInfo> for ActivityCalendarDayResponse {
+    fn from(value: CalendarDayInfo) -> Self {
+        Self {
+            date: value.date.to_string(),
+            total_tokens: value.total_tokens.to_string(),
+            active_sources: value.active_sources,
+            cost: value.cost.into(),
+            has_partial_data: value.has_partial_data,
+        }
+    }
+}
+
+impl From<DayDetailReadModel> for DayDetailResponse {
+    fn from(value: DayDetailReadModel) -> Self {
+        Self {
+            date: value.date.to_string(),
+            total_tokens: value.total_tokens.to_string(),
+            cost: value.cost.into(),
+            sources: value.sources.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 #[cfg(test)]

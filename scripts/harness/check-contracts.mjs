@@ -328,6 +328,58 @@ export interface UsageOverviewResponse {
   dataStatus: "current" | "stale" | "partial" | "empty";
 }
 
+export interface ActivityCalendarRequest {
+  startDate: string;
+  endDate: string;
+  metric: string;
+  timezone: string;
+  source: string | null;
+  project: string | null;
+}
+
+export interface ActivityCalendarCommandRequest extends Record<string, unknown> {
+  request: ActivityCalendarRequest;
+}
+
+export interface ActivityCalendarCellResponse {
+  date: string;
+  value: string;
+  intensity: number;
+}
+
+export interface ActivityCalendarResponse {
+  period: ActivityCalendarRequest;
+  cells: ActivityCalendarCellResponse[];
+  total: string;
+  asOf: string;
+}
+
+export interface DayDetailRequest {
+  date: string;
+  timezone: string;
+  source: string | null;
+  project: string | null;
+}
+
+export interface DayDetailCommandRequest extends Record<string, unknown> {
+  request: DayDetailRequest;
+}
+
+export interface DayDetailModelResponse {
+  source: string;
+  model: string;
+  tokens: string;
+  cost: UsageOverviewCostResponse;
+}
+
+export interface DayDetailResponse {
+  date: string;
+  totalTokens: string;
+  cost: UsageOverviewCostResponse;
+  models: DayDetailModelResponse[];
+  asOf: string;
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {

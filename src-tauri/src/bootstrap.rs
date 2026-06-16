@@ -13,11 +13,11 @@ use thiserror::Error;
 use crate::application::bootstrap::BootstrapService;
 use crate::application::collection::CollectorFailure;
 use crate::application::refresh::RefreshCoordinator;
-use crate::application::usage::OverviewQuery;
+use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteOverviewStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteCalendarStore, SqliteOverviewStore,
     SqliteReconciliationStore,
 };
 use crate::ipc::refresh_event_sink;
@@ -91,6 +91,8 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
 
     app.manage(build_refresh_coordinator(app, &database_path)?);
     app.manage(build_overview_query(&database_path)?);
+    app.manage(build_calendar_query(&database_path)?);
+    app.manage(build_day_detail_query(&database_path)?);
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
         CONTRACT_VERSION,
@@ -105,6 +107,16 @@ fn build_overview_query(database_path: &Path) -> Result<OverviewQuery, StartupEr
         Arc::new(SqliteOverviewStore::new(database)),
         Arc::new(SystemClock),
     ))
+}
+
+fn build_calendar_query(database_path: &Path) -> Result<CalendarQuery, StartupError> {
+    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    Ok(CalendarQuery::new(Arc::new(SqliteCalendarStore::new(database))))
+}
+
+fn build_day_detail_query(database_path: &Path) -> Result<DayDetailQuery, StartupError> {
+    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    Ok(DayDetailQuery::new(Arc::new(SqliteCalendarStore::new(database))))
 }
 
 fn build_refresh_coordinator<R: Runtime>(

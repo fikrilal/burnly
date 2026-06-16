@@ -94,7 +94,10 @@ test.describe("Desktop Evidence: UI States", () => {
             data: {
               tray: { supported: true, status: "not_implemented" },
               launchAtLogin: { supported: true, status: "not_implemented" },
-              nativeNotifications: { supported: true, status: "not_implemented" },
+              nativeNotifications: {
+                supported: true,
+                status: "not_implemented",
+              },
               updates: { supported: true, status: "not_implemented" },
               exportFormats: ["csv"],
               diagnostics: { desktopEvidence: true },
@@ -211,7 +214,10 @@ test.describe("Desktop Evidence: UI States", () => {
             data: {
               tray: { supported: true, status: "not_implemented" },
               launchAtLogin: { supported: true, status: "not_implemented" },
-              nativeNotifications: { supported: true, status: "not_implemented" },
+              nativeNotifications: {
+                supported: true,
+                status: "not_implemented",
+              },
               updates: { supported: true, status: "not_implemented" },
               exportFormats: ["csv"],
               diagnostics: { desktopEvidence: true },
@@ -248,7 +254,15 @@ test.describe("Desktop Evidence: UI States", () => {
     await page.addInitScript(() => {
       const mockInvoke = async (command: string) => {
         if (command === "__burnly_contract_probe") {
-          return { ok: true, meta: { contractVersion: 1, requestId: crypto.randomUUID(), generatedAt: new Date().toISOString() }, data: { status: "ok", contractVersion: 1 } };
+          return {
+            ok: true,
+            meta: {
+              contractVersion: 1,
+              requestId: crypto.randomUUID(),
+              generatedAt: new Date().toISOString(),
+            },
+            data: { status: "ok", contractVersion: 1 },
+          };
         }
         if (command === "usage_get_overview") {
           return {
@@ -270,7 +284,11 @@ test.describe("Desktop Evidence: UI States", () => {
         if (command === "app_get_bootstrap") {
           return {
             ok: true,
-            meta: { contractVersion: 1, requestId: crypto.randomUUID(), generatedAt: new Date().toISOString() },
+            meta: {
+              contractVersion: 1,
+              requestId: crypto.randomUUID(),
+              generatedAt: new Date().toISOString(),
+            },
             data: {
               appVersion: "1.0.0",
               contractVersion: 1,
@@ -300,11 +318,18 @@ test.describe("Desktop Evidence: UI States", () => {
         if (command === "app_get_capabilities") {
           return {
             ok: true,
-            meta: { contractVersion: 1, requestId: crypto.randomUUID(), generatedAt: new Date().toISOString() },
+            meta: {
+              contractVersion: 1,
+              requestId: crypto.randomUUID(),
+              generatedAt: new Date().toISOString(),
+            },
             data: {
               tray: { supported: true, status: "not_implemented" },
               launchAtLogin: { supported: true, status: "not_implemented" },
-              nativeNotifications: { supported: true, status: "not_implemented" },
+              nativeNotifications: {
+                supported: true,
+                status: "not_implemented",
+              },
               updates: { supported: true, status: "not_implemented" },
               exportFormats: ["csv"],
               diagnostics: { desktopEvidence: true },
@@ -314,7 +339,11 @@ test.describe("Desktop Evidence: UI States", () => {
         if (command === "refresh_request" || command === "refresh_get_state") {
           return {
             ok: true,
-            meta: { contractVersion: 1, requestId: crypto.randomUUID(), generatedAt: new Date().toISOString() },
+            meta: {
+              contractVersion: 1,
+              requestId: crypto.randomUUID(),
+              generatedAt: new Date().toISOString(),
+            },
             data: {
               status: "idle",
               lastSuccessfulRefreshAt: null,
@@ -323,7 +352,15 @@ test.describe("Desktop Evidence: UI States", () => {
             },
           };
         }
-        return { ok: true, meta: { contractVersion: 1, requestId: crypto.randomUUID(), generatedAt: new Date().toISOString() }, data: null };
+        return {
+          ok: true,
+          meta: {
+            contractVersion: 1,
+            requestId: crypto.randomUUID(),
+            generatedAt: new Date().toISOString(),
+          },
+          data: null,
+        };
       };
       window.__TAURI_INTERNALS__ = { invoke: mockInvoke };
     });

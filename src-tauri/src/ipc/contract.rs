@@ -51,6 +51,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         request_type: "UsageOverviewCommandRequest",
         response_type: "UsageOverviewResponse",
     },
+    CommandSpec {
+        name: "usage_get_calendar",
+        export_name: "invokeUsageGetCalendar",
+        request_type: "ActivityCalendarCommandRequest",
+        response_type: "ActivityCalendarResponse",
+    },
+    CommandSpec {
+        name: "usage_get_day_detail",
+        export_name: "invokeUsageGetDayDetail",
+        request_type: "DayDetailCommandRequest",
+        response_type: "DayDetailResponse",
+    },
 ];
 
 pub(super) const EVENTS: &[EventSpec] = &[

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useOverview } from "./use-overview";
 import { OverviewSummary } from "./components/OverviewSummary";
 import { SourceList } from "./components/SourceList";
-import { RefreshControl } from "./components/RefreshControl";
+import { RefreshHeader } from "./components/RefreshHeader";
 import { EmptyState } from "./components/EmptyState";
 import { AlertCircle } from "lucide-react";
 
@@ -78,14 +78,25 @@ export function Overview() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-tight text-white">
-          Overview
-        </h2>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-white">
+            Overview
+          </h2>
+          {!isEmpty && (
+            <p className="mt-1 text-sm text-zinc-400">
+              Usage data from {data.period.startDate} to {data.period.endDate}
+            </p>
+          )}
+        </div>
+
         {!isEmpty && (
-          <p className="mt-1 text-sm text-zinc-400">
-            Usage data from {data.period.startDate} to {data.period.endDate}
-          </p>
+          <RefreshHeader
+            dataStatus={data.dataStatus}
+            lastRefreshAt={data.lastSuccessfulRefreshAt}
+            onRefresh={() => void handleRefresh()}
+            isRefreshing={isRefreshing}
+          />
         )}
       </div>
 
@@ -116,15 +127,6 @@ export function Overview() {
           <div className="flex flex-col gap-4">
             <h3 className="text-lg font-medium text-white">Sources</h3>
             <SourceList sources={data.sources} />
-          </div>
-
-          <div className="mt-4">
-            <RefreshControl
-              dataStatus={data.dataStatus}
-              lastRefreshAt={data.lastSuccessfulRefreshAt}
-              onRefresh={() => void handleRefresh()}
-              isRefreshing={isRefreshing}
-            />
           </div>
         </>
       )}

@@ -11,6 +11,8 @@ import {
   invokeRefreshGetState,
   invokeRefreshRequest,
   invokeUsageGetOverview,
+  invokeUsageGetCalendar,
+  invokeUsageGetDayDetail,
   type AppBootstrapResponse,
   type AppCapabilitiesResponse,
   type CommandInvoker,
@@ -25,6 +27,10 @@ import {
   type UsageOverviewCostResponse,
   type UsageOverviewRequest,
   type UsageOverviewResponse,
+  type ActivityCalendarRequest,
+  type ActivityCalendarResponse,
+  type DayDetailRequest,
+  type DayDetailResponse,
 } from "./generated/contracts";
 
 const responseMetaSchema: z.ZodType<ResponseMeta> = z.object({
@@ -192,6 +198,52 @@ const usageOverviewDataSchema: z.ZodType<UsageOverviewResponse> = z.object({
   dataStatus: z.enum(["current", "stale", "partial", "empty"]),
 });
 
+const activityCalendarRequestSchema: z.ZodType<ActivityCalendarRequest> =
+  z.object({
+    startDate: z.iso.date(),
+    endDate: z.iso.date(),
+    metric: z.string(),
+    timezone: z.string().trim().min(1),
+    source: z.string().nullable(),
+    project: z.string().nullable(),
+  });
+
+const activityCalendarDataSchema: z.ZodType<ActivityCalendarResponse> =
+  z.object({
+    period: activityCalendarRequestSchema,
+    cells: z.array(
+      z.object({
+        date: z.iso.date(),
+        value: uint64StringSchema,
+        intensity: z.number().int().min(0).max(4),
+      }),
+    ),
+    total: uint64StringSchema,
+    asOf: z.iso.datetime({ offset: true }),
+  });
+
+const dayDetailRequestSchema: z.ZodType<DayDetailRequest> = z.object({
+  date: z.iso.date(),
+  timezone: z.string().trim().min(1),
+  source: z.string().nullable(),
+  project: z.string().nullable(),
+});
+
+const dayDetailDataSchema: z.ZodType<DayDetailResponse> = z.object({
+  date: z.iso.date(),
+  totalTokens: uint64StringSchema,
+  cost: usageOverviewCostSchema,
+  models: z.array(
+    z.object({
+      source: z.string(),
+      model: z.string(),
+      tokens: uint64StringSchema,
+      cost: usageOverviewCostSchema,
+    }),
+  ),
+  asOf: z.iso.datetime({ offset: true }),
+});
+
 export interface CommandResult<TData> {
   data: TData;
   meta: ResponseMeta;
@@ -272,6 +324,28 @@ export async function getUsageOverview(
     request: parsedRequest,
   });
   return unwrapResponse(validateResponse(response, usageOverviewDataSchema));
+}
+
+export async function getActivityCalendar(
+  request: ActivityCalendarRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<ActivityCalendarResponse>> {
+  const parsedRequest = activityCalendarRequestSchema.parse(request);
+  const response = await invokeUsageGetCalendar(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, activityCalendarDataSchema));
+}
+
+export async function getDayDetail(
+  request: DayDetailRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DayDetailResponse>> {
+  const parsedRequest = dayDetailRequestSchema.parse(request);
+  const response = await invokeUsageGetDayDetail(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, dayDetailDataSchema));
 }
 
 export function validateInt64String(value: string): bigint {

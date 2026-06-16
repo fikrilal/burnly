@@ -42,6 +42,9 @@ type AppState =
     };
 
 import { Overview } from "../features/overview";
+import { CalendarView } from "../features/calendar/CalendarView";
+
+type ViewMode = "overview" | "calendar";
 
 export function App({
   loadBootstrap = getAppBootstrap,
@@ -49,20 +52,43 @@ export function App({
 }: AppProps) {
   const state = useStartupState(loadBootstrap, loadCapabilities);
 
+  const [viewMode, setViewMode] = useState<ViewMode>("overview");
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-50">
       <div className="mx-auto w-full max-w-6xl px-6 py-10">
-        <header className="mb-10">
-          <h1 className="text-3xl font-semibold tracking-normal text-white">
-            Burnly
-          </h1>
-          <p className="mt-1 text-sm font-medium uppercase tracking-[0.18em] text-cyan-300">
-            Local AI usage tracker
-          </p>
-        </header>
-
         {state.status === "ready" ? (
-          <Overview />
+          <div className="flex flex-col gap-6">
+            <div className="flex gap-2 border-b border-zinc-800 pb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("overview");
+                }}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  viewMode === "overview"
+                    ? "border-b-2 border-cyan-400 text-cyan-400"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Overview
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("calendar");
+                }}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  viewMode === "calendar"
+                    ? "border-b-2 border-cyan-400 text-cyan-400"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Calendar
+              </button>
+            </div>
+            {viewMode === "overview" ? <Overview /> : <CalendarView />}
+          </div>
         ) : (
           <div className="mt-12 grid gap-4 md:grid-cols-3">
             {renderCards(state)}
