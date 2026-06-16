@@ -7,9 +7,12 @@ use std::{
 
 use tempfile::TempDir;
 
-use crate::application::collection::{
-    CollectionProjection, CollectionRequest, CollectionScope, CollectorFailure,
-    CollectorFailureCode,
+use crate::{
+    application::collection::{
+        CollectionProjection, CollectionRequest, CollectionScope, CollectorFailure,
+        CollectorFailureCode,
+    },
+    domain::source::SourceKey,
 };
 
 use super::{
@@ -94,6 +97,11 @@ pub(crate) fn prepare_collection(
     let timezone = request.aggregation_timezone().unwrap_or("UTC");
     arguments.push(OsString::from("--timezone"));
     arguments.push(OsString::from(timezone));
+
+    if request.source() == SourceKey::Codex {
+        arguments.push(OsString::from("--speed"));
+        arguments.push(OsString::from("auto"));
+    }
 
     Ok(PreparedCommand {
         process: ProcessRequest::new(
@@ -259,7 +267,7 @@ mod tests {
             .expect("timestamp");
         let unsupported_source = CollectionRequest::daily(
             CollectionId::new("collection-2").expect("collection id"),
-            SourceKey::Codex,
+            SourceKey::TestUnsupported,
             CollectionScope::Full,
             "UTC",
             timestamp,

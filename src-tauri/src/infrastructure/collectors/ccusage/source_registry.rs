@@ -1,8 +1,6 @@
 use crate::application::collection::CollectorFailure;
 use crate::domain::source::SourceKey;
 
-use super::capability_profiles::unsupported_source;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SourceDescriptor {
     pub source: SourceKey,
@@ -29,12 +27,27 @@ const CLAUDE_CODE: SourceDescriptor = SourceDescriptor {
     profile_version: 1,
 };
 
+const CODEX: SourceDescriptor = SourceDescriptor {
+    source: SourceKey::Codex,
+    display_name: "Codex",
+    command_namespace: "codex",
+    default_enabled: false,
+    release_stage: ReleaseStage::Experimental,
+    profile_version: 1,
+};
+
 pub(crate) fn source_descriptor(
     source: SourceKey,
 ) -> Result<&'static SourceDescriptor, CollectorFailure> {
     match source {
         SourceKey::ClaudeCode => Ok(&CLAUDE_CODE),
-        SourceKey::Codex => Err(unsupported_source(source)),
+        SourceKey::Codex => Ok(&CODEX),
+        #[cfg(test)]
+        SourceKey::TestUnsupported => Err(CollectorFailure::new(
+            crate::application::collection::CollectorFailureCode::UnsupportedSource,
+            Some(source),
+            None,
+        )),
     }
 }
 
@@ -53,12 +66,12 @@ mod tests {
     }
 
     #[test]
-    fn known_unregistered_source_is_rejected() {
-        let error = source_descriptor(SourceKey::Codex).expect_err("codex is not registered");
+    fn codex_maps_to_reviewed_command_namespace() {
+        let descriptor = source_descriptor(SourceKey::Codex).expect("source descriptor");
 
-        assert_eq!(
-            error.code,
-            crate::application::collection::CollectorFailureCode::UnsupportedSource
-        );
+        assert_eq!(descriptor.command_namespace, "codex");
+        assert_eq!(descriptor.release_stage, ReleaseStage::Experimental);
+        assert!(!descriptor.default_enabled);
+        assert_eq!(descriptor.profile_version, 1);
     }
 }

@@ -18,6 +18,8 @@ use crate::{
 
 use super::envelopes::claude_daily::{ClaudeDailyReport, ClaudeDailyRow, ModelBreakdown};
 use super::envelopes::claude_session::{ClaudeSessionReport, ClaudeSessionRow};
+use super::envelopes::codex_daily::{CodexDailyReport, CodexDailyRow, CodexModelBreakdown};
+use super::envelopes::codex_session::{CodexSessionReport, CodexSessionRow};
 
 const COST_MICROS_PER_UNIT: f64 = 1_000_000.0;
 
@@ -53,11 +55,7 @@ fn map_row(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(DailyUsageCandidate {
         provenance: context.provenance(),
-        source_key: daily_source_key(
-            SourceKey::ClaudeCode,
-            usage_date,
-            &context.aggregation_timezone,
-        )?,
+        source_key: daily_source_key(context.source, usage_date, &context.aggregation_timezone)?,
         usage_date,
         aggregation_timezone: context.aggregation_timezone.clone(),
         tokens,
@@ -105,7 +103,7 @@ fn map_session_row(
 
     Ok(SessionUsageCandidate {
         provenance: context.provenance(),
-        source_key: session_source_key(SourceKey::ClaudeCode, &row.session_id)?,
+        source_key: session_source_key(context.source, &row.session_id)?,
         source_session_id: row.session_id,
         project_path: row.project.map(|p| p.path),
         first_activity_at: Some(first_activity_at),
@@ -116,8 +114,126 @@ fn map_session_row(
     })
 }
 
+pub(crate) fn map_codex_daily(
+    report: CodexDailyReport,
+    context: MappingContext,
+) -> Result<Vec<DailyUsageCandidate>, MappingError> {
+    report
+        .daily
+        .into_iter()
+        .map(|row| map_codex_row(row, &context))
+        .collect()
+}
+
+fn map_codex_row(
+    row: CodexDailyRow,
+    context: &MappingContext,
+) -> Result<DailyUsageCandidate, MappingError> {
+    let usage_date =
+        NaiveDate::parse_from_str(&row.date, "%Y-%m-%d").map_err(|_| MappingError::InvalidDate)?;
+    let tokens = TokenUsage::new(
+        Some(row.input_tokens),
+        Some(row.output_tokens),
+        None,
+        None,
+        row.total_tokens,
+    )?;
+    let cost = map_cost(row.total_cost, row.total_tokens)?;
+    let model_breakdowns = row
+        .models
+        .into_iter()
+        .map(|(model_name, model)| map_codex_model(model_name, model))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(DailyUsageCandidate {
+        provenance: context.provenance(),
+        source_key: daily_source_key(context.source, usage_date, &context.aggregation_timezone)?,
+        usage_date,
+        aggregation_timezone: context.aggregation_timezone.clone(),
+        tokens,
+        cost,
+        model_breakdowns,
+    })
+}
+
+fn map_codex_model(
+    model_name: String,
+    model: CodexModelBreakdown,
+) -> Result<ModelUsageCandidate, MappingError> {
+    let total_tokens = model
+        .input_tokens
+        .checked_add(model.output_tokens)
+        .and_then(|value| value.checked_add(model.reasoning_output_tokens))
+        .ok_or(MappingError::TokenOverflow)?;
+    Ok(ModelUsageCandidate {
+        raw_model_id: model_name,
+        tokens: TokenUsage::new(
+            Some(model.input_tokens),
+            Some(model.output_tokens),
+            None,
+            None,
+            total_tokens,
+        )?,
+        cost: map_cost(model.cost, total_tokens)?,
+    })
+}
+
+pub(crate) fn map_codex_session(
+    report: CodexSessionReport,
+    context: MappingContext,
+) -> Result<Vec<SessionUsageCandidate>, MappingError> {
+    report
+        .sessions
+        .into_iter()
+        .map(|row| map_codex_session_row(row, &context))
+        .collect()
+}
+
+fn map_codex_session_row(
+    row: CodexSessionRow,
+    context: &MappingContext,
+) -> Result<SessionUsageCandidate, MappingError> {
+    let tokens = TokenUsage::new(
+        Some(row.input_tokens),
+        Some(row.output_tokens),
+        None,
+        None,
+        row.total_tokens,
+    )?;
+    let cost = map_cost(row.total_cost, row.total_tokens)?;
+    let model_breakdowns = row
+        .models
+        .into_iter()
+        .map(|(model_name, model)| map_codex_model(model_name, model))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let first_activity_at = DateTime::parse_from_rfc3339(&row.first_activity_at)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|_| MappingError::InvalidDate)?;
+
+    let last_activity_at = DateTime::parse_from_rfc3339(&row.last_activity_at)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|_| MappingError::InvalidDate)?;
+
+    Ok(SessionUsageCandidate {
+        provenance: context.provenance(),
+        source_key: session_source_key(context.source, &row.session_id)?,
+        source_session_id: row.session_id,
+        project_path: if row.directory.trim().is_empty() {
+            None
+        } else {
+            Some(row.directory)
+        },
+        first_activity_at: Some(first_activity_at),
+        last_activity_at: Some(last_activity_at),
+        tokens,
+        cost,
+        model_breakdowns,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MappingContext {
+    source: SourceKey,
     collector: CollectorKey,
     collector_version: String,
     profile_version: u16,
@@ -128,6 +244,7 @@ pub(crate) struct MappingContext {
 
 impl MappingContext {
     pub(crate) fn new(
+        source: SourceKey,
         collector: CollectorKey,
         collector_version: String,
         profile_version: u16,
@@ -145,6 +262,7 @@ impl MappingContext {
             return Err(MappingError::EmptyAggregationTimezone);
         }
         Ok(Self {
+            source,
             collector,
             collector_version,
             profile_version,
@@ -156,7 +274,7 @@ impl MappingContext {
 
     fn provenance(&self) -> CandidateProvenance {
         CandidateProvenance {
-            source: SourceKey::ClaudeCode,
+            source: self.source,
             collector: self.collector.clone(),
             collector_version: self.collector_version.clone(),
             profile_version: self.profile_version,
@@ -244,6 +362,8 @@ mod tests {
 
     use super::*;
     use crate::infrastructure::collectors::ccusage::envelopes::claude_daily::decode;
+    use crate::infrastructure::collectors::ccusage::envelopes::codex_daily::decode as decode_codex_daily;
+    use crate::infrastructure::collectors::ccusage::envelopes::codex_session::decode as decode_codex_session;
 
     const VALID: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -256,6 +376,14 @@ mod tests {
     const ADDITIVE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/fixtures/collectors/ccusage/claude-daily/additive-fields.json"
+    ));
+    const CODEX_DAILY_VALID: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/codex-daily/valid.json"
+    ));
+    const CODEX_SESSION_VALID: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/codex-session/valid.json"
     ));
 
     #[test]
@@ -322,15 +450,15 @@ mod tests {
     #[test]
     fn rejects_invalid_mapping_context_and_values() {
         assert_eq!(
-            build_context("20.0.11", 1, " ").expect_err("empty timezone"),
+            build_context(SourceKey::ClaudeCode, "20.0.11", 1, " ").expect_err("empty timezone"),
             MappingError::EmptyAggregationTimezone
         );
         assert_eq!(
-            build_context(" ", 1, "UTC").expect_err("empty version"),
+            build_context(SourceKey::ClaudeCode, " ", 1, "UTC").expect_err("empty version"),
             MappingError::EmptyCollectorVersion
         );
         assert_eq!(
-            build_context("20.0.11", 0, "UTC").expect_err("invalid profile"),
+            build_context(SourceKey::ClaudeCode, "20.0.11", 0, "UTC").expect_err("invalid profile"),
             MappingError::InvalidProfileVersion
         );
         assert_eq!(map_cost(-0.1, 1), Err(MappingError::InvalidCost));
@@ -348,16 +476,102 @@ mod tests {
         );
     }
 
+    #[test]
+    fn maps_codex_daily_usage_with_deterministic_identity() {
+        let context =
+            build_context(SourceKey::Codex, "20.0.11", 1, "Asia/Jakarta").expect("context");
+        let candidates = map_codex_daily(
+            decode_codex_daily(CODEX_DAILY_VALID).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 2);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "codex:daily:v1:Asia/Jakarta:2026-06-13");
+        assert_eq!(first.aggregation_timezone, "Asia/Jakarta");
+        assert_eq!(first.tokens.total_tokens(), 1_650);
+        assert_eq!(first.tokens.input_tokens(), Some(1000));
+        assert_eq!(first.tokens.output_tokens(), Some(400));
+        assert_eq!(first.model_breakdowns.len(), 2);
+
+        let pro_model = first
+            .model_breakdowns
+            .iter()
+            .find(|m| m.raw_model_id == "gemini-2.5-pro")
+            .expect("pro model");
+        assert_eq!(pro_model.tokens.total_tokens(), 1080); // 700 + 300 + 80 reasoning
+
+        let flash_model = first
+            .model_breakdowns
+            .iter()
+            .find(|m| m.raw_model_id == "gemini-2.5-flash")
+            .expect("flash model");
+        assert_eq!(flash_model.tokens.total_tokens(), 420); // 300 + 100 + 20 reasoning
+
+        assert_eq!(
+            first.cost,
+            UsageCost::Valued {
+                amount_micros: 420_000,
+                currency: CurrencyCode::new("USD").expect("currency"),
+                kind: CostKind::CollectorCalculated,
+                status: ValuedCostStatus::Estimated,
+            }
+        );
+    }
+
+    #[test]
+    fn maps_codex_session_usage_with_deterministic_identity() {
+        let context = build_context(SourceKey::Codex, "20.0.11", 1, "UTC").expect("context");
+        let candidates = map_codex_session(
+            decode_codex_session(CODEX_SESSION_VALID).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "codex:session:v1:session-1");
+        assert_eq!(first.source_session_id, "session-1");
+        assert_eq!(
+            first.project_path,
+            Some("/home/fikrilal/project".to_owned())
+        );
+        assert_eq!(first.tokens.total_tokens(), 1_650);
+        assert_eq!(first.tokens.input_tokens(), Some(1000));
+        assert_eq!(first.tokens.output_tokens(), Some(400));
+        assert_eq!(first.model_breakdowns.len(), 2);
+
+        let pro_model = first
+            .model_breakdowns
+            .iter()
+            .find(|m| m.raw_model_id == "gemini-2.5-pro")
+            .expect("pro model");
+        assert_eq!(pro_model.tokens.total_tokens(), 1080);
+
+        assert_eq!(
+            first.cost,
+            UsageCost::Valued {
+                amount_micros: 420_000,
+                currency: CurrencyCode::new("USD").expect("currency"),
+                kind: CostKind::CollectorCalculated,
+                status: ValuedCostStatus::Estimated,
+            }
+        );
+    }
+
     fn context(timezone: &str) -> MappingContext {
-        build_context("20.0.11", 1, timezone).expect("mapping context")
+        build_context(SourceKey::ClaudeCode, "20.0.11", 1, timezone).expect("mapping context")
     }
 
     fn build_context(
+        source: SourceKey,
         collector_version: &str,
         profile_version: u16,
         timezone: &str,
     ) -> Result<MappingContext, MappingError> {
         MappingContext::new(
+            source,
             CollectorKey::new("ccusage").expect("collector key"),
             collector_version.to_owned(),
             profile_version,

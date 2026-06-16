@@ -2,6 +2,8 @@
 pub(crate) enum SourceKey {
     ClaudeCode,
     Codex,
+    #[cfg(test)]
+    TestUnsupported,
 }
 
 impl SourceKey {
@@ -9,6 +11,8 @@ impl SourceKey {
         match self {
             Self::ClaudeCode => "claude-code",
             Self::Codex => "codex",
+            #[cfg(test)]
+            Self::TestUnsupported => "test-unsupported",
         }
     }
 

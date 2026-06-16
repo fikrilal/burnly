@@ -4,8 +4,10 @@ use crate::application::collection::{
 use crate::domain::source::SourceKey;
 
 mod claude_daily;
+mod codex;
 
 pub(crate) use claude_daily::CLAUDE_DAILY_PROFILE;
+pub(crate) use codex::CODEX_PROFILE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CapabilityProfile {
@@ -79,7 +81,7 @@ pub(crate) enum EmptyOutputBehavior {
 }
 
 pub(crate) const fn profiles() -> &'static [CapabilityProfile] {
-    &[CLAUDE_DAILY_PROFILE]
+    &[CLAUDE_DAILY_PROFILE, CODEX_PROFILE]
 }
 
 pub(crate) fn profile_for(
@@ -111,16 +113,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn supports_only_claude_daily_and_session() {
+    fn supports_claude_daily_and_session() {
         assert!(profile_for(SourceKey::ClaudeCode, CollectionProjection::Daily).is_ok());
         assert!(profile_for(SourceKey::ClaudeCode, CollectionProjection::Session).is_ok());
     }
 
     #[test]
-    fn rejects_source_without_a_reviewed_profile() {
-        let error = profile_for(SourceKey::Codex, CollectionProjection::Daily)
-            .expect_err("codex profile is not supported");
-
-        assert_eq!(error.code, CollectorFailureCode::UnsupportedSource);
+    fn supports_codex_daily_and_session() {
+        assert!(profile_for(SourceKey::Codex, CollectionProjection::Daily).is_ok());
+        assert!(profile_for(SourceKey::Codex, CollectionProjection::Session).is_ok());
     }
 }

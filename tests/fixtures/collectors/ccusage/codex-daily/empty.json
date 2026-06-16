@@ -1,0 +1,10 @@
+{
+  "daily": [],
+  "totals": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "reasoningOutputTokens": 0,
+    "totalTokens": 0,
+    "totalCost": 0.0
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "sessions": [
+    {
+      "sessionId": "session-1",
+      "firstActivityAt": "2026-06-13T12:00:00Z",
+      "lastActivityAt": "2026-06-13T13:00:00Z",
+      "lastActivity": 1781572680,
+      "sessionFile": "   ",
+      "directory": "/home/fikrilal/project",
+      "inputTokens": 1000,
+      "outputTokens": 400,
+      "reasoningOutputTokens": 100,
+      "totalTokens": 1650,
+      "totalCost": 0.42,
+      "models": {}
+    }
+  ],
+  "totals": {
+    "inputTokens": 1000,
+    "outputTokens": 400,
+    "reasoningOutputTokens": 100,
+    "totalTokens": 1650,
+    "totalCost": 0.42
+  }
+}

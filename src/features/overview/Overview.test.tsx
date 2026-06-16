@@ -143,8 +143,8 @@ describe("Overview Component", () => {
 
     // Check source list
     expect(screen.getByText("claude-daily")).toBeInTheDocument();
-    expect(screen.getByText("1,000,000")).toBeInTheDocument();
-    expect(screen.getByText("$2.50")).toBeInTheDocument();
+    expect(screen.getAllByText("1,000,000")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("$2.50")[0]).toBeInTheDocument();
 
     expect(screen.getByText("openai-api")).toBeInTheDocument();
     expect(screen.getByText("500,000")).toBeInTheDocument();

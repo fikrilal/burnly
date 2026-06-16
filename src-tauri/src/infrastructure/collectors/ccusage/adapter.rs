@@ -15,9 +15,14 @@ use crate::{
 use super::{
     capability_profiles::profile_for,
     command::prepare_collection,
-    envelopes::{claude_daily::decode as decode_daily, claude_session::decode as decode_session},
+    envelopes::{
+        claude_daily::decode as decode_daily, claude_session::decode as decode_session,
+        codex_daily::decode as decode_codex_daily, codex_session::decode as decode_codex_session,
+    },
     manifest::{development_manifest, BinaryTarget},
-    mapper::{map_daily, map_session, MappingContext, MappingError},
+    mapper::{
+        map_codex_daily, map_codex_session, map_daily, map_session, MappingContext, MappingError,
+    },
     process::{execute, ProcessLimits, ProcessOutput},
     sidecar::{verify, SidecarLocation, VerifiedSidecar},
 };
@@ -93,7 +98,7 @@ impl Collector for CcusageCollector {
         cancellation: &dyn CancellationSignal,
     ) -> Result<DetectionResult, CollectorFailure> {
         let checked_at = Utc::now();
-        if request.source != SourceKey::ClaudeCode {
+        if request.source != SourceKey::ClaudeCode && request.source != SourceKey::Codex {
             return Ok(DetectionResult {
                 source: request.source,
                 state: DetectionState::Unsupported,
@@ -142,6 +147,7 @@ impl Collector for CcusageCollector {
         let metadata = metadata(&request, &descriptor, started_at, finished_at)?;
         let timezone = request.aggregation_timezone().unwrap_or("UTC");
         let context = MappingContext::new(
+            request.source(),
             descriptor.collector.clone(),
             descriptor.runtime_version.clone(),
             profile_version(&descriptor, request.source())?,
@@ -151,8 +157,11 @@ impl Collector for CcusageCollector {
         )
         .map_err(mapping_failure)?;
 
-        match request.projection() {
-            crate::application::collection::CollectionProjection::Daily => {
+        match (request.source(), request.projection()) {
+            (
+                SourceKey::ClaudeCode,
+                crate::application::collection::CollectionProjection::Daily,
+            ) => {
                 let report = decode_daily(&output.stdout)?;
                 let candidates = map_daily(report, context).map_err(mapping_failure)?;
                 CollectionResult::daily(
@@ -164,7 +173,10 @@ impl Collector for CcusageCollector {
                 )
                 .map_err(|_| failure(CollectorFailureCode::Internal))
             }
-            crate::application::collection::CollectionProjection::Session => {
+            (
+                SourceKey::ClaudeCode,
+                crate::application::collection::CollectionProjection::Session,
+            ) => {
                 let report = decode_session(&output.stdout)?;
                 let candidates = map_session(report, context).map_err(mapping_failure)?;
                 CollectionResult::session(
@@ -176,6 +188,32 @@ impl Collector for CcusageCollector {
                 )
                 .map_err(|_| failure(CollectorFailureCode::Internal))
             }
+            (SourceKey::Codex, crate::application::collection::CollectionProjection::Daily) => {
+                let report = decode_codex_daily(&output.stdout)?;
+                let candidates = map_codex_daily(report, context).map_err(mapping_failure)?;
+                CollectionResult::daily(
+                    metadata,
+                    candidates,
+                    Vec::new(),
+                    Vec::new(),
+                    process_summary(&output),
+                )
+                .map_err(|_| failure(CollectorFailureCode::Internal))
+            }
+            (SourceKey::Codex, crate::application::collection::CollectionProjection::Session) => {
+                let report = decode_codex_session(&output.stdout)?;
+                let candidates = map_codex_session(report, context).map_err(mapping_failure)?;
+                CollectionResult::session(
+                    metadata,
+                    candidates,
+                    Vec::new(),
+                    Vec::new(),
+                    process_summary(&output),
+                )
+                .map_err(|_| failure(CollectorFailureCode::Internal))
+            }
+            #[cfg(test)]
+            _ => Err(failure(CollectorFailureCode::UnsupportedSource)),
         }
     }
 }
@@ -366,7 +404,10 @@ mod tests {
             CcusageCollector::development(PathBuf::from("/missing/ccusage")).expect("collector");
 
         assert_code(
-            missing.collect(daily_request(SourceKey::Codex), &TestCancellation::active()),
+            missing.collect(
+                daily_request(SourceKey::TestUnsupported),
+                &TestCancellation::active(),
+            ),
             CollectorFailureCode::UnsupportedSource,
         );
         // Session projection is now supported, so it won't fail here. We removed that check.

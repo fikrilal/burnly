@@ -4,3 +4,5 @@ src-tauri/target
 src-tauri/gen
 pnpm-lock.yaml
 tests/fixtures/collectors/ccusage/claude-daily/invalid-json.json
+tests/fixtures/collectors/ccusage/codex-daily/invalid-json.json
+tests/fixtures/collectors/ccusage/codex-session/invalid-json.json
