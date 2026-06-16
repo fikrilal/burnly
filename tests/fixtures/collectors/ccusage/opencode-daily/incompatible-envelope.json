@@ -1,0 +1,19 @@
+{
+  "daily": [
+    {
+      "date": "2026-06-13",
+      "inputTokens": 1000,
+      "outputTokens": 400,
+      "totalTokens": 1500,
+      "totalCost": 0.42,
+      "modelsUsed": [],
+      "modelBreakdowns": []
+    }
+  ],
+  "totals": {
+    "inputTokens": 9999,
+    "outputTokens": 600,
+    "totalTokens": 2500,
+    "totalCost": 0.63
+  }
+}

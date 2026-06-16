@@ -5,9 +5,11 @@ use crate::domain::source::SourceKey;
 
 mod claude_daily;
 mod codex;
+mod opencode;
 
 pub(crate) use claude_daily::CLAUDE_DAILY_PROFILE;
 pub(crate) use codex::CODEX_PROFILE;
+pub(crate) use opencode::OPENCODE_PROFILE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CapabilityProfile {
@@ -81,7 +83,7 @@ pub(crate) enum EmptyOutputBehavior {
 }
 
 pub(crate) const fn profiles() -> &'static [CapabilityProfile] {
-    &[CLAUDE_DAILY_PROFILE, CODEX_PROFILE]
+    &[CLAUDE_DAILY_PROFILE, CODEX_PROFILE, OPENCODE_PROFILE]
 }
 
 pub(crate) fn profile_for(
@@ -122,5 +124,11 @@ mod tests {
     fn supports_codex_daily_and_session() {
         assert!(profile_for(SourceKey::Codex, CollectionProjection::Daily).is_ok());
         assert!(profile_for(SourceKey::Codex, CollectionProjection::Session).is_ok());
+    }
+
+    #[test]
+    fn supports_opencode_daily_and_session() {
+        assert!(profile_for(SourceKey::OpenCode, CollectionProjection::Daily).is_ok());
+        assert!(profile_for(SourceKey::OpenCode, CollectionProjection::Session).is_ok());
     }
 }

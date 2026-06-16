@@ -36,12 +36,22 @@ const CODEX: SourceDescriptor = SourceDescriptor {
     profile_version: 1,
 };
 
+const OPENCODE: SourceDescriptor = SourceDescriptor {
+    source: SourceKey::OpenCode,
+    display_name: "OpenCode",
+    command_namespace: "opencode",
+    default_enabled: false,
+    release_stage: ReleaseStage::Experimental,
+    profile_version: 1,
+};
+
 pub(crate) fn source_descriptor(
     source: SourceKey,
 ) -> Result<&'static SourceDescriptor, CollectorFailure> {
     match source {
         SourceKey::ClaudeCode => Ok(&CLAUDE_CODE),
         SourceKey::Codex => Ok(&CODEX),
+        SourceKey::OpenCode => Ok(&OPENCODE),
         #[cfg(test)]
         SourceKey::TestUnsupported => Err(CollectorFailure::new(
             crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -70,6 +80,16 @@ mod tests {
         let descriptor = source_descriptor(SourceKey::Codex).expect("source descriptor");
 
         assert_eq!(descriptor.command_namespace, "codex");
+        assert_eq!(descriptor.release_stage, ReleaseStage::Experimental);
+        assert!(!descriptor.default_enabled);
+        assert_eq!(descriptor.profile_version, 1);
+    }
+
+    #[test]
+    fn opencode_maps_to_reviewed_command_namespace() {
+        let descriptor = source_descriptor(SourceKey::OpenCode).expect("source descriptor");
+
+        assert_eq!(descriptor.command_namespace, "opencode");
         assert_eq!(descriptor.release_stage, ReleaseStage::Experimental);
         assert!(!descriptor.default_enabled);
         assert_eq!(descriptor.profile_version, 1);

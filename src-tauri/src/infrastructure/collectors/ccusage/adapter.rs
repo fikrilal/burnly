@@ -18,10 +18,13 @@ use super::{
     envelopes::{
         claude_daily::decode as decode_daily, claude_session::decode as decode_session,
         codex_daily::decode as decode_codex_daily, codex_session::decode as decode_codex_session,
+        opencode_daily::decode as decode_opencode_daily,
+        opencode_session::decode as decode_opencode_session,
     },
     manifest::{development_manifest, BinaryTarget},
     mapper::{
-        map_codex_daily, map_codex_session, map_daily, map_session, MappingContext, MappingError,
+        map_codex_daily, map_codex_session, map_daily, map_opencode_daily, map_opencode_session,
+        map_session, MappingContext, MappingError,
     },
     process::{execute, ProcessLimits, ProcessOutput},
     sidecar::{verify, SidecarLocation, VerifiedSidecar},
@@ -98,7 +101,10 @@ impl Collector for CcusageCollector {
         cancellation: &dyn CancellationSignal,
     ) -> Result<DetectionResult, CollectorFailure> {
         let checked_at = Utc::now();
-        if request.source != SourceKey::ClaudeCode && request.source != SourceKey::Codex {
+        if request.source != SourceKey::ClaudeCode
+            && request.source != SourceKey::Codex
+            && request.source != SourceKey::OpenCode
+        {
             return Ok(DetectionResult {
                 source: request.source,
                 state: DetectionState::Unsupported,
@@ -203,6 +209,33 @@ impl Collector for CcusageCollector {
             (SourceKey::Codex, crate::application::collection::CollectionProjection::Session) => {
                 let report = decode_codex_session(&output.stdout)?;
                 let candidates = map_codex_session(report, context).map_err(mapping_failure)?;
+                CollectionResult::session(
+                    metadata,
+                    candidates,
+                    Vec::new(),
+                    Vec::new(),
+                    process_summary(&output),
+                )
+                .map_err(|_| failure(CollectorFailureCode::Internal))
+            }
+            (SourceKey::OpenCode, crate::application::collection::CollectionProjection::Daily) => {
+                let report = decode_opencode_daily(&output.stdout)?;
+                let candidates = map_opencode_daily(report, context).map_err(mapping_failure)?;
+                CollectionResult::daily(
+                    metadata,
+                    candidates,
+                    Vec::new(),
+                    Vec::new(),
+                    process_summary(&output),
+                )
+                .map_err(|_| failure(CollectorFailureCode::Internal))
+            }
+            (
+                SourceKey::OpenCode,
+                crate::application::collection::CollectionProjection::Session,
+            ) => {
+                let report = decode_opencode_session(&output.stdout)?;
+                let candidates = map_opencode_session(report, context).map_err(mapping_failure)?;
                 CollectionResult::session(
                     metadata,
                     candidates,

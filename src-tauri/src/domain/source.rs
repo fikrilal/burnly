@@ -2,6 +2,7 @@
 pub(crate) enum SourceKey {
     ClaudeCode,
     Codex,
+    OpenCode,
     #[cfg(test)]
     TestUnsupported,
 }
@@ -11,6 +12,7 @@ impl SourceKey {
         match self {
             Self::ClaudeCode => "claude-code",
             Self::Codex => "codex",
+            Self::OpenCode => "opencode",
             #[cfg(test)]
             Self::TestUnsupported => "test-unsupported",
         }
@@ -20,6 +22,7 @@ impl SourceKey {
         match value {
             "claude-code" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
+            "opencode" => Some(Self::OpenCode),
             _ => None,
         }
     }
@@ -33,5 +36,6 @@ mod tests {
     fn source_key_has_stable_product_identity() {
         assert_eq!(SourceKey::ClaudeCode.as_str(), "claude-code");
         assert_eq!(SourceKey::Codex.as_str(), "codex");
+        assert_eq!(SourceKey::OpenCode.as_str(), "opencode");
     }
 }
