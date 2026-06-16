@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
@@ -9,6 +9,60 @@ const forbiddenGenericNames = new Set([
   "manager",
   "utils",
 ]);
+const rustLayerRules = {
+  application: {
+    forbiddenLayers: ["bootstrap", "infrastructure", "ipc", "platform"],
+    forbiddenTechnologies: [
+      "tauri",
+      "rusqlite",
+      "std::process",
+      "tokio::process",
+      "ccusage",
+      "serde_json::Value",
+    ],
+  },
+  domain: {
+    forbiddenLayers: [
+      "application",
+      "bootstrap",
+      "infrastructure",
+      "ipc",
+      "platform",
+    ],
+    forbiddenTechnologies: [
+      "tauri",
+      "rusqlite",
+      "std::process",
+      "tokio::process",
+      "ccusage",
+      "serde_json::Value",
+    ],
+  },
+  infrastructure: {
+    forbiddenLayers: ["bootstrap", "ipc", "platform"],
+    forbiddenTechnologies: [],
+  },
+  ipc: {
+    forbiddenLayers: ["bootstrap", "infrastructure", "platform"],
+    forbiddenTechnologies: [
+      "rusqlite",
+      "std::process",
+      "tokio::process",
+      "ccusage",
+      "serde_json::Value",
+    ],
+  },
+  platform: {
+    forbiddenLayers: ["bootstrap", "infrastructure", "ipc"],
+    forbiddenTechnologies: [
+      "rusqlite",
+      "std::process",
+      "tokio::process",
+      "ccusage",
+      "serde_json::Value",
+    ],
+  },
+};
 
 async function collectFiles(directory, extensions) {
   const entries = await readdir(directory, { withFileTypes: true }).catch(
@@ -53,6 +107,148 @@ function checkGenericName(file) {
       return;
     }
   }
+}
+
+function rustLayerFor(relativePath) {
+  const match = relativePath.match(/^src-tauri\/src\/([^/]+)\//);
+  return match?.[1];
+}
+
+function rustLayerViolations(relativePath, content) {
+  const layer = rustLayerFor(relativePath);
+  const rule = rustLayerRules[layer];
+  if (rule === undefined) {
+    return [];
+  }
+
+  const violations = [];
+
+  for (const forbiddenLayer of rule.forbiddenLayers) {
+    const reference = new RegExp(`crate::${forbiddenLayer}\\b`);
+    const groupedReference = new RegExp(
+      `crate::\\{[^}]*\\b${forbiddenLayer}\\b`,
+      "s",
+    );
+    const relativeReference = new RegExp(`(?:super::)+${forbiddenLayer}\\b`);
+    if (
+      reference.test(content) ||
+      groupedReference.test(content) ||
+      relativeReference.test(content)
+    ) {
+      violations.push(
+        `${relativePath}: ${layer} must not depend on the ${forbiddenLayer} layer.`,
+      );
+    }
+  }
+
+  for (const technology of rule.forbiddenTechnologies) {
+    if (content.toLowerCase().includes(technology.toLowerCase())) {
+      violations.push(
+        `${relativePath}: ${layer} must not depend on ${technology}.`,
+      );
+    }
+  }
+
+  return violations;
+}
+
+async function checkRequiredRustStructure() {
+  const requiredFiles = [
+    "application/mod.rs",
+    "bootstrap.rs",
+    "domain/mod.rs",
+    "infrastructure/mod.rs",
+    "ipc/mod.rs",
+    "platform/mod.rs",
+    "platform/single_instance.rs",
+  ];
+
+  for (const requiredFile of requiredFiles) {
+    const fullPath = path.join(root, "src-tauri", "src", requiredFile);
+    try {
+      await access(fullPath);
+    } catch {
+      failures.push(
+        `src-tauri/src/${requiredFile}: required Rust ownership module is missing.`,
+      );
+    }
+  }
+
+  const library = await readFile(
+    path.join(root, "src-tauri", "src", "lib.rs"),
+    "utf8",
+  );
+  for (const moduleName of [
+    "application",
+    "bootstrap",
+    "domain",
+    "infrastructure",
+    "ipc",
+    "platform",
+  ]) {
+    if (!new RegExp(`\\bmod\\s+${moduleName}\\s*;`).test(library)) {
+      failures.push(
+        `src-tauri/src/lib.rs: required module declaration "mod ${moduleName};" is missing.`,
+      );
+    }
+  }
+}
+
+function runRustBoundarySelfTest() {
+  const cases = [
+    {
+      name: "application may depend on domain",
+      path: "src-tauri/src/application/example.rs",
+      content: "use crate::domain::Usage;",
+      expectedViolations: 0,
+    },
+    {
+      name: "domain may not depend on application",
+      path: "src-tauri/src/domain/example.rs",
+      content: "use crate::application::UsageService;",
+      expectedViolations: 1,
+    },
+    {
+      name: "application may not depend on infrastructure",
+      path: "src-tauri/src/application/example.rs",
+      content: "use crate::infrastructure::Database;",
+      expectedViolations: 1,
+    },
+    {
+      name: "application may not use a relative path to infrastructure",
+      path: "src-tauri/src/application/example.rs",
+      content: "use super::super::infrastructure::Database;",
+      expectedViolations: 1,
+    },
+    {
+      name: "ipc may not depend on SQLite",
+      path: "src-tauri/src/ipc/example.rs",
+      content: "use rusqlite::Connection;",
+      expectedViolations: 1,
+    },
+    {
+      name: "infrastructure may depend on application",
+      path: "src-tauri/src/infrastructure/example.rs",
+      content: "use crate::application::UsageStore;",
+      expectedViolations: 0,
+    },
+  ];
+
+  const failedCases = cases.filter(
+    (testCase) =>
+      rustLayerViolations(testCase.path, testCase.content).length !==
+      testCase.expectedViolations,
+  );
+
+  if (failedCases.length > 0) {
+    console.error("Rust architecture self-test failed:");
+    for (const failedCase of failedCases) {
+      console.error(`- ${failedCase.name}`);
+    }
+    process.exit(1);
+  }
+
+  console.log("Rust architecture self-test passed.");
 }
 
 async function resolveTypeScriptImport(fromFile, specifier, knownFiles) {
@@ -148,6 +344,15 @@ async function checkFrontendBoundaries() {
     }
 
     if (
+      !rel.startsWith("src/ipc/") &&
+      /\b(?:invoke|listen)\s*\(/.test(content)
+    ) {
+      failures.push(
+        `${rel}: direct Tauri invoke/listen calls must stay behind src/ipc.`,
+      );
+    }
+
+    if (
       rel.startsWith("src/components/ui/") &&
       /from\s+["'](?:\.\.\/)*\.\.\/features\//.test(content)
     ) {
@@ -170,6 +375,7 @@ async function checkFrontendBoundaries() {
 }
 
 async function checkRustBoundaries() {
+  await checkRequiredRustStructure();
   const rustFiles = await collectFiles(path.join(root, "src-tauri", "src"), [
     ".rs",
   ]);
@@ -178,38 +384,13 @@ async function checkRustBoundaries() {
     const rel = relative(file);
     const content = await readFile(file, "utf8");
     checkGenericName(file);
-
-    if (
-      (rel.startsWith("src-tauri/src/domain/") ||
-        rel.startsWith("src-tauri/src/application/")) &&
-      /\b(tauri|rusqlite|std::process|tokio::process)\b/.test(content)
-    ) {
-      failures.push(
-        `${rel}: domain/application code must not depend on Tauri, SQLite, or process execution.`,
-      );
-    }
-
-    if (
-      (rel.startsWith("src-tauri/src/domain/") ||
-        rel.startsWith("src-tauri/src/application/")) &&
-      /\b(ccusage|CollectorEnvelope|RawCollector|serde_json::Value)\b/i.test(
-        content,
-      )
-    ) {
-      failures.push(
-        `${rel}: collector transport details must remain in infrastructure adapters.`,
-      );
-    }
-
-    if (
-      !rel.startsWith("src-tauri/src/infrastructure/") &&
-      /\brusqlite\b/.test(content)
-    ) {
-      failures.push(
-        `${rel}: SQLite details must remain in infrastructure persistence modules.`,
-      );
-    }
+    failures.push(...rustLayerViolations(rel, content));
   }
+}
+
+if (process.argv.includes("--self-test")) {
+  runRustBoundarySelfTest();
+  process.exit(0);
 }
 
 await checkFrontendBoundaries();

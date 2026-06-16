@@ -1,0 +1,23 @@
+{
+  "daily": [
+    {
+      "date": "2026-02-30",
+      "inputTokens": 1,
+      "outputTokens": 1,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 0,
+      "totalTokens": 2,
+      "totalCost": 0.01,
+      "modelsUsed": [],
+      "modelBreakdowns": []
+    }
+  ],
+  "totals": {
+    "inputTokens": 1,
+    "outputTokens": 1,
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 0,
+    "totalTokens": 2,
+    "totalCost": 0.01
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "ok": false,
+  "error": {
+    "code": "validation.invalid_date_range",
+    "message": "The selected date range is invalid.",
+    "category": "validation",
+    "retryable": false,
+    "fieldErrors": [
+      {
+        "field": "dateRange.startDate",
+        "code": "validation.before_end_date",
+        "message": "Start date must not be after end date."
+      }
+    ],
+    "details": null
+  },
+  "meta": {
+    "contractVersion": 1,
+    "requestId": "018f5f4d-7758-7bb2-9d9b-6d7f22c4a901",
+    "generatedAt": "2026-06-14T07:30:00.000Z"
+  }
+}

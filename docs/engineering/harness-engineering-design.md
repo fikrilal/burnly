@@ -88,6 +88,7 @@ docs/
     ├── README.md
     ├── _template.md
     ├── active/
+    ├── queued/
     ├── completed/
     └── tech-debt-tracker.md
 ```

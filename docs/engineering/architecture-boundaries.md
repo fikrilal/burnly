@@ -16,6 +16,27 @@
 - Infrastructure code owns SQLite, sidecar process execution, filesystem access, and platform details.
 - IPC code maps application results into transport DTOs and envelopes.
 
+Allowed dependency direction:
+
+```text
+domain
+  ^
+  |
+application <--- infrastructure
+  ^
+  |
+ipc        platform
+
+bootstrap may compose every layer.
+```
+
+- Domain depends on no other Burnly layer.
+- Application may depend on domain.
+- Infrastructure may depend on application and domain.
+- IPC may depend on application and domain, never infrastructure.
+- Platform may depend on application and domain, never infrastructure or IPC.
+- Bootstrap is the composition root and may select concrete modules.
+
 ## Naming
 
 Generic module or directory names such as `utils`, `helpers`, and `manager` are

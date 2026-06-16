@@ -1,0 +1,42 @@
+{
+  "daily": [
+    {
+      "date": "2026-06-13",
+      "inputTokens": 1000,
+      "outputTokens": 400,
+      "reasoningOutputTokens": 100,
+      "totalTokens": 1650,
+      "totalCost": 0.42,
+      "models": {
+        "gemini-2.5-pro": {
+          "inputTokens": 700,
+          "outputTokens": 300,
+          "reasoningOutputTokens": 80,
+          "cost": 0.28
+        },
+        "gemini-2.5-flash": {
+          "inputTokens": 300,
+          "outputTokens": 100,
+          "reasoningOutputTokens": 20,
+          "cost": 0.14
+        }
+      }
+    },
+    {
+      "date": "2026-06-14",
+      "inputTokens": 500,
+      "outputTokens": 200,
+      "reasoningOutputTokens": 50,
+      "totalTokens": 850,
+      "totalCost": 0.21,
+      "models": {}
+    }
+  ],
+  "totals": {
+    "inputTokens": 1500,
+    "outputTokens": 600,
+    "reasoningOutputTokens": 150,
+    "totalTokens": 2500,
+    "totalCost": 0.63
+  }
+}
