@@ -694,6 +694,31 @@ mod tests {
             let upserted = u32::try_from(observed.len()).unwrap_or(u32::MAX);
             Ok(DailyReconciliationSummary::new(upserted, observed))
         }
+
+        fn reconcile_session(
+            &self,
+            request: crate::application::reconciliation::SessionReconciliationRequest,
+        ) -> Result<crate::application::reconciliation::SessionReconciliationSummary, UsageStoreError>
+        {
+            if self.fail.swap(false, Ordering::AcqRel) {
+                return Err(UsageStoreError::Backend);
+            }
+            self.reconciled
+                .lock()
+                .expect("lock")
+                .push(request.outcome());
+            let observed = request
+                .candidates()
+                .iter()
+                .map(|candidate| candidate.source_key.clone())
+                .collect::<Vec<_>>();
+            let upserted = u32::try_from(observed.len()).unwrap_or(u32::MAX);
+            Ok(
+                crate::application::reconciliation::SessionReconciliationSummary::new(
+                    upserted, observed,
+                ),
+            )
+        }
     }
 
     struct FakeClock {

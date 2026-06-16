@@ -63,6 +63,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         request_type: "DayDetailCommandRequest",
         response_type: "DayDetailResponse",
     },
+    CommandSpec {
+        name: "usage_get_sessions",
+        export_name: "invokeUsageGetSessions",
+        request_type: "SessionListCommandRequest",
+        response_type: "SessionListResponse",
+    },
+    CommandSpec {
+        name: "usage_get_session_detail",
+        export_name: "invokeUsageGetSessionDetail",
+        request_type: "SessionDetailCommandRequest",
+        response_type: "SessionDetailResponse",
+    },
 ];
 
 pub(super) const EVENTS: &[EventSpec] = &[

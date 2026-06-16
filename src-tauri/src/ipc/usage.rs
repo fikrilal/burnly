@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::application::ports::overview_store::OverviewStoreError;
+use crate::application::ports::session_store::{SessionPagination, SessionStoreError};
 use crate::application::usage::{
     CalendarDayInfo, CalendarPeriod, CalendarQuery, CalendarQueryError, CalendarReadModel,
     CostCompleteness, CostValuation, DayDetailQuery, DayDetailQueryError, DayDetailReadModel,
     OverviewCost, OverviewDataStatus, OverviewPeriod, OverviewQuery, OverviewQueryError,
-    OverviewReadModel, OverviewSource,
+    OverviewReadModel, OverviewSource, SessionQuery,
 };
+use crate::domain::usage::{SessionDetail, UsageSession};
 
 use super::response::{ErrorCategory, FieldError, IpcError, IpcResponse};
 
@@ -160,11 +162,14 @@ fn period_from_request(request: UsageOverviewRequest) -> Result<OverviewPeriod, 
     OverviewPeriod::new(start_date, end_date, request.reporting_timezone).map_err(query_error)
 }
 
-fn calendar_period_from_request(request: ActivityCalendarRequest) -> Result<CalendarPeriod, IpcError> {
+fn calendar_period_from_request(
+    request: ActivityCalendarRequest,
+) -> Result<CalendarPeriod, IpcError> {
     let start_date = parse_date(&request.start_date, "request.startDate")?;
     let end_date = parse_date(&request.end_date, "request.endDate")?;
 
-    CalendarPeriod::new(start_date, end_date, request.reporting_timezone).map_err(calendar_query_error)
+    CalendarPeriod::new(start_date, end_date, request.reporting_timezone)
+        .map_err(calendar_query_error)
 }
 
 fn parse_date(value: &str, field: &'static str) -> Result<NaiveDate, IpcError> {
@@ -417,5 +422,185 @@ mod tests {
             to_rfc3339(i64::MAX),
             Err(OverviewStoreError::ValueOutOfRange)
         );
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SessionListRequest {
+    source_id: Option<i64>,
+    limit: u32,
+    after_activity_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SessionListResponse {
+    items: Vec<SessionItemResponse>,
+    next_cursor: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionItemResponse {
+    id: i64,
+    source_id: i64,
+    source_session_id: String,
+    project_id: Option<i64>,
+    project_path: Option<String>,
+    first_activity_at: Option<String>,
+    last_activity_at: Option<String>,
+    total_tokens: String,
+    cost: UsageOverviewCostResponse,
+}
+
+#[tauri::command]
+pub(super) fn usage_get_sessions(
+    request: SessionListRequest,
+    query: State<'_, SessionQuery>,
+) -> IpcResponse<SessionListResponse> {
+    let limit = std::cmp::min(request.limit, 100);
+    let pagination = SessionPagination {
+        limit: limit + 1, // request 1 more to check if there is a next page
+        after_activity_ms: request.after_activity_ms,
+    };
+
+    match query.get_sessions(request.source_id, pagination) {
+        Ok(mut sessions) => {
+            let next_cursor = if sessions.len() > limit as usize {
+                let last = sessions.pop().expect("has extra");
+                last.last_activity_at_ms
+            } else {
+                None
+            };
+
+            let items = sessions
+                .into_iter()
+                .map(SessionItemResponse::from)
+                .collect();
+            IpcResponse::success(SessionListResponse { items, next_cursor })
+        }
+        Err(SessionStoreError::Backend) => IpcResponse::failure(IpcError::new(
+            "usage.sessions_unavailable",
+            "Burnly could not read local sessions data.",
+            ErrorCategory::Persistence,
+            true,
+        )),
+        Err(SessionStoreError::NotFound) => IpcResponse::success(SessionListResponse {
+            items: vec![],
+            next_cursor: None,
+        }),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SessionDetailRequest {
+    session_id: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SessionDetailResponse {
+    session: SessionItemResponse,
+    models: Vec<SessionModelUsageResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionModelUsageResponse {
+    raw_model_id: Option<String>,
+    total_tokens: String,
+    cost: UsageOverviewCostResponse,
+}
+
+#[tauri::command]
+pub(super) fn usage_get_session_detail(
+    request: SessionDetailRequest,
+    query: State<'_, SessionQuery>,
+) -> IpcResponse<Option<SessionDetailResponse>> {
+    match query.get_session_detail(request.session_id) {
+        Ok(detail) => IpcResponse::success(Some(SessionDetailResponse::from(detail))),
+        Err(SessionStoreError::NotFound) => IpcResponse::success(None),
+        Err(SessionStoreError::Backend) => IpcResponse::failure(IpcError::new(
+            "usage.session_detail_unavailable",
+            "Burnly could not read local session detail data.",
+            ErrorCategory::Persistence,
+            true,
+        )),
+    }
+}
+
+impl From<UsageSession> for SessionItemResponse {
+    fn from(value: UsageSession) -> Self {
+        Self {
+            id: value.session_id,
+            source_id: value.source_id,
+            source_session_id: value.source_session_id,
+            project_id: value.project_id,
+            project_path: value.project_path,
+            first_activity_at: value
+                .first_activity_at_ms
+                .map(|ms| to_rfc3339(ms).unwrap_or_default()),
+            last_activity_at: value
+                .last_activity_at_ms
+                .map(|ms| to_rfc3339(ms).unwrap_or_default()),
+            total_tokens: value.tokens.total_tokens().to_string(),
+            cost: UsageOverviewCostResponse::from_usage_cost(&value.cost),
+        }
+    }
+}
+
+impl From<SessionDetail> for SessionDetailResponse {
+    fn from(value: SessionDetail) -> Self {
+        Self {
+            session: SessionItemResponse::from(value.session),
+            models: value
+                .model_breakdowns
+                .into_iter()
+                .map(|m| SessionModelUsageResponse {
+                    raw_model_id: m.raw_model_id,
+                    total_tokens: m.tokens.total_tokens().to_string(),
+                    cost: UsageOverviewCostResponse::from_usage_cost(&m.cost),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl UsageOverviewCostResponse {
+    fn from_usage_cost(cost: &crate::domain::usage::UsageCost) -> Self {
+        use crate::domain::usage::UsageCost;
+        match cost {
+            UsageCost::Valued {
+                amount_micros,
+                currency,
+                status,
+                ..
+            } => Self {
+                amount_micros: Some(amount_micros.to_string()),
+                currency: Some(currency.as_str().to_owned()),
+                valuation: match status {
+                    crate::domain::usage::ValuedCostStatus::Available => "available",
+                    crate::domain::usage::ValuedCostStatus::Estimated => "estimated",
+                },
+                completeness: "complete", // For models/sessions, we assume complete if valued.
+                unavailable_days: 0,
+            },
+            UsageCost::NotApplicable { .. } => Self {
+                amount_micros: None,
+                currency: None,
+                valuation: "unavailable",
+                completeness: "complete",
+                unavailable_days: 0,
+            },
+            UsageCost::Unavailable { .. } => Self {
+                amount_micros: None,
+                currency: None,
+                valuation: "unavailable",
+                completeness: "unavailable",
+                unavailable_days: 1,
+            },
+        }
     }
 }

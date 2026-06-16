@@ -13,6 +13,8 @@ import {
   invokeUsageGetOverview,
   invokeUsageGetCalendar,
   invokeUsageGetDayDetail,
+  invokeUsageGetSessions,
+  invokeUsageGetSessionDetail,
   type AppBootstrapResponse,
   type AppCapabilitiesResponse,
   type CommandInvoker,
@@ -31,6 +33,10 @@ import {
   type ActivityCalendarResponse,
   type DayDetailRequest,
   type DayDetailResponse,
+  type SessionListRequest,
+  type SessionListResponse,
+  type SessionDetailRequest,
+  type SessionDetailResponse,
 } from "./generated/contracts";
 
 const responseMetaSchema: z.ZodType<ResponseMeta> = z.object({
@@ -244,6 +250,44 @@ const dayDetailDataSchema: z.ZodType<DayDetailResponse> = z.object({
   asOf: z.iso.datetime({ offset: true }),
 });
 
+const sessionItemResponseSchema = z.object({
+  id: z.number().int(),
+  sourceId: z.number().int(),
+  sourceSessionId: z.string(),
+  projectId: z.number().int().nullable(),
+  projectPath: z.string().nullable(),
+  firstActivityAt: z.iso.datetime({ offset: true }).nullable(),
+  lastActivityAt: z.iso.datetime({ offset: true }).nullable(),
+  totalTokens: uint64StringSchema,
+  cost: usageOverviewCostSchema,
+});
+
+const sessionListRequestSchema: z.ZodType<SessionListRequest> = z.object({
+  sourceId: z.number().int().nullable(),
+  limit: z.number().int().positive().max(100),
+  afterActivityMs: z.number().int().nullable(),
+});
+
+const sessionListDataSchema: z.ZodType<SessionListResponse> = z.object({
+  items: z.array(sessionItemResponseSchema),
+  nextCursor: z.number().int().nullable(),
+});
+
+const sessionDetailRequestSchema: z.ZodType<SessionDetailRequest> = z.object({
+  sessionId: z.number().int(),
+});
+
+const sessionDetailDataSchema: z.ZodType<SessionDetailResponse> = z.object({
+  session: sessionItemResponseSchema,
+  models: z.array(
+    z.object({
+      rawModelId: z.string().nullable(),
+      totalTokens: uint64StringSchema,
+      cost: usageOverviewCostSchema,
+    }),
+  ),
+});
+
 export interface CommandResult<TData> {
   data: TData;
   meta: ResponseMeta;
@@ -346,6 +390,30 @@ export async function getDayDetail(
     request: parsedRequest,
   });
   return unwrapResponse(validateResponse(response, dayDetailDataSchema));
+}
+
+export async function getSessions(
+  request: SessionListRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<SessionListResponse>> {
+  const parsedRequest = sessionListRequestSchema.parse(request);
+  const response = await invokeUsageGetSessions(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, sessionListDataSchema));
+}
+
+export async function getSessionDetail(
+  request: SessionDetailRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<SessionDetailResponse | null>> {
+  const parsedRequest = sessionDetailRequestSchema.parse(request);
+  const response = await invokeUsageGetSessionDetail(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(
+    validateResponse(response, sessionDetailDataSchema.nullable()),
+  );
 }
 
 export function validateInt64String(value: string): bigint {

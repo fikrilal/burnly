@@ -11,7 +11,10 @@
 
 use thiserror::Error;
 
-use crate::application::reconciliation::{DailyReconciliationRequest, DailyReconciliationSummary};
+use crate::application::reconciliation::{
+    DailyReconciliationRequest, DailyReconciliationSummary, SessionReconciliationRequest,
+    SessionReconciliationSummary,
+};
 
 pub(crate) trait UsageStore: Send + Sync {
     /// Reconciles validated daily candidates into canonical facts within a single
@@ -20,6 +23,13 @@ pub(crate) trait UsageStore: Send + Sync {
         &self,
         request: DailyReconciliationRequest,
     ) -> Result<DailyReconciliationSummary, UsageStoreError>;
+
+    /// Reconciles validated session candidates into canonical facts within a single
+    /// write transaction. Either all candidates in the request commit, or none do.
+    fn reconcile_session(
+        &self,
+        request: SessionReconciliationRequest,
+    ) -> Result<SessionReconciliationSummary, UsageStoreError>;
 }
 
 /// Failure categories surfaced by the usage store, independent of the engine.

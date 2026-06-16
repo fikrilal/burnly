@@ -40,3 +40,16 @@ pub(crate) struct ModelUsageCandidate {
     pub tokens: TokenUsage,
     pub cost: UsageCost,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionUsageCandidate {
+    pub provenance: CandidateProvenance,
+    pub source_key: String,
+    pub source_session_id: String,
+    pub project_path: Option<String>,
+    pub first_activity_at: Option<DateTime<Utc>>,
+    pub last_activity_at: Option<DateTime<Utc>>,
+    pub tokens: TokenUsage,
+    pub cost: UsageCost,
+    pub model_breakdowns: Vec<ModelUsageCandidate>,
+}

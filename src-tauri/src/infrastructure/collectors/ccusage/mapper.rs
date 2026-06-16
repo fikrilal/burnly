@@ -4,9 +4,10 @@ use thiserror::Error;
 use crate::{
     application::collection::{
         CandidateProvenance, CollectionId, CollectorKey, DailyUsageCandidate, ModelUsageCandidate,
+        SessionUsageCandidate,
     },
     domain::{
-        identity::{daily_source_key, IdentityError},
+        identity::{daily_source_key, session_source_key, IdentityError},
         source::SourceKey,
         usage::{
             CostKind, CurrencyCode, DataQuality, TokenUsage, UsageCost, UsageValidationError,
@@ -16,6 +17,7 @@ use crate::{
 };
 
 use super::envelopes::claude_daily::{ClaudeDailyReport, ClaudeDailyRow, ModelBreakdown};
+use super::envelopes::claude_session::{ClaudeSessionReport, ClaudeSessionRow};
 
 const COST_MICROS_PER_UNIT: f64 = 1_000_000.0;
 
@@ -58,6 +60,56 @@ fn map_row(
         )?,
         usage_date,
         aggregation_timezone: context.aggregation_timezone.clone(),
+        tokens,
+        cost,
+        model_breakdowns,
+    })
+}
+
+pub(crate) fn map_session(
+    report: ClaudeSessionReport,
+    context: MappingContext,
+) -> Result<Vec<SessionUsageCandidate>, MappingError> {
+    report
+        .sessions
+        .into_iter()
+        .map(|row| map_session_row(row, &context))
+        .collect()
+}
+
+fn map_session_row(
+    row: ClaudeSessionRow,
+    context: &MappingContext,
+) -> Result<SessionUsageCandidate, MappingError> {
+    let tokens = TokenUsage::new(
+        Some(row.input_tokens),
+        Some(row.output_tokens),
+        Some(row.cache_creation_tokens),
+        Some(row.cache_read_tokens),
+        row.total_tokens,
+    )?;
+    let cost = map_cost(row.total_cost, row.total_tokens)?;
+    let model_breakdowns = row
+        .model_breakdowns
+        .into_iter()
+        .map(map_model)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let first_activity_at = DateTime::parse_from_rfc3339(&row.first_activity_at)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|_| MappingError::InvalidDate)?;
+
+    let last_activity_at = DateTime::parse_from_rfc3339(&row.last_activity_at)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|_| MappingError::InvalidDate)?;
+
+    Ok(SessionUsageCandidate {
+        provenance: context.provenance(),
+        source_key: session_source_key(SourceKey::ClaudeCode, &row.session_id)?,
+        source_session_id: row.session_id,
+        project_path: row.project.map(|p| p.path),
+        first_activity_at: Some(first_activity_at),
+        last_activity_at: Some(last_activity_at),
         tokens,
         cost,
         model_breakdowns,

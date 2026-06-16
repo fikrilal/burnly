@@ -1,6 +1,6 @@
-use std::sync::Mutex;
 use crate::infrastructure::database::Database;
 use chrono::NaiveDate;
+use std::sync::Mutex;
 
 use crate::application::ports::calendar_store::{CalendarStore, CalendarStoreError};
 use crate::application::ports::day_detail_store::{DayDetailStore, DayDetailStoreError};
@@ -17,7 +17,9 @@ pub(crate) struct SqliteCalendarStore {
 
 impl SqliteCalendarStore {
     pub(crate) fn new(database: Database) -> Self {
-        Self { database: Mutex::new(database) }
+        Self {
+            database: Mutex::new(database),
+        }
     }
 }
 
@@ -26,9 +28,12 @@ impl CalendarStore for SqliteCalendarStore {
         &self,
         period: &CalendarPeriod,
     ) -> Result<CalendarReadModel, CalendarStoreError> {
-        let db = self.database.lock().map_err(|_| CalendarStoreError::Backend)?;
+        let db = self
+            .database
+            .lock()
+            .map_err(|_| CalendarStoreError::Backend)?;
         let conn = db.connection();
-        
+
         let mut stmt = conn
             .prepare(
                 r#"
@@ -56,7 +61,7 @@ impl CalendarStore for SqliteCalendarStore {
                 let usage_date: String = row.get(0)?;
                 let date = NaiveDate::parse_from_str(&usage_date, "%Y-%m-%d")
                     .unwrap_or(period.start_date());
-                
+
                 let total_tokens: i64 = row.get(1).unwrap_or(0);
                 let active_sources: i64 = row.get(2).unwrap_or(0);
                 let cost_micros: Option<i64> = row.get(3)?;
@@ -98,11 +103,14 @@ impl DayDetailStore for SqliteCalendarStore {
         &self,
         date: NaiveDate,
     ) -> Result<Option<DayDetailReadModel>, DayDetailStoreError> {
-        let db = self.database.lock().map_err(|_| DayDetailStoreError::Backend)?;
+        let db = self
+            .database
+            .lock()
+            .map_err(|_| DayDetailStoreError::Backend)?;
         let conn = db.connection();
-        
+
         let date_str = date.to_string();
-        
+
         let mut stmt = conn
             .prepare(
                 r#"
@@ -163,7 +171,7 @@ impl DayDetailStore for SqliteCalendarStore {
                 let s_tokens: i64 = row.get(1)?;
                 let s_cost: Option<i64> = row.get(2)?;
                 let s_curr: Option<String> = row.get(3)?;
-                
+
                 let s_currency = s_curr.and_then(|c| CurrencyCode::new(c.as_str()).ok());
 
                 Ok(OverviewSource {

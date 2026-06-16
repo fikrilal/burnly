@@ -43,8 +43,9 @@ type AppState =
 
 import { Overview } from "../features/overview";
 import { CalendarView } from "../features/calendar/CalendarView";
+import { SessionsView } from "../features/sessions/SessionsView";
 
-type ViewMode = "overview" | "calendar";
+type ViewMode = "overview" | "calendar" | "sessions";
 
 export function App({
   loadBootstrap = getAppBootstrap,
@@ -86,8 +87,23 @@ export function App({
               >
                 Calendar
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("sessions");
+                }}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  viewMode === "sessions"
+                    ? "border-b-2 border-cyan-400 text-cyan-400"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Sessions
+              </button>
             </div>
-            {viewMode === "overview" ? <Overview /> : <CalendarView />}
+            {viewMode === "overview" && <Overview />}
+            {viewMode === "calendar" && <CalendarView />}
+            {viewMode === "sessions" && <SessionsView />}
           </div>
         ) : (
           <div className="mt-12 grid gap-4 md:grid-cols-3">

@@ -17,6 +17,8 @@ use crate::domain::source::SourceKey;
 /// source's daily projection rather than silently mixing schemes.
 pub(crate) const DAILY_IDENTITY_VERSION: u16 = 1;
 
+pub(crate) const SESSION_IDENTITY_VERSION: u16 = 1;
+
 /// Builds the deterministic source key for one daily usage record.
 ///
 /// Identity is `source + usage_date + aggregation_timezone`, version-tagged. The
@@ -42,10 +44,26 @@ pub(crate) fn daily_source_key(
     ))
 }
 
+pub(crate) fn session_source_key(
+    source: SourceKey,
+    session_id: &str,
+) -> Result<String, IdentityError> {
+    if session_id.trim().is_empty() {
+        return Err(IdentityError::EmptySessionId);
+    }
+
+    Ok(format!(
+        "{source}:session:v{SESSION_IDENTITY_VERSION}:{session_id}",
+        source = source.as_str(),
+    ))
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum IdentityError {
     #[error("daily source key requires a non-empty aggregation timezone")]
     EmptyAggregationTimezone,
+    #[error("session source key requires a non-empty session ID")]
+    EmptySessionId,
 }
 
 #[cfg(test)]

@@ -28,6 +28,8 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::refresh_cancel,
         usage::usage_get_overview,
         usage::usage_get_calendar,
-        usage::usage_get_day_detail
+        usage::usage_get_day_detail,
+        usage::usage_get_sessions,
+        usage::usage_get_session_detail,
     ]
 }

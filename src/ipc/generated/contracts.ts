@@ -210,6 +210,52 @@ export interface DayDetailResponse {
   asOf: string;
 }
 
+export interface SessionListRequest {
+  sourceId: number | null;
+  limit: number;
+  afterActivityMs: number | null;
+}
+
+export interface SessionListCommandRequest extends Record<string, unknown> {
+  request: SessionListRequest;
+}
+
+export interface SessionItemResponse {
+  id: number;
+  sourceId: number;
+  sourceSessionId: string;
+  projectId: number | null;
+  projectPath: string | null;
+  firstActivityAt: string | null;
+  lastActivityAt: string | null;
+  totalTokens: string;
+  cost: UsageOverviewCostResponse;
+}
+
+export interface SessionListResponse {
+  items: SessionItemResponse[];
+  nextCursor: number | null;
+}
+
+export interface SessionDetailRequest {
+  sessionId: number;
+}
+
+export interface SessionDetailCommandRequest extends Record<string, unknown> {
+  request: SessionDetailRequest;
+}
+
+export interface SessionModelUsageResponse {
+  rawModelId: string | null;
+  totalTokens: string;
+  cost: UsageOverviewCostResponse;
+}
+
+export interface SessionDetailResponse {
+  session: SessionItemResponse;
+  models: SessionModelUsageResponse[];
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {
@@ -222,6 +268,8 @@ export const COMMAND_NAMES = {
   usageGetOverview: "usage_get_overview",
   usageGetCalendar: "usage_get_calendar",
   usageGetDayDetail: "usage_get_day_detail",
+  usageGetSessions: "usage_get_sessions",
+  usageGetSessionDetail: "usage_get_session_detail",
 } as const;
 
 export type CommandName = (typeof COMMAND_NAMES)[keyof typeof COMMAND_NAMES];
@@ -236,6 +284,8 @@ export interface CommandRequests {
   [COMMAND_NAMES.usageGetOverview]: UsageOverviewCommandRequest;
   [COMMAND_NAMES.usageGetCalendar]: ActivityCalendarCommandRequest;
   [COMMAND_NAMES.usageGetDayDetail]: DayDetailCommandRequest;
+  [COMMAND_NAMES.usageGetSessions]: SessionListCommandRequest;
+  [COMMAND_NAMES.usageGetSessionDetail]: SessionDetailCommandRequest;
 }
 
 export interface CommandResponses {
@@ -248,6 +298,8 @@ export interface CommandResponses {
   [COMMAND_NAMES.usageGetOverview]: IpcResponse<UsageOverviewResponse>;
   [COMMAND_NAMES.usageGetCalendar]: IpcResponse<ActivityCalendarResponse>;
   [COMMAND_NAMES.usageGetDayDetail]: IpcResponse<DayDetailResponse>;
+  [COMMAND_NAMES.usageGetSessions]: IpcResponse<SessionListResponse>;
+  [COMMAND_NAMES.usageGetSessionDetail]: IpcResponse<SessionDetailResponse>;
 }
 
 export type CommandInvoker = (
@@ -304,6 +356,20 @@ export function invokeUsageGetDayDetail(
   request: DayDetailCommandRequest,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.usageGetDayDetail, request);
+}
+
+export function invokeUsageGetSessions(
+  invoke: CommandInvoker,
+  request: SessionListCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.usageGetSessions, request);
+}
+
+export function invokeUsageGetSessionDetail(
+  invoke: CommandInvoker,
+  request: SessionDetailCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.usageGetSessionDetail, request);
 }
 
 export const EVENT_NAMES = {

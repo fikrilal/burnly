@@ -5,6 +5,7 @@ use crate::domain::source::SourceKey;
 
 use super::{
     CollectionId, CollectionProjection, CollectionScope, CollectorKey, DailyUsageCandidate,
+    SessionUsageCandidate,
 };
 
 const MAX_REJECTIONS: usize = 100;
@@ -20,8 +21,10 @@ pub(crate) enum CollectionOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CollectionResult {
     metadata: CollectionMetadata,
+    projection: CollectionProjection,
     outcome: CollectionOutcome,
     daily_candidates: Vec<DailyUsageCandidate>,
+    session_candidates: Vec<SessionUsageCandidate>,
     rejections: Vec<RejectedRecord>,
     warnings: Vec<CollectionWarning>,
     process_summary: ProcessSummary,
@@ -55,8 +58,47 @@ impl CollectionResult {
 
         Ok(Self {
             metadata,
+            projection: CollectionProjection::Daily,
             outcome,
             daily_candidates,
+            session_candidates: Vec::new(),
+            rejections,
+            warnings,
+            process_summary,
+        })
+    }
+
+    pub(crate) fn session(
+        metadata: CollectionMetadata,
+        session_candidates: Vec<SessionUsageCandidate>,
+        rejections: Vec<RejectedRecord>,
+        warnings: Vec<CollectionWarning>,
+        process_summary: ProcessSummary,
+    ) -> Result<Self, ResultValidationError> {
+        if rejections.len() > MAX_REJECTIONS {
+            return Err(ResultValidationError::TooManyRejections);
+        }
+        if warnings.len() > MAX_WARNINGS {
+            return Err(ResultValidationError::TooManyWarnings);
+        }
+        if session_candidates.is_empty() && !rejections.is_empty() {
+            return Err(ResultValidationError::AllRecordsRejected);
+        }
+
+        let outcome = if session_candidates.is_empty() {
+            CollectionOutcome::Empty
+        } else if rejections.is_empty() {
+            CollectionOutcome::Complete
+        } else {
+            CollectionOutcome::Partial
+        };
+
+        Ok(Self {
+            metadata,
+            projection: CollectionProjection::Session,
+            outcome,
+            daily_candidates: Vec::new(),
+            session_candidates,
             rejections,
             warnings,
             process_summary,
@@ -64,7 +106,7 @@ impl CollectionResult {
     }
 
     pub(crate) const fn projection(&self) -> CollectionProjection {
-        CollectionProjection::Daily
+        self.projection
     }
 
     pub(crate) const fn outcome(&self) -> CollectionOutcome {
@@ -73,6 +115,10 @@ impl CollectionResult {
 
     pub(crate) fn daily_candidates(&self) -> &[DailyUsageCandidate] {
         &self.daily_candidates
+    }
+
+    pub(crate) fn session_candidates(&self) -> &[SessionUsageCandidate] {
+        &self.session_candidates
     }
 
     pub(crate) const fn process_summary(&self) -> &ProcessSummary {

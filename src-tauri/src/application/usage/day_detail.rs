@@ -29,7 +29,10 @@ impl DayDetailQuery {
         Self { store }
     }
 
-    pub(crate) fn get(&self, date: NaiveDate) -> Result<Option<DayDetailReadModel>, DayDetailQueryError> {
+    pub(crate) fn get(
+        &self,
+        date: NaiveDate,
+    ) -> Result<Option<DayDetailReadModel>, DayDetailQueryError> {
         Ok(self.store.read_day_detail(date)?)
     }
 }

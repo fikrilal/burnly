@@ -141,6 +141,32 @@ pub(crate) enum DataQuality {
     Partial,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UsageSession {
+    pub session_id: i64,
+    pub source_id: i64,
+    pub source_session_id: String,
+    pub project_id: Option<i64>,
+    pub project_path: Option<String>,
+    pub first_activity_at_ms: Option<i64>,
+    pub last_activity_at_ms: Option<i64>,
+    pub tokens: TokenUsage,
+    pub cost: UsageCost,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionDetail {
+    pub session: UsageSession,
+    pub model_breakdowns: Vec<SessionModelUsage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionModelUsage {
+    pub raw_model_id: Option<String>,
+    pub tokens: TokenUsage,
+    pub cost: UsageCost,
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum UsageValidationError {
     #[error("classified token total overflowed")]

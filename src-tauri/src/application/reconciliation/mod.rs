@@ -5,6 +5,7 @@
 
 mod daily;
 mod run;
+mod session;
 
 #[allow(
     unused_imports,
@@ -20,3 +21,8 @@ pub(crate) use run::{
     RefreshOutcome, RefreshRunCompletion, RefreshRunId, RefreshRunSpec, RefreshTrigger, RunError,
     RunValidationError, SourceId,
 };
+#[allow(
+    unused_imports,
+    reason = "reconciliation re-exports the run lifecycle contract for callers and adapters"
+)]
+pub(crate) use session::{SessionReconciliationRequest, SessionReconciliationSummary};

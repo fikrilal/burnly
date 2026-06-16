@@ -4,7 +4,7 @@
 //! modules receive constructed dependencies instead of constructing their own.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use iana_time_zone::GetTimezoneError;
 use tauri::{Manager, Runtime};
@@ -13,12 +13,12 @@ use thiserror::Error;
 use crate::application::bootstrap::BootstrapService;
 use crate::application::collection::CollectorFailure;
 use crate::application::refresh::RefreshCoordinator;
-use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery};
+use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteCalendarStore, SqliteOverviewStore,
-    SqliteReconciliationStore,
+    SqliteReconciliationStore, SqliteSessionStore,
 };
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
@@ -93,6 +93,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(build_overview_query(&database_path)?);
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
+    app.manage(build_session_query(&database_path)?);
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
         CONTRACT_VERSION,
@@ -111,12 +112,23 @@ fn build_overview_query(database_path: &Path) -> Result<OverviewQuery, StartupEr
 
 fn build_calendar_query(database_path: &Path) -> Result<CalendarQuery, StartupError> {
     let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(CalendarQuery::new(Arc::new(SqliteCalendarStore::new(database))))
+    Ok(CalendarQuery::new(Arc::new(SqliteCalendarStore::new(
+        database,
+    ))))
 }
 
 fn build_day_detail_query(database_path: &Path) -> Result<DayDetailQuery, StartupError> {
     let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(DayDetailQuery::new(Arc::new(SqliteCalendarStore::new(database))))
+    Ok(DayDetailQuery::new(Arc::new(SqliteCalendarStore::new(
+        database,
+    ))))
+}
+
+fn build_session_query(database_path: &Path) -> Result<SessionQuery, StartupError> {
+    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    Ok(SessionQuery::new(Arc::new(SqliteSessionStore::new(
+        Arc::new(Mutex::new(database)),
+    ))))
 }
 
 fn build_refresh_coordinator<R: Runtime>(

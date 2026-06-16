@@ -14,10 +14,6 @@ pub(crate) trait DayDetailStore: Send + Sync {
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DayDetailStoreError {
-    #[error("a day detail value exceeded the supported integer range")]
-    ValueOutOfRange,
-    #[error("day detail cost contains multiple currencies")]
-    MixedCurrencies,
     #[error("the day detail store backend failed")]
     Backend,
 }

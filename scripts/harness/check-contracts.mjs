@@ -380,6 +380,52 @@ export interface DayDetailResponse {
   asOf: string;
 }
 
+export interface SessionListRequest {
+  sourceId: number | null;
+  limit: number;
+  afterActivityMs: number | null;
+}
+
+export interface SessionListCommandRequest extends Record<string, unknown> {
+  request: SessionListRequest;
+}
+
+export interface SessionItemResponse {
+  id: number;
+  sourceId: number;
+  sourceSessionId: string;
+  projectId: number | null;
+  projectPath: string | null;
+  firstActivityAt: string | null;
+  lastActivityAt: string | null;
+  totalTokens: string;
+  cost: UsageOverviewCostResponse;
+}
+
+export interface SessionListResponse {
+  items: SessionItemResponse[];
+  nextCursor: number | null;
+}
+
+export interface SessionDetailRequest {
+  sessionId: number;
+}
+
+export interface SessionDetailCommandRequest extends Record<string, unknown> {
+  request: SessionDetailRequest;
+}
+
+export interface SessionModelUsageResponse {
+  rawModelId: string | null;
+  totalTokens: string;
+  cost: UsageOverviewCostResponse;
+}
+
+export interface SessionDetailResponse {
+  session: SessionItemResponse;
+  models: SessionModelUsageResponse[];
+}
+
 export type UnknownEventPayload = Record<string, unknown>;
 
 export const COMMAND_NAMES = {

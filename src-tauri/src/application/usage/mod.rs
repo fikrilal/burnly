@@ -3,6 +3,7 @@
 mod calendar;
 mod day_detail;
 mod overview;
+mod session;
 
 pub(crate) use calendar::{
     CalendarDayInfo, CalendarPeriod, CalendarQuery, CalendarQueryError, CalendarReadModel,
@@ -15,3 +16,5 @@ pub(crate) use overview::{
     OverviewQuery, OverviewQueryError, OverviewReadModel, OverviewSource, OverviewStoreResult,
     PersistedRefreshStatus,
 };
+
+pub(crate) use session::SessionQuery;

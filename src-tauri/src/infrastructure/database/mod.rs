@@ -5,6 +5,7 @@ mod error;
 mod migrations;
 mod overview_store;
 mod reconciliation_store;
+mod session_store;
 #[cfg(test)]
 mod test_database;
 
@@ -14,10 +15,11 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
-pub use error::{PersistenceError, PersistenceErrorKind};
 pub(crate) use calendar_store::SqliteCalendarStore;
+pub use error::{PersistenceError, PersistenceErrorKind};
 pub(crate) use overview_store::SqliteOverviewStore;
 pub(crate) use reconciliation_store::SqliteReconciliationStore;
+pub(crate) use session_store::SqliteSessionStore;
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const BUSY_TIMEOUT_MS: i64 = 5_000;

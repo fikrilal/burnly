@@ -29,9 +29,6 @@ describe("App", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Burnly" }),
-    ).toBeInTheDocument();
     expect(await screen.findByTestId("overview-feature")).toBeInTheDocument();
   });
 

@@ -13,10 +13,6 @@ pub(crate) trait CalendarStore: Send + Sync {
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CalendarStoreError {
-    #[error("a calendar value exceeded the supported integer range")]
-    ValueOutOfRange,
-    #[error("calendar cost contains multiple currencies")]
-    MixedCurrencies,
     #[error("the calendar store backend failed")]
     Backend,
 }

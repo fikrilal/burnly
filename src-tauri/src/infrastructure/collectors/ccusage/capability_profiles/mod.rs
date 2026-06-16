@@ -12,11 +12,12 @@ pub(crate) struct CapabilityProfile {
     pub source: SourceKey,
     pub profile_version: u16,
     pub supported_projections: &'static [CollectionProjection],
-    pub daily: DailyProfile,
+    pub daily: Option<ReportProfile>,
+    pub session: Option<ReportProfile>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DailyProfile {
+pub(crate) struct ReportProfile {
     pub report_name: &'static str,
     pub envelope_key: &'static str,
     pub date_filter: DateFilterBehavior,
@@ -110,12 +111,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn supports_only_claude_daily() {
+    fn supports_only_claude_daily_and_session() {
         assert!(profile_for(SourceKey::ClaudeCode, CollectionProjection::Daily).is_ok());
-
-        let error = profile_for(SourceKey::ClaudeCode, CollectionProjection::Session)
-            .expect_err("session is not supported");
-        assert_eq!(error.code, CollectorFailureCode::UnsupportedProjection);
+        assert!(profile_for(SourceKey::ClaudeCode, CollectionProjection::Session).is_ok());
     }
 
     #[test]

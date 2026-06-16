@@ -15,6 +15,7 @@ mod result;
 )]
 pub(crate) use candidate::{
     CandidateProvenance, CandidateWarning, DailyUsageCandidate, ModelUsageCandidate,
+    SessionUsageCandidate,
 };
 #[allow(
     unused_imports,
