@@ -102,14 +102,68 @@ impl Database {
         Ok(())
     }
 
-    pub fn reporting_timezone(&self) -> Result<String, PersistenceError> {
+    #[allow(clippy::type_complexity)]
+    pub fn read_settings(
+        &self,
+    ) -> Result<(String, bool, i64, bool, String, bool, bool), PersistenceError> {
         self.connection
             .query_row(
-                "SELECT reporting_timezone FROM app_settings WHERE id = 1",
+                "SELECT reporting_timezone, background_refresh_enabled, refresh_interval_minutes,
+                        launch_at_login, close_behavior, notifications_enabled, store_project_paths
+                 FROM app_settings WHERE id = 1",
                 [],
-                |row| row.get(0),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get::<_, i32>(1)? != 0,
+                        row.get(2)?,
+                        row.get::<_, i32>(3)? != 0,
+                        row.get(4)?,
+                        row.get::<_, i32>(5)? != 0,
+                        row.get::<_, i32>(6)? != 0,
+                    ))
+                },
             )
-            .map_err(|source| PersistenceError::read("app_settings.reporting_timezone", source))
+            .map_err(|source| PersistenceError::read("app_settings", source))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_settings(
+        &self,
+        reporting_timezone: &str,
+        background_refresh_enabled: bool,
+        refresh_interval_minutes: i64,
+        launch_at_login: bool,
+        close_behavior: &str,
+        notifications_enabled: bool,
+        store_project_paths: bool,
+        updated_at_ms: i64,
+    ) -> Result<(), PersistenceError> {
+        self.connection
+            .execute(
+                "UPDATE app_settings SET
+                    reporting_timezone = ?1,
+                    background_refresh_enabled = ?2,
+                    refresh_interval_minutes = ?3,
+                    launch_at_login = ?4,
+                    close_behavior = ?5,
+                    notifications_enabled = ?6,
+                    store_project_paths = ?7,
+                    updated_at_ms = ?8
+                 WHERE id = 1",
+                (
+                    reporting_timezone,
+                    if background_refresh_enabled { 1 } else { 0 },
+                    refresh_interval_minutes,
+                    if launch_at_login { 1 } else { 0 },
+                    close_behavior,
+                    if notifications_enabled { 1 } else { 0 },
+                    if store_project_paths { 1 } else { 0 },
+                    updated_at_ms,
+                ),
+            )
+            .map_err(|source| PersistenceError::read("update app_settings", source))?;
+        Ok(())
     }
 
     pub fn schema_version(&self) -> Result<i64, PersistenceError> {
@@ -274,11 +328,29 @@ mod tests {
             .ensure_app_settings("Asia/Jakarta", 100)
             .expect("seed settings");
 
-        assert_eq!(
-            database.reporting_timezone().expect("timezone"),
-            "Asia/Jakarta"
-        );
+        let settings = database.read_settings().expect("read settings");
+        assert_eq!(settings.0, "Asia/Jakarta");
+        assert!(!settings.1); // background_refresh_enabled
+        assert_eq!(settings.2, 15); // refresh_interval_minutes
+        assert!(!settings.3); // launch_at_login
+        assert_eq!(settings.4, "quit"); // close_behavior
+        assert!(!settings.5); // notifications_enabled
+        assert!(!settings.6); // store_project_paths
+
         assert_eq!(database.schema_version().expect("schema version"), 1);
+
+        database
+            .update_settings("UTC", true, 30, true, "hide", true, true, 200)
+            .expect("update settings");
+
+        let updated = database.read_settings().expect("read settings");
+        assert_eq!(updated.0, "UTC");
+        assert!(updated.1);
+        assert_eq!(updated.2, 30);
+        assert!(updated.3);
+        assert_eq!(updated.4, "hide");
+        assert!(updated.5);
+        assert!(updated.6);
     }
 
     fn pragma_i64(connection: &Connection, name: &str) -> i64 {

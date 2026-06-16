@@ -157,8 +157,8 @@ fn compose_refresh_coordinator<R: Runtime>(
     collector: Arc<CcusageCollector>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let aggregation_timezone = write_database
-        .reporting_timezone()
+    let (aggregation_timezone, ..) = write_database
+        .read_settings()
         .map_err(StartupError::Persistence)?;
     let store = Arc::new(SqliteReconciliationStore::new(write_database));
     let clock = Arc::new(SystemClock);
@@ -195,7 +195,9 @@ fn initialize(
 
 #[cfg(test)]
 mod tests {
-    use crate::application::bootstrap::{BootstrapError, BootstrapStorage, BootstrapStore};
+    use crate::application::bootstrap::{
+        BootstrapError, BootstrapStorage, BootstrapStore, SettingsState,
+    };
 
     use rusqlite::Connection;
     use serde_json::{json, Value};
@@ -209,8 +211,18 @@ mod tests {
         fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
             Ok(BootstrapStorage {
                 reporting_timezone: "Asia/Jakarta".to_owned(),
+                background_refresh_enabled: false,
+                refresh_interval_minutes: 15,
+                launch_at_login: false,
+                close_behavior: "quit".to_owned(),
+                notifications_enabled: false,
+                store_project_paths: false,
                 schema_version: 1,
             })
+        }
+
+        fn update_settings(&self, _settings: &SettingsState) -> Result<(), BootstrapError> {
+            Ok(())
         }
     }
 

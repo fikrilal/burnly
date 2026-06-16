@@ -14,9 +14,9 @@ pub(crate) use day_detail::{
 };
 
 pub(crate) use overview::{
-    CostCompleteness, CostValuation, OverviewCost, OverviewDataStatus, OverviewPeriod,
-    OverviewQuery, OverviewQueryError, OverviewReadModel, OverviewSource, OverviewStoreResult,
-    PersistedRefreshStatus,
+    CostCompleteness, CostValuation, OverviewCost, OverviewDataStatus, OverviewModel,
+    OverviewPeriod, OverviewQuery, OverviewQueryError, OverviewReadModel, OverviewSource,
+    OverviewStoreResult, PersistedRefreshStatus,
 };
 
 pub(crate) use session::SessionQuery;

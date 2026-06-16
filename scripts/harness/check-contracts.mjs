@@ -235,6 +235,12 @@ export interface AppBootstrapResponse {
   };
   settings: {
     reportingTimezone: string;
+    backgroundRefreshEnabled: boolean;
+    refreshIntervalMinutes: number;
+    launchAtLogin: boolean;
+    closeBehavior: "hide" | "quit";
+    notificationsEnabled: boolean;
+    storeProjectPaths: boolean;
   };
   features: {
     usageOverview: boolean;
@@ -265,6 +271,16 @@ export interface AppCapabilitiesResponse {
   diagnostics: {
     desktopEvidence: boolean;
   };
+}
+
+export interface UpdateSettingsRequest {
+  reportingTimezone: string;
+  backgroundRefreshEnabled: boolean;
+  refreshIntervalMinutes: number;
+  launchAtLogin: boolean;
+  closeBehavior: "hide" | "quit";
+  notificationsEnabled: boolean;
+  storeProjectPaths: boolean;
 }
 
 export interface DesktopCapability {
@@ -322,6 +338,11 @@ export interface UsageOverviewResponse {
     activeDays: number;
     cost: UsageOverviewCostResponse;
     hasPartialData: boolean;
+  }[];
+  models: {
+    name: string;
+    totalTokens: string;
+    cost: UsageOverviewCostResponse;
   }[];
   asOf: string;
   lastSuccessfulRefreshAt: string | null;

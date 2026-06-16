@@ -35,6 +35,7 @@ const createMockOverview = (tokens: string): UsageOverviewResponse => ({
     unavailableDays: 1,
   },
   sources: [],
+  models: [],
   asOf: "2026-06-15T00:00:00Z",
   lastSuccessfulRefreshAt: null,
   dataStatus: "current",

@@ -7,6 +7,7 @@ import {
   CONTRACT_VERSION,
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
+  invokeAppUpdateSettings,
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
@@ -37,6 +38,7 @@ import {
   type SessionListResponse,
   type SessionDetailRequest,
   type SessionDetailResponse,
+  type UpdateSettingsRequest,
 } from "./generated/contracts";
 
 const responseMetaSchema: z.ZodType<ResponseMeta> = z.object({
@@ -96,6 +98,12 @@ const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
   }),
   settings: z.object({
     reportingTimezone: z.string().min(1),
+    backgroundRefreshEnabled: z.boolean(),
+    refreshIntervalMinutes: z.number().int().positive(),
+    launchAtLogin: z.boolean(),
+    closeBehavior: z.enum(["hide", "quit"]),
+    notificationsEnabled: z.boolean(),
+    storeProjectPaths: z.boolean(),
   }),
   features: z.object({
     usageOverview: z.boolean(),
@@ -202,6 +210,13 @@ const usageOverviewDataSchema: z.ZodType<UsageOverviewResponse> = z.object({
       hasPartialData: z.boolean(),
     }),
   ),
+  models: z.array(
+    z.object({
+      name: z.string().min(1),
+      totalTokens: uint64StringSchema,
+      cost: usageOverviewCostSchema,
+    }),
+  ),
   asOf: z.iso.datetime({ offset: true }),
   lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
   dataStatus: z.enum(["current", "stale", "partial", "empty"]),
@@ -291,7 +306,14 @@ export interface CommandResult<TData> {
 }
 
 export const commandInvoker: CommandInvoker = async (command, request) => {
-  return tauriInvoke(command, request);
+  const args = Object.entries(request).reduce<Record<string, unknown>>(
+    (acc, [key, val]) => {
+      acc[key] = val;
+      return acc;
+    },
+    {},
+  );
+  return tauriInvoke(command, args);
 };
 
 export async function invokeCommand<TCommand extends CommandName>(
@@ -333,6 +355,16 @@ export async function getAppCapabilities(
   const response = await invokeAppGetCapabilities(invoker);
   const parsed = validateCapabilitiesResponse(response);
   return unwrapResponse(parsed);
+}
+
+export async function updateSettings(
+  request: UpdateSettingsRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<Record<string, never>>> {
+  const response = await invokeAppUpdateSettings(invoker, request);
+  return unwrapResponse(
+    validateResponse(response, z.record(z.string(), z.never())),
+  );
 }
 
 export async function getRefreshState(

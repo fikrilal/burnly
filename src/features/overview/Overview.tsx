@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useOverview } from "./use-overview";
 import { OverviewSummary } from "./components/OverviewSummary";
 import { SourceList } from "./components/SourceList";
+import { ModelList } from "./components/ModelList";
 import { RefreshHeader } from "./components/RefreshHeader";
 import { EmptyState } from "./components/EmptyState";
 import { AlertCircle } from "lucide-react";
@@ -127,6 +128,11 @@ export function Overview() {
           <div className="flex flex-col gap-4">
             <h3 className="text-lg font-medium text-white">Sources</h3>
             <SourceList sources={data.sources} />
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <h3 className="text-lg font-medium text-white">Models</h3>
+            <ModelList models={data.models} />
           </div>
         </>
       )}

@@ -23,6 +23,7 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::__burnly_contract_probe,
         commands::app_get_bootstrap,
         commands::app_get_capabilities,
+        commands::app_update_settings,
         commands::refresh_get_state,
         commands::refresh_request,
         commands::refresh_cancel,

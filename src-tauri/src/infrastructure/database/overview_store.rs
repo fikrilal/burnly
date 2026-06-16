@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::application::ports::overview_store::{OverviewStore, OverviewStoreError};
 use crate::application::usage::{
-    CostCompleteness, CostValuation, OverviewCost, OverviewPeriod, OverviewSource,
+    CostCompleteness, CostValuation, OverviewCost, OverviewModel, OverviewPeriod, OverviewSource,
     OverviewStoreResult, PersistedRefreshStatus,
 };
 use crate::domain::source::SourceKey;
@@ -44,6 +44,7 @@ fn read_overview(
     period: &OverviewPeriod,
 ) -> Result<OverviewStoreResult, OverviewStoreError> {
     let sources = read_sources(connection, period)?;
+    let models = read_models(connection, period)?;
     let total_tokens = sources.iter().try_fold(0_u64, |total, source| {
         total
             .checked_add(source.total_tokens)
@@ -59,6 +60,7 @@ fn read_overview(
         active_days,
         cost,
         sources,
+        models,
         has_partial_data,
         latest_refresh_status,
         last_successful_refresh_at_ms,
@@ -176,6 +178,110 @@ fn source_from_row(row: SourceRow) -> Result<OverviewSource, OverviewStoreError>
         active_days,
         cost,
         has_partial_data: row.has_partial_data,
+    })
+}
+
+fn read_models(
+    connection: &Connection,
+    period: &OverviewPeriod,
+) -> Result<Vec<OverviewModel>, OverviewStoreError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT
+                COALESCE(sm.display_name, sm.raw_model_id, 'Unknown') AS model_name,
+                COALESCE(SUM(dmu.total_tokens), 0),
+                SUM(CASE
+                    WHEN dmu.cost_status = 'estimated'
+                    THEN dmu.cost_amount_micros
+                    ELSE 0
+                END),
+                SUM(CASE
+                    WHEN dmu.cost_status = 'estimated'
+                    THEN 1 ELSE 0
+                END),
+                SUM(CASE
+                    WHEN dmu.cost_status = 'estimated'
+                    THEN 1 ELSE 0
+                END),
+                SUM(CASE
+                    WHEN dmu.cost_status = 'unavailable'
+                    THEN 1 ELSE 0
+                END),
+                MIN(CASE
+                    WHEN dmu.cost_status = 'estimated'
+                    THEN dmu.cost_currency
+                END),
+                MAX(CASE
+                    WHEN dmu.cost_status = 'estimated'
+                    THEN dmu.cost_currency
+                END)
+            FROM daily_model_usage dmu
+            INNER JOIN daily_usage du ON du.id = dmu.daily_usage_id
+            LEFT JOIN source_models sm ON sm.id = dmu.model_id
+            WHERE du.usage_date BETWEEN ?1 AND ?2
+                AND du.aggregation_timezone = ?3
+                AND du.record_state <> 'removed'
+            GROUP BY model_name
+            ORDER BY SUM(dmu.total_tokens) DESC, model_name ASC",
+        )
+        .map_err(|_| OverviewStoreError::Backend)?;
+
+    let rows = statement
+        .query_map(
+            params![
+                period.start_date().to_string(),
+                period.end_date().to_string(),
+                period.aggregation_timezone(),
+            ],
+            |row| {
+                Ok(ModelRow {
+                    name: row.get(0)?,
+                    total_tokens: row.get(1)?,
+                    cost_amount_micros: row.get(2)?,
+                    valued_days: row.get(3)?,
+                    estimated_days: row.get(4)?,
+                    unavailable_days: row.get(5)?,
+                    minimum_currency: row.get(6)?,
+                    maximum_currency: row.get(7)?,
+                })
+            },
+        )
+        .map_err(|_| OverviewStoreError::Backend)?;
+
+    rows.map(|row| {
+        row.map_err(|_| OverviewStoreError::Backend)
+            .and_then(model_from_row)
+    })
+    .collect()
+}
+
+struct ModelRow {
+    name: String,
+    total_tokens: i64,
+    cost_amount_micros: i64,
+    valued_days: i64,
+    estimated_days: i64,
+    unavailable_days: i64,
+    minimum_currency: Option<String>,
+    maximum_currency: Option<String>,
+}
+
+fn model_from_row(row: ModelRow) -> Result<OverviewModel, OverviewStoreError> {
+    let total_tokens =
+        u64::try_from(row.total_tokens).map_err(|_| OverviewStoreError::ValueOutOfRange)?;
+    let cost = cost_from_values(
+        row.cost_amount_micros,
+        row.valued_days,
+        row.estimated_days,
+        row.unavailable_days,
+        row.minimum_currency,
+        row.maximum_currency,
+    )?;
+
+    Ok(OverviewModel {
+        name: row.name,
+        total_tokens,
+        cost,
     })
 }
 
@@ -352,6 +458,90 @@ mod tests {
         database.migrate_to_latest().expect("migrate database");
         seed_settings(database.connection());
         (directory, SqliteOverviewStore::new(database))
+    }
+
+    #[test]
+    fn aggregates_model_usage_correctly() {
+        let (_directory, store) = migrated_store();
+        {
+            let guard = store.connection();
+            let conn = guard.connection();
+            seed_source(conn, 1, "claude-code");
+            seed_model(conn, 10, 1, "claude-3-5-sonnet", Some("Claude 3.5 Sonnet"));
+            seed_model(conn, 11, 1, "claude-3-haiku", None);
+
+            let refresh_id = seed_refresh(conn, "succeeded", 200);
+            let import_id = seed_import(conn, refresh_id, 1);
+
+            let daily_1 = seed_daily(
+                conn,
+                DailySeed::new(1, import_id, "claude-13", "2026-06-13", 100),
+            );
+            let daily_2 = seed_daily(
+                conn,
+                DailySeed::new(1, import_id, "claude-14", "2026-06-14", 200),
+            );
+
+            seed_daily_model_usage(
+                conn,
+                daily_1,
+                1,
+                10,
+                80,
+                Some(20),
+                Some("USD"),
+                "estimated",
+                import_id,
+            );
+            seed_daily_model_usage(
+                conn,
+                daily_2,
+                1,
+                10,
+                120,
+                Some(30),
+                Some("USD"),
+                "estimated",
+                import_id,
+            );
+            seed_daily_model_usage(
+                conn,
+                daily_2,
+                1,
+                11,
+                50,
+                None,
+                None,
+                "unavailable",
+                import_id,
+            );
+        }
+
+        let overview = store.read_overview(&period()).expect("overview");
+
+        assert_eq!(overview.models.len(), 2);
+
+        // Ordered by SUM(total_tokens) DESC
+        assert_eq!(overview.models[0].name, "Claude 3.5 Sonnet");
+        assert_eq!(overview.models[0].total_tokens, 200);
+        assert_eq!(overview.models[0].cost.amount_micros, Some(50));
+        assert_eq!(
+            overview.models[0]
+                .cost
+                .currency
+                .as_ref()
+                .map(CurrencyCode::as_str),
+            Some("USD")
+        );
+        assert_eq!(overview.models[0].cost.valuation, CostValuation::Estimated);
+
+        assert_eq!(overview.models[1].name, "claude-3-haiku"); // uses raw_model_id when display_name is None
+        assert_eq!(overview.models[1].total_tokens, 50);
+        assert_eq!(overview.models[1].cost.amount_micros, None);
+        assert_eq!(
+            overview.models[1].cost.valuation,
+            CostValuation::Unavailable
+        );
     }
 
     #[test]
@@ -658,7 +848,7 @@ mod tests {
         }
     }
 
-    fn seed_daily(connection: &Connection, seed: DailySeed<'_>) {
+    fn seed_daily(connection: &Connection, seed: DailySeed<'_>) -> i64 {
         connection
             .execute(
                 "INSERT INTO daily_usage (
@@ -686,5 +876,56 @@ mod tests {
                 ],
             )
             .expect("seed daily usage");
+        connection.last_insert_rowid()
+    }
+
+    fn seed_model(
+        connection: &Connection,
+        id: i64,
+        source_id: i64,
+        raw_model_id: &str,
+        display_name: Option<&str>,
+    ) {
+        connection
+            .execute(
+                "INSERT INTO source_models (
+                    id, source_id, raw_model_id, display_name, provider_key,
+                    first_seen_at_ms, last_seen_at_ms
+                ) VALUES (?1, ?2, ?3, ?4, 'openai', 0, 0)",
+                params![id, source_id, raw_model_id, display_name],
+            )
+            .expect("seed model");
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn seed_daily_model_usage(
+        connection: &Connection,
+        daily_usage_id: i64,
+        source_id: i64,
+        model_id: i64,
+        tokens: i64,
+        cost_amount: Option<i64>,
+        cost_currency: Option<&str>,
+        cost_status: &str,
+        import_id: i64,
+    ) {
+        connection
+            .execute(
+                "INSERT INTO daily_model_usage (
+                    daily_usage_id, source_id, model_id, total_tokens, cost_amount_micros,
+                    cost_currency, cost_status, latest_import_id
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    daily_usage_id,
+                    source_id,
+                    model_id,
+                    tokens,
+                    cost_amount,
+                    cost_currency,
+                    cost_status,
+                    import_id
+                ],
+            )
+            .expect("seed daily model usage");
     }
 }

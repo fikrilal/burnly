@@ -89,6 +89,13 @@ pub(crate) enum PersistedRefreshStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OverviewModel {
+    pub name: String,
+    pub total_tokens: u64,
+    pub cost: OverviewCost,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OverviewDataStatus {
     Current,
@@ -103,6 +110,7 @@ pub(crate) struct OverviewStoreResult {
     pub active_days: u32,
     pub cost: OverviewCost,
     pub sources: Vec<OverviewSource>,
+    pub models: Vec<OverviewModel>,
     pub has_partial_data: bool,
     pub latest_refresh_status: Option<PersistedRefreshStatus>,
     pub last_successful_refresh_at_ms: Option<i64>,
@@ -115,6 +123,7 @@ pub(crate) struct OverviewReadModel {
     pub active_days: u32,
     pub cost: OverviewCost,
     pub sources: Vec<OverviewSource>,
+    pub models: Vec<OverviewModel>,
     pub as_of_ms: i64,
     pub last_successful_refresh_at_ms: Option<i64>,
     pub data_status: OverviewDataStatus,
@@ -143,6 +152,7 @@ impl OverviewQuery {
             active_days: result.active_days,
             cost: result.cost,
             sources: result.sources,
+            models: result.models,
             as_of_ms: self.clock.now_epoch_ms(),
             last_successful_refresh_at_ms: result.last_successful_refresh_at_ms,
             data_status,
@@ -296,6 +306,7 @@ mod tests {
             active_days: 0,
             cost: unavailable_cost(),
             sources,
+            models: Vec::new(),
             has_partial_data,
             latest_refresh_status,
             last_successful_refresh_at_ms: None,

@@ -14,6 +14,15 @@ vi.mock("../features/overview", () => ({
   Overview: () => <div data-testid="overview-feature" />,
 }));
 
+vi.mock("../ipc/events", () => ({
+  EVENT_NAMES: {
+    settingsChanged: "burnly://v1/settings-changed",
+  },
+  subscribeToEvent: vi.fn().mockResolvedValue(() => {
+    /* no-op */
+  }),
+}));
+
 const meta = {
   contractVersion: CONTRACT_VERSION,
   requestId: "018f5f4d-7758-7bb2-9d9b-6d7f22c4a901",
@@ -105,6 +114,12 @@ function bootstrapResult(
       },
       settings: {
         reportingTimezone: "Asia/Jakarta",
+        backgroundRefreshEnabled: false,
+        refreshIntervalMinutes: 15,
+        launchAtLogin: false,
+        closeBehavior: "quit",
+        notificationsEnabled: false,
+        storeProjectPaths: false,
       },
       features: {
         usageOverview: false,

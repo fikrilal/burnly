@@ -54,6 +54,12 @@ struct DatabaseStateResponse {
 #[serde(rename_all = "camelCase")]
 struct SettingsStateResponse {
     reporting_timezone: String,
+    background_refresh_enabled: bool,
+    refresh_interval_minutes: i64,
+    launch_at_login: bool,
+    close_behavior: String,
+    notifications_enabled: bool,
+    store_project_paths: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -116,6 +122,43 @@ pub(super) fn app_get_bootstrap(
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct UpdateSettingsRequest {
+    reporting_timezone: String,
+    background_refresh_enabled: bool,
+    refresh_interval_minutes: i64,
+    launch_at_login: bool,
+    close_behavior: String,
+    notifications_enabled: bool,
+    store_project_paths: bool,
+}
+
+#[tauri::command]
+pub(super) fn app_update_settings<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    service: State<'_, BootstrapService>,
+    request: UpdateSettingsRequest,
+) -> IpcResponse<()> {
+    let settings = SettingsState {
+        reporting_timezone: request.reporting_timezone,
+        background_refresh_enabled: request.background_refresh_enabled,
+        refresh_interval_minutes: request.refresh_interval_minutes,
+        launch_at_login: request.launch_at_login,
+        close_behavior: request.close_behavior,
+        notifications_enabled: request.notifications_enabled,
+        store_project_paths: request.store_project_paths,
+    };
+
+    match service.update_settings(settings) {
+        Ok(()) => {
+            let _ = app.emit("burnly://v1/settings-changed", ());
+            IpcResponse::success(())
+        }
+        Err(error) => IpcResponse::failure(bootstrap_error(error)),
+    }
+}
+
 #[tauri::command]
 pub(super) fn app_get_capabilities(
     service: State<'_, BootstrapService>,
@@ -151,6 +194,12 @@ impl From<SettingsState> for SettingsStateResponse {
     fn from(value: SettingsState) -> Self {
         Self {
             reporting_timezone: value.reporting_timezone,
+            background_refresh_enabled: value.background_refresh_enabled,
+            refresh_interval_minutes: value.refresh_interval_minutes,
+            launch_at_login: value.launch_at_login,
+            close_behavior: value.close_behavior,
+            notifications_enabled: value.notifications_enabled,
+            store_project_paths: value.store_project_paths,
         }
     }
 }

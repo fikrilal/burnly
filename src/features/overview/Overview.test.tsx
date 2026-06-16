@@ -56,6 +56,19 @@ const mockOverviewData: UsageOverviewResponse = {
       hasPartialData: true,
     },
   ],
+  models: [
+    {
+      name: "Claude 3.5 Sonnet",
+      totalTokens: "1000000",
+      cost: {
+        amountMicros: "2500000",
+        currency: "USD",
+        valuation: "available",
+        completeness: "complete",
+        unavailableDays: 0,
+      },
+    },
+  ],
   asOf: "2026-06-15T12:00:00Z",
   lastSuccessfulRefreshAt: "2026-06-15T10:00:00Z",
   dataStatus: "current",
@@ -137,6 +150,12 @@ describe("Overview Component", () => {
     expect(screen.getByText("500,000")).toBeInTheDocument();
     expect(screen.getByText("$1.00")).toBeInTheDocument();
     expect(screen.getByText("Partial")).toBeInTheDocument();
+
+    // Check model list
+    expect(screen.getByText("Models")).toBeInTheDocument();
+    expect(screen.getByText("Claude 3.5 Sonnet")).toBeInTheDocument();
+    expect(screen.getAllByText("1,000,000").length).toBe(2);
+    expect(screen.getAllByText("$2.50").length).toBe(2);
 
     // Check refresh control
     expect(screen.getByText("current")).toBeInTheDocument();

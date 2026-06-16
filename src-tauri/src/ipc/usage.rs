@@ -7,8 +7,8 @@ use crate::application::ports::session_store::{SessionPagination, SessionStoreEr
 use crate::application::usage::{
     CalendarDayInfo, CalendarPeriod, CalendarQuery, CalendarQueryError, CalendarReadModel,
     CostCompleteness, CostValuation, DayDetailQuery, DayDetailQueryError, DayDetailReadModel,
-    OverviewCost, OverviewDataStatus, OverviewPeriod, OverviewQuery, OverviewQueryError,
-    OverviewReadModel, OverviewSource, SessionQuery,
+    OverviewCost, OverviewDataStatus, OverviewModel, OverviewPeriod, OverviewQuery,
+    OverviewQueryError, OverviewReadModel, OverviewSource, SessionQuery,
 };
 use crate::domain::usage::{SessionDetail, UsageSession};
 
@@ -30,6 +30,7 @@ pub(super) struct UsageOverviewResponse {
     active_days: u32,
     cost: UsageOverviewCostResponse,
     sources: Vec<UsageOverviewSourceResponse>,
+    models: Vec<UsageOverviewModelResponse>,
     as_of: String,
     last_successful_refresh_at: Option<String>,
     data_status: &'static str,
@@ -61,6 +62,14 @@ struct UsageOverviewSourceResponse {
     active_days: u32,
     cost: UsageOverviewCostResponse,
     has_partial_data: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageOverviewModelResponse {
+    name: String,
+    total_tokens: String,
+    cost: UsageOverviewCostResponse,
 }
 
 #[tauri::command]
@@ -302,6 +311,7 @@ impl TryFrom<OverviewReadModel> for UsageOverviewResponse {
             active_days: value.active_days,
             cost: value.cost.into(),
             sources: value.sources.into_iter().map(Into::into).collect(),
+            models: value.models.into_iter().map(Into::into).collect(),
             as_of: to_rfc3339(value.as_of_ms)?,
             last_successful_refresh_at: value
                 .last_successful_refresh_at_ms
@@ -332,6 +342,16 @@ impl From<OverviewSource> for UsageOverviewSourceResponse {
             active_days: value.active_days,
             cost: value.cost.into(),
             has_partial_data: value.has_partial_data,
+        }
+    }
+}
+
+impl From<OverviewModel> for UsageOverviewModelResponse {
+    fn from(value: OverviewModel) -> Self {
+        Self {
+            name: value.name,
+            total_tokens: value.total_tokens.to_string(),
+            cost: value.cost.into(),
         }
     }
 }

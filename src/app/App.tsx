@@ -11,7 +11,8 @@ import type {
   AppBootstrapResponse,
   AppCapabilitiesResponse,
 } from "../ipc/generated/contracts";
-import { CONTRACT_VERSION } from "../ipc/generated/contracts";
+import { CONTRACT_VERSION, EVENT_NAMES } from "../ipc/generated/contracts";
+import { subscribeToEvent } from "../ipc/events";
 
 type LoadBootstrap = () => Promise<CommandResult<AppBootstrapResponse>>;
 type LoadCapabilities = () => Promise<CommandResult<AppCapabilitiesResponse>>;
@@ -44,8 +45,9 @@ type AppState =
 import { Overview } from "../features/overview";
 import { CalendarView } from "../features/calendar/CalendarView";
 import { SessionsView } from "../features/sessions/SessionsView";
+import { SettingsView } from "../features/settings/SettingsView";
 
-type ViewMode = "overview" | "calendar" | "sessions";
+type ViewMode = "overview" | "calendar" | "sessions" | "settings";
 
 export function App({
   loadBootstrap = getAppBootstrap,
@@ -100,10 +102,26 @@ export function App({
               >
                 Sessions
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("settings");
+                }}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  viewMode === "settings"
+                    ? "border-b-2 border-cyan-400 text-cyan-400"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Settings
+              </button>
             </div>
             {viewMode === "overview" && <Overview />}
             {viewMode === "calendar" && <CalendarView />}
             {viewMode === "sessions" && <SessionsView />}
+            {viewMode === "settings" && (
+              <SettingsView settings={state.bootstrap.settings} />
+            )}
           </div>
         ) : (
           <div className="mt-12 grid gap-4 md:grid-cols-3">
@@ -123,6 +141,7 @@ function useStartupState(
 
   useEffect(() => {
     let active = true;
+    let unlisten: (() => void) | undefined;
 
     async function load() {
       try {
@@ -158,10 +177,25 @@ function useStartupState(
       }
     }
 
+    const setupListener = async () => {
+      const fn = await subscribeToEvent(EVENT_NAMES.settingsChanged, () => {
+        void load();
+      });
+      if (active) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
+    };
+
     void load();
+    void setupListener();
 
     return () => {
       active = false;
+      if (unlisten) {
+        unlisten();
+      }
     };
   }, [loadBootstrap, loadCapabilities]);
 

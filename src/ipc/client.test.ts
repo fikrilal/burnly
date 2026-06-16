@@ -140,6 +140,12 @@ function bootstrap(): IpcResponse<unknown> {
       },
       settings: {
         reportingTimezone: "Asia/Jakarta",
+        backgroundRefreshEnabled: false,
+        refreshIntervalMinutes: 15,
+        launchAtLogin: false,
+        closeBehavior: "quit",
+        notificationsEnabled: false,
+        storeProjectPaths: false,
       },
       features: {
         usageOverview: false,
@@ -232,6 +238,7 @@ function usageOverview(): IpcResponse<UsageOverviewResponse> {
           hasPartialData: true,
         },
       ],
+      models: [],
       asOf: "2026-06-15T07:30:00.000Z",
       lastSuccessfulRefreshAt: "2026-06-15T07:00:00.000Z",
       dataStatus: "partial",

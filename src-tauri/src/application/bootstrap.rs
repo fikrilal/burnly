@@ -26,6 +26,12 @@ pub(crate) enum Readiness {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SettingsState {
     pub reporting_timezone: String,
+    pub background_refresh_enabled: bool,
+    pub refresh_interval_minutes: i64,
+    pub launch_at_login: bool,
+    pub close_behavior: String,
+    pub notifications_enabled: bool,
+    pub store_project_paths: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,11 +99,18 @@ pub(crate) struct DiagnosticCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BootstrapStorage {
     pub reporting_timezone: String,
+    pub background_refresh_enabled: bool,
+    pub refresh_interval_minutes: i64,
+    pub launch_at_login: bool,
+    pub close_behavior: String,
+    pub notifications_enabled: bool,
+    pub store_project_paths: bool,
     pub schema_version: i64,
 }
 
 pub(crate) trait BootstrapStore: Send + Sync {
     fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError>;
+    fn update_settings(&self, settings: &SettingsState) -> Result<(), BootstrapError>;
 }
 
 pub(crate) struct BootstrapService {
@@ -131,6 +144,12 @@ impl BootstrapService {
             },
             settings: SettingsState {
                 reporting_timezone: storage.reporting_timezone,
+                background_refresh_enabled: storage.background_refresh_enabled,
+                refresh_interval_minutes: storage.refresh_interval_minutes,
+                launch_at_login: storage.launch_at_login,
+                close_behavior: storage.close_behavior,
+                notifications_enabled: storage.notifications_enabled,
+                store_project_paths: storage.store_project_paths,
             },
             features: FeatureSummary {
                 usage_overview: false,
@@ -170,6 +189,10 @@ impl BootstrapService {
             },
         }
     }
+
+    pub(crate) fn update_settings(&self, settings: SettingsState) -> Result<(), BootstrapError> {
+        self.store.update_settings(&settings)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,6 +230,10 @@ mod tests {
         fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
             Ok(self.storage.clone())
         }
+
+        fn update_settings(&self, _settings: &SettingsState) -> Result<(), BootstrapError> {
+            Ok(())
+        }
     }
 
     #[test]
@@ -217,6 +244,12 @@ mod tests {
             FixedStore {
                 storage: BootstrapStorage {
                     reporting_timezone: "Asia/Jakarta".to_owned(),
+                    background_refresh_enabled: false,
+                    refresh_interval_minutes: 15,
+                    launch_at_login: false,
+                    close_behavior: "quit".to_owned(),
+                    notifications_enabled: false,
+                    store_project_paths: false,
                     schema_version: 1,
                 },
             },
@@ -243,6 +276,12 @@ mod tests {
             FixedStore {
                 storage: BootstrapStorage {
                     reporting_timezone: "UTC".to_owned(),
+                    background_refresh_enabled: false,
+                    refresh_interval_minutes: 15,
+                    launch_at_login: false,
+                    close_behavior: "quit".to_owned(),
+                    notifications_enabled: false,
+                    store_project_paths: false,
                     schema_version: 1,
                 },
             },
