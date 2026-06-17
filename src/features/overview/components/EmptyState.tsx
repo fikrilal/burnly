@@ -12,10 +12,6 @@ export function EmptyState({ onRefresh, isRefreshing }: EmptyStateProps) {
         <Database className="h-6 w-6 text-zinc-400" aria-hidden />
       </div>
       <h3 className="mt-4 text-lg font-medium text-white">No data collected</h3>
-      <p className="mt-2 text-sm text-zinc-400 max-w-sm">
-        There are no token usage records for this period. Click refresh to query
-        active collectors for new data.
-      </p>
       <button
         type="button"
         onClick={onRefresh}

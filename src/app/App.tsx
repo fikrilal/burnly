@@ -116,7 +116,11 @@ export function App({
                 Settings
               </button>
             </div>
-            {viewMode === "overview" && <Overview />}
+            {viewMode === "overview" && (
+              <Overview
+                reportingTimezone={state.bootstrap.settings.reportingTimezone}
+              />
+            )}
             {viewMode === "calendar" && <CalendarView />}
             {viewMode === "sessions" && <SessionsView />}
             {viewMode === "settings" && (

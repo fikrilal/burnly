@@ -38,7 +38,17 @@ export function ModelList({ models }: ModelListProps) {
               </td>
               <td className="px-6 py-4">{formatNumber(model.totalTokens)}</td>
               <td className="px-6 py-4">
-                {formatCurrency(model.cost.amountMicros, model.cost.currency)}
+                <div className="flex flex-col">
+                  <span>
+                    {formatCurrency(
+                      model.cost.amountMicros,
+                      model.cost.currency,
+                    )}
+                  </span>
+                  <span className="text-xs text-zinc-500">
+                    {model.cost.completeness}
+                  </span>
+                </div>
               </td>
             </tr>
           ))}

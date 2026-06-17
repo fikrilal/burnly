@@ -19,13 +19,12 @@ function useDateRange() {
   return dateRange;
 }
 
-export function Overview() {
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const dateRange = useDateRange();
+interface OverviewProps {
+  reportingTimezone: string;
+}
 
-  const [reportingTimezone] = useState(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-  );
+export function Overview({ reportingTimezone }: OverviewProps) {
+  const dateRange = useDateRange();
 
   const {
     data,
@@ -35,6 +34,8 @@ export function Overview() {
     error,
     refetch,
     refreshError,
+    isRefreshing,
+    refreshStatus,
   } = useOverview({
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
@@ -42,12 +43,7 @@ export function Overview() {
   });
 
   const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      await manualRefresh();
-    } finally {
-      setIsRefreshing(false);
-    }
+    await manualRefresh();
   };
 
   if (isPending) {
@@ -58,12 +54,14 @@ export function Overview() {
     );
   }
 
-  if (isError) {
+  if (isError && !data) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-red-900/50 bg-red-950/20 p-8 text-center">
         <AlertCircle className="mb-4 h-8 w-8 text-red-500" aria-hidden />
         <p className="font-medium text-red-400">Failed to load overview data</p>
-        <p className="mt-2 text-sm text-red-500/70 max-w-md">{String(error)}</p>
+        <p className="mt-2 text-sm text-red-500/70 max-w-md">
+          {userSafeErrorMessage(error)}
+        </p>
         <button
           type="button"
           onClick={() => void refetch()}
@@ -97,23 +95,23 @@ export function Overview() {
             lastRefreshAt={data.lastSuccessfulRefreshAt}
             onRefresh={() => void handleRefresh()}
             isRefreshing={isRefreshing}
+            refreshStatus={refreshStatus}
           />
         )}
       </div>
 
+      {isError && (
+        <ErrorBanner
+          title="Overview update failed"
+          message="Displaying the last successful overview."
+        />
+      )}
+
       {refreshError && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-900/50 bg-red-950/20 p-4">
-          <AlertCircle
-            className="h-5 w-5 text-red-500 mt-0.5 shrink-0"
-            aria-hidden
-          />
-          <div>
-            <p className="text-sm font-medium text-red-400">Refresh Failed</p>
-            <p className="mt-1 text-sm text-red-500/70">
-              {String(refreshError)}. Displaying last successful data.
-            </p>
-          </div>
-        </div>
+        <ErrorBanner
+          title="Refresh failed"
+          message="Displaying the last successful overview."
+        />
       )}
 
       {isEmpty ? (
@@ -138,4 +136,27 @@ export function Overview() {
       )}
     </div>
   );
+}
+
+function ErrorBanner({ title, message }: { title: string; message: string }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-red-900/50 bg-red-950/20 p-4">
+      <AlertCircle
+        className="h-5 w-5 text-red-500 mt-0.5 shrink-0"
+        aria-hidden
+      />
+      <div>
+        <p className="text-sm font-medium text-red-400">{title}</p>
+        <p className="mt-1 text-sm text-red-500/70">{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function userSafeErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.length > 0) {
+    return "Burnly could not load overview data. Try again.";
+  }
+
+  return "Burnly could not load overview data.";
 }
