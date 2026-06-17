@@ -47,15 +47,15 @@ medium
 
 ## Checklist
 
-- [ ] Establish restrained visual tokens and required primitives.
-- [ ] Build overview page structure and shell integration.
-- [ ] Render token and estimated-cost summaries.
-- [ ] Render source breakdown and recent refresh state.
-- [ ] Add accessible manual refresh with active behavior.
-- [ ] Add populated tests through visible roles and text.
-- [ ] Verify text fit at compact and desktop dimensions.
-- [ ] Run frontend, architecture, and full verification.
-- [ ] Complete this plan and activate Phase 5E.
+- [x] Establish restrained visual tokens and required primitives.
+- [x] Build overview page structure and shell integration.
+- [x] Render token and estimated-cost summaries.
+- [x] Render source breakdown and recent refresh state.
+- [x] Add accessible manual refresh with active behavior.
+- [x] Add populated tests through visible roles and text.
+- [x] Verify text fit at compact and desktop dimensions.
+- [x] Run frontend, architecture, and verification.
+- [x] Complete this plan and activate Phase 5E.
 
 ## Test Plan
 
@@ -74,13 +74,18 @@ medium
 
 ## Verification
 
-- Command: pnpm verify
-- Outcome: queued; not run.
+- Command: `pnpm test src/features/overview src/app/App.test.tsx src/ipc/client.test.ts src/lib/format/index.test.ts`
+- Outcome: passed on 2026-06-17; 34 tests passed.
+- Command: `pnpm test:e2e`
+- Outcome: passed on 2026-06-17; 8 tests passed.
+- Command: `pnpm lint`
+- Outcome: passed on 2026-06-17 with existing complexity warnings.
 
 ## Runtime Evidence
 
-- Deferred to Phase 5E.
+- Desktop and compact populated-state evidence passed on 2026-06-17.
 
 ## Follow-Up Debt
 
-- None.
+- Phase 5D required remediation on 2026-06-17 for exact integer formatting and
+  cost completeness visibility.

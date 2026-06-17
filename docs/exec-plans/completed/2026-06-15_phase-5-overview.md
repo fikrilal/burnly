@@ -31,9 +31,9 @@ wrong usage.
 | -------------------------------- | --------- | ---------- | --------------------------------------------------------------- |
 | Phase 5A: Overview read model    | Completed | Phase 4    | [Plan](../completed/2026-06-15_phase-5a-overview-read-model.md) |
 | Phase 5B: Overview IPC contract  | Completed | Phase 5A   | [Plan](../completed/2026-06-15_phase-5b-overview-ipc.md)        |
-| Phase 5C: Frontend overview data | Active    | Phase 5B   | [Plan](./2026-06-15_phase-5c-frontend-data.md)                  |
-| Phase 5D: Overview interface     | Queued    | Phase 5C   | [Plan](../queued/2026-06-15_phase-5d-overview-interface.md)     |
-| Phase 5E: UI states and evidence | Queued    | Phase 5D   | [Plan](../queued/2026-06-15_phase-5e-states-evidence.md)        |
+| Phase 5C: Frontend overview data | Completed | Phase 5B   | [Plan](./2026-06-15_phase-5c-frontend-data.md)                  |
+| Phase 5D: Overview interface     | Completed | Phase 5C   | [Plan](./2026-06-15_phase-5d-overview-interface.md)             |
+| Phase 5E: UI states and evidence | Completed | Phase 5D   | [Plan](./2026-06-15_phase-5e-states-evidence.md)                |
 
 ## Dependency Rules
 
@@ -72,10 +72,10 @@ wrong usage.
 
 - [x] Phase 5A completed and verified.
 - [x] Phase 5B completed and verified.
-- [ ] Phase 5C completed and verified.
-- [ ] Phase 5D completed and verified.
-- [ ] Phase 5E completed and verified.
-- [ ] Phase-level exit criteria verified.
+- [x] Phase 5C completed and verified.
+- [x] Phase 5D completed and verified.
+- [x] Phase 5E completed and verified.
+- [x] Phase-level exit criteria verified through remediation.
 
 ## Decisions
 
@@ -86,15 +86,22 @@ wrong usage.
 
 ## Verification
 
-- Command: pnpm verify
-- Outcome: not run yet.
+- Command: `pnpm test src/features/overview src/app/App.test.tsx src/ipc/client.test.ts src/lib/format/index.test.ts`
+- Outcome: passed on 2026-06-17; 34 tests passed.
+- Command: `pnpm test:e2e`
+- Outcome: passed on 2026-06-17; 8 tests passed across Desktop and Compact.
+- Command: `pnpm lint`
+- Outcome: passed on 2026-06-17 with existing complexity warnings.
+- Command: `pnpm typecheck`
+- Outcome: passed on 2026-06-17.
 - Phase 5A verification: pnpm verify passed on 2026-06-15.
 - Phase 5B verification: pnpm verify and pnpm evidence:desktop passed on
   2026-06-15.
 
 ## Runtime Evidence
 
-- Required in Phase 5E.
+- Desktop and compact Playwright evidence passed on 2026-06-17 for populated,
+  empty, error, and refresh invalidation/re-query states.
 
 ## Follow-Up Debt
 
