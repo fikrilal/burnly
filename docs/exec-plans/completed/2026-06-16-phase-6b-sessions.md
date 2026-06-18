@@ -61,6 +61,20 @@ Expand the usage view by adding a Sessions view that displays individual usage s
 - Command: `pnpm verify`
 - Outcome: Completed successfully. Contracts and API check passed.
 
+## Remediation Note
+
+2026-06-18 Phase 6 remediation corrected stale parts of this plan:
+
+- Session pagination now uses an opaque composite cursor instead of
+  `afterActivityMs`, preventing duplicate timestamp skips.
+- Session IPC now exposes opaque string identifiers and no longer exposes raw
+  collector session IDs or local project IDs.
+- Project paths are hidden at the IPC boundary by default.
+- Session SQLite token and cost conversions now reject invalid negative values
+  instead of coercing them to zero.
+- Verification is recorded in
+  `docs/exec-plans/active/2026-06-18_phase-6-remediation.md`.
+
 ## Runtime Evidence
 
 - Not required yet.

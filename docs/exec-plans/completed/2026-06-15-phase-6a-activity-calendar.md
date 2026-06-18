@@ -65,6 +65,19 @@ Expand the usage view by adding an Activity Calendar (GitHub-style contribution 
 - Command: `pnpm verify`
 - Outcome: not run yet
 
+## Remediation Note
+
+2026-06-18 Phase 6 remediation corrected stale parts of this plan:
+
+- Calendar and day-detail reads now filter by reporting timezone.
+- Missing rows are included and removed rows are excluded.
+- Calendar/day-detail cost semantics now track valued, estimated, and
+  unavailable rows instead of always reporting unavailable cost.
+- Day detail now returns a non-null response model and accepts
+  `reportingTimezone`.
+- Verification is recorded in
+  `docs/exec-plans/active/2026-06-18_phase-6-remediation.md`.
+
 ## Runtime Evidence
 
 - Not required yet.
