@@ -88,7 +88,10 @@ For desktop-visible behavior, IPC wiring, and evidence-state changes, run
 `pnpm verify:runtime` delegates to `pnpm evidence:desktop`, including the
 Playwright end-to-end evidence suite.
 
-Record the command, platform, and result in the active execution plan.
+For native behavior that the automated harness cannot inspect, use the manual
+smoke checklist in `docs/engineering/desktop-runtime-evidence.md`. Record the
+command, platform, result, and any checklist limitation in the active execution
+plan.
 
 ## Test Ownership And Location
 

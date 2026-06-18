@@ -340,6 +340,11 @@ It should grow into evidence for:
 - budget notification state
 - export/delete confirmation
 
+Native tray clicks, OS focus behavior, second-instance activation, and
+sleep/resume events may require manual platform smoke evidence. The repeatable
+checklist lives in `docs/engineering/desktop-runtime-evidence.md`; execution
+plans must record the exact platform tested and avoid cross-platform claims.
+
 ## Observability For Agents
 
 Burnly should make local app behavior easy to inspect:

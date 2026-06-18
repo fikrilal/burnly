@@ -128,15 +128,18 @@ async function installTauriMock(
     });
 
     const pageCapabilitiesResponse = () => {
-      const capability = { supported: true, status: "not_implemented" };
+      const unavailableCapability = {
+        supported: false,
+        status: "not_implemented",
+      };
       return {
         ok: true,
         meta: pageMeta(),
         data: {
-          tray: capability,
-          launchAtLogin: capability,
-          nativeNotifications: capability,
-          updates: capability,
+          tray: { supported: true, status: "available" },
+          launchAtLogin: unavailableCapability,
+          nativeNotifications: unavailableCapability,
+          updates: unavailableCapability,
           exportFormats: ["csv"],
           diagnostics: { desktopEvidence: true },
         },
@@ -352,15 +355,15 @@ function bootstrapResponse() {
 }
 
 function capabilitiesResponse() {
-  const capability = { supported: true, status: "not_implemented" };
+  const unavailableCapability = { supported: false, status: "not_implemented" };
   return {
     ok: true,
     meta: meta(),
     data: {
-      tray: capability,
-      launchAtLogin: capability,
-      nativeNotifications: capability,
-      updates: capability,
+      tray: { supported: true, status: "available" },
+      launchAtLogin: unavailableCapability,
+      nativeNotifications: unavailableCapability,
+      updates: unavailableCapability,
       exportFormats: ["csv"],
       diagnostics: { desktopEvidence: true },
     },

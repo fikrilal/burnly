@@ -111,6 +111,8 @@ unexpected process execution, or stale UI state if ownership is unclear.
   2.52.3, Rust 1.95.0, Node 22.22.0, pnpm 10.33.1.
 - Runtime evidence covered Tauri prerequisites, generated contracts, frontend
   build, Tauri IPC bridge tests, and desktop UI evidence.
+- Phase 7D expands `pnpm verify:runtime` with focused scheduler evidence and
+  keeps native smoke limitations in `docs/engineering/desktop-runtime-evidence.md`.
 
 ## Follow-Up Debt
 

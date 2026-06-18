@@ -113,8 +113,9 @@ processes running, lose user intent to quit, or create duplicate refresh loops.
 - Runtime evidence covered Tauri prerequisites, generated contracts, frontend
   build, Tauri IPC bridge tests, and desktop UI evidence.
 - Native close-to-hide, second-launch focus, and operating-system wake behavior
-  still require the Phase 7D manual smoke checklist because the current
-  automated evidence harness cannot drive those OS-level interactions reliably.
+  use the Phase 7D manual smoke checklist in
+  `docs/engineering/desktop-runtime-evidence.md` because the automated evidence
+  harness cannot drive those OS-level interactions reliably.
 
 ## Follow-Up Debt
 

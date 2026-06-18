@@ -105,12 +105,13 @@ duplicate refresh requests.
 
 - `pnpm verify:runtime` passed on Ubuntu 24.04 X11.
 - The runtime harness validates desktop startup prerequisites, contracts,
-  frontend build, IPC bridge tests, and desktop UI states. It does not yet
-  automate OS tray menu clicks; native tray interaction remains manual evidence
-  until Phase 7D expands desktop lifecycle smoke coverage.
+  frontend build, IPC bridge tests, and desktop UI states. Phase 7D expands the
+  same gate with focused platform/tray unit evidence and keeps OS tray menu
+  clicks in the manual checklist at
+  `docs/engineering/desktop-runtime-evidence.md`.
 
 ## Follow-Up Debt
 
 - Linux GNOME/KDE tray compatibility remains Phase 10 release-hardening work.
-- Add manual or automated tray-menu smoke evidence for open/focus, refresh, and
-  quit once the harness can reliably drive OS-level tray interactions.
+- Broaden automated tray-menu smoke evidence for open/focus, refresh, and quit
+  if the harness can reliably drive OS-level tray interactions later.

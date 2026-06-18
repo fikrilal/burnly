@@ -52,13 +52,13 @@ OS-specific regressions pass unnoticed.
 
 ## Checklist
 
-- [ ] Inspect current `pnpm verify:runtime` and Playwright evidence coverage.
-- [ ] Add automated checks for lifecycle/tray behavior where stable.
-- [ ] Add a manual smoke checklist document or section for non-automatable
+- [x] Inspect current `pnpm verify:runtime` and Playwright evidence coverage.
+- [x] Add automated checks for lifecycle/tray behavior where stable.
+- [x] Add a manual smoke checklist document or section for non-automatable
       native behavior.
-- [ ] Ensure runtime evidence records platform information.
-- [ ] Update Phase 7 completed plans with command outcomes and manual evidence.
-- [ ] Keep the fast and full static gates independent from OS-native evidence.
+- [x] Ensure runtime evidence records platform information.
+- [x] Update Phase 7 completed plans with command outcomes and manual evidence.
+- [x] Keep the fast and full static gates independent from OS-native evidence.
 
 ## Test Plan
 
@@ -82,16 +82,43 @@ OS-specific regressions pass unnoticed.
   behavior changes.
 - Manual evidence is acceptable only when the limitation is explicit and the
   checklist is repeatable.
+- Automated runtime evidence now includes platform/session metadata, focused
+  Phase 7 platform/tray unit evidence, and focused background scheduler evidence.
+- OS tray menu clicks, second-instance activation, window focus, and sleep/resume
+  behavior remain manual checklist items because the current automated harness
+  cannot drive them reliably.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed on 2026-06-18. `eslint` reported existing warning-only
+  complexity/size signals; the command completed successfully.
+- Additional focused commands:
+  - `pnpm format:check`
+  - `pnpm typecheck`
+  - `pnpm test:e2e`
 
 ## Runtime Evidence
 
-- Required. This phase is not complete until `pnpm verify:runtime` and the
-  relevant manual smoke checklist are recorded.
+- Command: `pnpm verify:runtime`
+- Outcome: passed on 2026-06-18.
+- Evidence environment from the runtime gate:
+  - `platform=linux`
+  - `arch=x64`
+  - `os=Linux 6.17.0-35-generic`
+  - `desktop=ubuntu:GNOME`
+  - `desktopSession=ubuntu`
+  - `sessionType=x11`
+  - `display=:1`
+  - `waylandDisplay=unreported`
+- Automated evidence covered Tauri prerequisites, generated contracts, frontend
+  build, Tauri IPC bridge tests, Phase 7 platform lifecycle/tray unit tests,
+  Phase 7 background refresh scheduler tests, and Playwright desktop UI states.
+- Manual smoke checklist recorded in
+  `docs/engineering/desktop-runtime-evidence.md`. The checklist names
+  close-to-tray, tray open/focus, tray refresh, tray quit, second launch, and
+  resume/wake behavior without claiming those OS-level interactions were
+  automated.
 
 ## Follow-Up Debt
 
