@@ -83,6 +83,11 @@ Use real-machine evidence when mocks or CI cannot faithfully represent operating
 system behavior. This includes tray support, window focus, process termination,
 signing, packaging, updates, and desktop-environment differences.
 
+For desktop-visible behavior, IPC wiring, and evidence-state changes, run
+`pnpm verify:runtime` and record the result in the active execution plan.
+`pnpm verify:runtime` delegates to `pnpm evidence:desktop`, including the
+Playwright end-to-end evidence suite.
+
 Record the command, platform, and result in the active execution plan.
 
 ## Test Ownership And Location

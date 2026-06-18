@@ -32,8 +32,8 @@ export function useCalendar(options: UseCalendarOptions) {
   return query;
 }
 
-export function useDayDetail(date: string | null) {
-  const queryKey = ["usage", "day_detail", { date }];
+export function useDayDetail(date: string | null, reportingTimezone: string) {
+  const queryKey = ["usage", "day_detail", { date, reportingTimezone }];
 
   const query = useQuery({
     queryKey,
@@ -41,6 +41,7 @@ export function useDayDetail(date: string | null) {
       if (!date) throw new Error("No date provided");
       const response = await getDayDetail({
         date,
+        reportingTimezone,
       });
       return response.data;
     },

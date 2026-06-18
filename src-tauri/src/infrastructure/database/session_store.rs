@@ -32,51 +32,55 @@ impl SessionStore for SqliteSessionStore {
             .map_err(|_| SessionStoreError::Backend)?;
         let connection = database.connection();
 
-        let mut query = String::from(
-            "SELECT s.id, s.source_id, s.source_session_id, s.project_id, p.raw_path,
+        let mut statement = connection
+            .prepare(
+                "SELECT s.id, s.source_id, s.source_session_id, s.project_id, p.raw_path,
                 s.first_activity_at_ms, s.last_activity_at_ms,
                 s.input_tokens, s.output_tokens, s.cache_creation_tokens, s.cache_read_tokens,
                 s.total_tokens, s.unclassified_tokens,
                 s.cost_amount_micros, s.cost_currency, s.cost_kind, s.cost_status
             FROM sessions s
             LEFT JOIN projects p ON s.project_id = p.id
-            WHERE s.record_state != 'removed'",
-        );
-
-        if source_id.is_some() {
-            query.push_str(" AND s.source_id = ?1");
-        }
-        if pagination.after_activity_ms.is_some() {
-            if source_id.is_some() {
-                query.push_str(" AND s.last_activity_at_ms < ?2");
-            } else {
-                query.push_str(" AND s.last_activity_at_ms < ?1");
-            }
-        }
-
-        query.push_str(" ORDER BY s.last_activity_at_ms DESC, s.id DESC LIMIT ");
-        if source_id.is_some() && pagination.after_activity_ms.is_some() {
-            query.push_str("?3");
-        } else if source_id.is_some() || pagination.after_activity_ms.is_some() {
-            query.push_str("?2");
-        } else {
-            query.push_str("?1");
-        }
-
-        let mut statement = connection
-            .prepare(&query)
+            WHERE s.record_state != 'removed'
+              AND (?1 IS NULL OR s.source_id = ?1)
+              AND (
+                ?2 = 0
+                OR (
+                  ?3 IS NOT NULL
+                  AND (
+                    s.last_activity_at_ms < ?3
+                    OR (s.last_activity_at_ms = ?3 AND s.id < ?4)
+                    OR s.last_activity_at_ms IS NULL
+                  )
+                )
+                OR (
+                  ?3 IS NULL
+                  AND s.last_activity_at_ms IS NULL
+                  AND s.id < ?4
+                )
+              )
+            ORDER BY s.last_activity_at_ms DESC, s.id DESC
+            LIMIT ?5",
+            )
             .map_err(|_| SessionStoreError::Backend)?;
 
-        let params_source = (source_id, pagination.after_activity_ms);
-        let params: Vec<&dyn rusqlite::ToSql> = match params_source {
-            (Some(ref s), Some(ref a)) => vec![s, a, &pagination.limit],
-            (Some(ref s), None) => vec![s, &pagination.limit],
-            (None, Some(ref a)) => vec![a, &pagination.limit],
-            (None, None) => vec![&pagination.limit],
-        };
+        let cursor = pagination.after;
+        let cursor_present = if cursor.is_some() { 1_i64 } else { 0_i64 };
+        let cursor_activity = cursor.and_then(|value| value.last_activity_at_ms);
+        let cursor_session_id = cursor.map_or(0_i64, |value| value.session_id);
+        let limit = i64::from(pagination.limit);
 
         let rows = statement
-            .query_map(&*params, parse_session)
+            .query_map(
+                params![
+                    source_id,
+                    cursor_present,
+                    cursor_activity,
+                    cursor_session_id,
+                    limit
+                ],
+                parse_session,
+            )
             .map_err(|_| SessionStoreError::Backend)?;
 
         let mut sessions = Vec::new();
@@ -186,11 +190,14 @@ fn database_token_usage(
     cache_read: Option<i64>,
     total: i64,
 ) -> Result<TokenUsage, ()> {
-    let input_tokens = input.map(|v| v.try_into().unwrap_or(0));
-    let output_tokens = output.map(|v| v.try_into().unwrap_or(0));
-    let cache_creation_tokens = cache_creation.map(|v| v.try_into().unwrap_or(0));
-    let cache_read_tokens = cache_read.map(|v| v.try_into().unwrap_or(0));
-    let total_tokens = total.try_into().unwrap_or(0);
+    let input_tokens = input.map(u64::try_from).transpose().map_err(|_| ())?;
+    let output_tokens = output.map(u64::try_from).transpose().map_err(|_| ())?;
+    let cache_creation_tokens = cache_creation
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|_| ())?;
+    let cache_read_tokens = cache_read.map(u64::try_from).transpose().map_err(|_| ())?;
+    let total_tokens = u64::try_from(total).map_err(|_| ())?;
 
     TokenUsage::new(
         input_tokens,
@@ -218,7 +225,7 @@ fn database_usage_cost(
 
     match status.as_str() {
         "available" | "estimated" => {
-            let amount = amount_micros.ok_or(())?.try_into().unwrap_or(0);
+            let amount = u64::try_from(amount_micros.ok_or(())?).map_err(|_| ())?;
             let currency = CurrencyCode::new(currency.ok_or(())?).map_err(|_| ())?;
             let status = if status == "estimated" {
                 ValuedCostStatus::Estimated
@@ -246,7 +253,7 @@ fn database_model_usage_cost(
     // Model usage only uses 'estimated' or 'unavailable', kind is always CollectorCalculated for now.
     match status.as_str() {
         "estimated" => {
-            let amount = amount_micros.ok_or(())?.try_into().unwrap_or(0);
+            let amount = u64::try_from(amount_micros.ok_or(())?).map_err(|_| ())?;
             let currency = CurrencyCode::new(currency.ok_or(())?).map_err(|_| ())?;
             Ok(UsageCost::Valued {
                 amount_micros: amount,
@@ -258,5 +265,165 @@ fn database_model_usage_cost(
         _ => Ok(UsageCost::Unavailable {
             kind: CostKind::CollectorCalculated,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+    use crate::application::ports::session_store::SessionPageCursor;
+
+    fn migrated_store() -> (tempfile::TempDir, SqliteSessionStore) {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let database_path = directory.path().join("burnly.sqlite3");
+        let mut database = Database::open(&database_path).expect("open database");
+        database.migrate_to_latest().expect("migrate database");
+        seed_settings(database.connection());
+        let database = Arc::new(Mutex::new(database));
+        (directory, SqliteSessionStore::new(database))
+    }
+
+    fn seed_settings(connection: &rusqlite::Connection) {
+        connection
+            .execute(
+                "INSERT INTO app_settings (
+                    id, reporting_timezone, background_refresh_enabled,
+                    refresh_interval_minutes, launch_at_login, close_behavior,
+                    notifications_enabled, store_project_paths,
+                    created_at_ms, updated_at_ms
+                ) VALUES (1, 'UTC', 0, 15, 0, 'quit', 0, 0, 0, 0)",
+                [],
+            )
+            .expect("seed settings");
+    }
+
+    fn seed_source(connection: &rusqlite::Connection) {
+        connection
+            .execute(
+                "INSERT INTO sources (
+                    id, source_key, display_name, enabled, detection_state,
+                    created_at_ms, updated_at_ms
+                ) VALUES (1, 'claude-code', 'Claude Code', 1, 'available', 0, 0)",
+                [],
+            )
+            .expect("seed source");
+    }
+
+    fn seed_import(connection: &rusqlite::Connection) -> i64 {
+        connection
+            .execute(
+                "INSERT INTO refresh_runs (
+                    id, job_key, trigger, status, started_at_ms, finished_at_ms,
+                    requested_by_app_version, created_at_ms
+                ) VALUES (1, 'job-1', 'manual', 'succeeded', 100, 200, '0.1.0', 100)",
+                [],
+            )
+            .expect("seed refresh");
+        connection
+            .execute(
+                "INSERT INTO import_runs (
+                    refresh_run_id, source_id, collector_key, collector_version,
+                    profile_version, projection, scope_kind, aggregation_timezone,
+                    status, records_seen, records_rejected, started_at_ms,
+                    finished_at_ms
+                ) VALUES (1, 1, 'ccusage', '20.0.11', 1, 'session', 'full',
+                    NULL, 'succeeded', 1, 0, 100, 200)",
+                [],
+            )
+            .expect("seed import");
+        connection.last_insert_rowid()
+    }
+
+    fn seed_session(
+        connection: &rusqlite::Connection,
+        id: i64,
+        source_session_id: &str,
+        last_activity_at_ms: Option<i64>,
+        total_tokens: i64,
+        import_id: i64,
+    ) {
+        connection
+            .execute(
+                "INSERT INTO sessions (
+                    id, source_id, source_key, identity_version, source_session_id,
+                    total_tokens, cost_kind, cost_status, data_quality, record_state,
+                    absence_count, first_seen_at_ms, last_seen_at_ms,
+                    first_activity_at_ms, last_activity_at_ms, latest_import_id
+                ) VALUES (?1, 1, ?2, 1, ?3, ?4, 'collector_calculated',
+                    'unavailable', 'complete', 'active', 0, 100, 200, 100,
+                    ?5, ?6)",
+                params![
+                    id,
+                    format!("claude-code:session:v1:{source_session_id}"),
+                    source_session_id,
+                    total_tokens,
+                    last_activity_at_ms,
+                    import_id
+                ],
+            )
+            .expect("seed session");
+    }
+
+    #[test]
+    fn paginates_duplicate_activity_timestamps_with_session_id_tiebreaker() {
+        let (_directory, store) = migrated_store();
+        let import_id = {
+            let database = store.database.lock().expect("lock database");
+            let connection = database.connection();
+            seed_source(connection);
+            let import_id = seed_import(connection);
+            seed_session(connection, 1, "session-1", Some(1_000), 10, import_id);
+            seed_session(connection, 2, "session-2", Some(1_000), 20, import_id);
+            seed_session(connection, 3, "session-3", Some(1_000), 30, import_id);
+            import_id
+        };
+        assert!(import_id > 0);
+
+        let first_page = store
+            .get_sessions(
+                None,
+                SessionPagination {
+                    limit: 2,
+                    after: None,
+                },
+            )
+            .expect("first page");
+
+        assert_eq!(
+            first_page
+                .iter()
+                .map(|session| session.session_id)
+                .collect::<Vec<_>>(),
+            vec![3, 2]
+        );
+
+        let second_page = store
+            .get_sessions(
+                None,
+                SessionPagination {
+                    limit: 2,
+                    after: Some(SessionPageCursor {
+                        last_activity_at_ms: first_page[1].last_activity_at_ms,
+                        session_id: first_page[1].session_id,
+                    }),
+                },
+            )
+            .expect("second page");
+
+        assert_eq!(
+            second_page
+                .iter()
+                .map(|session| session.session_id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn rejects_negative_token_values_instead_of_coercing_to_zero() {
+        assert!(database_token_usage(Some(-1), None, None, None, 10).is_err());
+        assert!(database_token_usage(None, None, None, None, -1).is_err());
     }
 }

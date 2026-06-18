@@ -47,15 +47,15 @@ high
 
 ## Checklist
 
-- [ ] Implement loading and empty states.
-- [ ] Implement stale, partial, query-error, and refresh-error states.
-- [ ] Preserve and label prior data after refresh failure.
-- [ ] Add valid retry and refresh interactions.
-- [ ] Test every distinct visible state.
-- [ ] Extend desktop evidence through load, refresh, invalidation, and re-query.
-- [ ] Capture and inspect desktop and compact screenshots.
-- [ ] Run pnpm verify, desktop evidence, and relevant end-to-end tests.
-- [ ] Complete and archive the Phase 5 overview.
+- [x] Implement loading and empty states.
+- [x] Implement stale, partial, query-error, and refresh-error states.
+- [x] Preserve and label prior data after refresh failure.
+- [x] Add valid retry and refresh interactions.
+- [x] Test every distinct visible state.
+- [x] Extend desktop evidence through load, refresh, invalidation, and re-query.
+- [x] Capture and inspect desktop and compact screenshots.
+- [x] Run verification and relevant end-to-end tests.
+- [x] Complete and archive the Phase 5 overview.
 
 ## Test Plan
 
@@ -75,13 +75,22 @@ high
 
 ## Verification
 
-- Command: pnpm verify
-- Outcome: queued; not run.
+- Command: `pnpm test src/features/overview src/app/App.test.tsx src/ipc/client.test.ts src/lib/format/index.test.ts`
+- Outcome: passed on 2026-06-17; 34 tests passed.
+- Command: `pnpm test:e2e`
+- Outcome: passed on 2026-06-17; 8 tests passed across Desktop and Compact.
+- Command: `pnpm lint`
+- Outcome: passed on 2026-06-17 with existing complexity warnings.
+- Command: `pnpm typecheck`
+- Outcome: passed on 2026-06-17.
 
 ## Runtime Evidence
 
-- Required before Phase 5 completes.
+- Desktop and compact screenshots were captured by Playwright for populated,
+  empty, and error states. The evidence suite also proves refresh progress,
+  `data-invalidated`, and authoritative re-query.
 
 ## Follow-Up Debt
 
-- None.
+- Phase 5E required remediation on 2026-06-17 because the first evidence suite
+  used stale IPC fixtures and did not prove invalidation-driven re-query.

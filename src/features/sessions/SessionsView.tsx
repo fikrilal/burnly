@@ -17,7 +17,7 @@ export function SessionsView() {
   } = useSessions({ sourceId: null, limit: 20 });
 
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null,
   );
 
@@ -99,7 +99,7 @@ export function SessionsView() {
             >
               <div className="flex justify-between items-start mb-2">
                 <span className="font-medium text-white truncate pr-4">
-                  {session.projectPath ?? session.sourceSessionId}
+                  {session.projectPath ?? session.label}
                 </span>
                 <span className="text-sm font-semibold text-zinc-300 shrink-0">
                   {formatNumber(session.totalTokens)}

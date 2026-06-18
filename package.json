@@ -31,6 +31,7 @@
     "architecture:test": "node scripts/harness/check-architecture.mjs --self-test",
     "harness:check": "pnpm architecture:test && pnpm architecture:check && pnpm public-api:check && pnpm contracts:check && pnpm migrations:check && pnpm collectors:fixtures && pnpm duplication:report",
     "evidence:desktop": "node scripts/harness/desktop-evidence.mjs",
+    "verify:runtime": "pnpm evidence:desktop",
     "verify:fast": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm rust:check && pnpm harness:check",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm rust:fmt && pnpm rust:clippy && pnpm rust:test && pnpm harness:check",
     "verify:ci-local": "pnpm deps:check && pnpm verify"
@@ -71,6 +72,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "ccusage": "^20.0.14",
     "eslint": "^10.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

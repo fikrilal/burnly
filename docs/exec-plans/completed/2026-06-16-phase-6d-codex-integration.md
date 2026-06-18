@@ -55,3 +55,16 @@ Build the profiles, decoders, and command builders to support Codex for both dai
 
 - Command: `pnpm verify`
 - Outcome: not run yet
+
+## Remediation Note
+
+2026-06-18 Phase 6 remediation corrected stale parts of this plan:
+
+- Refresh orchestration now requests Codex daily and session projections during
+  normal refresh, not only through isolated collector tests.
+- The collector process fixture and bridge evidence now cover Codex refresh
+  routing.
+- The collector fixture harness now validates the Codex daily and session
+  fixture matrix.
+- Verification is recorded in
+  `docs/exec-plans/active/2026-06-18_phase-6-remediation.md`.

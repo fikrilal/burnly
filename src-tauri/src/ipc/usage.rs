@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::application::ports::overview_store::OverviewStoreError;
-use crate::application::ports::session_store::{SessionPagination, SessionStoreError};
+use crate::application::ports::session_store::{
+    SessionPageCursor, SessionPagination, SessionStoreError,
+};
 use crate::application::usage::{
     CalendarDayInfo, CalendarPeriod, CalendarQuery, CalendarQueryError, CalendarReadModel,
-    CostCompleteness, CostValuation, DayDetailQuery, DayDetailQueryError, DayDetailReadModel,
-    OverviewCost, OverviewDataStatus, OverviewModel, OverviewPeriod, OverviewQuery,
-    OverviewQueryError, OverviewReadModel, OverviewSource, SessionQuery,
+    CostCompleteness, CostValuation, DayDetailPeriod, DayDetailQuery, DayDetailQueryError,
+    DayDetailReadModel, OverviewCost, OverviewDataStatus, OverviewModel, OverviewPeriod,
+    OverviewQuery, OverviewQueryError, OverviewReadModel, OverviewSource, SessionQuery,
 };
 use crate::domain::usage::{SessionDetail, UsageSession};
 
@@ -136,6 +138,7 @@ pub(super) fn usage_get_calendar(
 #[serde(rename_all = "camelCase")]
 pub(super) struct DayDetailRequest {
     date: String,
+    reporting_timezone: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,18 +164,21 @@ pub(super) struct DayDetailResponse {
 pub(super) fn usage_get_day_detail(
     request: DayDetailRequest,
     query: State<'_, DayDetailQuery>,
-) -> IpcResponse<Option<DayDetailResponse>> {
+) -> IpcResponse<DayDetailResponse> {
     let date = match parse_date(&request.date, "request.date") {
         Ok(date) => date,
         Err(error) => return IpcResponse::failure(error),
     };
+    let period = match DayDetailPeriod::new(date, request.reporting_timezone) {
+        Ok(period) => period,
+        Err(error) => return IpcResponse::failure(day_detail_query_error(error)),
+    };
 
-    match query.get(date) {
-        Ok(Some(model)) => match DayDetailResponse::try_from(model) {
-            Ok(response) => IpcResponse::success(Some(response)),
+    match query.get(period) {
+        Ok(model) => match DayDetailResponse::try_from(model) {
+            Ok(response) => IpcResponse::success(response),
             Err(error) => IpcResponse::failure(error),
         },
-        Ok(None) => IpcResponse::success(None),
         Err(error) => IpcResponse::failure(day_detail_query_error(error)),
     }
 }
@@ -288,13 +294,26 @@ fn calendar_query_error(error: CalendarQueryError) -> IpcError {
     }
 }
 
-fn day_detail_query_error(_error: DayDetailQueryError) -> IpcError {
-    IpcError::new(
-        "usage.day_detail_unavailable",
-        "Burnly could not read local day detail data.",
-        ErrorCategory::Persistence,
-        true,
-    )
+fn day_detail_query_error(error: DayDetailQueryError) -> IpcError {
+    match error {
+        DayDetailQueryError::EmptyAggregationTimezone => IpcError::new(
+            "validation.empty_reporting_timezone",
+            "A reporting timezone is required.",
+            ErrorCategory::Validation,
+            false,
+        )
+        .with_field_errors(vec![FieldError::new(
+            "request.reportingTimezone",
+            "validation.required",
+            "Reporting timezone is required.",
+        )]),
+        DayDetailQueryError::Storage(_) => IpcError::new(
+            "usage.day_detail_unavailable",
+            "Burnly could not read local day detail data.",
+            ErrorCategory::Persistence,
+            true,
+        ),
+    }
 }
 
 impl TryFrom<OverviewReadModel> for UsageOverviewResponse {
@@ -469,30 +488,195 @@ mod tests {
             Err(OverviewStoreError::ValueOutOfRange)
         );
     }
+
+    #[test]
+    fn session_item_response_uses_opaque_ids_and_hides_local_details() {
+        let session = session_fixture(
+            42,
+            Some(2_000),
+            Some("/home/user/private-project".to_owned()),
+        );
+
+        let response = SessionItemResponse::try_from(session).expect("session response");
+
+        assert_eq!(response.id, "session-v1-16");
+        assert_eq!(response.source_id, "source-v1-7");
+        assert_eq!(response.label, "Session session-v1-16");
+        assert_eq!(response.project_path, None);
+    }
+
+    #[test]
+    fn session_cursor_round_trips_activity_and_tiebreaker() {
+        let session = session_fixture(35, Some(1_296), None);
+
+        let cursor = encode_session_cursor(&session).expect("encode cursor");
+        let parsed = parse_session_cursor(&cursor).expect("parse cursor");
+
+        assert_eq!(
+            parsed,
+            SessionPageCursor {
+                last_activity_at_ms: Some(1_296),
+                session_id: 35,
+            }
+        );
+    }
+
+    fn session_fixture(
+        session_id: i64,
+        last_activity_at_ms: Option<i64>,
+        project_path: Option<String>,
+    ) -> UsageSession {
+        UsageSession {
+            session_id,
+            source_id: 7,
+            source_session_id: "raw-collector-session".to_owned(),
+            project_id: project_path.as_ref().map(|_| 9),
+            project_path,
+            first_activity_at_ms: Some(1_000),
+            last_activity_at_ms,
+            tokens: crate::domain::usage::TokenUsage::new(None, None, None, None, 10)
+                .expect("tokens"),
+            cost: crate::domain::usage::UsageCost::Unavailable {
+                kind: crate::domain::usage::CostKind::CollectorCalculated,
+            },
+        }
+    }
+}
+
+const SESSION_ID_PREFIX: &str = "session-v1-";
+const SOURCE_ID_PREFIX: &str = "source-v1-";
+const SESSION_CURSOR_PREFIX: &str = "session-page-v1-";
+
+fn encode_prefixed_id(prefix: &str, value: i64) -> Result<String, IpcError> {
+    Ok(format!("{prefix}{}", encode_base36(value)?))
+}
+
+fn parse_optional_prefixed_id(
+    value: Option<&str>,
+    prefix: &str,
+    field: &'static str,
+) -> Result<Option<i64>, IpcError> {
+    value
+        .map(|current| parse_prefixed_id(current, prefix, field))
+        .transpose()
+}
+
+fn parse_prefixed_id(value: &str, prefix: &str, field: &'static str) -> Result<i64, IpcError> {
+    let encoded = value
+        .strip_prefix(prefix)
+        .ok_or_else(|| opaque_id_error(field))?;
+    decode_base36(encoded).ok_or_else(|| opaque_id_error(field))
+}
+
+fn encode_session_cursor(session: &UsageSession) -> Result<String, IpcError> {
+    let activity = session
+        .last_activity_at_ms
+        .map(encode_base36)
+        .transpose()?
+        .unwrap_or_else(|| "none".to_owned());
+    let session_id = encode_base36(session.session_id)?;
+    Ok(format!("{SESSION_CURSOR_PREFIX}{activity}-{session_id}"))
+}
+
+fn parse_optional_session_cursor(
+    value: Option<&str>,
+) -> Result<Option<SessionPageCursor>, IpcError> {
+    value.map(parse_session_cursor).transpose()
+}
+
+fn parse_session_cursor(value: &str) -> Result<SessionPageCursor, IpcError> {
+    let encoded = value
+        .strip_prefix(SESSION_CURSOR_PREFIX)
+        .ok_or_else(|| opaque_id_error("request.afterCursor"))?;
+    let (activity, session_id) = encoded
+        .rsplit_once('-')
+        .ok_or_else(|| opaque_id_error("request.afterCursor"))?;
+    let last_activity_at_ms = if activity == "none" {
+        None
+    } else {
+        Some(decode_base36(activity).ok_or_else(|| opaque_id_error("request.afterCursor"))?)
+    };
+    let session_id =
+        decode_base36(session_id).ok_or_else(|| opaque_id_error("request.afterCursor"))?;
+
+    Ok(SessionPageCursor {
+        last_activity_at_ms,
+        session_id,
+    })
+}
+
+fn encode_base36(value: i64) -> Result<String, IpcError> {
+    let mut value = u64::try_from(value).map_err(|_| opaque_id_error("response.id"))?;
+    if value == 0 {
+        return Ok("0".to_owned());
+    }
+
+    let mut chars = Vec::new();
+    while value > 0 {
+        let digit = (value % 36) as u8;
+        let byte = if digit < 10 {
+            b'0' + digit
+        } else {
+            b'a' + (digit - 10)
+        };
+        chars.push(byte as char);
+        value /= 36;
+    }
+    chars.reverse();
+    Ok(chars.into_iter().collect())
+}
+
+fn decode_base36(value: &str) -> Option<i64> {
+    if value.is_empty() {
+        return None;
+    }
+    let mut result = 0_u64;
+    for byte in value.bytes() {
+        let digit = match byte {
+            b'0'..=b'9' => u64::from(byte - b'0'),
+            b'a'..=b'z' => u64::from(byte - b'a' + 10),
+            _ => return None,
+        };
+        result = result.checked_mul(36)?.checked_add(digit)?;
+    }
+    i64::try_from(result).ok()
+}
+
+fn opaque_id_error(field: &'static str) -> IpcError {
+    IpcError::new(
+        "validation.invalid_session_cursor",
+        "The selected session reference is invalid.",
+        ErrorCategory::Validation,
+        false,
+    )
+    .with_field_errors(vec![FieldError::new(
+        field,
+        "validation.invalid_opaque_id",
+        "Session references must come from Burnly.",
+    )])
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SessionListRequest {
-    source_id: Option<i64>,
+    source_id: Option<String>,
     limit: u32,
-    after_activity_ms: Option<i64>,
+    after_cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SessionListResponse {
     items: Vec<SessionItemResponse>,
-    next_cursor: Option<i64>,
+    next_cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionItemResponse {
-    id: i64,
-    source_id: i64,
-    source_session_id: String,
-    project_id: Option<i64>,
+    id: String,
+    source_id: String,
+    label: String,
     project_path: Option<String>,
     first_activity_at: Option<String>,
     last_activity_at: Option<String>,
@@ -505,25 +689,44 @@ pub(super) fn usage_get_sessions(
     request: SessionListRequest,
     query: State<'_, SessionQuery>,
 ) -> IpcResponse<SessionListResponse> {
+    let source_id = match parse_optional_prefixed_id(
+        request.source_id.as_deref(),
+        SOURCE_ID_PREFIX,
+        "request.sourceId",
+    ) {
+        Ok(source_id) => source_id,
+        Err(error) => return IpcResponse::failure(error),
+    };
+    let after = match parse_optional_session_cursor(request.after_cursor.as_deref()) {
+        Ok(after) => after,
+        Err(error) => return IpcResponse::failure(error),
+    };
     let limit = std::cmp::min(request.limit, 100);
     let pagination = SessionPagination {
         limit: limit + 1, // request 1 more to check if there is a next page
-        after_activity_ms: request.after_activity_ms,
+        after,
     };
 
-    match query.get_sessions(request.source_id, pagination) {
+    match query.get_sessions(source_id, pagination) {
         Ok(mut sessions) => {
             let next_cursor = if sessions.len() > limit as usize {
                 let last = sessions.pop().expect("has extra");
-                last.last_activity_at_ms
+                match encode_session_cursor(&last) {
+                    Ok(cursor) => Some(cursor),
+                    Err(error) => return IpcResponse::failure(error),
+                }
             } else {
                 None
             };
 
-            let items = sessions
+            let items = match sessions
                 .into_iter()
-                .map(SessionItemResponse::from)
-                .collect();
+                .map(SessionItemResponse::try_from)
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(items) => items,
+                Err(error) => return IpcResponse::failure(error),
+            };
             IpcResponse::success(SessionListResponse { items, next_cursor })
         }
         Err(SessionStoreError::Backend) => IpcResponse::failure(IpcError::new(
@@ -542,7 +745,7 @@ pub(super) fn usage_get_sessions(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SessionDetailRequest {
-    session_id: i64,
+    session_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -565,8 +768,17 @@ pub(super) fn usage_get_session_detail(
     request: SessionDetailRequest,
     query: State<'_, SessionQuery>,
 ) -> IpcResponse<Option<SessionDetailResponse>> {
-    match query.get_session_detail(request.session_id) {
-        Ok(detail) => IpcResponse::success(Some(SessionDetailResponse::from(detail))),
+    let session_id =
+        match parse_prefixed_id(&request.session_id, SESSION_ID_PREFIX, "request.sessionId") {
+            Ok(session_id) => session_id,
+            Err(error) => return IpcResponse::failure(error),
+        };
+
+    match query.get_session_detail(session_id) {
+        Ok(detail) => match SessionDetailResponse::try_from(detail) {
+            Ok(response) => IpcResponse::success(Some(response)),
+            Err(error) => IpcResponse::failure(error),
+        },
         Err(SessionStoreError::NotFound) => IpcResponse::success(None),
         Err(SessionStoreError::Backend) => IpcResponse::failure(IpcError::new(
             "usage.session_detail_unavailable",
@@ -577,14 +789,18 @@ pub(super) fn usage_get_session_detail(
     }
 }
 
-impl From<UsageSession> for SessionItemResponse {
-    fn from(value: UsageSession) -> Self {
-        Self {
-            id: value.session_id,
-            source_id: value.source_id,
-            source_session_id: value.source_session_id,
-            project_id: value.project_id,
-            project_path: value.project_path,
+impl TryFrom<UsageSession> for SessionItemResponse {
+    type Error = IpcError;
+
+    fn try_from(value: UsageSession) -> Result<Self, Self::Error> {
+        let id = encode_prefixed_id(SESSION_ID_PREFIX, value.session_id)?;
+        let source_id = encode_prefixed_id(SOURCE_ID_PREFIX, value.source_id)?;
+
+        Ok(Self {
+            label: format!("Session {id}"),
+            id,
+            source_id,
+            project_path: None,
             first_activity_at: value
                 .first_activity_at_ms
                 .map(|ms| to_rfc3339(ms).unwrap_or_default()),
@@ -593,14 +809,16 @@ impl From<UsageSession> for SessionItemResponse {
                 .map(|ms| to_rfc3339(ms).unwrap_or_default()),
             total_tokens: value.tokens.total_tokens().to_string(),
             cost: UsageOverviewCostResponse::from_usage_cost(&value.cost),
-        }
+        })
     }
 }
 
-impl From<SessionDetail> for SessionDetailResponse {
-    fn from(value: SessionDetail) -> Self {
-        Self {
-            session: SessionItemResponse::from(value.session),
+impl TryFrom<SessionDetail> for SessionDetailResponse {
+    type Error = IpcError;
+
+    fn try_from(value: SessionDetail) -> Result<Self, Self::Error> {
+        Ok(Self {
+            session: SessionItemResponse::try_from(value.session)?,
             models: value
                 .model_breakdowns
                 .into_iter()
@@ -610,7 +828,7 @@ impl From<SessionDetail> for SessionDetailResponse {
                     cost: UsageOverviewCostResponse::from_usage_cost(&m.cost),
                 })
                 .collect(),
-        }
+        })
     }
 }
 

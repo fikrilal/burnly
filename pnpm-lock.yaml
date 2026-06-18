@@ -108,6 +108,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.6.0
         version: 4.7.0(vite@7.3.5(@types/node@25.9.3)(jiti@2.7.0)(lightningcss@1.32.0))
+      ccusage:
+        specifier: ^20.0.14
+        version: 20.0.14
       eslint:
         specifier: ^10.5.0
         version: 10.5.0(jiti@2.7.0)
@@ -316,6 +319,36 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@ccusage/ccusage-darwin-arm64@20.0.14':
+    resolution: {integrity: sha512-M8ZQzWmvLsI+eKbjQBJtw2YudUgFr4gAtXmNnb5nYam177vmajaxDWdItJr+I+Qx9QbxsKOxJslazT/WYkoFFQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@ccusage/ccusage-darwin-x64@20.0.14':
+    resolution: {integrity: sha512-NORKtEWsw8n3WGTdK3LGmEbygwrUFEDYAOeXWYT5rKAU84IMMYO9BVKALsr5KWX5FpfGGhTk/QdbzSFIaAqzKw==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@ccusage/ccusage-linux-arm64@20.0.14':
+    resolution: {integrity: sha512-aShec3E1bFZTOl35B4KdX35kEzGZGkGO5eOnR03ih1mF88D9eEUFKWJ9pha1Liq8v/1gJvmHzgjuV7hLxrNDhw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@ccusage/ccusage-linux-x64@20.0.14':
+    resolution: {integrity: sha512-Q00no4oxct4/zQ4ob7t8uItsTSyrwFLti5NZ6kGhCxliN7LwMNqMVrTsUDy8Wsfiu1HEtyQQUclYRNAtLsn6Uw==}
+    cpu: [x64]
+    os: [linux]
+
+  '@ccusage/ccusage-win32-arm64@20.0.14':
+    resolution: {integrity: sha512-a7VPXWtzeQVo3qJl4Mprga8gBhWniQ0aPfw8FZWGRp9S7oDL18vgJOq2yF7c2NYYvTDW2prDaku6dawVNQGXeg==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@ccusage/ccusage-win32-x64@20.0.14':
+    resolution: {integrity: sha512-DXo5DrINH/Zwih+N7ra7jSpIo70heuzC+6k3CuB4QIacJj908uSX12Zp4JdnUwmFk7yGEwQBfVs+SmuOc+VP0w==}
+    cpu: [x64]
+    os: [win32]
 
   '@csstools/color-helpers@6.0.2':
     resolution: {integrity: sha512-LMGQLS9EuADloEFkcTBR3BwV/CGHV7zyDxVRtVDTwdI2Ca4it0CCVTT9wCkxSgokjE5Ho41hEPgb8OEUwoXr6Q==}
@@ -2211,6 +2244,10 @@ packages:
 
   caniuse-lite@1.0.30001799:
     resolution: {integrity: sha512-hG1bReV+OUU+MOqK4t/ZWI0tZOyz3rqS9XuhOUz1cIcbwBKjOyJEJuw9ER5JuNyqxNk8u/JUVbGibBOL1yrjFw==}
+
+  ccusage@20.0.14:
+    resolution: {integrity: sha512-xAkGU9NZdhbxj11o6J9x/tqNXicLz29y9j3nTJEkPI76LW4i6IrsXXcD9ywqzbKRsq1NlJLEhnBRgaZAksS9WA==}
+    hasBin: true
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -4177,6 +4214,24 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
+  '@ccusage/ccusage-darwin-arm64@20.0.14':
+    optional: true
+
+  '@ccusage/ccusage-darwin-x64@20.0.14':
+    optional: true
+
+  '@ccusage/ccusage-linux-arm64@20.0.14':
+    optional: true
+
+  '@ccusage/ccusage-linux-x64@20.0.14':
+    optional: true
+
+  '@ccusage/ccusage-win32-arm64@20.0.14':
+    optional: true
+
+  '@ccusage/ccusage-win32-x64@20.0.14':
+    optional: true
+
   '@csstools/color-helpers@6.0.2': {}
 
   '@csstools/css-calc@3.2.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
@@ -6005,6 +6060,15 @@ snapshots:
   callsites@3.1.0: {}
 
   caniuse-lite@1.0.30001799: {}
+
+  ccusage@20.0.14:
+    optionalDependencies:
+      '@ccusage/ccusage-darwin-arm64': 20.0.14
+      '@ccusage/ccusage-darwin-x64': 20.0.14
+      '@ccusage/ccusage-linux-arm64': 20.0.14
+      '@ccusage/ccusage-linux-x64': 20.0.14
+      '@ccusage/ccusage-win32-arm64': 20.0.14
+      '@ccusage/ccusage-win32-x64': 20.0.14
 
   chai@6.2.2: {}
 

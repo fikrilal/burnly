@@ -1,9 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getUsageOverview, requestRefresh } from "../../ipc/client";
+import {
+  getUsageOverview,
+  requestRefresh,
+  type CommandResult,
+} from "../../ipc/client";
 import { EVENT_NAMES, subscribeToEvent } from "../../ipc/events";
 import { useOverview } from "./use-overview";
 import type {
@@ -13,6 +15,7 @@ import type {
   RefreshStatusResponse,
   UnknownEventPayload,
 } from "../../ipc/generated/contracts";
+import { createTestQueryWrapper } from "../../test/query";
 
 vi.mock("../../ipc/client");
 vi.mock("../../ipc/events");
@@ -48,15 +51,22 @@ const mockRefreshStatus: RefreshStatusResponse = {
   trigger: "manual",
 };
 
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    );
-  };
+const responseMeta = {
+  requestId: "1",
+  contractVersion: 1,
+  generatedAt: "2026-06-15T00:00:00Z",
+} as const;
+
+function overviewResult(
+  data: UsageOverviewResponse,
+): CommandResult<UsageOverviewResponse> {
+  return { data, meta: responseMeta };
+}
+
+function refreshResult(
+  data: RefreshStatusResponse,
+): CommandResult<RefreshStatusResponse> {
+  return { data, meta: responseMeta };
 }
 
 describe("useOverview", () => {
@@ -66,19 +76,12 @@ describe("useOverview", () => {
 
   it("fetches overview data on mount", async () => {
     const mockData = createMockOverview("123");
-    vi.mocked(getUsageOverview).mockResolvedValueOnce({
-      data: mockData,
-      meta: {
-        requestId: "1",
-        contractVersion: 1,
-        generatedAt: "2026-06-15T00:00:00Z",
-      },
-    });
+    vi.mocked(getUsageOverview).mockResolvedValueOnce(overviewResult(mockData));
 
-    vi.mocked(subscribeToEvent).mockResolvedValueOnce(vi.fn());
+    vi.mocked(subscribeToEvent).mockResolvedValue(vi.fn());
 
     const { result } = renderHook(() => useOverview(mockRequest), {
-      wrapper: createWrapper(),
+      wrapper: createTestQueryWrapper(),
     });
 
     await waitFor(() => {
@@ -107,25 +110,11 @@ describe("useOverview", () => {
     const mockData2 = createMockOverview("2");
 
     vi.mocked(getUsageOverview)
-      .mockResolvedValueOnce({
-        data: mockData1,
-        meta: {
-          requestId: "1",
-          contractVersion: 1,
-          generatedAt: "2026-06-15T00:00:00Z",
-        },
-      })
-      .mockResolvedValueOnce({
-        data: mockData2,
-        meta: {
-          requestId: "2",
-          contractVersion: 1,
-          generatedAt: "2026-06-15T00:00:00Z",
-        },
-      });
+      .mockResolvedValueOnce(overviewResult(mockData1))
+      .mockResolvedValueOnce(overviewResult(mockData2));
 
     const { result } = renderHook(() => useOverview(mockRequest), {
-      wrapper: createWrapper(),
+      wrapper: createTestQueryWrapper(),
     });
 
     await waitFor(() => {
@@ -145,26 +134,16 @@ describe("useOverview", () => {
   });
 
   it("invokes manual refresh", async () => {
-    vi.mocked(getUsageOverview).mockResolvedValueOnce({
-      data: createMockOverview("1"),
-      meta: {
-        requestId: "1",
-        contractVersion: 1,
-        generatedAt: "2026-06-15T00:00:00Z",
-      },
-    });
-    vi.mocked(subscribeToEvent).mockResolvedValueOnce(vi.fn());
-    vi.mocked(requestRefresh).mockResolvedValueOnce({
-      data: mockRefreshStatus,
-      meta: {
-        requestId: "1",
-        contractVersion: 1,
-        generatedAt: "2026-06-15T00:00:00Z",
-      },
-    });
+    vi.mocked(getUsageOverview).mockResolvedValueOnce(
+      overviewResult(createMockOverview("1")),
+    );
+    vi.mocked(subscribeToEvent).mockResolvedValue(vi.fn());
+    vi.mocked(requestRefresh).mockResolvedValueOnce(
+      refreshResult(mockRefreshStatus),
+    );
 
     const { result } = renderHook(() => useOverview(mockRequest), {
-      wrapper: createWrapper(),
+      wrapper: createTestQueryWrapper(),
     });
 
     await waitFor(() => {
@@ -174,5 +153,37 @@ describe("useOverview", () => {
     await result.current.manualRefresh();
 
     expect(requestRefresh).toHaveBeenCalled();
+  });
+
+  it("tracks refresh progress events", async () => {
+    let progress: ((payload: UnknownEventPayload) => void) | undefined;
+
+    vi.mocked(subscribeToEvent).mockImplementation(
+      (event: EventName, callback: (payload: UnknownEventPayload) => void) => {
+        if (event === EVENT_NAMES.refreshProgress) {
+          progress = callback;
+        }
+        return Promise.resolve(vi.fn());
+      },
+    );
+
+    vi.mocked(getUsageOverview).mockResolvedValueOnce(
+      overviewResult(createMockOverview("1")),
+    );
+
+    const { result } = renderHook(() => useOverview(mockRequest), {
+      wrapper: createTestQueryWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    progress?.({ status: "running" });
+
+    await waitFor(() => {
+      expect(result.current.refreshStatus).toBe("running");
+      expect(result.current.isRefreshing).toBe(true);
+    });
   });
 });

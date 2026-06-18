@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 
 use crate::application::collection::{
     CollectionId, CollectionOutcome, CollectionProjection, CollectionRequest, CollectionResult,
@@ -28,6 +28,7 @@ use crate::application::ports::usage_store::UsageStore;
 use crate::application::reconciliation::{
     DailyReconciliationRequest, ImportCollector, ImportOutcome, ImportRunCompletion, ImportRunSpec,
     JobKey, RefreshOutcome, RefreshRunCompletion, RefreshRunSpec, RefreshTrigger, RunError,
+    SessionReconciliationRequest,
 };
 use crate::domain::source::SourceKey;
 
@@ -248,28 +249,89 @@ impl RefreshCoordinator {
         job_id: &str,
         started_at_ms: i64,
     ) -> Result<ExecutionResult, ExecutionFailure> {
-        let source_id = self
-            .run_store
-            .resolve_source(SourceKey::ClaudeCode, started_at_ms)
-            .map_err(|_| self.failure("refresh.source", "Could not resolve the usage source."))?;
-
         let requested_at = DateTime::from_timestamp_millis(started_at_ms)
             .ok_or_else(|| self.failure("refresh.time", "Refresh time is invalid."))?;
-        let request = CollectionRequest::daily(
-            CollectionId::new(job_id)
-                .map_err(|_| self.failure("refresh.request", "Refresh request is invalid."))?,
-            SourceKey::ClaudeCode,
-            CollectionScope::Full,
-            self.aggregation_timezone.clone(),
-            requested_at,
-        )
+
+        let mut aggregate = RunOutcome::Succeeded;
+        let mut usage_changed = false;
+        let mut finished_at_ms = started_at_ms;
+
+        for target in refresh_targets() {
+            let source_id = self
+                .run_store
+                .resolve_source(target.source, started_at_ms)
+                .map_err(|_| {
+                    self.failure("refresh.source", "Could not resolve the usage source.")
+                })?;
+            let request = self.collection_request(job_id, target, requested_at)?;
+            let collection =
+                self.collector
+                    .collect(request, &NeverCancelled)
+                    .map_err(|failure| {
+                        self.failure(
+                            failure.code.code(),
+                            "The collector could not complete the refresh.",
+                        )
+                    })?;
+            let result = self.persist(refresh_run_id, source_id, started_at_ms, &collection)?;
+            aggregate = aggregate.combine(result.outcome);
+            usage_changed = usage_changed || result.usage_changed;
+            finished_at_ms = result.finished_at_ms;
+        }
+
+        self.run_store
+            .complete_refresh_run(
+                refresh_run_id,
+                RefreshRunCompletion {
+                    outcome: aggregate.refresh_outcome(),
+                    finished_at_ms,
+                    error: None,
+                },
+            )
+            .map_err(|_| ExecutionFailure {
+                import_run_id: None,
+                records_seen: 0,
+                records_rejected: 0,
+                finished_at_ms,
+                usage_changed,
+                code: "refresh.completion",
+                summary: "Could not complete the refresh run.",
+            })?;
+
+        Ok(ExecutionResult {
+            outcome: aggregate,
+            finished_at_ms,
+            usage_changed,
+        })
+    }
+
+    fn collection_request(
+        &self,
+        job_id: &str,
+        target: RefreshTarget,
+        requested_at: DateTime<Utc>,
+    ) -> Result<CollectionRequest, ExecutionFailure> {
+        let collection_id = CollectionId::new(format!(
+            "{job_id}:{}:{}",
+            target.source.as_str(),
+            projection_label(target.projection)
+        ))
         .map_err(|_| self.failure("refresh.request", "Refresh request is invalid."))?;
 
-        match self.collector.collect(request, &NeverCancelled) {
-            Ok(collection) => self.persist(refresh_run_id, source_id, started_at_ms, &collection),
-            Err(failure) => Err(self.failure(
-                failure.code.code(),
-                "The collector could not complete the refresh.",
+        match target.projection {
+            CollectionProjection::Daily => CollectionRequest::daily(
+                collection_id,
+                target.source,
+                CollectionScope::Full,
+                self.aggregation_timezone.clone(),
+                requested_at,
+            )
+            .map_err(|_| self.failure("refresh.request", "Refresh request is invalid.")),
+            CollectionProjection::Session => Ok(CollectionRequest::session(
+                collection_id,
+                target.source,
+                CollectionScope::Full,
+                requested_at,
             )),
         }
     }
@@ -292,9 +354,9 @@ impl RefreshCoordinator {
             refresh_run_id,
             source_id,
             import_collector,
-            CollectionProjection::Daily,
+            collection.projection(),
             CollectionScope::Full,
-            Some(self.aggregation_timezone.clone()),
+            import_timezone(collection.projection(), &self.aggregation_timezone),
         )
         .map_err(|_| self.failure("refresh.import", "Import metadata is invalid."))?;
         let import_run_id = self
@@ -303,18 +365,9 @@ impl RefreshCoordinator {
             .map_err(|_| self.failure("refresh.import", "Could not begin the import run."))?;
 
         let collection_outcome = collection.outcome();
-        let reconciliation = DailyReconciliationRequest::new(
-            source_id,
-            import_run_id,
-            CollectionScope::Full,
-            collection_outcome,
-            now_ms,
-            collection.daily_candidates().to_vec(),
-        );
-        let records_seen = clamp_count(collection.daily_candidates().len());
+        let records_seen = records_seen(collection);
         let records_rejected = clamp_count(collection.rejection_count());
-        self.usage_store
-            .reconcile_daily(reconciliation)
+        self.reconcile_collection(source_id, import_run_id, now_ms, collection)
             .map_err(|_| {
                 self.import_failure(
                     import_run_id,
@@ -350,30 +403,46 @@ impl RefreshCoordinator {
                     "Could not complete the import run.",
                 )
             })?;
-        self.run_store
-            .complete_refresh_run(
-                refresh_run_id,
-                RefreshRunCompletion {
-                    outcome: outcome.refresh_outcome(),
-                    finished_at_ms,
-                    error: None,
-                },
-            )
-            .map_err(|_| ExecutionFailure {
-                import_run_id: None,
-                records_seen,
-                records_rejected,
-                finished_at_ms,
-                usage_changed: true,
-                code: "refresh.completion",
-                summary: "Could not complete the refresh run.",
-            })?;
-
         Ok(ExecutionResult {
             outcome,
             finished_at_ms,
             usage_changed: true,
         })
+    }
+
+    fn reconcile_collection(
+        &self,
+        source_id: crate::application::reconciliation::SourceId,
+        import_run_id: crate::application::reconciliation::ImportRunId,
+        now_ms: i64,
+        collection: &CollectionResult,
+    ) -> Result<(), crate::application::ports::usage_store::UsageStoreError> {
+        match collection.projection() {
+            CollectionProjection::Daily => {
+                let reconciliation = DailyReconciliationRequest::new(
+                    source_id,
+                    import_run_id,
+                    CollectionScope::Full,
+                    collection.outcome(),
+                    now_ms,
+                    collection.daily_candidates().to_vec(),
+                );
+                self.usage_store.reconcile_daily(reconciliation).map(|_| ())
+            }
+            CollectionProjection::Session => {
+                let reconciliation = SessionReconciliationRequest::new(
+                    source_id,
+                    import_run_id,
+                    CollectionScope::Full,
+                    collection.outcome(),
+                    now_ms,
+                    collection.session_candidates().to_vec(),
+                );
+                self.usage_store
+                    .reconcile_session(reconciliation)
+                    .map(|_| ())
+            }
+        }
     }
 
     fn failed_result(&self, usage_changed: bool) -> ExecutionResult {
@@ -463,6 +532,14 @@ impl RunOutcome {
             Self::Failed => ImportOutcome::Failed,
         }
     }
+
+    const fn combine(self, next: Self) -> Self {
+        match (self, next) {
+            (Self::Failed, _) | (_, Self::Failed) => Self::Failed,
+            (Self::Partial, _) | (_, Self::Partial) => Self::Partial,
+            (Self::Succeeded, Self::Succeeded) => Self::Succeeded,
+        }
+    }
 }
 
 struct ExecutionResult {
@@ -489,6 +566,63 @@ fn clamp_count(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RefreshTarget {
+    source: SourceKey,
+    projection: CollectionProjection,
+}
+
+const fn refresh_targets() -> [RefreshTarget; 6] {
+    [
+        RefreshTarget {
+            source: SourceKey::ClaudeCode,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::ClaudeCode,
+            projection: CollectionProjection::Session,
+        },
+        RefreshTarget {
+            source: SourceKey::Codex,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::Codex,
+            projection: CollectionProjection::Session,
+        },
+        RefreshTarget {
+            source: SourceKey::OpenCode,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::OpenCode,
+            projection: CollectionProjection::Session,
+        },
+    ]
+}
+
+const fn projection_label(projection: CollectionProjection) -> &'static str {
+    match projection {
+        CollectionProjection::Daily => "daily",
+        CollectionProjection::Session => "session",
+    }
+}
+
+fn import_timezone(projection: CollectionProjection, timezone: &str) -> Option<String> {
+    match projection {
+        CollectionProjection::Daily => Some(timezone.to_owned()),
+        CollectionProjection::Session => None,
+    }
+}
+
+fn records_seen(collection: &CollectionResult) -> u32 {
+    let count = match collection.projection() {
+        CollectionProjection::Daily => collection.daily_candidates().len(),
+        CollectionProjection::Session => collection.session_candidates().len(),
+    };
+    clamp_count(count)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
@@ -502,7 +636,7 @@ mod tests {
     use crate::application::collection::{
         CandidateProvenance, CollectionMetadata, CollectionPeriod, CollectorDescriptor,
         CollectorFailure, CollectorFailureCode, DailyUsageCandidate, DetectionRequest,
-        DetectionResult, ProcessSummary, RejectedRecord,
+        DetectionResult, ProcessSummary, RejectedRecord, SessionUsageCandidate,
     };
     use crate::application::ports::run_store::RunStoreError;
     use crate::application::ports::usage_store::UsageStoreError;
@@ -628,7 +762,7 @@ mod tests {
     }
 
     struct FakeUsageStore {
-        reconciled: Mutex<Vec<CollectionOutcome>>,
+        reconciled: Mutex<Vec<(CollectionProjection, CollectionOutcome)>>,
         fail: AtomicBool,
     }
 
@@ -670,7 +804,21 @@ mod tests {
         }
 
         fn reconciled_outcomes(&self) -> Vec<CollectionOutcome> {
-            self.reconciled.lock().expect("lock").clone()
+            self.reconciled
+                .lock()
+                .expect("lock")
+                .iter()
+                .map(|(_, outcome)| *outcome)
+                .collect()
+        }
+
+        fn reconciled_projections(&self) -> Vec<CollectionProjection> {
+            self.reconciled
+                .lock()
+                .expect("lock")
+                .iter()
+                .map(|(projection, _)| *projection)
+                .collect()
         }
     }
 
@@ -685,7 +833,7 @@ mod tests {
             self.reconciled
                 .lock()
                 .expect("lock")
-                .push(request.outcome());
+                .push((CollectionProjection::Daily, request.outcome()));
             let observed = request
                 .candidates()
                 .iter()
@@ -706,7 +854,7 @@ mod tests {
             self.reconciled
                 .lock()
                 .expect("lock")
-                .push(request.outcome());
+                .push((CollectionProjection::Session, request.outcome()));
             let observed = request
                 .candidates()
                 .iter()
@@ -745,14 +893,14 @@ mod tests {
             .expect("timestamp")
     }
 
-    fn test_metadata() -> CollectionMetadata {
+    fn test_metadata(request: &CollectionRequest) -> CollectionMetadata {
         CollectionMetadata::new(
-            CollectionId::new("job-1").expect("collection id"),
+            request.collection_id().clone(),
             crate::application::collection::CollectorKey::new("fixture-collector")
                 .expect("collector key"),
             "20.0.11".to_owned(),
-            SourceKey::ClaudeCode,
-            CollectionScope::Full,
+            request.source(),
+            request.scope().clone(),
             1,
             CollectionPeriod {
                 started_at: timestamp(7),
@@ -762,7 +910,125 @@ mod tests {
         .expect("metadata")
     }
 
-    fn candidate() -> DailyUsageCandidate {
+    fn tokens() -> TokenUsage {
+        TokenUsage::new(Some(100), Some(0), Some(0), Some(0), 100).expect("tokens")
+    }
+
+    fn cost() -> UsageCost {
+        UsageCost::Valued {
+            amount_micros: 10_000,
+            currency: CurrencyCode::new("USD").expect("currency"),
+            kind: CostKind::CollectorCalculated,
+            status: ValuedCostStatus::Estimated,
+        }
+    }
+
+    fn provenance(request: &CollectionRequest) -> CandidateProvenance {
+        CandidateProvenance {
+            source: request.source(),
+            collector: crate::application::collection::CollectorKey::new("fixture-collector")
+                .expect("collector key"),
+            collector_version: "20.0.11".to_owned(),
+            profile_version: 1,
+            collection_id: request.collection_id().clone(),
+            observed_at: timestamp(8),
+            data_quality: DataQuality::Complete,
+            warnings: Vec::new(),
+        }
+    }
+
+    fn daily_candidate(request: &CollectionRequest) -> DailyUsageCandidate {
+        let aggregation_timezone = request.aggregation_timezone().unwrap_or("UTC").to_owned();
+        DailyUsageCandidate {
+            provenance: provenance(request),
+            source_key: format!(
+                "{}:daily:v1:{}:2026-06-13",
+                request.source().as_str(),
+                aggregation_timezone
+            ),
+            usage_date: chrono::NaiveDate::from_ymd_opt(2026, 6, 13).expect("date"),
+            aggregation_timezone,
+            tokens: tokens(),
+            cost: cost(),
+            model_breakdowns: Vec::new(),
+        }
+    }
+
+    fn session_candidate(request: &CollectionRequest) -> SessionUsageCandidate {
+        SessionUsageCandidate {
+            provenance: provenance(request),
+            source_key: format!("{}:session:v1:session-1", request.source().as_str()),
+            source_session_id: "session-1".to_owned(),
+            project_path: Some("/tmp/project".to_owned()),
+            first_activity_at: Some(timestamp(7)),
+            last_activity_at: Some(timestamp(8)),
+            tokens: tokens(),
+            cost: cost(),
+            model_breakdowns: Vec::new(),
+        }
+    }
+
+    fn rejected_record() -> RejectedRecord {
+        RejectedRecord {
+            code: "record.invalid".to_owned(),
+            record_index: Some(0),
+        }
+    }
+
+    fn collection_for_request(
+        request: &CollectionRequest,
+        rejections: Vec<RejectedRecord>,
+    ) -> CollectionResult {
+        match request.projection() {
+            CollectionProjection::Daily => CollectionResult::daily(
+                test_metadata(request),
+                vec![daily_candidate(request)],
+                rejections,
+                Vec::new(),
+                process_summary(),
+            )
+            .expect("collection result"),
+            CollectionProjection::Session => CollectionResult::session(
+                test_metadata(request),
+                vec![session_candidate(request)],
+                rejections,
+                Vec::new(),
+                process_summary(),
+            )
+            .expect("collection result"),
+        }
+    }
+
+    fn empty_collection_for_request(request: &CollectionRequest) -> CollectionResult {
+        match request.projection() {
+            CollectionProjection::Daily => CollectionResult::daily(
+                test_metadata(request),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                process_summary(),
+            )
+            .expect("collection result"),
+            CollectionProjection::Session => CollectionResult::session(
+                test_metadata(request),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                process_summary(),
+            )
+            .expect("collection result"),
+        }
+    }
+
+    fn legacy_collection() -> CollectionResult {
+        let request = CollectionRequest::daily(
+            CollectionId::new("job-1").expect("collection id"),
+            SourceKey::ClaudeCode,
+            CollectionScope::Full,
+            "UTC",
+            timestamp(8),
+        )
+        .expect("request");
         let tokens = TokenUsage::new(Some(100), Some(0), Some(0), Some(0), 100).expect("tokens");
         let cost = UsageCost::Valued {
             amount_micros: 10_000,
@@ -770,23 +1036,67 @@ mod tests {
             kind: CostKind::CollectorCalculated,
             status: ValuedCostStatus::Estimated,
         };
+        CollectionResult::daily(
+            test_metadata(&request),
+            vec![DailyUsageCandidate {
+                provenance: provenance(&request),
+                source_key: "claude-code:daily:v1:UTC:2026-06-13".to_owned(),
+                usage_date: chrono::NaiveDate::from_ymd_opt(2026, 6, 13).expect("date"),
+                aggregation_timezone: "UTC".to_owned(),
+                tokens,
+                cost,
+                model_breakdowns: Vec::new(),
+            }],
+            Vec::new(),
+            Vec::new(),
+            process_summary(),
+        )
+        .expect("collection result")
+    }
+
+    fn expected_refresh_targets() -> Vec<(SourceKey, CollectionProjection)> {
+        refresh_targets()
+            .iter()
+            .map(|target| (target.source, target.projection))
+            .collect()
+    }
+
+    fn expected_refresh_projections() -> Vec<CollectionProjection> {
+        refresh_targets()
+            .iter()
+            .map(|target| target.projection)
+            .collect()
+    }
+
+    fn repeated_import_outcomes(outcome: ImportOutcome) -> Vec<ImportOutcome> {
+        vec![outcome; refresh_targets().len()]
+    }
+
+    fn repeated_collection_outcomes(outcome: CollectionOutcome) -> Vec<CollectionOutcome> {
+        vec![outcome; refresh_targets().len()]
+    }
+
+    fn repeated_refresh_outcomes(outcome: RefreshOutcome) -> Vec<RefreshOutcome> {
+        vec![outcome]
+    }
+
+    #[allow(dead_code)]
+    fn candidate() -> DailyUsageCandidate {
+        let request = CollectionRequest::daily(
+            CollectionId::new("job-1").expect("collection id"),
+            SourceKey::ClaudeCode,
+            CollectionScope::Full,
+            "UTC",
+            timestamp(8),
+        )
+        .expect("request");
         DailyUsageCandidate {
-            provenance: CandidateProvenance {
-                source: SourceKey::ClaudeCode,
-                collector: crate::application::collection::CollectorKey::new("fixture-collector")
-                    .expect("collector key"),
-                collector_version: "20.0.11".to_owned(),
-                profile_version: 1,
-                collection_id: CollectionId::new("job-1").expect("collection id"),
-                observed_at: timestamp(8),
-                data_quality: DataQuality::Complete,
-                warnings: Vec::new(),
-            },
+            provenance: provenance(&request),
             source_key: "claude-code:daily:v1:UTC:2026-06-13".to_owned(),
             usage_date: chrono::NaiveDate::from_ymd_opt(2026, 6, 13).expect("date"),
             aggregation_timezone: "UTC".to_owned(),
-            tokens,
-            cost,
+            tokens: tokens(),
+            cost: cost(),
             model_breakdowns: Vec::new(),
         }
     }
@@ -800,37 +1110,34 @@ mod tests {
         }
     }
 
-    fn collection(
-        candidates: Vec<DailyUsageCandidate>,
-        rejections: Vec<RejectedRecord>,
-    ) -> CollectionResult {
-        CollectionResult::daily(
-            test_metadata(),
-            candidates,
-            rejections,
-            Vec::new(),
-            process_summary(),
-        )
-        .expect("collection result")
-    }
-
     struct ScriptedCollector {
-        behavior: Box<dyn Fn() -> Result<CollectionResult, CollectorFailure> + Send + Sync>,
+        behavior: Box<
+            dyn Fn(CollectionRequest) -> Result<CollectionResult, CollectorFailure> + Send + Sync,
+        >,
         calls: AtomicUsize,
+        requests: Mutex<Vec<(SourceKey, CollectionProjection)>>,
     }
 
     impl ScriptedCollector {
         fn new(
-            behavior: impl Fn() -> Result<CollectionResult, CollectorFailure> + Send + Sync + 'static,
+            behavior: impl Fn(CollectionRequest) -> Result<CollectionResult, CollectorFailure>
+                + Send
+                + Sync
+                + 'static,
         ) -> Self {
             Self {
                 behavior: Box::new(behavior),
                 calls: AtomicUsize::new(0),
+                requests: Mutex::new(Vec::new()),
             }
         }
 
         fn calls(&self) -> usize {
             self.calls.load(Ordering::Relaxed)
+        }
+
+        fn requests(&self) -> Vec<(SourceKey, CollectionProjection)> {
+            self.requests.lock().expect("lock").clone()
         }
     }
 
@@ -849,11 +1156,15 @@ mod tests {
 
         fn collect(
             &self,
-            _request: CollectionRequest,
+            request: CollectionRequest,
             _cancellation: &dyn CancellationSignal,
         ) -> Result<CollectionResult, CollectorFailure> {
             self.calls.fetch_add(1, Ordering::Relaxed);
-            (self.behavior)()
+            self.requests
+                .lock()
+                .expect("lock")
+                .push((request.source(), request.projection()));
+            (self.behavior)(request)
         }
     }
 
@@ -888,8 +1199,8 @@ mod tests {
 
     #[test]
     fn complete_collection_reconciles_and_succeeds() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(vec![candidate()], Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
 
@@ -899,22 +1210,30 @@ mod tests {
 
         assert_eq!(snapshot.status, RefreshStatus::Succeeded);
         assert_eq!(snapshot.last_successful_refresh_at_ms, Some(1_000));
-        assert_eq!(collector.calls(), 1);
+        assert_eq!(collector.calls(), refresh_targets().len());
+        assert_eq!(collector.requests(), expected_refresh_targets());
+        assert_eq!(
+            usage_store.reconciled_projections(),
+            expected_refresh_projections()
+        );
         assert_eq!(
             usage_store.reconciled_outcomes(),
-            vec![CollectionOutcome::Complete]
+            repeated_collection_outcomes(CollectionOutcome::Complete)
         );
-        assert_eq!(run_store.import_outcomes(), vec![ImportOutcome::Succeeded]);
+        assert_eq!(
+            run_store.import_outcomes(),
+            repeated_import_outcomes(ImportOutcome::Succeeded)
+        );
         assert_eq!(
             run_store.refresh_outcomes(),
-            vec![RefreshOutcome::Succeeded]
+            repeated_refresh_outcomes(RefreshOutcome::Succeeded)
         );
     }
 
     #[test]
     fn successful_refresh_records_completion_time() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(Vec::new(), Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(empty_collection_for_request(&request))
         }));
         let run_store = Arc::new(FakeRunStore::new());
         let usage_store = Arc::new(FakeUsageStore::new());
@@ -930,13 +1249,13 @@ mod tests {
         coordinator.request_refresh(RefreshTrigger::Manual);
         let snapshot = await_terminal(&coordinator);
 
-        assert_eq!(snapshot.last_successful_refresh_at_ms, Some(1_100));
+        assert_eq!(snapshot.last_successful_refresh_at_ms, Some(1_600));
     }
 
     #[test]
     fn event_sink_observes_submission_and_committed_completion() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(vec![candidate()], Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
         }));
         let run_store = Arc::new(FakeRunStore::new());
         let usage_store = Arc::new(FakeUsageStore::new());
@@ -965,8 +1284,8 @@ mod tests {
 
     #[test]
     fn empty_collection_succeeds_with_no_records() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(Vec::new(), Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(empty_collection_for_request(&request))
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector);
 
@@ -977,24 +1296,18 @@ mod tests {
         assert_eq!(snapshot.status, RefreshStatus::Succeeded);
         assert_eq!(
             usage_store.reconciled_outcomes(),
-            vec![CollectionOutcome::Empty]
+            repeated_collection_outcomes(CollectionOutcome::Empty)
         );
         assert_eq!(
             run_store.refresh_outcomes(),
-            vec![RefreshOutcome::Succeeded]
+            repeated_refresh_outcomes(RefreshOutcome::Succeeded)
         );
     }
 
     #[test]
     fn partial_collection_reports_partial_without_failing() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(
-                vec![candidate()],
-                vec![RejectedRecord {
-                    code: "record.invalid".to_owned(),
-                    record_index: Some(0),
-                }],
-            ))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, vec![rejected_record()]))
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector);
 
@@ -1005,19 +1318,25 @@ mod tests {
         assert_eq!(snapshot.status, RefreshStatus::Partial);
         assert_eq!(
             usage_store.reconciled_outcomes(),
-            vec![CollectionOutcome::Partial]
+            repeated_collection_outcomes(CollectionOutcome::Partial)
         );
-        assert_eq!(run_store.import_outcomes(), vec![ImportOutcome::Partial]);
-        assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Partial]);
+        assert_eq!(
+            run_store.import_outcomes(),
+            repeated_import_outcomes(ImportOutcome::Partial)
+        );
+        assert_eq!(
+            run_store.refresh_outcomes(),
+            repeated_refresh_outcomes(RefreshOutcome::Partial)
+        );
     }
 
     #[test]
     fn failed_collection_records_failure_and_changes_no_facts() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
+        let collector = Arc::new(ScriptedCollector::new(|request| {
             Err(CollectorFailure::new(
                 CollectorFailureCode::SpawnFailed,
-                Some(SourceKey::ClaudeCode),
-                Some(CollectionProjection::Daily),
+                Some(request.source()),
+                Some(request.projection()),
             ))
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector);
@@ -1035,8 +1354,8 @@ mod tests {
 
     #[test]
     fn source_resolution_failure_terminalizes_the_refresh_run() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(Vec::new(), Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(empty_collection_for_request(&request))
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector);
         run_store.fail_once(RunStoreFailure::ResolveSource);
@@ -1052,8 +1371,8 @@ mod tests {
 
     #[test]
     fn import_creation_failure_terminalizes_the_refresh_run() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(Vec::new(), Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(empty_collection_for_request(&request))
         }));
         let (coordinator, run_store, _usage_store) = coordinator_with(collector);
         run_store.fail_once(RunStoreFailure::BeginImport);
@@ -1068,8 +1387,8 @@ mod tests {
 
     #[test]
     fn reconciliation_failure_terminalizes_import_and_refresh_runs() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(vec![candidate()], Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
         }));
         let (coordinator, run_store, usage_store) = coordinator_with(collector);
         usage_store.fail();
@@ -1085,8 +1404,8 @@ mod tests {
 
     #[test]
     fn completion_failures_retry_terminal_cleanup() {
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(vec![candidate()], Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
         }));
         let (coordinator, run_store, _usage_store) = coordinator_with(collector);
         run_store.fail_once(RunStoreFailure::CompleteImport);
@@ -1098,8 +1417,8 @@ mod tests {
         assert_eq!(run_store.import_outcomes(), vec![ImportOutcome::Failed]);
         assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
 
-        let collector = Arc::new(ScriptedCollector::new(|| {
-            Ok(collection(vec![candidate()], Vec::new()))
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
         }));
         let (coordinator, run_store, _usage_store) = coordinator_with(collector);
         run_store.fail_once(RunStoreFailure::CompleteRefresh);
@@ -1108,7 +1427,10 @@ mod tests {
         let snapshot = await_terminal(&coordinator);
 
         assert_eq!(snapshot.status, RefreshStatus::Failed);
-        assert_eq!(run_store.import_outcomes(), vec![ImportOutcome::Succeeded]);
+        assert_eq!(
+            run_store.import_outcomes(),
+            repeated_import_outcomes(ImportOutcome::Succeeded)
+        );
         assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
     }
 
@@ -1161,7 +1483,7 @@ mod tests {
 
         fn collect(
             &self,
-            _request: CollectionRequest,
+            request: CollectionRequest,
             _cancellation: &dyn CancellationSignal,
         ) -> Result<CollectionResult, CollectorFailure> {
             self.calls.fetch_add(1, Ordering::Relaxed);
@@ -1177,7 +1499,7 @@ mod tests {
                     released = condvar.wait(released).expect("wait release");
                 }
             }
-            Ok(collection(Vec::new(), Vec::new()))
+            Ok(empty_collection_for_request(&request))
         }
     }
 
@@ -1200,7 +1522,7 @@ mod tests {
             RefreshStatus::Succeeded
         );
 
-        assert_eq!(collector.calls(), 1);
+        assert_eq!(collector.calls(), refresh_targets().len());
     }
 
     #[test]

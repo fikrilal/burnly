@@ -46,3 +46,16 @@ OpenCode JSON reports follow the same `ccusage` schema patterns as Claude Code a
 
 - Run Rust tests verifying the decoders and mappers for OpenCode.
 - Run `pnpm verify` to verify no formatting, linting, or compiler regressions are introduced.
+
+## Remediation Note
+
+2026-06-18 Phase 6 remediation corrected stale parts of this plan:
+
+- Refresh orchestration now requests OpenCode daily and session projections
+  during normal refresh, not only through isolated collector tests.
+- The frontend overview schema now accepts OpenCode source rows according to the
+  generated string contract.
+- The collector process fixture, bridge evidence, and collector fixture harness
+  now cover OpenCode daily and session routing.
+- Verification is recorded in
+  `docs/exec-plans/active/2026-06-18_phase-6-remediation.md`.

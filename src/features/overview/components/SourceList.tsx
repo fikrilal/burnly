@@ -46,7 +46,17 @@ export function SourceList({ sources }: SourceListProps) {
               </td>
               <td className="px-6 py-4">{formatNumber(source.totalTokens)}</td>
               <td className="px-6 py-4">
-                {formatCurrency(source.cost.amountMicros, source.cost.currency)}
+                <div className="flex flex-col">
+                  <span>
+                    {formatCurrency(
+                      source.cost.amountMicros,
+                      source.cost.currency,
+                    )}
+                  </span>
+                  <span className="text-xs text-zinc-500">
+                    {source.cost.completeness}
+                  </span>
+                </div>
               </td>
               <td className="px-6 py-4">{source.activeDays}</td>
             </tr>

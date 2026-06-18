@@ -3,9 +3,16 @@ use crate::domain::usage::{SessionDetail, UsageSession};
 #[derive(Debug, Clone)]
 pub(crate) struct SessionPagination {
     pub limit: u32,
-    pub after_activity_ms: Option<i64>,
+    pub after: Option<SessionPageCursor>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SessionPageCursor {
+    pub last_activity_at_ms: Option<i64>,
+    pub session_id: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SessionStoreError {
     Backend,
     NotFound,

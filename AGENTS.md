@@ -35,6 +35,7 @@ Burnly is a local desktop app for AI coding-tool token usage.
 - Fast local gate: `pnpm verify:fast`
 - Full local gate: `pnpm verify`
 - Architecture harness: `pnpm architecture:check`
+- Desktop runtime gate: `pnpm verify:runtime`
 - Desktop runtime evidence: `pnpm evidence:desktop`
 
 Record commands and outcomes in the active execution plan for implementation work.

@@ -464,12 +464,17 @@ mod tests {
             })
             .expect("refresh reaches terminal state");
 
-        assert_eq!(terminal["data"]["status"], "succeeded");
         let connection = Connection::open(&database_path).expect("open persisted database");
+        assert_eq!(
+            terminal["data"]["status"],
+            "succeeded",
+            "import statuses: {}",
+            import_statuses(&connection)
+        );
         let daily_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM daily_usage", [], |row| row.get(0))
             .expect("count daily usage");
-        assert_eq!(daily_count, 2);
+        assert_eq!(daily_count, 6);
         drop(connection);
 
         let overview = tauri::test::get_ipc_response(
@@ -490,11 +495,13 @@ mod tests {
         .expect("deserialize usage overview");
 
         assert_eq!(overview["ok"], true);
-        assert_eq!(overview["data"]["totalTokens"], "2500");
+        assert_eq!(overview["data"]["totalTokens"], "7500");
         assert_eq!(overview["data"]["activeDays"], 2);
-        assert_eq!(overview["data"]["cost"]["amountMicros"], "630000");
+        assert_eq!(overview["data"]["cost"]["amountMicros"], "1890000");
         assert_eq!(overview["data"]["cost"]["valuation"], "estimated");
         assert_eq!(overview["data"]["sources"][0]["source"], "claude-code");
+        assert_eq!(overview["data"]["sources"][1]["source"], "codex");
+        assert_eq!(overview["data"]["sources"][2]["source"], "opencode");
         assert_eq!(overview["data"]["dataStatus"], "current");
         assert!(overview["data"]["asOf"]
             .as_str()
@@ -506,6 +513,34 @@ mod tests {
         connection
             .query_row("SELECT COUNT(*) FROM app_settings", [], |row| row.get(0))
             .expect("count settings")
+    }
+
+    fn import_statuses(connection: &Connection) -> String {
+        let mut statement = connection
+            .prepare(
+                "SELECT sources.source_key, import_runs.projection, import_runs.status,
+                    import_runs.error_code, import_runs.error_detail
+                FROM import_runs
+                INNER JOIN sources ON sources.id = import_runs.source_id
+                ORDER BY import_runs.id",
+            )
+            .expect("prepare import status query");
+        let rows = statement
+            .query_map([], |row| {
+                Ok(format!(
+                    "{}:{}:{}:{:?}:{:?}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .expect("query import statuses");
+
+        rows.map(|row| row.expect("import status row"))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     fn expect_startup_error(result: Result<Database, StartupError>, message: &str) -> StartupError {

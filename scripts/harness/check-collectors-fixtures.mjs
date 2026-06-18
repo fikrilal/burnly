@@ -33,35 +33,83 @@ for (const fixture of processFixtures) {
   }
 }
 
-const envelopeDirectory = path.join(fixturesDir, "claude-daily");
-const expectedEnvelopeFixtures = [
-  "additive-fields.json",
-  "empty.json",
-  "incompatible-envelope.json",
-  "invalid-date.json",
-  "invalid-json.json",
-  "invalid-number.json",
-  "valid.json",
-];
-const actualEnvelopeFixtures = (await readdir(envelopeDirectory)).sort();
+const envelopeMatrices = new Map([
+  [
+    "claude-daily",
+    [
+      "additive-fields.json",
+      "empty.json",
+      "incompatible-envelope.json",
+      "invalid-date.json",
+      "invalid-json.json",
+      "invalid-number.json",
+      "valid.json",
+    ],
+  ],
+  ["claude-session", ["valid.json"]],
+  [
+    "codex-daily",
+    [
+      "empty.json",
+      "incompatible-envelope.json",
+      "invalid-json.json",
+      "valid.json",
+    ],
+  ],
+  [
+    "codex-session",
+    [
+      "empty.json",
+      "incompatible-envelope.json",
+      "invalid-json.json",
+      "valid.json",
+    ],
+  ],
+  [
+    "opencode-daily",
+    [
+      "empty.json",
+      "incompatible-envelope.json",
+      "invalid-json.json",
+      "valid.json",
+    ],
+  ],
+  [
+    "opencode-session",
+    [
+      "empty.json",
+      "incompatible-envelope.json",
+      "invalid-json.json",
+      "valid.json",
+    ],
+  ],
+]);
 
-if (
-  JSON.stringify(actualEnvelopeFixtures) !==
-  JSON.stringify(expectedEnvelopeFixtures)
-) {
-  throw new Error(
-    "Claude daily fixture matrix does not match the reviewed set",
-  );
-}
+for (const [directoryName, expectedFixtures] of envelopeMatrices) {
+  const envelopeDirectory = path.join(fixturesDir, directoryName);
+  const actualEnvelopeFixtures = (await readdir(envelopeDirectory)).sort();
 
-for (const fixture of actualEnvelopeFixtures) {
-  const content = await readFile(path.join(envelopeDirectory, fixture), "utf8");
-  if (fixture === "invalid-json.json") {
-    assertInvalidJson(content, fixture);
-    continue;
+  if (
+    JSON.stringify(actualEnvelopeFixtures) !== JSON.stringify(expectedFixtures)
+  ) {
+    throw new Error(
+      `${directoryName} fixture matrix does not match the reviewed set`,
+    );
   }
-  const envelope = JSON.parse(content);
-  assertSanitized(envelope, fixture);
+
+  for (const fixture of actualEnvelopeFixtures) {
+    const content = await readFile(
+      path.join(envelopeDirectory, fixture),
+      "utf8",
+    );
+    const fixtureName = `${directoryName}/${fixture}`;
+    if (fixture === "invalid-json.json") {
+      assertInvalidJson(content, fixtureName);
+      continue;
+    }
+    const envelope = JSON.parse(content);
+    assertSanitized(envelope, fixtureName);
+  }
 }
 
 assertEqual(manifest.collectorKey, "ccusage", "collector key");
@@ -87,7 +135,7 @@ for (const entry of manifest.entries) {
 }
 
 console.log(
-  "Collector manifest, process fixtures, and Claude daily envelope matrix passed.",
+  "Collector manifest, process fixtures, and envelope fixture matrices passed.",
 );
 
 function assertEqual(actual, expected, field) {
@@ -130,10 +178,17 @@ function assertSanitized(value, fixture) {
     "prompt",
     "projectPath",
     "requestId",
-    "sessionId",
     "transcriptPath",
   ]);
   visit(value, (key, entry) => {
+    if (
+      key === "sessionId" &&
+      (typeof entry !== "string" || !/^session-[0-9]+$/.test(entry))
+    ) {
+      throw new Error(
+        `collector fixture ${fixture} contains a non-synthetic sessionId`,
+      );
+    }
     if (forbiddenKeys.has(key)) {
       throw new Error(
         `collector fixture ${fixture} contains sensitive key ${key}`,

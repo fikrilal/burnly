@@ -111,6 +111,9 @@ describe("usage overview IPC", () => {
     expect(result.data.cost.valuation).toBe("estimated");
     expect(result.data.cost.completeness).toBe("partial");
     expect(result.data.dataStatus).toBe("partial");
+    expect(result.data.sources.map((source) => source.source)).toContain(
+      "opencode",
+    );
   });
 });
 
@@ -236,6 +239,19 @@ function usageOverview(): IpcResponse<UsageOverviewResponse> {
             unavailableDays: 1,
           },
           hasPartialData: true,
+        },
+        {
+          source: "opencode",
+          totalTokens: "1200",
+          activeDays: 1,
+          cost: {
+            amountMicros: null,
+            currency: null,
+            valuation: "unavailable",
+            completeness: "unavailable",
+            unavailableDays: 1,
+          },
+          hasPartialData: false,
         },
       ],
       models: [],

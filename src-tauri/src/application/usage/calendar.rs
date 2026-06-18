@@ -41,6 +41,10 @@ impl CalendarPeriod {
     pub(crate) const fn end_date(&self) -> NaiveDate {
         self.end_date
     }
+
+    pub(crate) fn aggregation_timezone(&self) -> &str {
+        &self.aggregation_timezone
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

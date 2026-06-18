@@ -1,137 +1,28 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-// This test mounts the frontend and mocks window.__TAURI_IPC__ to capture visual states
-// without needing the full Rust backend binary compiled for testing UI.
-test.describe("Desktop Evidence: UI States", () => {
-  test.beforeEach(async ({ page }) => {
-    // Intercept and mock Tauri IPC calls before page loads
-    await page.addInitScript(() => {
-      // Mock both __TAURI_INTERNALS__ and __TAURI_IPC__ for compatibility
-      const mockInvoke = async (command: string, args: any) => {
-        const meta = {
-          contractVersion: 1,
-          requestId: crypto.randomUUID(),
-          generatedAt: new Date().toISOString(),
-        };
+const settings = {
+  reportingTimezone: "UTC",
+  backgroundRefreshEnabled: false,
+  refreshIntervalMinutes: 15,
+  launchAtLogin: false,
+  closeBehavior: "quit",
+  notificationsEnabled: false,
+  storeProjectPaths: false,
+} as const;
 
-        if (command === "__burnly_contract_probe") {
-          return { ok: true, meta, data: { status: "ok", contractVersion: 1 } };
-        }
-        if (command === "usage_get_overview") {
-          return {
-            ok: true,
-            meta,
-            data: {
-              period: {
-                startDate: "2026-05-16",
-                endDate: "2026-06-15",
-                reportingTimezone: "UTC",
-              },
-              totalTokens: "1500000",
-              activeDays: 14,
-              cost: {
-                amountMicros: "3500000",
-                currency: "USD",
-                valuation: "estimated",
-                completeness: "partial",
-                unavailableDays: 0,
-              },
-              sources: [
-                {
-                  source: "claude-code",
-                  totalTokens: "1000000",
-                  activeDays: 10,
-                  cost: {
-                    amountMicros: "2500000",
-                    currency: "USD",
-                    valuation: "available",
-                    completeness: "complete",
-                    unavailableDays: 0,
-                  },
-                  hasPartialData: false,
-                },
-              ],
-              asOf: "2026-06-15T12:00:00Z",
-              lastSuccessfulRefreshAt: "2026-06-15T10:00:00Z",
-              dataStatus: "current",
-            },
-          };
-        }
-        if (command === "app_get_bootstrap") {
-          return {
-            ok: true,
-            meta,
-            data: {
-              appVersion: "1.0.0",
-              contractVersion: 1,
-              database: { status: "ready", schemaVersion: 1 },
-              settings: { reportingTimezone: "UTC" },
-              features: {
-                usageOverview: true,
-                collectorRefresh: true,
-                budgets: true,
-                settings: true,
-              },
-              sources: {
-                status: "not_configured",
-                detectedCount: 0,
-                configuredCount: 0,
-                enabledCount: 0,
-              },
-              refresh: {
-                status: "idle",
-                currentJobId: null,
-                lastSuccessfulRefreshAt: null,
-              },
-              onboardingComplete: true,
-            },
-          };
-        }
-        if (command === "app_get_capabilities") {
-          return {
-            ok: true,
-            meta,
-            data: {
-              tray: { supported: true, status: "not_implemented" },
-              launchAtLogin: { supported: true, status: "not_implemented" },
-              nativeNotifications: {
-                supported: true,
-                status: "not_implemented",
-              },
-              updates: { supported: true, status: "not_implemented" },
-              exportFormats: ["csv"],
-              diagnostics: { desktopEvidence: true },
-            },
-          };
-        }
-        if (command === "refresh_request" || command === "refresh_get_state") {
-          return {
-            ok: true,
-            meta,
-            data: {
-              status: "idle",
-              lastSuccessfulRefreshAt: null,
-              jobId: null,
-              trigger: "manual",
-            },
-          };
-        }
-        console.warn(`Unmocked IPC command: ${command}`);
-        return { ok: true, meta, data: null };
-      };
+const meta = () => ({
+  contractVersion: 1,
+  requestId: crypto.randomUUID(),
+  generatedAt: new Date().toISOString(),
+});
 
-      window.__TAURI_INTERNALS__ = { invoke: mockInvoke };
-      window.__TAURI_IPC__ = mockInvoke;
-    });
-  });
-
+test.describe("Desktop Evidence: overview states", () => {
   test("captures populated dashboard evidence", async ({ page }, testInfo) => {
-    await page.goto("/");
-    await expect(page.locator("text=Overview").first()).toBeVisible();
-    await expect(page.locator("text=1,500,000")).toBeVisible();
+    await installTauriMock(page, "populated");
 
-    // Ensure fonts and icons load before screenshot
-    await page.waitForTimeout(500);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+    await expect(page.getByText("1,500,000").first()).toBeVisible();
 
     await page.screenshot({
       path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-populated.png`,
@@ -140,109 +31,10 @@ test.describe("Desktop Evidence: UI States", () => {
   });
 
   test("captures empty state evidence", async ({ page }, testInfo) => {
-    // Override the mock for empty state
-    await page.addInitScript(() => {
-      const mockInvoke = async (command: string) => {
-        const meta = {
-          contractVersion: 1,
-          requestId: crypto.randomUUID(),
-          generatedAt: new Date().toISOString(),
-        };
-        if (command === "__burnly_contract_probe") {
-          return { ok: true, meta, data: { status: "ok", contractVersion: 1 } };
-        }
-        if (command === "usage_get_overview") {
-          return {
-            ok: true,
-            meta,
-            data: {
-              period: {
-                startDate: "2026-05-16",
-                endDate: "2026-06-15",
-                reportingTimezone: "UTC",
-              },
-              totalTokens: "0",
-              activeDays: 0,
-              cost: {
-                amountMicros: "0",
-                currency: "USD",
-                valuation: "estimated",
-                completeness: "complete",
-                unavailableDays: 0,
-              },
-              sources: [],
-              asOf: "2026-06-15T12:00:00Z",
-              lastSuccessfulRefreshAt: null,
-              dataStatus: "empty",
-            },
-          };
-        }
-        if (command === "app_get_bootstrap") {
-          return {
-            ok: true,
-            meta,
-            data: {
-              appVersion: "1.0.0",
-              contractVersion: 1,
-              database: { status: "ready", schemaVersion: 1 },
-              settings: { reportingTimezone: "UTC" },
-              features: {
-                usageOverview: true,
-                collectorRefresh: true,
-                budgets: true,
-                settings: true,
-              },
-              sources: {
-                status: "not_configured",
-                detectedCount: 0,
-                configuredCount: 0,
-                enabledCount: 0,
-              },
-              refresh: {
-                status: "idle",
-                currentJobId: null,
-                lastSuccessfulRefreshAt: null,
-              },
-              onboardingComplete: true,
-            },
-          };
-        }
-        if (command === "app_get_capabilities") {
-          return {
-            ok: true,
-            meta,
-            data: {
-              tray: { supported: true, status: "not_implemented" },
-              launchAtLogin: { supported: true, status: "not_implemented" },
-              nativeNotifications: {
-                supported: true,
-                status: "not_implemented",
-              },
-              updates: { supported: true, status: "not_implemented" },
-              exportFormats: ["csv"],
-              diagnostics: { desktopEvidence: true },
-            },
-          };
-        }
-        if (command === "refresh_request" || command === "refresh_get_state") {
-          return {
-            ok: true,
-            meta,
-            data: {
-              status: "idle",
-              lastSuccessfulRefreshAt: null,
-              jobId: null,
-              trigger: "manual",
-            },
-          };
-        }
-        return { ok: true, meta, data: null };
-      };
-      window.__TAURI_INTERNALS__ = { invoke: mockInvoke };
-    });
+    await installTauriMock(page, "empty");
 
     await page.goto("/");
-    await expect(page.locator("text=No data collected")).toBeVisible();
+    await expect(page.getByText("No data collected")).toBeVisible();
 
     await page.screenshot({
       path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-empty.png`,
@@ -251,123 +43,12 @@ test.describe("Desktop Evidence: UI States", () => {
   });
 
   test("captures error state evidence", async ({ page }, testInfo) => {
-    await page.addInitScript(() => {
-      const mockInvoke = async (command: string) => {
-        if (command === "__burnly_contract_probe") {
-          return {
-            ok: true,
-            meta: {
-              contractVersion: 1,
-              requestId: crypto.randomUUID(),
-              generatedAt: new Date().toISOString(),
-            },
-            data: { status: "ok", contractVersion: 1 },
-          };
-        }
-        if (command === "usage_get_overview") {
-          return {
-            ok: false,
-            meta: {
-              contractVersion: 1,
-              requestId: crypto.randomUUID(),
-              generatedAt: new Date().toISOString(),
-            },
-            error: {
-              code: "network.error",
-              message: "Simulated network error",
-              category: "unavailable",
-              retryable: true,
-              details: null,
-            },
-          };
-        }
-        if (command === "app_get_bootstrap") {
-          return {
-            ok: true,
-            meta: {
-              contractVersion: 1,
-              requestId: crypto.randomUUID(),
-              generatedAt: new Date().toISOString(),
-            },
-            data: {
-              appVersion: "1.0.0",
-              contractVersion: 1,
-              database: { status: "ready", schemaVersion: 1 },
-              settings: { reportingTimezone: "UTC" },
-              features: {
-                usageOverview: true,
-                collectorRefresh: true,
-                budgets: true,
-                settings: true,
-              },
-              sources: {
-                status: "not_configured",
-                detectedCount: 0,
-                configuredCount: 0,
-                enabledCount: 0,
-              },
-              refresh: {
-                status: "idle",
-                currentJobId: null,
-                lastSuccessfulRefreshAt: null,
-              },
-              onboardingComplete: true,
-            },
-          };
-        }
-        if (command === "app_get_capabilities") {
-          return {
-            ok: true,
-            meta: {
-              contractVersion: 1,
-              requestId: crypto.randomUUID(),
-              generatedAt: new Date().toISOString(),
-            },
-            data: {
-              tray: { supported: true, status: "not_implemented" },
-              launchAtLogin: { supported: true, status: "not_implemented" },
-              nativeNotifications: {
-                supported: true,
-                status: "not_implemented",
-              },
-              updates: { supported: true, status: "not_implemented" },
-              exportFormats: ["csv"],
-              diagnostics: { desktopEvidence: true },
-            },
-          };
-        }
-        if (command === "refresh_request" || command === "refresh_get_state") {
-          return {
-            ok: true,
-            meta: {
-              contractVersion: 1,
-              requestId: crypto.randomUUID(),
-              generatedAt: new Date().toISOString(),
-            },
-            data: {
-              status: "idle",
-              lastSuccessfulRefreshAt: null,
-              jobId: null,
-              trigger: "manual",
-            },
-          };
-        }
-        return {
-          ok: true,
-          meta: {
-            contractVersion: 1,
-            requestId: crypto.randomUUID(),
-            generatedAt: new Date().toISOString(),
-          },
-          data: null,
-        };
-      };
-      window.__TAURI_INTERNALS__ = { invoke: mockInvoke };
-    });
+    await installTauriMock(page, "error");
 
     await page.goto("/");
+    await expect(page.getByText("Failed to load overview data")).toBeVisible();
     await expect(
-      page.locator("text=Failed to load overview data"),
+      page.getByText("Burnly could not load overview data. Try again."),
     ).toBeVisible();
 
     await page.screenshot({
@@ -375,4 +56,386 @@ test.describe("Desktop Evidence: UI States", () => {
       fullPage: true,
     });
   });
+
+  test("refresh invalidation re-queries authoritative overview", async ({
+    page,
+  }) => {
+    await installTauriMock(page, "populated");
+
+    await page.goto("/");
+    await expect(page.getByText("1,500,000").first()).toBeVisible();
+
+    await page.getByRole("button", { name: "Refresh Now" }).click();
+
+    await expect(page.getByText("Refresh running")).toBeVisible();
+    await expect(page.getByText("2,000,000").first()).toBeVisible();
+  });
 });
+
+async function installTauriMock(
+  page: Parameters<Parameters<typeof test>[1]>[0]["page"],
+  mode: "populated" | "empty" | "error",
+) {
+  await page.addInitScript((initialMode) => {
+    let overviewMode = initialMode;
+    let overviewTokens = "1500000";
+    let nextEventId = 1;
+    const callbacks = new Map<number, (event: unknown) => void>();
+    const listeners = new Map<string, Set<number>>();
+    const pageMeta = () => ({
+      contractVersion: 1,
+      requestId: crypto.randomUUID(),
+      generatedAt: new Date().toISOString(),
+    });
+
+    const pageSettings = {
+      reportingTimezone: "UTC",
+      backgroundRefreshEnabled: false,
+      refreshIntervalMinutes: 15,
+      launchAtLogin: false,
+      closeBehavior: "quit",
+      notificationsEnabled: false,
+      storeProjectPaths: false,
+    };
+
+    const pageBootstrapResponse = () => ({
+      ok: true,
+      meta: pageMeta(),
+      data: {
+        appVersion: "1.0.0",
+        contractVersion: 1,
+        database: { status: "ready", schemaVersion: 1 },
+        settings: pageSettings,
+        features: {
+          usageOverview: true,
+          collectorRefresh: true,
+          budgets: true,
+          settings: true,
+        },
+        sources: {
+          status: "not_configured",
+          detectedCount: 0,
+          configuredCount: 0,
+          enabledCount: 0,
+        },
+        refresh: {
+          status: "idle",
+          currentJobId: null,
+          lastSuccessfulRefreshAt: null,
+        },
+        onboardingComplete: true,
+      },
+    });
+
+    const pageCapabilitiesResponse = () => {
+      const capability = { supported: true, status: "not_implemented" };
+      return {
+        ok: true,
+        meta: pageMeta(),
+        data: {
+          tray: capability,
+          launchAtLogin: capability,
+          nativeNotifications: capability,
+          updates: capability,
+          exportFormats: ["csv"],
+          diagnostics: { desktopEvidence: true },
+        },
+      };
+    };
+
+    const pageRefreshResponse = (status: "idle" | "running") => ({
+      ok: true,
+      meta: pageMeta(),
+      data: {
+        status,
+        lastSuccessfulRefreshAt: null,
+        jobId: status === "running" ? "refresh-evidence-1" : null,
+        trigger: status === "running" ? "manual" : null,
+      },
+    });
+
+    const pageOverviewResponse = (
+      totalTokens: string,
+      dataStatus: "current" | "empty",
+    ) => ({
+      period: {
+        startDate: "2026-05-16",
+        endDate: "2026-06-15",
+        reportingTimezone: "UTC",
+      },
+      totalTokens,
+      activeDays: dataStatus === "empty" ? 0 : 14,
+      cost: {
+        amountMicros: dataStatus === "empty" ? null : "3500000",
+        currency: dataStatus === "empty" ? null : "USD",
+        valuation: dataStatus === "empty" ? "unavailable" : "estimated",
+        completeness: dataStatus === "empty" ? "unavailable" : "partial",
+        unavailableDays: dataStatus === "empty" ? 31 : 1,
+      },
+      sources:
+        dataStatus === "empty"
+          ? []
+          : [
+              {
+                source: "claude-code",
+                totalTokens,
+                activeDays: 14,
+                cost: {
+                  amountMicros: "3500000",
+                  currency: "USD",
+                  valuation: "estimated",
+                  completeness: "partial",
+                  unavailableDays: 1,
+                },
+                hasPartialData: true,
+              },
+            ],
+      models:
+        dataStatus === "empty"
+          ? []
+          : [
+              {
+                name: "claude-sonnet-4",
+                totalTokens,
+                cost: {
+                  amountMicros: "3500000",
+                  currency: "USD",
+                  valuation: "estimated",
+                  completeness: "partial",
+                  unavailableDays: 1,
+                },
+              },
+            ],
+      asOf: "2026-06-15T12:00:00Z",
+      lastSuccessfulRefreshAt:
+        dataStatus === "empty" ? null : "2026-06-15T10:00:00Z",
+      dataStatus,
+    });
+
+    const emit = (event: string, payload: Record<string, unknown>) => {
+      const ids = listeners.get(event);
+      if (!ids) return;
+
+      for (const id of ids) {
+        callbacks.get(id)?.({ event, id, payload });
+      }
+    };
+
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+      unregisterListener(event: string, eventId: number) {
+        listeners.get(event)?.delete(eventId);
+        callbacks.delete(eventId);
+      },
+    };
+
+    window.__TAURI_INTERNALS__ = {
+      transformCallback(callback: (event: unknown) => void) {
+        const id = nextEventId;
+        nextEventId += 1;
+        callbacks.set(id, callback);
+        return id;
+      },
+      unregisterCallback(id: number) {
+        callbacks.delete(id);
+      },
+      invoke(command: string, args: Record<string, unknown>) {
+        if (command === "plugin:event|listen") {
+          const event = String(args.event);
+          const handler = Number(args.handler);
+          const eventIds = listeners.get(event) ?? new Set<number>();
+          eventIds.add(handler);
+          listeners.set(event, eventIds);
+          return Promise.resolve(handler);
+        }
+
+        if (command === "plugin:event|unlisten") {
+          const event = String(args.event);
+          const eventId = Number(args.eventId);
+          listeners.get(event)?.delete(eventId);
+          callbacks.delete(eventId);
+          return Promise.resolve(null);
+        }
+
+        if (command === "__burnly_contract_probe") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: { status: "ok", contractVersion: 1 },
+          });
+        }
+
+        if (command === "app_get_bootstrap") {
+          return Promise.resolve(pageBootstrapResponse());
+        }
+
+        if (command === "app_get_capabilities") {
+          return Promise.resolve(pageCapabilitiesResponse());
+        }
+
+        if (command === "refresh_get_state") {
+          return Promise.resolve(pageRefreshResponse("idle"));
+        }
+
+        if (command === "refresh_request") {
+          setTimeout(() => {
+            emit("burnly://v1/refresh-progress", { status: "running" });
+            overviewTokens = "2000000";
+            overviewMode = "populated";
+            emit("burnly://v1/data-invalidated", { scope: "usage" });
+          }, 20);
+
+          return Promise.resolve(pageRefreshResponse("running"));
+        }
+
+        if (command === "usage_get_overview") {
+          if (overviewMode === "error") {
+            return Promise.resolve({
+              ok: false,
+              meta: pageMeta(),
+              error: {
+                code: "overview.unavailable",
+                message: "Simulated overview error",
+                category: "unavailable",
+                retryable: true,
+                details: null,
+              },
+            });
+          }
+
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data:
+              overviewMode === "empty"
+                ? pageOverviewResponse("0", "empty")
+                : pageOverviewResponse(overviewTokens, "current"),
+          });
+        }
+
+        return Promise.resolve({ ok: true, meta: pageMeta(), data: null });
+      },
+    };
+
+    window.__TAURI_IPC__ = window.__TAURI_INTERNALS__.invoke;
+  }, mode);
+}
+
+function bootstrapResponse() {
+  return {
+    ok: true,
+    meta: meta(),
+    data: {
+      appVersion: "1.0.0",
+      contractVersion: 1,
+      database: { status: "ready", schemaVersion: 1 },
+      settings,
+      features: {
+        usageOverview: true,
+        collectorRefresh: true,
+        budgets: true,
+        settings: true,
+      },
+      sources: {
+        status: "not_configured",
+        detectedCount: 0,
+        configuredCount: 0,
+        enabledCount: 0,
+      },
+      refresh: {
+        status: "idle",
+        currentJobId: null,
+        lastSuccessfulRefreshAt: null,
+      },
+      onboardingComplete: true,
+    },
+  };
+}
+
+function capabilitiesResponse() {
+  const capability = { supported: true, status: "not_implemented" };
+  return {
+    ok: true,
+    meta: meta(),
+    data: {
+      tray: capability,
+      launchAtLogin: capability,
+      nativeNotifications: capability,
+      updates: capability,
+      exportFormats: ["csv"],
+      diagnostics: { desktopEvidence: true },
+    },
+  };
+}
+
+function refreshResponse(status: "idle" | "running") {
+  return {
+    ok: true,
+    meta: meta(),
+    data: {
+      status,
+      lastSuccessfulRefreshAt: null,
+      jobId: status === "running" ? "refresh-evidence-1" : null,
+      trigger: status === "running" ? "manual" : null,
+    },
+  };
+}
+
+function overviewResponse(
+  totalTokens: string,
+  dataStatus: "current" | "empty",
+) {
+  return {
+    period: {
+      startDate: "2026-05-16",
+      endDate: "2026-06-15",
+      reportingTimezone: "UTC",
+    },
+    totalTokens,
+    activeDays: dataStatus === "empty" ? 0 : 14,
+    cost: {
+      amountMicros: dataStatus === "empty" ? null : "3500000",
+      currency: dataStatus === "empty" ? null : "USD",
+      valuation: dataStatus === "empty" ? "unavailable" : "estimated",
+      completeness: dataStatus === "empty" ? "unavailable" : "partial",
+      unavailableDays: dataStatus === "empty" ? 31 : 1,
+    },
+    sources:
+      dataStatus === "empty"
+        ? []
+        : [
+            {
+              source: "claude-code",
+              totalTokens,
+              activeDays: 14,
+              cost: {
+                amountMicros: "3500000",
+                currency: "USD",
+                valuation: "estimated",
+                completeness: "partial",
+                unavailableDays: 1,
+              },
+              hasPartialData: true,
+            },
+          ],
+    models:
+      dataStatus === "empty"
+        ? []
+        : [
+            {
+              name: "claude-sonnet-4",
+              totalTokens,
+              cost: {
+                amountMicros: "3500000",
+                currency: "USD",
+                valuation: "estimated",
+                completeness: "partial",
+                unavailableDays: 1,
+              },
+            },
+          ],
+    asOf: "2026-06-15T12:00:00Z",
+    lastSuccessfulRefreshAt:
+      dataStatus === "empty" ? null : "2026-06-15T10:00:00Z",
+    dataStatus,
+  };
+}

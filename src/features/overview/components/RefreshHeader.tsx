@@ -1,12 +1,16 @@
 import { RefreshCw } from "lucide-react";
 import { formatDateTime } from "../../../lib/format";
-import type { UsageOverviewResponse } from "../../../ipc/generated/contracts";
+import type {
+  RefreshStatusResponse,
+  UsageOverviewResponse,
+} from "../../../ipc/generated/contracts";
 
 interface RefreshHeaderProps {
   dataStatus: UsageOverviewResponse["dataStatus"];
   lastRefreshAt: string | null;
   onRefresh: () => void;
   isRefreshing: boolean;
+  refreshStatus: RefreshStatusResponse["status"] | null;
 }
 
 export function RefreshHeader({
@@ -14,6 +18,7 @@ export function RefreshHeader({
   lastRefreshAt,
   onRefresh,
   isRefreshing,
+  refreshStatus,
 }: RefreshHeaderProps) {
   const statusColors = {
     current: "text-green-400 bg-green-400/10 border-green-400/20",
@@ -31,7 +36,9 @@ export function RefreshHeader({
           {dataStatus}
         </span>
         <p className="mt-1 text-xs text-zinc-500">
-          Last updated: {formatDateTime(lastRefreshAt)}
+          {refreshStatus && isRefreshing
+            ? `Refresh ${refreshStatus}`
+            : `Last updated: ${formatDateTime(lastRefreshAt)}`}
         </p>
       </div>
       <button

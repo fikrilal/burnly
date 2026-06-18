@@ -46,14 +46,14 @@ medium
 
 ## Checklist
 
-- [ ] Add the root TanStack Query provider.
-- [ ] Add overview query key, fetch function, and typed hook.
-- [ ] Add typed refresh and invalidation subscriptions.
-- [ ] Re-query after committed usage changes.
-- [ ] Preserve prior data during re-fetch and refresh failure.
-- [ ] Add query and subscription lifecycle tests.
-- [ ] Run frontend, contract, architecture, and full verification.
-- [ ] Complete this plan and activate Phase 5D.
+- [x] Add the root TanStack Query provider.
+- [x] Add overview query key, fetch function, and typed hook.
+- [x] Add typed refresh and invalidation subscriptions.
+- [x] Re-query after committed usage changes.
+- [x] Preserve prior data during re-fetch and refresh failure.
+- [x] Add query and subscription lifecycle tests.
+- [x] Run frontend, contract, architecture, and verification.
+- [x] Complete this plan and activate Phase 5D.
 
 ## Test Plan
 
@@ -73,8 +73,14 @@ medium
 
 ## Verification
 
-- Command: pnpm verify
-- Outcome: queued; not run.
+- Command: `pnpm test src/features/overview src/app/App.test.tsx src/ipc/client.test.ts src/lib/format/index.test.ts`
+- Outcome: passed on 2026-06-17; 34 tests passed.
+- Command: `pnpm test:e2e`
+- Outcome: passed on 2026-06-17; 8 tests passed.
+- Command: `pnpm lint`
+- Outcome: passed on 2026-06-17 with existing complexity warnings.
+- Command: `pnpm typecheck`
+- Outcome: passed on 2026-06-17.
 
 ## Runtime Evidence
 
@@ -82,4 +88,6 @@ medium
 
 ## Follow-Up Debt
 
-- None.
+- Phase 5C required remediation on 2026-06-17 because the first implementation
+  used OS timezone inference, did not track refresh progress, and did not
+  preserve cached data on authoritative re-query failure.

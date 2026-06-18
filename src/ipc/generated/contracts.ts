@@ -204,6 +204,7 @@ export interface ActivityCalendarResponse {
 
 export interface DayDetailRequest {
   date: string;
+  reportingTimezone: string;
 }
 
 export interface DayDetailCommandRequest extends Record<string, unknown> {
@@ -226,9 +227,9 @@ export interface DayDetailResponse {
 }
 
 export interface SessionListRequest {
-  sourceId: number | null;
+  sourceId: string | null;
   limit: number;
-  afterActivityMs: number | null;
+  afterCursor: string | null;
 }
 
 export interface SessionListCommandRequest extends Record<string, unknown> {
@@ -236,10 +237,9 @@ export interface SessionListCommandRequest extends Record<string, unknown> {
 }
 
 export interface SessionItemResponse {
-  id: number;
-  sourceId: number;
-  sourceSessionId: string;
-  projectId: number | null;
+  id: string;
+  sourceId: string;
+  label: string;
   projectPath: string | null;
   firstActivityAt: string | null;
   lastActivityAt: string | null;
@@ -249,11 +249,11 @@ export interface SessionItemResponse {
 
 export interface SessionListResponse {
   items: SessionItemResponse[];
-  nextCursor: number | null;
+  nextCursor: string | null;
 }
 
 export interface SessionDetailRequest {
-  sessionId: number;
+  sessionId: string;
 }
 
 export interface SessionDetailCommandRequest extends Record<string, unknown> {

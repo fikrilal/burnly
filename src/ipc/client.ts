@@ -203,7 +203,7 @@ const usageOverviewDataSchema: z.ZodType<UsageOverviewResponse> = z.object({
   cost: usageOverviewCostSchema,
   sources: z.array(
     z.object({
-      source: z.enum(["claude-code", "codex"]),
+      source: z.string().min(1),
       totalTokens: uint64StringSchema,
       activeDays: z.number().int().nonnegative(),
       cost: usageOverviewCostSchema,
@@ -245,6 +245,7 @@ const activityCalendarDataSchema: z.ZodType<ActivityCalendarResponse> =
 
 const dayDetailRequestSchema: z.ZodType<DayDetailRequest> = z.object({
   date: z.iso.date(),
+  reportingTimezone: z.string().trim().min(1),
 });
 
 const dayDetailDataSchema: z.ZodType<DayDetailResponse> = z.object({
@@ -263,10 +264,9 @@ const dayDetailDataSchema: z.ZodType<DayDetailResponse> = z.object({
 });
 
 const sessionItemResponseSchema = z.object({
-  id: z.number().int(),
-  sourceId: z.number().int(),
-  sourceSessionId: z.string(),
-  projectId: z.number().int().nullable(),
+  id: z.string().min(1),
+  sourceId: z.string().min(1),
+  label: z.string().min(1),
   projectPath: z.string().nullable(),
   firstActivityAt: z.iso.datetime({ offset: true }).nullable(),
   lastActivityAt: z.iso.datetime({ offset: true }).nullable(),
@@ -275,18 +275,18 @@ const sessionItemResponseSchema = z.object({
 });
 
 const sessionListRequestSchema: z.ZodType<SessionListRequest> = z.object({
-  sourceId: z.number().int().nullable(),
+  sourceId: z.string().min(1).nullable(),
   limit: z.number().int().positive().max(100),
-  afterActivityMs: z.number().int().nullable(),
+  afterCursor: z.string().min(1).nullable(),
 });
 
 const sessionListDataSchema: z.ZodType<SessionListResponse> = z.object({
   items: z.array(sessionItemResponseSchema),
-  nextCursor: z.number().int().nullable(),
+  nextCursor: z.string().min(1).nullable(),
 });
 
 const sessionDetailRequestSchema: z.ZodType<SessionDetailRequest> = z.object({
-  sessionId: z.number().int(),
+  sessionId: z.string().min(1),
 });
 
 const sessionDetailDataSchema: z.ZodType<SessionDetailResponse> = z.object({
