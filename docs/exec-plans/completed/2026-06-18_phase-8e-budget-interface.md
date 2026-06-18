@@ -47,13 +47,13 @@ not own budget rules.
 
 ## Checklist
 
-- [ ] Add budget query keys, list query, and mutation hooks.
-- [ ] Build list/empty/loading/error states.
-- [ ] Build create/edit form with accessible native or existing controls.
-- [ ] Add enable/disable and confirmed delete workflows.
-- [ ] Handle server validation and revision conflicts without losing input.
-- [ ] Add focused component and hook tests.
-- [ ] Add desktop and compact visual/runtime evidence.
+- [x] Add budget query keys, list query, and mutation hooks.
+- [x] Build list/empty/loading/error states.
+- [x] Build create/edit form with accessible native or existing controls.
+- [x] Add enable/disable and confirmed delete workflows.
+- [x] Handle server validation and revision conflicts without losing input.
+- [x] Add focused component and hook tests.
+- [x] Add desktop and compact visual/runtime evidence.
 
 ## Test Plan
 
@@ -71,16 +71,36 @@ not own budget rules.
 
 - No generic schema-driven form builder.
 - Threshold suggestions may be provided, but users edit explicit percentages.
+- The public frontend contract does not yet expose a source catalog, so
+  source-scoped budgets accept an explicit source ID instead of deriving source
+  choices from usage read models.
+- The app bootstrap budget feature flag is enabled with this interface.
 
 ## Verification
 
+- Command: `pnpm vitest run src/features/budgets/BudgetsView.test.tsx src/app/App.test.tsx`
+- Outcome: passed; 11 focused tests.
+- Command: `pnpm typecheck`
+- Outcome: passed.
+- Command: `pnpm lint`
+- Outcome: passed with warning-level complexity/length signals and the existing
+  UI export warning; no errors.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml bootstrap --no-fail-fast`
+- Outcome: passed; 15 bootstrap-focused Rust tests.
+- Command: `pnpm test:e2e`
+- Outcome: passed; 18 Playwright tests across Desktop and Compact projects,
+  including budget populated, empty, and error screenshots.
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed; 55 frontend tests, 210 Rust tests, one ignored sidecar smoke
+  test, clippy/rustfmt/harness passed. Lint and duplication reports remain
+  warning-style configured outputs.
 
 ## Runtime Evidence
 
-- Not run yet.
+- `pnpm test:e2e` wrote desktop and compact screenshots for budget populated,
+  empty, and error states under `screenshots/`.
 
 ## Follow-Up Debt
 
-- None.
+- Replace manual source ID entry with a source picker after a stable source
+  catalog contract exists.

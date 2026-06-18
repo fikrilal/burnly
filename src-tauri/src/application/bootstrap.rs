@@ -189,7 +189,7 @@ impl BootstrapService {
             features: FeatureSummary {
                 usage_overview: false,
                 collector_refresh: false,
-                budgets: false,
+                budgets: true,
                 settings: true,
             },
             sources: SourceSummary {
@@ -335,6 +335,7 @@ mod tests {
         assert_eq!(bootstrap.refresh.status, RefreshStatus::Idle);
         assert!(!bootstrap.onboarding_complete);
         assert!(!bootstrap.features.collector_refresh);
+        assert!(bootstrap.features.budgets);
     }
 
     #[test]

@@ -34,7 +34,7 @@ calculations, and native side effects.
 | Phase 8B: Privacy retention                 | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8b-project-path-privacy.md)       |
 | Phase 8C: Budget domain and storage         | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8c-budget-domain-storage.md)      |
 | Phase 8D: Budget IPC contracts              | Completed | Phase 8C     | [Plan](../completed/2026-06-18_phase-8d-budget-ipc.md)                 |
-| Phase 8E: Budget interface                  | Queued    | Phase 8D     | [Plan](../queued/2026-06-18_phase-8e-budget-interface.md)              |
+| Phase 8E: Budget interface                  | Completed | Phase 8D     | [Plan](../completed/2026-06-18_phase-8e-budget-interface.md)           |
 | Phase 8F: Budget evaluation                 | Queued    | Phase 8C     | [Plan](../queued/2026-06-18_phase-8f-budget-evaluation.md)             |
 | Phase 8G: Native notifications              | Queued    | Phase 8F     | [Plan](../queued/2026-06-18_phase-8g-native-notifications.md)          |
 | Phase 8H: Progress integration and evidence | Queued    | Phases 8E-8G | [Plan](../queued/2026-06-18_phase-8h-progress-integration-evidence.md) |
@@ -92,7 +92,7 @@ calculations, and native side effects.
 - [x] Phase 8B completed and verified.
 - [x] Phase 8C completed and verified.
 - [x] Phase 8D completed and verified.
-- [ ] Phase 8E completed and verified.
+- [x] Phase 8E completed and verified.
 - [ ] Phase 8F completed and verified.
 - [ ] Phase 8G completed and verified.
 - [ ] Phase 8H completed and phase exit criteria verified.
@@ -120,6 +120,10 @@ calculations, and native side effects.
   commands through discriminated budget DTOs. Local IDs, limits, and revisions
   cross IPC as canonical decimal strings, and the TypeScript boundary validates
   both requests and responses.
+- Phase 8E introduced a feature-local budget interface and TanStack Query
+  boundary for listing, creating, editing, enabling, disabling, and deleting
+  budgets. Source-scoped budgets use explicit source IDs until a source catalog
+  contract exists.
 
 ## Verification
 

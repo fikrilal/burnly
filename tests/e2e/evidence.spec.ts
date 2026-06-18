@@ -105,6 +105,55 @@ test.describe("Desktop Evidence: overview states", () => {
       page.getByText("Removed 2 stored project paths."),
     ).toBeVisible();
   });
+
+  test("captures populated budget interface evidence", async ({
+    page,
+  }, testInfo) => {
+    await installTauriMock(page, "populated");
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Budgets" }).click();
+
+    await expect(page.getByRole("heading", { name: "Budgets" })).toBeVisible();
+    await expect(page.getByText("Monthly token cap")).toBeVisible();
+    await expect(page.getByText("1,000,000 tokens")).toBeVisible();
+
+    await page.screenshot({
+      path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-budgets-populated.png`,
+      fullPage: true,
+    });
+  });
+
+  test("captures empty budget interface evidence", async ({
+    page,
+  }, testInfo) => {
+    await installTauriMock(page, "empty");
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Budgets" }).click();
+
+    await expect(page.getByText("No budgets yet")).toBeVisible();
+
+    await page.screenshot({
+      path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-budgets-empty.png`,
+      fullPage: true,
+    });
+  });
+
+  test("captures budget error state evidence", async ({ page }, testInfo) => {
+    await installTauriMock(page, "error");
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Budgets" }).click();
+
+    await expect(page.getByText("Budgets unavailable")).toBeVisible();
+    await expect(page.getByText("Simulated budget error")).toBeVisible();
+
+    await page.screenshot({
+      path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-budgets-error.png`,
+      fullPage: true,
+    });
+  });
 });
 
 async function installTauriMock(
@@ -133,6 +182,31 @@ async function installTauriMock(
       storeProjectPaths: false,
       revision: 1,
     };
+    const pageBudgets = [
+      {
+        id: "7",
+        revision: "1",
+        name: "Monthly token cap",
+        limit: { kind: "tokens", value: "1000000" },
+        period: "monthly",
+        scope: { kind: "global" },
+        enabled: true,
+        thresholds: [
+          { basisPoints: 8000, enabled: true },
+          { basisPoints: 10000, enabled: true },
+        ],
+      },
+      {
+        id: "8",
+        revision: "2",
+        name: "Weekly source cost",
+        limit: { kind: "cost", amountMicros: "12500000", currency: "USD" },
+        period: "weekly",
+        scope: { kind: "source", sourceId: "2" },
+        enabled: false,
+        thresholds: [{ basisPoints: 9000, enabled: true }],
+      },
+    ];
 
     const pageBootstrapResponse = () => ({
       ok: true,
@@ -351,6 +425,30 @@ async function installTauriMock(
             data: {
               settings: pageSettings,
               clearedPaths: request.retainPaths ? 0 : 2,
+            },
+          });
+        }
+
+        if (command === "budgets_list") {
+          if (overviewMode === "error") {
+            return Promise.resolve({
+              ok: false,
+              meta: pageMeta(),
+              error: {
+                code: "budgets.storage_unavailable",
+                message: "Simulated budget error",
+                category: "persistence",
+                retryable: true,
+                details: null,
+              },
+            });
+          }
+
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              items: overviewMode === "empty" ? [] : pageBudgets,
             },
           });
         }
