@@ -10,7 +10,8 @@ use crate::application::bootstrap::{
 };
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
-    RefreshCoordinator, RefreshEventSink, RefreshSnapshot, RefreshStatus as RefreshLifecycleStatus,
+    RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSnapshot,
+    RefreshStatus as RefreshLifecycleStatus,
 };
 
 use super::response::{ErrorCategory, IpcError, IpcResponse, CONTRACT_VERSION};
@@ -138,6 +139,7 @@ pub(super) struct UpdateSettingsRequest {
 pub(super) fn app_update_settings<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     service: State<'_, BootstrapService>,
+    scheduler: State<'_, RefreshScheduler>,
     request: UpdateSettingsRequest,
 ) -> IpcResponse<()> {
     let settings = SettingsState {
@@ -149,13 +151,23 @@ pub(super) fn app_update_settings<R: tauri::Runtime>(
         notifications_enabled: request.notifications_enabled,
         store_project_paths: request.store_project_paths,
     };
+    let refresh_policy = refresh_policy(&settings);
 
     match service.update_settings(settings) {
         Ok(()) => {
+            scheduler.apply_policy(refresh_policy);
             let _ = app.emit("burnly://v1/settings-changed", ());
             IpcResponse::success(())
         }
         Err(error) => IpcResponse::failure(bootstrap_error(error)),
+    }
+}
+
+fn refresh_policy(settings: &SettingsState) -> RefreshPolicy {
+    if settings.background_refresh_enabled {
+        RefreshPolicy::enabled_minutes(settings.refresh_interval_minutes)
+    } else {
+        RefreshPolicy::disabled()
     }
 }
 

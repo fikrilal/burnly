@@ -12,7 +12,9 @@ use thiserror::Error;
 
 use crate::application::bootstrap::BootstrapService;
 use crate::application::collection::CollectorFailure;
-use crate::application::refresh::RefreshCoordinator;
+use crate::application::refresh::{
+    RefreshCoordinator, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
+};
 use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
@@ -32,6 +34,7 @@ pub(crate) enum StartupErrorKind {
     Clock,
     ResourceDir,
     Collector,
+    RefreshScheduler,
     Persistence(PersistenceErrorKind),
 }
 
@@ -52,6 +55,9 @@ pub(crate) enum StartupError {
     #[error("failed to initialize the usage collector")]
     Collector(#[source] CollectorFailure),
 
+    #[error("failed to initialize refresh scheduler")]
+    RefreshScheduler(#[source] RefreshSchedulerError),
+
     #[error("failed to initialize persistence")]
     Persistence(#[source] PersistenceError),
 }
@@ -64,6 +70,7 @@ impl StartupError {
             Self::Clock(_) => StartupErrorKind::Clock,
             Self::ResourceDir(_) => StartupErrorKind::ResourceDir,
             Self::Collector(_) => StartupErrorKind::Collector,
+            Self::RefreshScheduler(_) => StartupErrorKind::RefreshScheduler,
             Self::Persistence(error) => StartupErrorKind::Persistence(error.kind()),
         }
     }
@@ -88,8 +95,17 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
+    let (_, background_refresh_enabled, refresh_interval_minutes, ..) = database
+        .read_settings()
+        .map_err(StartupError::Persistence)?;
+    let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
+    let refresh_coordinator = build_refresh_coordinator(app, &database_path)?;
+    let refresh_scheduler =
+        RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
+            .map_err(StartupError::RefreshScheduler)?;
 
-    app.manage(build_refresh_coordinator(app, &database_path)?);
+    app.manage(refresh_coordinator);
+    app.manage(refresh_scheduler);
     app.manage(build_overview_query(&database_path)?);
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
@@ -100,6 +116,17 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         SqliteBootstrapStore::new(database),
     ));
     Ok(())
+}
+
+fn refresh_policy(
+    background_refresh_enabled: bool,
+    refresh_interval_minutes: i64,
+) -> RefreshPolicy {
+    if background_refresh_enabled {
+        RefreshPolicy::enabled_minutes(refresh_interval_minutes)
+    } else {
+        RefreshPolicy::disabled()
+    }
 }
 
 fn build_overview_query(database_path: &Path) -> Result<OverviewQuery, StartupError> {
@@ -198,6 +225,7 @@ mod tests {
     use crate::application::bootstrap::{
         BootstrapError, BootstrapStorage, BootstrapStore, SettingsState,
     };
+    use crate::application::refresh::ScheduledRefreshRequester;
 
     use rusqlite::Connection;
     use serde_json::{json, Value};
@@ -224,6 +252,27 @@ mod tests {
         fn update_settings(&self, _settings: &SettingsState) -> Result<(), BootstrapError> {
             Ok(())
         }
+    }
+
+    struct RecordingBootstrapStore {
+        updated: Arc<Mutex<Option<SettingsState>>>,
+    }
+
+    impl BootstrapStore for RecordingBootstrapStore {
+        fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
+            FixedBootstrapStore.read_bootstrap_storage()
+        }
+
+        fn update_settings(&self, settings: &SettingsState) -> Result<(), BootstrapError> {
+            *self.updated.lock().expect("lock settings") = Some(settings.clone());
+            Ok(())
+        }
+    }
+
+    struct NoopScheduledRequester;
+
+    impl ScheduledRefreshRequester for NoopScheduledRequester {
+        fn request_scheduled_refresh(&self) {}
     }
 
     #[test]
@@ -350,6 +399,60 @@ mod tests {
         assert_eq!(response["data"]["tray"]["status"], "not_implemented");
         assert_eq!(response["data"]["diagnostics"]["desktopEvidence"], true);
         assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
+    #[test]
+    fn tauri_bridge_updates_settings_when_scheduler_state_is_available() {
+        let updated = Arc::new(Mutex::new(None));
+        let scheduler =
+            RefreshScheduler::start(RefreshPolicy::disabled(), Arc::new(NoopScheduledRequester))
+                .expect("start scheduler");
+        let app = tauri::test::mock_builder()
+            .invoke_handler(crate::ipc::invoke_handler())
+            .manage(BootstrapService::new(
+                env!("CARGO_PKG_VERSION"),
+                CONTRACT_VERSION,
+                RecordingBootstrapStore {
+                    updated: updated.clone(),
+                },
+            ))
+            .manage(scheduler)
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build mock tauri app");
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("build mock webview");
+
+        let response = tauri::test::get_ipc_response(
+            &webview,
+            request_with_body(
+                "app_update_settings",
+                json!({
+                    "request": {
+                        "reportingTimezone": "UTC",
+                        "backgroundRefreshEnabled": true,
+                        "refreshIntervalMinutes": 30,
+                        "launchAtLogin": false,
+                        "closeBehavior": "quit",
+                        "notificationsEnabled": false,
+                        "storeProjectPaths": false
+                    }
+                }),
+            ),
+        )
+        .expect("invoke settings update")
+        .deserialize::<Value>()
+        .expect("deserialize settings response");
+
+        assert_eq!(response["ok"], true);
+        let settings = updated
+            .lock()
+            .expect("lock settings")
+            .clone()
+            .expect("settings updated");
+        assert_eq!(settings.reporting_timezone, "UTC");
+        assert!(settings.background_refresh_enabled);
+        assert_eq!(settings.refresh_interval_minutes, 30);
     }
 
     #[test]
