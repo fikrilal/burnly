@@ -16,13 +16,13 @@ function useDateRange() {
   return dateRange;
 }
 
-export function CalendarView() {
+interface CalendarViewProps {
+  reportingTimezone: string;
+}
+
+export function CalendarView({ reportingTimezone }: CalendarViewProps) {
   const dateRange = useDateRange();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-
-  const [reportingTimezone] = useState(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-  );
 
   const {
     data: calendarData,
@@ -41,7 +41,7 @@ export function CalendarView() {
     isPending: isDayDetailPending,
     isError: isDayDetailError,
     error: dayDetailError,
-  } = useDayDetail(selectedDate);
+  } = useDayDetail(selectedDate, reportingTimezone);
 
   return (
     <div className="flex flex-col gap-8">

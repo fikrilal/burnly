@@ -10,7 +10,7 @@ pub(crate) use calendar::{
 };
 
 pub(crate) use day_detail::{
-    DayDetailModel, DayDetailQuery, DayDetailQueryError, DayDetailReadModel,
+    DayDetailModel, DayDetailPeriod, DayDetailQuery, DayDetailQueryError, DayDetailReadModel,
 };
 
 pub(crate) use overview::{

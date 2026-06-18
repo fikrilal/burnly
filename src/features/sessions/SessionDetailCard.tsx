@@ -2,7 +2,7 @@ import { formatNumber, formatCurrency, formatDateTime } from "../../lib/format";
 import { useSessionDetail } from "./use-sessions";
 
 interface SessionDetailCardProps {
-  sessionId: number;
+  sessionId: string;
 }
 
 export function SessionDetailCard({ sessionId }: SessionDetailCardProps) {
@@ -33,7 +33,7 @@ export function SessionDetailCard({ sessionId }: SessionDetailCardProps) {
       <div className="flex items-start justify-between border-b border-zinc-800 pb-4 mb-4">
         <div>
           <h3 className="text-lg font-medium text-white mb-1">
-            {session.projectPath ?? session.sourceSessionId}
+            {session.projectPath ?? session.label}
           </h3>
           <p className="text-sm text-zinc-500">
             {session.firstActivityAt

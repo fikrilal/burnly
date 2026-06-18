@@ -9,9 +9,7 @@ import { getSessions, getSessionDetail } from "../../ipc/client";
 import { EVENT_NAMES, subscribeToEvent } from "../../ipc/events";
 import type { SessionListRequest } from "../../ipc/generated/contracts";
 
-export function useSessions(
-  request: Omit<SessionListRequest, "afterActivityMs">,
-) {
+export function useSessions(request: Omit<SessionListRequest, "afterCursor">) {
   const queryClient = useQueryClient();
   const queryKey = ["usage", "sessions", request.sourceId, request.limit];
 
@@ -20,11 +18,11 @@ export function useSessions(
     queryFn: async ({ pageParam }) => {
       const response = await getSessions({
         ...request,
-        afterActivityMs: pageParam,
+        afterCursor: pageParam,
       });
       return response.data;
     },
-    initialPageParam: null as number | null,
+    initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
   });
 
@@ -57,7 +55,7 @@ export function useSessions(
   return query;
 }
 
-export function useSessionDetail(sessionId: number | null) {
+export function useSessionDetail(sessionId: string | null) {
   const queryClient = useQueryClient();
   const queryKey = ["usage", "session-detail", sessionId];
 

@@ -15,4 +15,8 @@ pub(crate) trait CalendarStore: Send + Sync {
 pub(crate) enum CalendarStoreError {
     #[error("the calendar store backend failed")]
     Backend,
+    #[error("calendar data contains a value outside the supported range")]
+    ValueOutOfRange,
+    #[error("calendar data contains mixed currencies")]
+    MixedCurrencies,
 }

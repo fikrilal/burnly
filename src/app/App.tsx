@@ -121,7 +121,11 @@ export function App({
                 reportingTimezone={state.bootstrap.settings.reportingTimezone}
               />
             )}
-            {viewMode === "calendar" && <CalendarView />}
+            {viewMode === "calendar" && (
+              <CalendarView
+                reportingTimezone={state.bootstrap.settings.reportingTimezone}
+              />
+            )}
             {viewMode === "sessions" && <SessionsView />}
             {viewMode === "settings" && (
               <SettingsView settings={state.bootstrap.settings} />
