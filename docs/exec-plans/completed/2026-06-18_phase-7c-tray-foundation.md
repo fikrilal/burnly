@@ -52,16 +52,16 @@ duplicate refresh requests.
 
 ## Checklist
 
-- [ ] Inspect current Tauri capability and app setup files.
-- [ ] Define tray capability and snapshot expectations.
-- [ ] Add tray icon asset path or explicit placeholder asset decision.
-- [ ] Create tray menu with open/focus, refresh now, and quit.
-- [ ] Route tray refresh through coordinator.
-- [ ] Route tray open/focus and quit through lifecycle service from 7B.
-- [ ] Update tray menu status on refresh progress events or snapshots.
-- [ ] Update app capabilities to report tray support truthfully.
-- [ ] Add tests for tray action mapping without requiring native tray APIs.
-- [ ] Add runtime evidence for tray behavior on the current platform.
+- [x] Inspect current Tauri capability and app setup files.
+- [x] Define tray capability and snapshot expectations.
+- [x] Add tray icon asset path or explicit placeholder asset decision.
+- [x] Create tray menu with open/focus, refresh now, and quit.
+- [x] Route tray refresh through coordinator.
+- [x] Route tray open/focus and quit through lifecycle service from 7B.
+- [x] Update tray menu status on refresh progress events or snapshots.
+- [x] Update app capabilities to report tray support truthfully.
+- [x] Add tests for tray action mapping without requiring native tray APIs.
+- [x] Add runtime evidence for tray behavior on the current platform.
 
 ## Test Plan
 
@@ -86,17 +86,31 @@ duplicate refresh requests.
 - Do not claim tray support on a platform until runtime evidence proves it.
 - Tray UI labels should be derived from a small snapshot model rather than
   directly from database or collector state.
+- Use Tauri's native `tray-icon` feature and the app's configured default icon.
+- If native tray installation fails at startup, report tray as `unavailable`
+  through app capabilities instead of failing the app startup.
+- Refresh progress fans out to the existing frontend IPC event sink and a tray
+  snapshot updater. The tray module does not know about collectors, storage, or
+  application refresh internals.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed
+- Command: `pnpm verify:runtime`
+- Outcome: passed after installing the missing local Playwright Chromium cache
+  with `pnpm exec playwright install chromium`
 
 ## Runtime Evidence
 
-- Required after implementation because native tray behavior cannot be fully
-  proven by unit tests.
+- `pnpm verify:runtime` passed on Ubuntu 24.04 X11.
+- The runtime harness validates desktop startup prerequisites, contracts,
+  frontend build, IPC bridge tests, and desktop UI states. It does not yet
+  automate OS tray menu clicks; native tray interaction remains manual evidence
+  until Phase 7D expands desktop lifecycle smoke coverage.
 
 ## Follow-Up Debt
 
 - Linux GNOME/KDE tray compatibility remains Phase 10 release-hardening work.
+- Add manual or automated tray-menu smoke evidence for open/focus, refresh, and
+  quit once the harness can reliably drive OS-level tray interactions.

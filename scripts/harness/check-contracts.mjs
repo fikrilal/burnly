@@ -285,7 +285,7 @@ export interface UpdateSettingsRequest {
 
 export interface DesktopCapability {
   supported: boolean;
-  status: "not_implemented";
+  status: "available" | "not_implemented" | "unavailable";
 }
 
 export interface RefreshStatusResponse {

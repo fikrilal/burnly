@@ -10,11 +10,12 @@ use iana_time_zone::GetTimezoneError;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
-use crate::application::bootstrap::{BootstrapService, RuntimeSettings};
+use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
 use crate::application::collection::CollectorFailure;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
-    RefreshCoordinator, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
+    RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
+    RefreshSnapshot, RefreshStatus,
 };
 use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
@@ -27,7 +28,7 @@ use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle::{self, CloseBehavior};
 use crate::platform::system_clock::SystemClock;
-use crate::platform::{database_path, single_instance, system_clock, system_timezone};
+use crate::platform::{database_path, single_instance, system_clock, system_timezone, tray};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupErrorKind {
@@ -113,6 +114,9 @@ fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
                 coordinator.request_refresh(RefreshTrigger::Resume);
             }
         }
+        RunEvent::MenuEvent(event) => {
+            handle_menu_event(app, &event);
+        }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
             let _ = lifecycle::activate_main_window(app);
@@ -130,11 +134,27 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         .read_settings()
         .map_err(StartupError::Persistence)?;
     let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
-    let refresh_coordinator = build_refresh_coordinator(app, &database_path)?;
+    let tray_state = Arc::new(Mutex::new(None));
+    let refresh_event_sink = runtime_refresh_event_sink(app.handle().clone(), tray_state.clone());
+    let refresh_coordinator = build_refresh_coordinator(app, &database_path, refresh_event_sink)?;
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
             .map_err(StartupError::RefreshScheduler)?;
     let runtime_settings = RuntimeSettings::new(close_behavior);
+    let tray_controller = tray::TrayController::install(
+        app.handle(),
+        &tray_snapshot(&refresh_coordinator.snapshot()),
+    )
+    .ok();
+    if let Some(controller) = tray_controller.clone() {
+        *tray_state.lock().expect("tray state lock is poisoned") = Some(controller.clone());
+        controller.update(&tray_snapshot(&refresh_coordinator.snapshot()));
+        app.manage(controller);
+    }
+    let runtime_capabilities = match tray_controller {
+        Some(_) => RuntimeCapabilities::new(RuntimeCapabilities::tray_available()),
+        None => RuntimeCapabilities::new(RuntimeCapabilities::tray_unavailable()),
+    };
 
     app.manage(refresh_coordinator);
     app.manage(refresh_scheduler);
@@ -147,8 +167,24 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         env!("CARGO_PKG_VERSION"),
         CONTRACT_VERSION,
         SqliteBootstrapStore::new(database),
+        runtime_capabilities,
     ));
     Ok(())
+}
+
+fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuEvent) {
+    match tray::TrayAction::from_menu_event(event) {
+        Some(tray::TrayAction::Open) => {
+            let _ = lifecycle::activate_main_window(app);
+        }
+        Some(tray::TrayAction::Refresh) => {
+            if let Some(coordinator) = app.try_state::<RefreshCoordinator>() {
+                coordinator.request_refresh(RefreshTrigger::Manual);
+            }
+        }
+        Some(tray::TrayAction::Quit) => app.exit(0),
+        None => {}
+    }
 }
 
 fn refresh_policy(
@@ -195,6 +231,7 @@ fn build_session_query(database_path: &Path) -> Result<SessionQuery, StartupErro
 fn build_refresh_coordinator<R: Runtime>(
     app: &tauri::App<R>,
     database_path: &Path,
+    refresh_event_sink: Arc<dyn RefreshEventSink>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let resource_directory = app
         .path()
@@ -208,13 +245,13 @@ fn build_refresh_coordinator<R: Runtime>(
         .map_err(StartupError::Collector)?,
     );
 
-    compose_refresh_coordinator(app, database_path, collector)
+    compose_refresh_coordinator(database_path, collector, refresh_event_sink)
 }
 
-fn compose_refresh_coordinator<R: Runtime>(
-    app: &tauri::App<R>,
+fn compose_refresh_coordinator(
     database_path: &Path,
     collector: Arc<CcusageCollector>,
+    refresh_event_sink: Arc<dyn RefreshEventSink>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let (aggregation_timezone, ..) = write_database
@@ -228,10 +265,58 @@ fn compose_refresh_coordinator<R: Runtime>(
         store.clone(),
         store,
         clock,
-        refresh_event_sink(app.handle().clone()),
+        refresh_event_sink,
         env!("CARGO_PKG_VERSION"),
         aggregation_timezone,
     ))
+}
+
+struct RuntimeRefreshEventSink<R: Runtime> {
+    frontend: Arc<dyn RefreshEventSink>,
+    tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
+}
+
+impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
+    fn publish(&self, snapshot: RefreshSnapshot, usage_changed: bool) {
+        self.frontend.publish(snapshot.clone(), usage_changed);
+        if let Some(tray) = self
+            .tray
+            .lock()
+            .expect("tray state lock is poisoned")
+            .as_ref()
+        {
+            tray.update(&tray_snapshot(&snapshot));
+        }
+    }
+}
+
+fn runtime_refresh_event_sink<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
+) -> Arc<dyn RefreshEventSink> {
+    Arc::new(RuntimeRefreshEventSink {
+        frontend: refresh_event_sink(app),
+        tray,
+    })
+}
+
+fn tray_snapshot(snapshot: &RefreshSnapshot) -> tray::TraySnapshot {
+    tray::TraySnapshot {
+        status: tray_refresh_status(snapshot.status),
+        last_successful_refresh_at_ms: snapshot.last_successful_refresh_at_ms,
+    }
+}
+
+const fn tray_refresh_status(status: RefreshStatus) -> tray::TrayRefreshStatus {
+    match status {
+        RefreshStatus::Idle => tray::TrayRefreshStatus::Idle,
+        RefreshStatus::Queued => tray::TrayRefreshStatus::Queued,
+        RefreshStatus::Running => tray::TrayRefreshStatus::Running,
+        RefreshStatus::Cancelling => tray::TrayRefreshStatus::Cancelling,
+        RefreshStatus::Succeeded => tray::TrayRefreshStatus::Succeeded,
+        RefreshStatus::Partial => tray::TrayRefreshStatus::Partial,
+        RefreshStatus::Failed => tray::TrayRefreshStatus::Failed,
+    }
 }
 
 fn initialize(
@@ -256,7 +341,8 @@ fn initialize(
 #[cfg(test)]
 mod tests {
     use crate::application::bootstrap::{
-        BootstrapError, BootstrapStorage, BootstrapStore, SettingsState,
+        BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
+        SettingsState,
     };
     use crate::application::refresh::ScheduledRefreshRequester;
 
@@ -306,6 +392,13 @@ mod tests {
 
     impl ScheduledRefreshRequester for NoopScheduledRequester {
         fn request_scheduled_refresh(&self) {}
+    }
+
+    fn capabilities_without_tray() -> RuntimeCapabilities {
+        RuntimeCapabilities::new(Capability {
+            supported: false,
+            status: CapabilityStatus::NotImplemented,
+        })
     }
 
     #[test]
@@ -449,6 +542,7 @@ mod tests {
                 RecordingBootstrapStore {
                     updated: updated.clone(),
                 },
+                capabilities_without_tray(),
             ))
             .manage(scheduler)
             .manage(runtime_settings.clone())
@@ -528,6 +622,7 @@ mod tests {
                 env!("CARGO_PKG_VERSION"),
                 CONTRACT_VERSION,
                 FixedBootstrapStore,
+                capabilities_without_tray(),
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
@@ -561,6 +656,7 @@ mod tests {
                 env!("CARGO_PKG_VERSION"),
                 CONTRACT_VERSION,
                 FixedBootstrapStore,
+                capabilities_without_tray(),
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
@@ -573,8 +669,12 @@ mod tests {
             )
             .expect("development collector"),
         );
-        let coordinator =
-            compose_refresh_coordinator(&app, &database_path, collector).expect("coordinator");
+        let coordinator = compose_refresh_coordinator(
+            &database_path,
+            collector,
+            refresh_event_sink(app.handle().clone()),
+        )
+        .expect("coordinator");
         assert!(app.manage(coordinator));
         assert!(app.manage(build_overview_query(&database_path).expect("overview query")));
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -723,6 +823,7 @@ mod tests {
                 env!("CARGO_PKG_VERSION"),
                 CONTRACT_VERSION,
                 FixedBootstrapStore,
+                capabilities_without_tray(),
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");

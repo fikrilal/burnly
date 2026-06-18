@@ -87,7 +87,9 @@ pub(crate) struct Capability {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CapabilityStatus {
+    Available,
     NotImplemented,
+    Unavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,11 +121,17 @@ pub(crate) struct BootstrapService {
     app_version: &'static str,
     contract_version: u16,
     store: Box<dyn BootstrapStore>,
+    runtime_capabilities: RuntimeCapabilities,
 }
 
 #[derive(Clone)]
 pub(crate) struct RuntimeSettings {
     close_behavior: Arc<Mutex<String>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct RuntimeCapabilities {
+    tray: Arc<Mutex<Capability>>,
 }
 
 impl RuntimeSettings {
@@ -153,11 +161,13 @@ impl BootstrapService {
         app_version: &'static str,
         contract_version: u16,
         store: impl BootstrapStore + 'static,
+        runtime_capabilities: RuntimeCapabilities,
     ) -> Self {
         Self {
             app_version,
             contract_version,
             store: Box::new(store),
+            runtime_capabilities,
         }
     }
 
@@ -208,7 +218,7 @@ impl BootstrapService {
         };
 
         AppCapabilities {
-            tray: unavailable.clone(),
+            tray: self.runtime_capabilities.tray(),
             launch_at_login: unavailable.clone(),
             native_notifications: unavailable.clone(),
             updates: unavailable,
@@ -221,6 +231,35 @@ impl BootstrapService {
 
     pub(crate) fn update_settings(&self, settings: SettingsState) -> Result<(), BootstrapError> {
         self.store.update_settings(&settings)
+    }
+}
+
+impl RuntimeCapabilities {
+    pub(crate) fn new(tray: Capability) -> Self {
+        Self {
+            tray: Arc::new(Mutex::new(tray)),
+        }
+    }
+
+    pub(crate) fn tray_available() -> Capability {
+        Capability {
+            supported: true,
+            status: CapabilityStatus::Available,
+        }
+    }
+
+    pub(crate) fn tray_unavailable() -> Capability {
+        Capability {
+            supported: false,
+            status: CapabilityStatus::Unavailable,
+        }
+    }
+
+    pub(crate) fn tray(&self) -> Capability {
+        self.tray
+            .lock()
+            .expect("runtime capabilities lock is poisoned")
+            .clone()
     }
 }
 
@@ -250,6 +289,13 @@ impl BootstrapError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn capabilities_without_tray() -> RuntimeCapabilities {
+        RuntimeCapabilities::new(Capability {
+            supported: false,
+            status: CapabilityStatus::NotImplemented,
+        })
+    }
 
     struct FixedStore {
         storage: BootstrapStorage,
@@ -282,6 +328,7 @@ mod tests {
                     schema_version: 1,
                 },
             },
+            capabilities_without_tray(),
         );
 
         let bootstrap = service.bootstrap().expect("bootstrap state");
@@ -332,12 +379,13 @@ mod tests {
                     schema_version: 1,
                 },
             },
+            RuntimeCapabilities::new(RuntimeCapabilities::tray_available()),
         );
 
         let capabilities = service.capabilities();
 
-        assert!(!capabilities.tray.supported);
-        assert_eq!(capabilities.tray.status, CapabilityStatus::NotImplemented);
+        assert!(capabilities.tray.supported);
+        assert_eq!(capabilities.tray.status, CapabilityStatus::Available);
         assert!(capabilities.export_formats.is_empty());
         assert!(capabilities.diagnostics.desktop_evidence);
     }

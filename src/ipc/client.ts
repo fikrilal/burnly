@@ -127,7 +127,7 @@ const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
 
 const capabilitySchema = z.object({
   supported: z.boolean(),
-  status: z.literal("not_implemented"),
+  status: z.enum(["available", "not_implemented", "unavailable"]),
 });
 
 const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
