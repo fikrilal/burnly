@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +119,33 @@ pub(crate) struct BootstrapService {
     app_version: &'static str,
     contract_version: u16,
     store: Box<dyn BootstrapStore>,
+}
+
+#[derive(Clone)]
+pub(crate) struct RuntimeSettings {
+    close_behavior: Arc<Mutex<String>>,
+}
+
+impl RuntimeSettings {
+    pub(crate) fn new(close_behavior: String) -> Self {
+        Self {
+            close_behavior: Arc::new(Mutex::new(close_behavior)),
+        }
+    }
+
+    pub(crate) fn update(&self, settings: &SettingsState) {
+        *self
+            .close_behavior
+            .lock()
+            .expect("runtime settings lock is poisoned") = settings.close_behavior.clone();
+    }
+
+    pub(crate) fn close_behavior(&self) -> String {
+        self.close_behavior
+            .lock()
+            .expect("runtime settings lock is poisoned")
+            .clone()
+    }
 }
 
 impl BootstrapService {
@@ -266,6 +295,24 @@ mod tests {
         assert_eq!(bootstrap.refresh.status, RefreshStatus::Idle);
         assert!(!bootstrap.onboarding_complete);
         assert!(!bootstrap.features.collector_refresh);
+    }
+
+    #[test]
+    fn runtime_settings_tracks_close_behavior_after_settings_update() {
+        let runtime_settings = RuntimeSettings::new("quit".to_owned());
+        let settings = SettingsState {
+            reporting_timezone: "UTC".to_owned(),
+            background_refresh_enabled: false,
+            refresh_interval_minutes: 15,
+            launch_at_login: false,
+            close_behavior: "hide".to_owned(),
+            notifications_enabled: false,
+            store_project_paths: false,
+        };
+
+        runtime_settings.update(&settings);
+
+        assert_eq!(runtime_settings.close_behavior(), "hide");
     }
 
     #[test]

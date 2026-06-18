@@ -30,6 +30,7 @@ chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 uuid = { version = "=1.23.3", features = ["v4"] }
 sha2 = "=0.10.9"
 tempfile = "=3.27.0"
+tauri-plugin-single-instance = "=2.4.2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.186"

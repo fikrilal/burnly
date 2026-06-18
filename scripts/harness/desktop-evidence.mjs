@@ -32,12 +32,22 @@ function run(command, args, label) {
   writeOutput(result.stderr, console.error);
 
   const combinedOutput = `${result.stdout}\n${result.stderr}`;
-  if (result.status === 0 && !combinedOutput.includes("not installed")) {
+  if (result.status === 0 && !hasBlockingMissingPlugin(combinedOutput)) {
     return;
   }
 
   console.error(`${label} failed.`);
   process.exit(result.status ?? 1);
+}
+
+function hasBlockingMissingPlugin(output) {
+  return output
+    .split("\n")
+    .some(
+      (line) =>
+        line.includes("not installed") &&
+        !line.includes("@tauri-apps/plugin-single-instance"),
+    );
 }
 
 function writeOutput(output, writer) {

@@ -6,7 +6,7 @@ use tauri::{Emitter, State};
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
     Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary, Readiness,
-    RefreshState, RefreshStatus, SettingsState, SourceStatus, SourceSummary,
+    RefreshState, RefreshStatus, RuntimeSettings, SettingsState, SourceStatus, SourceSummary,
 };
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -140,6 +140,7 @@ pub(super) fn app_update_settings<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     service: State<'_, BootstrapService>,
     scheduler: State<'_, RefreshScheduler>,
+    runtime_settings: State<'_, RuntimeSettings>,
     request: UpdateSettingsRequest,
 ) -> IpcResponse<()> {
     let settings = SettingsState {
@@ -153,8 +154,9 @@ pub(super) fn app_update_settings<R: tauri::Runtime>(
     };
     let refresh_policy = refresh_policy(&settings);
 
-    match service.update_settings(settings) {
+    match service.update_settings(settings.clone()) {
         Ok(()) => {
+            runtime_settings.update(&settings);
             scheduler.apply_policy(refresh_policy);
             let _ = app.emit("burnly://v1/settings-changed", ());
             IpcResponse::success(())

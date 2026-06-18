@@ -7,11 +7,12 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use iana_time_zone::GetTimezoneError;
-use tauri::{Manager, Runtime};
+use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
-use crate::application::bootstrap::BootstrapService;
+use crate::application::bootstrap::{BootstrapService, RuntimeSettings};
 use crate::application::collection::CollectorFailure;
+use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
 };
@@ -24,8 +25,9 @@ use crate::infrastructure::database::{
 };
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
+use crate::platform::lifecycle::{self, CloseBehavior};
 use crate::platform::system_clock::SystemClock;
-use crate::platform::{database_path, system_clock, system_timezone};
+use crate::platform::{database_path, single_instance, system_clock, system_timezone};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupErrorKind {
@@ -77,17 +79,46 @@ impl StartupError {
 }
 
 pub(crate) fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .plugin(single_instance::plugin())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(crate::ipc::invoke_handler())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if let Some(settings) = window.app_handle().try_state::<RuntimeSettings>() {
+                    lifecycle::handle_close_request(
+                        window,
+                        api,
+                        CloseBehavior::from_setting(&settings.close_behavior()),
+                    );
+                }
+            }
+        })
         .setup(|app| {
             setup_runtime(app).map_err(|error| {
                 eprintln!("Burnly startup failed ({:?})", error.kind());
                 Box::new(error) as Box<dyn std::error::Error>
             })
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    app.run(handle_run_event);
+}
+
+fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
+    match event {
+        RunEvent::Resumed => {
+            if let Some(coordinator) = app.try_state::<RefreshCoordinator>() {
+                coordinator.request_refresh(RefreshTrigger::Resume);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => {
+            let _ = lifecycle::activate_main_window(app);
+        }
+        _ => {}
+    }
 }
 
 fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError> {
@@ -95,7 +126,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
-    let (_, background_refresh_enabled, refresh_interval_minutes, ..) = database
+    let (_, background_refresh_enabled, refresh_interval_minutes, _, close_behavior, ..) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
     let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
@@ -103,9 +134,11 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
             .map_err(StartupError::RefreshScheduler)?;
+    let runtime_settings = RuntimeSettings::new(close_behavior);
 
     app.manage(refresh_coordinator);
     app.manage(refresh_scheduler);
+    app.manage(runtime_settings);
     app.manage(build_overview_query(&database_path)?);
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
@@ -404,6 +437,7 @@ mod tests {
     #[test]
     fn tauri_bridge_updates_settings_when_scheduler_state_is_available() {
         let updated = Arc::new(Mutex::new(None));
+        let runtime_settings = RuntimeSettings::new("quit".to_owned());
         let scheduler =
             RefreshScheduler::start(RefreshPolicy::disabled(), Arc::new(NoopScheduledRequester))
                 .expect("start scheduler");
@@ -417,6 +451,7 @@ mod tests {
                 },
             ))
             .manage(scheduler)
+            .manage(runtime_settings.clone())
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -433,7 +468,7 @@ mod tests {
                         "backgroundRefreshEnabled": true,
                         "refreshIntervalMinutes": 30,
                         "launchAtLogin": false,
-                        "closeBehavior": "quit",
+                        "closeBehavior": "hide",
                         "notificationsEnabled": false,
                         "storeProjectPaths": false
                     }
@@ -453,6 +488,8 @@ mod tests {
         assert_eq!(settings.reporting_timezone, "UTC");
         assert!(settings.background_refresh_enabled);
         assert_eq!(settings.refresh_interval_minutes, 30);
+        assert_eq!(settings.close_behavior, "hide");
+        assert_eq!(runtime_settings.close_behavior(), "hide");
     }
 
     #[test]

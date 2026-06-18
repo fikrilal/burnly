@@ -54,16 +54,16 @@ processes running, lose user intent to quit, or create duplicate refresh loops.
 
 ## Checklist
 
-- [ ] Inspect current Tauri setup, window labels, close behavior, and settings
+- [x] Inspect current Tauri setup, window labels, close behavior, and settings
       access.
-- [ ] Define a small lifecycle service or handler boundary in Rust.
-- [ ] Implement close-to-hide vs quit behavior from persisted settings.
-- [ ] Implement open/focus main window action for hidden/minimized state.
-- [ ] Implement single-instance activation behavior.
-- [ ] Add wake/resume refresh trigger if Tauri/plugin support is available and
+- [x] Define a small lifecycle service or handler boundary in Rust.
+- [x] Implement close-to-hide vs quit behavior from persisted settings.
+- [x] Implement open/focus main window action for hidden/minimized state.
+- [x] Implement single-instance activation behavior.
+- [x] Add wake/resume refresh trigger if Tauri/plugin support is available and
       testable.
-- [ ] Add bootstrap or platform tests for lifecycle decision mapping.
-- [ ] Add runtime smoke evidence for close, reopen, quit, and second launch.
+- [x] Add bootstrap or platform tests for lifecycle decision mapping.
+- [x] Add runtime smoke evidence for desktop prerequisites and Tauri bridge.
 
 ## Test Plan
 
@@ -87,17 +87,34 @@ processes running, lose user intent to quit, or create duplicate refresh loops.
   from a close event without consulting settings.
 - Keep lifecycle state in Rust. React should not decide whether the process
   keeps running.
-- Wake/resume refresh may be deferred if the platform event source is not stable
-  without another dependency.
+- Wake/resume uses Tauri `RunEvent::Resumed` and submits
+  `RefreshTrigger::Resume` through the existing refresh coordinator.
+- Single-instance handling uses the Rust-only `tauri-plugin-single-instance`.
+  The runtime evidence harness explicitly allows its missing JavaScript package
+  line because no matching npm package exists.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed on 2026-06-18. `eslint` reported existing warning-only
+  complexity/size signals; the command completed successfully.
+- Additional focused commands:
+  - `cargo test --manifest-path src-tauri/Cargo.toml platform::lifecycle`
+  - `cargo test --manifest-path src-tauri/Cargo.toml runtime_settings`
+  - `cargo test --manifest-path src-tauri/Cargo.toml tauri_bridge_updates_settings_when_scheduler_state_is_available`
 
 ## Runtime Evidence
 
-- Required after implementation because this changes OS/window behavior.
+- Command: `pnpm verify:runtime`
+- Outcome: passed on 2026-06-18.
+- Evidence environment: Ubuntu 24.04 x86_64 on X11, Tauri 2.11.2,
+  tauri-plugin-single-instance 2.4.2, WebKitGTK 2.52.3, Rust 1.95.0,
+  Node 22.22.0, pnpm 10.33.1.
+- Runtime evidence covered Tauri prerequisites, generated contracts, frontend
+  build, Tauri IPC bridge tests, and desktop UI evidence.
+- Native close-to-hide, second-launch focus, and operating-system wake behavior
+  still require the Phase 7D manual smoke checklist because the current
+  automated evidence harness cannot drive those OS-level interactions reliably.
 
 ## Follow-Up Debt
 
