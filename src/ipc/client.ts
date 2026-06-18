@@ -9,6 +9,7 @@ import {
   invokeAppGetCapabilities,
   invokeSettingsGet,
   invokeSettingsUpdate,
+  invokeSettingsUpdateProjectPathRetention,
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
@@ -40,6 +41,8 @@ import {
   type SessionDetailRequest,
   type SessionDetailResponse,
   type SettingsResponse,
+  type ProjectPathRetentionResponse,
+  type UpdateProjectPathRetentionRequest,
   type UpdateSettingsRequest,
 } from "./generated/contracts";
 
@@ -154,6 +157,12 @@ const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
   storeProjectPaths: z.boolean(),
   revision: z.number().int().positive(),
 });
+
+const projectPathRetentionDataSchema: z.ZodType<ProjectPathRetentionResponse> =
+  z.object({
+    settings: settingsDataSchema,
+    clearedPaths: z.number().int().nonnegative(),
+  });
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
   status: z.enum([
@@ -399,6 +408,24 @@ export async function updateSettings(
     },
   });
   return unwrapResponse(validateResponse(response, settingsDataSchema));
+}
+
+export async function updateProjectPathRetention(
+  request: UpdateProjectPathRetentionRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<ProjectPathRetentionResponse>> {
+  const parsed = z
+    .object({
+      expectedRevision: z.number().int().positive(),
+      retainPaths: z.boolean(),
+    })
+    .parse(request);
+  const response = await invokeSettingsUpdateProjectPathRetention(invoker, {
+    request: parsed,
+  });
+  return unwrapResponse(
+    validateResponse(response, projectPathRetentionDataSchema),
+  );
 }
 
 export async function getRefreshState(

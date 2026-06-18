@@ -300,6 +300,21 @@ export interface SettingsResponse {
   revision: number;
 }
 
+export interface UpdateProjectPathRetentionRequest {
+  expectedRevision: number;
+  retainPaths: boolean;
+}
+
+export interface UpdateProjectPathRetentionCommandRequest
+  extends Record<string, unknown> {
+  request: UpdateProjectPathRetentionRequest;
+}
+
+export interface ProjectPathRetentionResponse {
+  settings: SettingsResponse;
+  clearedPaths: number;
+}
+
 export interface DesktopCapability {
   supported: boolean;
   status: "available" | "not_implemented" | "unavailable";

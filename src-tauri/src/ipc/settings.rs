@@ -32,6 +32,20 @@ pub(super) struct UpdateSettingsRequest {
     store_project_paths: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct UpdateProjectPathRetentionRequest {
+    expected_revision: i64,
+    retain_paths: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProjectPathRetentionResponse {
+    settings: SettingsResponse,
+    cleared_paths: u32,
+}
+
 #[tauri::command]
 pub(super) fn settings_get(service: State<'_, SettingsService>) -> IpcResponse<SettingsResponse> {
     match service.get() {
@@ -65,6 +79,29 @@ pub(super) fn settings_update<R: tauri::Runtime>(
         Ok(updated) => {
             let _ = app.emit("burnly://v1/settings-changed", ());
             IpcResponse::success(updated.into())
+        }
+        Err(error) => IpcResponse::failure(settings_error(error)),
+    }
+}
+
+#[tauri::command]
+pub(super) fn settings_update_project_path_retention<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    service: State<'_, SettingsService>,
+    request: UpdateProjectPathRetentionRequest,
+) -> IpcResponse<ProjectPathRetentionResponse> {
+    match service.update_project_path_retention(request.expected_revision, request.retain_paths) {
+        Ok(result) => {
+            let response = ProjectPathRetentionResponse {
+                settings: result.settings.into(),
+                cleared_paths: result.cleared_paths,
+            };
+            let _ = app.emit("burnly://v1/settings-changed", ());
+            let _ = app.emit(
+                "burnly://v1/data-invalidated",
+                serde_json::json!({ "scope": "sessions" }),
+            );
+            IpcResponse::success(response)
         }
         Err(error) => IpcResponse::failure(settings_error(error)),
     }

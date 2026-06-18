@@ -127,6 +127,23 @@ export interface SettingsResponse {
   revision: number;
 }
 
+export interface UpdateProjectPathRetentionRequest {
+  expectedRevision: number;
+  retainPaths: boolean;
+}
+
+export interface UpdateProjectPathRetentionCommandRequest extends Record<
+  string,
+  unknown
+> {
+  request: UpdateProjectPathRetentionRequest;
+}
+
+export interface ProjectPathRetentionResponse {
+  settings: SettingsResponse;
+  clearedPaths: number;
+}
+
 export interface DesktopCapability {
   supported: boolean;
   status: "available" | "not_implemented" | "unavailable";
@@ -296,6 +313,7 @@ export const COMMAND_NAMES = {
   appGetCapabilities: "app_get_capabilities",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
+  settingsUpdateProjectPathRetention: "settings_update_project_path_retention",
   refreshGetState: "refresh_get_state",
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
@@ -314,6 +332,7 @@ export interface CommandRequests {
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
+  [COMMAND_NAMES.settingsUpdateProjectPathRetention]: UpdateProjectPathRetentionCommandRequest;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
@@ -330,6 +349,7 @@ export interface CommandResponses {
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
+  [COMMAND_NAMES.settingsUpdateProjectPathRetention]: IpcResponse<ProjectPathRetentionResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
@@ -370,6 +390,13 @@ export function invokeSettingsUpdate(
   request: UpdateSettingsCommandRequest,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.settingsUpdate, request);
+}
+
+export function invokeSettingsUpdateProjectPathRetention(
+  invoke: CommandInvoker,
+  request: UpdateProjectPathRetentionCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.settingsUpdateProjectPathRetention, request);
 }
 
 export function invokeRefreshGetState(

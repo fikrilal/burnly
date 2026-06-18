@@ -30,6 +30,7 @@ use crate::domain::source::SourceKey;
 use crate::domain::usage::{CostKind, DataQuality, TokenUsage, UsageCost, ValuedCostStatus};
 
 use super::Database;
+use crate::infrastructure::project_identity::ProjectPathIdentity;
 
 pub(crate) struct SqliteReconciliationStore {
     database: Mutex<Database>,
@@ -280,6 +281,13 @@ fn reconcile_session_in_transaction(
     let source_id = request.source_id();
     let import_run_id = request.import_run_id();
     let observed_at_ms = request.observed_at_ms();
+    let retain_project_paths: bool = transaction
+        .query_row(
+            "SELECT store_project_paths FROM app_settings WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| UsageStoreError::Backend)?;
 
     let mut observed_source_keys = Vec::with_capacity(request.candidates().len());
 
@@ -290,6 +298,7 @@ fn reconcile_session_in_transaction(
                 source_id,
                 observed_at_ms,
                 path,
+                retain_project_paths,
             )?),
             None => None,
         };
@@ -644,15 +653,30 @@ fn resolve_project(
     source_id: SourceId,
     observed_at_ms: i64,
     project_path: &str,
+    retain_path: bool,
 ) -> Result<i64, UsageStoreError> {
+    let identity = ProjectPathIdentity::from_path(project_path);
+    let raw_path = retain_path.then_some(project_path);
     transaction
         .query_row(
-            "INSERT INTO projects (source_id, identity_key, identity_kind, first_seen_at_ms, last_seen_at_ms)
-            VALUES (?1, ?2, 'path', ?3, ?3)
+            "INSERT INTO projects (
+                source_id, identity_key, identity_kind, raw_path,
+                path_fingerprint, first_seen_at_ms, last_seen_at_ms
+            )
+            VALUES (?1, ?2, 'path', ?3, ?4, ?5, ?5)
             ON CONFLICT(source_id, identity_key)
-                DO UPDATE SET last_seen_at_ms = excluded.last_seen_at_ms
+                DO UPDATE SET
+                    raw_path = excluded.raw_path,
+                    path_fingerprint = excluded.path_fingerprint,
+                    last_seen_at_ms = excluded.last_seen_at_ms
             RETURNING id",
-            params![source_id.value(), project_path, observed_at_ms],
+            params![
+                source_id.value(),
+                identity.key(),
+                raw_path,
+                identity.fingerprint().as_slice(),
+                observed_at_ms
+            ],
             |row| row.get(0),
         )
         .map_err(|_| UsageStoreError::Backend)
@@ -959,6 +983,18 @@ mod tests {
         .expect("import spec")
     }
 
+    fn session_import_spec(refresh_run_id: RefreshRunId, source_id: SourceId) -> ImportRunSpec {
+        ImportRunSpec::new(
+            refresh_run_id,
+            source_id,
+            ImportCollector::new("ccusage", "20.0.11", 1).expect("collector"),
+            CollectionProjection::Session,
+            CollectionScope::Full,
+            None,
+        )
+        .expect("session import spec")
+    }
+
     #[test]
     fn resolves_source_get_or_create_is_idempotent() {
         let (_directory, store) = migrated_store();
@@ -1144,6 +1180,90 @@ mod tests {
                 cost: estimated_cost(total * 100),
             }],
         }
+    }
+
+    fn session_candidate(project_path: &str) -> SessionUsageCandidate {
+        SessionUsageCandidate {
+            provenance: provenance(),
+            source_key: "claude-code:session:v1:session-1".to_owned(),
+            source_session_id: "session-1".to_owned(),
+            project_path: Some(project_path.to_owned()),
+            first_activity_at: None,
+            last_activity_at: None,
+            tokens: classified_tokens(100),
+            cost: estimated_cost(10_000),
+            model_breakdowns: Vec::new(),
+        }
+    }
+
+    fn reconcile_session_with_policy(retain_paths: bool) -> SqliteReconciliationStore {
+        let directory = tempfile::TempDir::new().expect("create temporary directory");
+        let database_path = directory.keep().join("burnly.sqlite3");
+        let mut database = Database::open(&database_path).expect("open database");
+        database.migrate_to_latest().expect("migrate database");
+        database.ensure_app_settings("UTC", 100).expect("settings");
+        database
+            .connection()
+            .execute(
+                "UPDATE app_settings SET store_project_paths = ?1",
+                [retain_paths],
+            )
+            .expect("set privacy policy");
+        let store = SqliteReconciliationStore::new(database);
+        let source_id = store
+            .resolve_source(SourceKey::ClaudeCode, 100)
+            .expect("resolve source");
+        let refresh_run_id = store
+            .begin_refresh_run(refresh_spec("session-refresh"), 100)
+            .expect("begin refresh");
+        let import_run_id = store
+            .begin_import_run(session_import_spec(refresh_run_id, source_id), 110)
+            .expect("begin import");
+        store
+            .reconcile_session(SessionReconciliationRequest::new(
+                source_id,
+                import_run_id,
+                CollectionScope::Full,
+                CollectionOutcome::Complete,
+                120,
+                vec![session_candidate("/home/dante/secret-project")],
+            ))
+            .expect("reconcile session");
+        store
+    }
+
+    #[test]
+    fn disabled_retention_persists_only_non_reversible_project_identity() {
+        let store = reconcile_session_with_policy(false);
+        let database = store.database.lock().expect("store lock");
+        let (identity_key, raw_path, fingerprint): (String, Option<String>, Vec<u8>) = database
+            .connection()
+            .query_row(
+                "SELECT identity_key, raw_path, path_fingerprint FROM projects",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read project");
+
+        assert!(ProjectPathIdentity::is_key(&identity_key));
+        assert!(!identity_key.contains("secret-project"));
+        assert_eq!(raw_path, None);
+        assert_eq!(fingerprint.len(), 32);
+    }
+
+    #[test]
+    fn enabled_retention_keeps_raw_path_separate_from_project_identity() {
+        let store = reconcile_session_with_policy(true);
+        let database = store.database.lock().expect("store lock");
+        let (identity_key, raw_path): (String, Option<String>) = database
+            .connection()
+            .query_row("SELECT identity_key, raw_path FROM projects", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("read project");
+
+        assert!(ProjectPathIdentity::is_key(&identity_key));
+        assert_eq!(raw_path.as_deref(), Some("/home/dante/secret-project"));
     }
 
     fn request(

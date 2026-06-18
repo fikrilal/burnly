@@ -48,14 +48,14 @@ This is a destructive, privacy-sensitive data operation.
 
 ## Checklist
 
-- [ ] Inventory every persisted and diagnostic location that can contain paths.
-- [ ] Define the explicit disable-retention use case and result.
-- [ ] Implement atomic setting update and stored-path cleanup.
-- [ ] Enforce retention policy during future project reconciliation.
-- [ ] Add confirmation and outcome states to settings UI.
-- [ ] Add real SQLite tests for deletion, rollback, concurrency, and re-enable.
-- [ ] Add redaction tests for diagnostic artifacts in current scope.
-- [ ] Record privacy behavior in runtime evidence.
+- [x] Inventory every persisted and diagnostic location that can contain paths.
+- [x] Define the explicit disable-retention use case and result.
+- [x] Implement atomic setting update and stored-path cleanup.
+- [x] Enforce retention policy during future project reconciliation.
+- [x] Add confirmation and outcome states to settings UI.
+- [x] Add real SQLite tests for deletion, rollback, concurrency, and re-enable.
+- [x] Add redaction tests for diagnostic artifacts in current scope.
+- [x] Record privacy behavior in runtime evidence.
 
 ## Test Plan
 
@@ -73,17 +73,46 @@ This is a destructive, privacy-sensitive data operation.
 - This operation is explicit and destructive; it is not a boolean-only update.
 - Stable non-reversible grouping identifiers may remain only as allowed by the
   locked database design.
+- Current persisted path-bearing storage is `projects.raw_path` plus legacy
+  path-valued `projects.identity_key` rows. The current schema does not persist
+  raw collector payload diagnostic artifacts, so there is no diagnostic artifact
+  deletion target in this chunk.
+- Startup enforces the current project-path policy so existing local databases
+  are normalized even before the next user privacy transition.
 
 ## Verification
 
+- Command: `cargo test -q settings_store::tests:: --manifest-path src-tauri/Cargo.toml`
+- Outcome: passed on 2026-06-18. Covered settings-store replacement, path
+  deletion, stale-revision rollback, re-enable behavior, and startup policy
+  normalization.
+- Command: `cargo test -q reconciliation_store::tests:: --manifest-path src-tauri/Cargo.toml`
+- Outcome: passed on 2026-06-18. Covered disabled and enabled project-path
+  retention during future session reconciliation.
+- Command: `pnpm vitest run src/features/settings/SettingsView.test.tsx src/ipc/client.test.ts`
+- Outcome: passed on 2026-06-18. Covered frontend confirmation flow, retention
+  IPC request wrapping, and response validation.
+- Command: `pnpm architecture:check`
+- Outcome: passed on 2026-06-18.
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed on 2026-06-18. This included Prettier, ESLint, TypeScript,
+  Vitest, rustfmt, Clippy with warnings denied, 193 passing Rust tests with one
+  opt-in collector smoke test ignored, architecture/public API/contract/migration
+  harness checks, collector fixture checks, and duplicate-code reporting. ESLint
+  reported only warning-level signals.
 
 ## Runtime Evidence
 
-- Not required yet.
+- `pnpm verify:runtime` passed on 2026-06-18.
+- Environment: Ubuntu 24.04, Linux 6.17.0-35-generic, GNOME on X11.
+- Evidence covered Tauri prerequisite reporting, generated contract drift,
+  production frontend build, five Tauri IPC bridge tests, platform lifecycle and
+  tray unit tests, refresh scheduler tests, and twelve Playwright desktop
+  evidence tests.
+- The Playwright evidence includes the project-path retention confirmation flow
+  on desktop and compact viewports.
 
 ## Follow-Up Debt
 
-- Raw diagnostic payload policy remains Phase 9 unless current storage is found
-  to contain paths.
+- Raw diagnostic payload policy remains Phase 9. Phase 8B found no current
+  persisted raw diagnostic payload store to clean.

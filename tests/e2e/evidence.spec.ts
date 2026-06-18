@@ -87,6 +87,24 @@ test.describe("Desktop Evidence: overview states", () => {
     await expect(page.getByText("Settings saved.")).toBeVisible();
     await expect(timezone).toHaveValue("Asia/Jakarta");
   });
+
+  test("project-path retention requires confirmation before deletion", async ({
+    page,
+  }) => {
+    await installTauriMock(page, "populated");
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings" }).click();
+
+    await page.getByRole("button", { name: "Enable" }).click();
+    await expect(page.getByRole("button", { name: "Disable" })).toBeVisible();
+    await page.getByRole("button", { name: "Disable" }).click();
+    await expect(page.getByText("Remove stored project paths?")).toBeVisible();
+    await page.getByRole("button", { name: "Remove paths" }).click();
+
+    await expect(
+      page.getByText("Removed 2 stored project paths."),
+    ).toBeVisible();
+  });
 });
 
 async function installTauriMock(
@@ -313,6 +331,27 @@ async function installTauriMock(
             ok: true,
             meta: pageMeta(),
             data: pageSettings,
+          });
+        }
+
+        if (command === "settings_update_project_path_retention") {
+          const request = args.request as {
+            expectedRevision: number;
+            retainPaths: boolean;
+          };
+          Object.assign(pageSettings, {
+            storeProjectPaths: request.retainPaths,
+            revision: request.expectedRevision + 1,
+          });
+          emit("burnly://v1/settings-changed", {});
+          emit("burnly://v1/data-invalidated", { scope: "sessions" });
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              settings: pageSettings,
+              clearedPaths: request.retainPaths ? 0 : 2,
+            },
           });
         }
 

@@ -4,12 +4,17 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getSettings, updateSettings } from "../../ipc/client";
+import {
+  getSettings,
+  updateProjectPathRetention,
+  updateSettings,
+} from "../../ipc/client";
 import type { AppCapabilitiesResponse } from "../../ipc/generated/contracts";
 import { SettingsView } from "./SettingsView";
 
 vi.mock("../../ipc/client", () => ({
   getSettings: vi.fn(),
+  updateProjectPathRetention: vi.fn(),
   updateSettings: vi.fn(),
 }));
 
@@ -31,22 +36,7 @@ const settings = {
 
 describe("SettingsView", () => {
   beforeEach(() => {
-    vi.mocked(getSettings).mockResolvedValue({
-      data: settings,
-      meta: {
-        contractVersion: 1,
-        requestId: "request-1",
-        generatedAt: "2026-06-18T00:00:00.000Z",
-      },
-    });
-    vi.mocked(updateSettings).mockResolvedValue({
-      data: { ...settings, reportingTimezone: "Asia/Jakarta", revision: 2 },
-      meta: {
-        contractVersion: 1,
-        requestId: "request-2",
-        generatedAt: "2026-06-18T00:00:01.000Z",
-      },
-    });
+    setupMocks();
   });
 
   it("loads dedicated settings and submits the expected revision", async () => {
@@ -72,16 +62,86 @@ describe("SettingsView", () => {
     });
     expect(await screen.findByText("Settings saved.")).toBeInTheDocument();
   });
+});
 
-  it("shows unavailable platform-owned settings as read-only", async () => {
+describe("SettingsView project-path privacy", () => {
+  beforeEach(() => {
+    setupMocks();
+  });
+
+  it("enables retention prospectively", async () => {
+    const user = userEvent.setup();
     render(<SettingsView capabilities={capabilities()} />, {
       wrapper: queryWrapper(),
     });
 
     await screen.findByLabelText("Reporting timezone");
-    expect(screen.getAllByText("Unavailable")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "Enable" }));
+
+    expect(updateProjectPathRetention).toHaveBeenCalledWith({
+      expectedRevision: 1,
+      retainPaths: true,
+    });
+  });
+
+  it("requires confirmation before deletion", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getSettings).mockResolvedValue({
+      data: { ...settings, storeProjectPaths: true },
+      meta: {
+        contractVersion: 1,
+        requestId: "request-4",
+        generatedAt: "2026-06-18T00:00:03.000Z",
+      },
+    });
+    render(<SettingsView capabilities={capabilities()} />, {
+      wrapper: queryWrapper(),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Disable" }));
+    expect(
+      screen.getByText("Remove stored project paths?"),
+    ).toBeInTheDocument();
+    expect(updateProjectPathRetention).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Remove paths" }));
+    expect(updateProjectPathRetention).toHaveBeenCalledWith({
+      expectedRevision: 1,
+      retainPaths: false,
+    });
   });
 });
+
+function setupMocks() {
+  vi.clearAllMocks();
+  vi.mocked(getSettings).mockResolvedValue({
+    data: settings,
+    meta: {
+      contractVersion: 1,
+      requestId: "request-1",
+      generatedAt: "2026-06-18T00:00:00.000Z",
+    },
+  });
+  vi.mocked(updateSettings).mockResolvedValue({
+    data: { ...settings, reportingTimezone: "Asia/Jakarta", revision: 2 },
+    meta: {
+      contractVersion: 1,
+      requestId: "request-2",
+      generatedAt: "2026-06-18T00:00:01.000Z",
+    },
+  });
+  vi.mocked(updateProjectPathRetention).mockResolvedValue({
+    data: {
+      settings: { ...settings, storeProjectPaths: true, revision: 2 },
+      clearedPaths: 0,
+    },
+    meta: {
+      contractVersion: 1,
+      requestId: "request-3",
+      generatedAt: "2026-06-18T00:00:02.000Z",
+    },
+  });
+}
 
 function capabilities(): AppCapabilitiesResponse {
   const unavailable = {

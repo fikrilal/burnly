@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AlertCircle, CheckCircle, Save } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
 
 import { BurnlyClientError } from "../../ipc/errors";
 import type {
@@ -7,7 +8,11 @@ import type {
   SettingsResponse,
   UpdateSettingsRequest,
 } from "../../ipc/generated/contracts";
-import { useSettings, useUpdateSettings } from "./use-settings";
+import {
+  useSettings,
+  useUpdateProjectPathRetention,
+  useUpdateSettings,
+} from "./use-settings";
 
 interface SettingsViewProps {
   capabilities: AppCapabilitiesResponse;
@@ -27,6 +32,7 @@ const COMMON_TIMEZONES = [
 export function SettingsView({ capabilities }: SettingsViewProps) {
   const settingsQuery = useSettings();
   const updateMutation = useUpdateSettings();
+  const privacyMutation = useUpdateProjectPathRetention();
 
   if (settingsQuery.isPending) {
     return <SettingsStatus title="Loading settings" />;
@@ -56,6 +62,16 @@ export function SettingsView({ capabilities }: SettingsViewProps) {
         updateMutation.reset();
         void settingsQuery.refetch();
       }}
+      privacySaving={privacyMutation.isPending}
+      privacyError={privacyMutation.error}
+      clearedPaths={privacyMutation.data?.clearedPaths}
+      onPrivacyChange={(retainPaths) => {
+        privacyMutation.reset();
+        privacyMutation.mutate({
+          expectedRevision: settingsQuery.data.revision,
+          retainPaths,
+        });
+      }}
     />
   );
 }
@@ -68,6 +84,10 @@ interface SettingsFormProps {
   saved: boolean;
   onSave: (request: UpdateSettingsRequest) => void;
   onReload: () => void;
+  privacySaving: boolean;
+  privacyError: Error | null;
+  clearedPaths: number | undefined;
+  onPrivacyChange: (retainPaths: boolean) => void;
 }
 
 function SettingsForm({
@@ -78,6 +98,10 @@ function SettingsForm({
   saved,
   onSave,
   onReload,
+  privacySaving,
+  privacyError,
+  clearedPaths,
+  onPrivacyChange,
 }: SettingsFormProps) {
   const form = useSettingsFormState(settings);
 
@@ -90,16 +114,7 @@ function SettingsForm({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          onSave({
-            expectedRevision: settings.revision,
-            reportingTimezone: form.reportingTimezone,
-            backgroundRefreshEnabled: form.backgroundRefreshEnabled,
-            refreshIntervalMinutes: form.refreshIntervalMinutes,
-            launchAtLogin: settings.launchAtLogin,
-            closeBehavior: form.closeBehavior,
-            notificationsEnabled: settings.notificationsEnabled,
-            storeProjectPaths: settings.storeProjectPaths,
-          });
+          onSave(settingsRequest(settings, form));
         }}
         className="space-y-6"
       >
@@ -121,11 +136,34 @@ function SettingsForm({
           onEnabledChange={form.setBackgroundRefreshEnabled}
           onIntervalChange={form.setRefreshIntervalMinutes}
         />
-        <PlatformSettings settings={settings} capabilities={capabilities} />
+        <PlatformSettings
+          settings={settings}
+          capabilities={capabilities}
+          privacySaving={privacySaving}
+          privacyError={privacyError}
+          clearedPaths={clearedPaths}
+          onPrivacyChange={onPrivacyChange}
+        />
         <SubmitSettings saving={saving} />
       </form>
     </div>
   );
+}
+
+function settingsRequest(
+  settings: SettingsResponse,
+  form: ReturnType<typeof useSettingsFormState>,
+): UpdateSettingsRequest {
+  return {
+    expectedRevision: settings.revision,
+    reportingTimezone: form.reportingTimezone,
+    backgroundRefreshEnabled: form.backgroundRefreshEnabled,
+    refreshIntervalMinutes: form.refreshIntervalMinutes,
+    launchAtLogin: settings.launchAtLogin,
+    closeBehavior: form.closeBehavior,
+    notificationsEnabled: settings.notificationsEnabled,
+    storeProjectPaths: settings.storeProjectPaths,
+  };
 }
 
 function useSettingsFormState(settings: SettingsResponse) {
@@ -281,9 +319,17 @@ function RefreshSettings({
 function PlatformSettings({
   settings,
   capabilities,
+  privacySaving,
+  privacyError,
+  clearedPaths,
+  onPrivacyChange,
 }: {
   settings: SettingsResponse;
   capabilities: AppCapabilitiesResponse;
+  privacySaving: boolean;
+  privacyError: Error | null;
+  clearedPaths: number | undefined;
+  onPrivacyChange: (retainPaths: boolean) => void;
 }) {
   return (
     <section className="space-y-4 border-t border-zinc-800 pt-6">
@@ -297,12 +343,127 @@ function PlatformSettings({
         checked={settings.notificationsEnabled}
         available={capabilities.nativeNotifications.supported}
       />
-      <ReadOnlySetting
-        label="Store project paths"
-        checked={settings.storeProjectPaths}
-        available={false}
+      <ProjectPathPrivacy
+        enabled={settings.storeProjectPaths}
+        saving={privacySaving}
+        error={privacyError}
+        clearedPaths={clearedPaths}
+        onChange={onPrivacyChange}
       />
     </section>
+  );
+}
+
+function ProjectPathPrivacy({
+  enabled,
+  saving,
+  error,
+  clearedPaths,
+  onChange,
+}: {
+  enabled: boolean;
+  saving: boolean;
+  error: Error | null;
+  clearedPaths: number | undefined;
+  onChange: (enabled: boolean) => void;
+}) {
+  return enabled ? (
+    <DisableProjectPaths saving={saving} onChange={onChange} />
+  ) : (
+    <EnableProjectPaths
+      saving={saving}
+      error={error}
+      clearedPaths={clearedPaths}
+      onChange={onChange}
+    />
+  );
+}
+
+function EnableProjectPaths({
+  saving,
+  error,
+  clearedPaths,
+  onChange,
+}: Omit<Parameters<typeof ProjectPathPrivacy>[0], "enabled">) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-sm text-zinc-300">Store project paths</span>
+        <button
+          type="button"
+          disabled={saving}
+          className="border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:border-zinc-500 disabled:opacity-50"
+          onClick={() => {
+            onChange(true);
+          }}
+        >
+          Enable
+        </button>
+      </div>
+      {clearedPaths !== undefined ? (
+        <p className="text-xs text-zinc-500">
+          Removed {clearedPaths} stored project paths.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="text-xs text-red-400">{errorMessage(error)}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function DisableProjectPaths({
+  saving,
+  onChange,
+}: Pick<Parameters<typeof ProjectPathPrivacy>[0], "saving" | "onChange">) {
+  return (
+    <Dialog.Root>
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-sm text-zinc-300">Store project paths</span>
+        <Dialog.Trigger asChild>
+          <button
+            type="button"
+            disabled={saving}
+            className="border border-red-900 px-3 py-1.5 text-xs text-red-300 hover:border-red-700 disabled:opacity-50"
+          >
+            Disable
+          </button>
+        </Dialog.Trigger>
+      </div>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/70" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-zinc-700 bg-zinc-950 p-6 text-zinc-100">
+          <Dialog.Title className="text-lg font-semibold">
+            Remove stored project paths?
+          </Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-zinc-400">
+            Burnly will permanently remove stored workspace paths. Usage history
+            and private project grouping identifiers will remain.
+          </Dialog.Description>
+          <div className="mt-6 flex justify-end gap-3">
+            <Dialog.Close asChild>
+              <button
+                type="button"
+                className="border border-zinc-700 px-3 py-2 text-sm"
+              >
+                Cancel
+              </button>
+            </Dialog.Close>
+            <Dialog.Close asChild>
+              <button
+                type="button"
+                className="bg-red-700 px-3 py-2 text-sm text-white hover:bg-red-600"
+                onClick={() => {
+                  onChange(false);
+                }}
+              >
+                Remove paths
+              </button>
+            </Dialog.Close>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

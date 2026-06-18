@@ -31,7 +31,7 @@ calculations, and native side effects.
 | Chunk                                       | Status    | Dependency   | Plan                                                                   |
 | ------------------------------------------- | --------- | ------------ | ---------------------------------------------------------------------- |
 | Phase 8A: Settings foundation               | Completed | Phase 7      | [Plan](../completed/2026-06-18_phase-8a-settings-foundation.md)        |
-| Phase 8B: Privacy retention                 | Queued    | Phase 8A     | [Plan](../queued/2026-06-18_phase-8b-project-path-privacy.md)          |
+| Phase 8B: Privacy retention                 | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8b-project-path-privacy.md)       |
 | Phase 8C: Budget domain and storage         | Queued    | Phase 8A     | [Plan](../queued/2026-06-18_phase-8c-budget-domain-storage.md)         |
 | Phase 8D: Budget IPC contracts              | Queued    | Phase 8C     | [Plan](../queued/2026-06-18_phase-8d-budget-ipc.md)                    |
 | Phase 8E: Budget interface                  | Queued    | Phase 8D     | [Plan](../queued/2026-06-18_phase-8e-budget-interface.md)              |
@@ -89,7 +89,7 @@ calculations, and native side effects.
 ## Progress
 
 - [x] Phase 8A completed and verified.
-- [ ] Phase 8B completed and verified.
+- [x] Phase 8B completed and verified.
 - [ ] Phase 8C completed and verified.
 - [ ] Phase 8D completed and verified.
 - [ ] Phase 8E completed and verified.
@@ -107,6 +107,10 @@ calculations, and native side effects.
   deduplication semantics already locked in the database design.
 - Phase 8A established complete-document settings replacement with optimistic
   revisions and dedicated IPC; destructive privacy transitions remain Phase 8B.
+- Phase 8B established a dedicated destructive project-path retention command,
+  atomic SQLite cleanup, future-import enforcement, and confirmation UI. Current
+  persisted diagnostics do not include raw collector payload artifacts, so raw
+  diagnostic payload policy remains outside Phase 8B.
 
 ## Verification
 

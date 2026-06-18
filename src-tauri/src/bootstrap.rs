@@ -41,6 +41,7 @@ pub(crate) enum StartupErrorKind {
     ResourceDir,
     Collector,
     RefreshScheduler,
+    PrivacyPolicy,
     Persistence(PersistenceErrorKind),
 }
 
@@ -64,6 +65,9 @@ pub(crate) enum StartupError {
     #[error("failed to initialize refresh scheduler")]
     RefreshScheduler(#[source] RefreshSchedulerError),
 
+    #[error("failed to enforce the project-path privacy policy")]
+    PrivacyPolicy,
+
     #[error("failed to initialize persistence")]
     Persistence(#[source] PersistenceError),
 }
@@ -77,6 +81,7 @@ impl StartupError {
             Self::ResourceDir(_) => StartupErrorKind::ResourceDir,
             Self::Collector(_) => StartupErrorKind::Collector,
             Self::RefreshScheduler(_) => StartupErrorKind::RefreshScheduler,
+            Self::PrivacyPolicy => StartupErrorKind::PrivacyPolicy,
             Self::Persistence(error) => StartupErrorKind::Persistence(error.kind()),
         }
     }
@@ -174,6 +179,10 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         runtime_capabilities,
     ));
     let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
+    let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
+    settings_store
+        .enforce_current_project_path_policy()
+        .map_err(|_| StartupError::PrivacyPolicy)?;
     let runtime = Arc::new(DesktopSettingsRuntime {
         app: app.handle().clone(),
         runtime_settings,
@@ -181,7 +190,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         notifications_available: false,
     });
     app.manage(SettingsService::new(
-        Arc::new(SqliteSettingsStore::new(settings_database)),
+        settings_store,
         runtime,
         Arc::new(SystemClock),
     ));
@@ -450,6 +459,40 @@ mod tests {
                 .expect("valid document");
             Ok(document.clone())
         }
+
+        fn replace_project_path_retention(
+            &self,
+            expected_revision: i64,
+            retain_paths: bool,
+            _updated_at_ms: i64,
+        ) -> Result<
+            crate::application::ports::settings_store::ProjectPathRetentionResult,
+            SettingsStoreError,
+        > {
+            let mut document = self.document.lock().expect("settings lock");
+            if document.revision() != expected_revision {
+                return Err(SettingsStoreError::Conflict);
+            }
+            let current = document.settings();
+            let settings = Settings::new(
+                current.reporting_timezone().to_owned(),
+                current.background_refresh_enabled(),
+                current.refresh_interval_minutes(),
+                current.launch_at_login(),
+                current.close_behavior().as_str(),
+                current.notifications_enabled(),
+                retain_paths,
+            )
+            .expect("valid settings");
+            *document =
+                SettingsDocument::new(settings, expected_revision + 1).expect("valid document");
+            Ok(
+                crate::application::ports::settings_store::ProjectPathRetentionResult {
+                    settings: document.clone(),
+                    cleared_paths: 0,
+                },
+            )
+        }
     }
 
     struct TestSettingsRuntime;
@@ -662,6 +705,30 @@ mod tests {
         assert_eq!(response["data"]["refreshIntervalMinutes"], 30);
         assert_eq!(response["data"]["closeBehavior"], "hide");
         assert_eq!(response["data"]["revision"], 2);
+
+        let privacy_response = tauri::test::get_ipc_response(
+            &webview,
+            request_with_body(
+                "settings_update_project_path_retention",
+                json!({
+                    "request": {
+                        "expectedRevision": 2,
+                        "retainPaths": true
+                    }
+                }),
+            ),
+        )
+        .expect("invoke privacy update")
+        .deserialize::<Value>()
+        .expect("deserialize privacy response");
+
+        assert_eq!(privacy_response["ok"], true);
+        assert_eq!(
+            privacy_response["data"]["settings"]["storeProjectPaths"],
+            true
+        );
+        assert_eq!(privacy_response["data"]["settings"]["revision"], 3);
+        assert_eq!(privacy_response["data"]["clearedPaths"], 0);
     }
 
     #[test]

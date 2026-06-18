@@ -12,6 +12,7 @@ import {
   validateInt64String,
   validateUint64String,
   updateSettings,
+  updateProjectPathRetention,
 } from "./client";
 import {
   COMMAND_NAMES,
@@ -121,6 +122,31 @@ describe("settings IPC", () => {
         )
       ).data.revision,
     ).toBe(2);
+  });
+
+  it("wraps project-path retention transitions in the named request argument", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.settingsUpdateProjectPathRetention);
+      expect(request).toEqual({
+        request: { expectedRevision: 1, retainPaths: false },
+      });
+      return Promise.resolve({
+        ok: true,
+        data: {
+          settings: settingsResponseData(2),
+          clearedPaths: 3,
+        },
+        meta,
+      });
+    };
+
+    const result = await updateProjectPathRetention(
+      { expectedRevision: 1, retainPaths: false },
+      invoker,
+    );
+
+    expect(result.data.clearedPaths).toBe(3);
+    expect(result.data.settings.revision).toBe(2);
   });
 
   it("rejects invalid settings before transport", async () => {
@@ -273,17 +299,21 @@ function refreshState(): IpcResponse<unknown> {
 function settingsResponse(revision: number): IpcResponse<unknown> {
   return {
     ok: true,
-    data: {
-      reportingTimezone: "UTC",
-      backgroundRefreshEnabled: false,
-      refreshIntervalMinutes: 15,
-      launchAtLogin: false,
-      closeBehavior: "quit",
-      notificationsEnabled: false,
-      storeProjectPaths: false,
-      revision,
-    },
+    data: settingsResponseData(revision),
     meta,
+  };
+}
+
+function settingsResponseData(revision: number) {
+  return {
+    reportingTimezone: "UTC",
+    backgroundRefreshEnabled: false,
+    refreshIntervalMinutes: 15,
+    launchAtLogin: false,
+    closeBehavior: "quit" as const,
+    notificationsEnabled: false,
+    storeProjectPaths: false,
+    revision,
   };
 }
 
