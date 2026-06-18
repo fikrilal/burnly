@@ -17,16 +17,19 @@ use crate::application::refresh::{
     RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
     RefreshSnapshot, RefreshStatus,
 };
+use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
 use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery};
+use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteCalendarStore, SqliteOverviewStore,
     SqliteReconciliationStore, SqliteSessionStore,
 };
+use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
-use crate::platform::lifecycle::{self, CloseBehavior};
+use crate::platform::lifecycle;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{database_path, single_instance, system_clock, system_timezone, tray};
 
@@ -87,11 +90,7 @@ pub(crate) fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if let Some(settings) = window.app_handle().try_state::<RuntimeSettings>() {
-                    lifecycle::handle_close_request(
-                        window,
-                        api,
-                        CloseBehavior::from_setting(&settings.close_behavior()),
-                    );
+                    lifecycle::handle_close_request(window, api, settings.close_behavior());
                 }
             }
         })
@@ -140,7 +139,12 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
             .map_err(StartupError::RefreshScheduler)?;
-    let runtime_settings = RuntimeSettings::new(close_behavior);
+    let runtime_settings =
+        RuntimeSettings::new(CloseBehavior::parse(&close_behavior).map_err(|_| {
+            StartupError::Persistence(PersistenceError::invalid_stored_value(
+                "app_settings.close_behavior",
+            ))
+        })?);
     let tray_controller = tray::TrayController::install(
         app.handle(),
         &tray_snapshot(&refresh_coordinator.snapshot()),
@@ -158,7 +162,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
 
     app.manage(refresh_coordinator);
     app.manage(refresh_scheduler);
-    app.manage(runtime_settings);
+    app.manage(runtime_settings.clone());
     app.manage(build_overview_query(&database_path)?);
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
@@ -169,7 +173,60 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         SqliteBootstrapStore::new(database),
         runtime_capabilities,
     ));
+    let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
+    let runtime = Arc::new(DesktopSettingsRuntime {
+        app: app.handle().clone(),
+        runtime_settings,
+        launch_at_login_available: false,
+        notifications_available: false,
+    });
+    app.manage(SettingsService::new(
+        Arc::new(SqliteSettingsStore::new(settings_database)),
+        runtime,
+        Arc::new(SystemClock),
+    ));
     Ok(())
+}
+
+struct DesktopSettingsRuntime<R: Runtime> {
+    app: tauri::AppHandle<R>,
+    runtime_settings: RuntimeSettings,
+    launch_at_login_available: bool,
+    notifications_available: bool,
+}
+
+impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
+    fn validate(&self, current: &Settings, proposed: &Settings) -> Result<(), RuntimeSettingError> {
+        if proposed.launch_at_login()
+            && !current.launch_at_login()
+            && !self.launch_at_login_available
+        {
+            return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
+        }
+        if proposed.notifications_enabled()
+            && !current.notifications_enabled()
+            && !self.notifications_available
+        {
+            return Err(RuntimeSettingError::NotificationsUnavailable);
+        }
+        if proposed.store_project_paths() != current.store_project_paths() {
+            return Err(RuntimeSettingError::ProjectPathRetentionRequiresPrivacyFlow);
+        }
+        Ok(())
+    }
+
+    fn apply(&self, settings: &Settings) {
+        self.runtime_settings.update(settings);
+        if let Some(scheduler) = self.app.try_state::<RefreshScheduler>() {
+            scheduler.apply_policy(refresh_policy(
+                settings.background_refresh_enabled(),
+                settings.refresh_interval_minutes(),
+            ));
+        }
+        if let Some(coordinator) = self.app.try_state::<RefreshCoordinator>() {
+            coordinator.set_aggregation_timezone(settings.reporting_timezone());
+        }
+    }
 }
 
 fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuEvent) {
@@ -342,9 +399,9 @@ fn initialize(
 mod tests {
     use crate::application::bootstrap::{
         BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
-        SettingsState,
     };
-    use crate::application::refresh::ScheduledRefreshRequester;
+    use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
+    use crate::domain::settings::{Settings, SettingsDocument};
 
     use rusqlite::Connection;
     use serde_json::{json, Value};
@@ -364,34 +421,49 @@ mod tests {
                 close_behavior: "quit".to_owned(),
                 notifications_enabled: false,
                 store_project_paths: false,
-                schema_version: 1,
+                settings_revision: 1,
+                schema_version: 2,
             })
         }
+    }
 
-        fn update_settings(&self, _settings: &SettingsState) -> Result<(), BootstrapError> {
+    struct TestSettingsStore {
+        document: Mutex<SettingsDocument>,
+    }
+
+    impl SettingsStore for TestSettingsStore {
+        fn get(&self) -> Result<SettingsDocument, SettingsStoreError> {
+            Ok(self.document.lock().expect("settings lock").clone())
+        }
+
+        fn replace(
+            &self,
+            expected_revision: i64,
+            settings: &Settings,
+            _updated_at_ms: i64,
+        ) -> Result<SettingsDocument, SettingsStoreError> {
+            let mut document = self.document.lock().expect("settings lock");
+            if document.revision() != expected_revision {
+                return Err(SettingsStoreError::Conflict);
+            }
+            *document = SettingsDocument::new(settings.clone(), expected_revision + 1)
+                .expect("valid document");
+            Ok(document.clone())
+        }
+    }
+
+    struct TestSettingsRuntime;
+
+    impl SettingsRuntime for TestSettingsRuntime {
+        fn validate(
+            &self,
+            _current: &Settings,
+            _proposed: &Settings,
+        ) -> Result<(), RuntimeSettingError> {
             Ok(())
         }
-    }
 
-    struct RecordingBootstrapStore {
-        updated: Arc<Mutex<Option<SettingsState>>>,
-    }
-
-    impl BootstrapStore for RecordingBootstrapStore {
-        fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
-            FixedBootstrapStore.read_bootstrap_storage()
-        }
-
-        fn update_settings(&self, settings: &SettingsState) -> Result<(), BootstrapError> {
-            *self.updated.lock().expect("lock settings") = Some(settings.clone());
-            Ok(())
-        }
-    }
-
-    struct NoopScheduledRequester;
-
-    impl ScheduledRefreshRequester for NoopScheduledRequester {
-        fn request_scheduled_refresh(&self) {}
+        fn apply(&self, _settings: &Settings) {}
     }
 
     fn capabilities_without_tray() -> RuntimeCapabilities {
@@ -409,7 +481,7 @@ mod tests {
         drop(initialize(&database_path, "Asia/Jakarta", 100).expect("initialize application"));
 
         let connection = Connection::open(database_path).expect("reopen database");
-        assert_eq!(pragma_i64(&connection, "user_version"), 1);
+        assert_eq!(pragma_i64(&connection, "user_version"), 2);
         assert_eq!(settings_count(&connection), 1);
         assert_eq!(
             setting_text(&connection, "reporting_timezone"),
@@ -438,7 +510,7 @@ mod tests {
         let database_path = directory.path().join("burnly.sqlite3");
         let connection = Connection::open(&database_path).expect("create database");
         connection
-            .pragma_update(None, "user_version", 2)
+            .pragma_update(None, "user_version", 3)
             .expect("set newer version");
         drop(connection);
 
@@ -452,7 +524,7 @@ mod tests {
             StartupErrorKind::Persistence(PersistenceErrorKind::Migration)
         );
         let connection = Connection::open(database_path).expect("reopen database");
-        assert_eq!(pragma_i64(&connection, "user_version"), 2);
+        assert_eq!(pragma_i64(&connection, "user_version"), 3);
     }
 
     #[test]
@@ -529,23 +601,33 @@ mod tests {
 
     #[test]
     fn tauri_bridge_updates_settings_when_scheduler_state_is_available() {
-        let updated = Arc::new(Mutex::new(None));
-        let runtime_settings = RuntimeSettings::new("quit".to_owned());
-        let scheduler =
-            RefreshScheduler::start(RefreshPolicy::disabled(), Arc::new(NoopScheduledRequester))
-                .expect("start scheduler");
+        let initial = Settings::new(
+            "Asia/Jakarta".to_owned(),
+            false,
+            15,
+            false,
+            "quit",
+            false,
+            false,
+        )
+        .expect("valid settings");
         let app = tauri::test::mock_builder()
             .invoke_handler(crate::ipc::invoke_handler())
             .manage(BootstrapService::new(
                 env!("CARGO_PKG_VERSION"),
                 CONTRACT_VERSION,
-                RecordingBootstrapStore {
-                    updated: updated.clone(),
-                },
+                FixedBootstrapStore,
                 capabilities_without_tray(),
             ))
-            .manage(scheduler)
-            .manage(runtime_settings.clone())
+            .manage(SettingsService::new(
+                Arc::new(TestSettingsStore {
+                    document: Mutex::new(
+                        SettingsDocument::new(initial, 1).expect("settings document"),
+                    ),
+                }),
+                Arc::new(TestSettingsRuntime),
+                Arc::new(SystemClock),
+            ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -555,9 +637,10 @@ mod tests {
         let response = tauri::test::get_ipc_response(
             &webview,
             request_with_body(
-                "app_update_settings",
+                "settings_update",
                 json!({
                     "request": {
+                        "expectedRevision": 1,
                         "reportingTimezone": "UTC",
                         "backgroundRefreshEnabled": true,
                         "refreshIntervalMinutes": 30,
@@ -574,16 +657,11 @@ mod tests {
         .expect("deserialize settings response");
 
         assert_eq!(response["ok"], true);
-        let settings = updated
-            .lock()
-            .expect("lock settings")
-            .clone()
-            .expect("settings updated");
-        assert_eq!(settings.reporting_timezone, "UTC");
-        assert!(settings.background_refresh_enabled);
-        assert_eq!(settings.refresh_interval_minutes, 30);
-        assert_eq!(settings.close_behavior, "hide");
-        assert_eq!(runtime_settings.close_behavior(), "hide");
+        assert_eq!(response["data"]["reportingTimezone"], "UTC");
+        assert_eq!(response["data"]["backgroundRefreshEnabled"], true);
+        assert_eq!(response["data"]["refreshIntervalMinutes"], 30);
+        assert_eq!(response["data"]["closeBehavior"], "hide");
+        assert_eq!(response["data"]["revision"], 2);
     }
 
     #[test]

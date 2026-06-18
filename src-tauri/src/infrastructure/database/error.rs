@@ -16,6 +16,7 @@ pub enum PersistenceErrorKind {
     HealthCheck,
     Seed,
     Read,
+    InvalidStoredValue,
 }
 
 #[derive(Debug, Error)]
@@ -73,6 +74,9 @@ pub enum PersistenceError {
         #[source]
         source: SqliteError,
     },
+
+    #[error("database contains an invalid value: {field}")]
+    InvalidStoredValue { field: &'static str },
 }
 
 impl PersistenceError {
@@ -89,6 +93,7 @@ impl PersistenceError {
             }
             Self::Seed(_) => PersistenceErrorKind::Seed,
             Self::Read { .. } => PersistenceErrorKind::Read,
+            Self::InvalidStoredValue { .. } => PersistenceErrorKind::InvalidStoredValue,
         }
     }
 
@@ -135,7 +140,11 @@ impl PersistenceError {
         Self::Seed(source)
     }
 
-    pub(super) fn read(operation: &'static str, source: SqliteError) -> Self {
+    pub(crate) fn read(operation: &'static str, source: SqliteError) -> Self {
         Self::Read { operation, source }
+    }
+
+    pub(crate) fn invalid_stored_value(field: &'static str) -> Self {
+        Self::InvalidStoredValue { field }
     }
 }

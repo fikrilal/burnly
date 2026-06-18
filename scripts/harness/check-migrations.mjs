@@ -67,12 +67,16 @@ const migrationsDir = path.join(root, "src-tauri", "migrations");
 try {
   await access(migrationsDir);
   const migrationFiles = (await readdir(migrationsDir)).sort();
-  const expectedFiles = ["0001_initial.sql"];
-
-  if (JSON.stringify(migrationFiles) !== JSON.stringify(expectedFiles)) {
-    failures.push(
-      `migration files must be ${expectedFiles.join(", ")}; found ${migrationFiles.join(", ")}.`,
-    );
+  if (migrationFiles.length === 0) {
+    failures.push("at least one migration file is required.");
+  }
+  for (const [index, file] of migrationFiles.entries()) {
+    const expectedPrefix = String(index + 1).padStart(4, "0");
+    if (!file.startsWith(`${expectedPrefix}_`) || !file.endsWith(".sql")) {
+      failures.push(
+        `${file}: migration files must use contiguous NNNN_description.sql names.`,
+      );
+    }
   }
 
   const initialMigration = await readFile(
@@ -88,14 +92,16 @@ try {
     );
   }
 
-  if (/PRAGMA\s+foreign_keys/i.test(initialMigration)) {
-    failures.push(
-      "migration SQL must not toggle foreign_keys inside the migration transaction.",
-    );
-  }
-
-  if (/\bREAL\b/i.test(initialMigration)) {
-    failures.push("migration SQL must not use floating-point REAL storage.");
+  for (const file of migrationFiles) {
+    const sql = await readFile(path.join(migrationsDir, file), "utf8");
+    if (/PRAGMA\s+foreign_keys/i.test(sql)) {
+      failures.push(
+        `${file}: migration SQL must not toggle foreign_keys inside the migration transaction.`,
+      );
+    }
+    if (/\bREAL\b/i.test(sql)) {
+      failures.push(`${file}: migration SQL must not use REAL storage.`);
+    }
   }
 
   if (failures.length > 0) {

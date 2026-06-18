@@ -68,6 +68,7 @@ export interface AppBootstrapResponse {
     closeBehavior: "hide" | "quit";
     notificationsEnabled: boolean;
     storeProjectPaths: boolean;
+    revision: number;
   };
   features: {
     usageOverview: boolean;
@@ -101,6 +102,7 @@ export interface AppCapabilitiesResponse {
 }
 
 export interface UpdateSettingsRequest {
+  expectedRevision: number;
   reportingTimezone: string;
   backgroundRefreshEnabled: boolean;
   refreshIntervalMinutes: number;
@@ -108,6 +110,21 @@ export interface UpdateSettingsRequest {
   closeBehavior: "hide" | "quit";
   notificationsEnabled: boolean;
   storeProjectPaths: boolean;
+}
+
+export interface UpdateSettingsCommandRequest extends Record<string, unknown> {
+  request: UpdateSettingsRequest;
+}
+
+export interface SettingsResponse {
+  reportingTimezone: string;
+  backgroundRefreshEnabled: boolean;
+  refreshIntervalMinutes: number;
+  launchAtLogin: boolean;
+  closeBehavior: "hide" | "quit";
+  notificationsEnabled: boolean;
+  storeProjectPaths: boolean;
+  revision: number;
 }
 
 export interface DesktopCapability {
@@ -277,7 +294,8 @@ export const COMMAND_NAMES = {
   contractProbe: "__burnly_contract_probe",
   appGetBootstrap: "app_get_bootstrap",
   appGetCapabilities: "app_get_capabilities",
-  appUpdateSettings: "app_update_settings",
+  settingsGet: "settings_get",
+  settingsUpdate: "settings_update",
   refreshGetState: "refresh_get_state",
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
@@ -294,7 +312,8 @@ export interface CommandRequests {
   [COMMAND_NAMES.contractProbe]: Record<string, never>;
   [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
-  [COMMAND_NAMES.appUpdateSettings]: UpdateSettingsRequest;
+  [COMMAND_NAMES.settingsGet]: Record<string, never>;
+  [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
@@ -309,7 +328,8 @@ export interface CommandResponses {
   [COMMAND_NAMES.contractProbe]: IpcResponse<ContractProbeResponse>;
   [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
-  [COMMAND_NAMES.appUpdateSettings]: IpcResponse<Record<string, never>>;
+  [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
+  [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
@@ -341,11 +361,15 @@ export function invokeAppGetCapabilities(
   return invoke(COMMAND_NAMES.appGetCapabilities, {});
 }
 
-export function invokeAppUpdateSettings(
+export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.settingsGet, {});
+}
+
+export function invokeSettingsUpdate(
   invoke: CommandInvoker,
-  request: UpdateSettingsRequest,
+  request: UpdateSettingsCommandRequest,
 ): Promise<unknown> {
-  return invoke(COMMAND_NAMES.appUpdateSettings, request);
+  return invoke(COMMAND_NAMES.settingsUpdate, request);
 }
 
 export function invokeRefreshGetState(

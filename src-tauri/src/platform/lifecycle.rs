@@ -3,23 +3,9 @@
 use tauri::{Manager, Runtime};
 use thiserror::Error;
 
+use crate::domain::settings::CloseBehavior;
+
 pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CloseBehavior {
-    Hide,
-    Quit,
-}
-
-impl CloseBehavior {
-    pub(crate) fn from_setting(value: &str) -> Self {
-        match value {
-            "hide" => Self::Hide,
-            "quit" => Self::Quit,
-            _ => Self::Quit,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CloseDecision {
@@ -92,16 +78,6 @@ pub(crate) fn handle_close_request<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn close_behavior_parses_persisted_settings_defensively() {
-        assert_eq!(CloseBehavior::from_setting("hide"), CloseBehavior::Hide);
-        assert_eq!(CloseBehavior::from_setting("quit"), CloseBehavior::Quit);
-        assert_eq!(
-            CloseBehavior::from_setting("unexpected"),
-            CloseBehavior::Quit
-        );
-    }
 
     #[test]
     fn close_decision_follows_current_policy() {

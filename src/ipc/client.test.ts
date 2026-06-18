@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 
 import {
@@ -6,10 +6,12 @@ import {
   getAppCapabilities,
   getContractProbe,
   getRefreshState,
+  getSettings,
   getUsageOverview,
   invokeCommand,
   validateInt64String,
   validateUint64String,
+  updateSettings,
 } from "./client";
 import {
   COMMAND_NAMES,
@@ -84,6 +86,65 @@ describe("IPC command responses", () => {
   });
 });
 
+describe("settings IPC", () => {
+  it("gets and updates revisioned settings through dedicated commands", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      if (command === COMMAND_NAMES.settingsGet) {
+        expect(request).toEqual({});
+        return Promise.resolve(settingsResponse(1));
+      }
+      expect(command).toBe(COMMAND_NAMES.settingsUpdate);
+      expect(request).toMatchObject({
+        request: {
+          expectedRevision: 1,
+          reportingTimezone: "UTC",
+        },
+      });
+      return Promise.resolve(settingsResponse(2));
+    };
+
+    expect((await getSettings(invoker)).data.revision).toBe(1);
+    expect(
+      (
+        await updateSettings(
+          {
+            expectedRevision: 1,
+            reportingTimezone: "UTC",
+            backgroundRefreshEnabled: false,
+            refreshIntervalMinutes: 15,
+            launchAtLogin: false,
+            closeBehavior: "quit",
+            notificationsEnabled: false,
+            storeProjectPaths: false,
+          },
+          invoker,
+        )
+      ).data.revision,
+    ).toBe(2);
+  });
+
+  it("rejects invalid settings before transport", async () => {
+    const invoker = vi.fn<CommandInvoker>();
+
+    await expect(
+      updateSettings(
+        {
+          expectedRevision: 1,
+          reportingTimezone: "UTC",
+          backgroundRefreshEnabled: true,
+          refreshIntervalMinutes: 1,
+          launchAtLogin: false,
+          closeBehavior: "quit",
+          notificationsEnabled: false,
+          storeProjectPaths: false,
+        },
+        invoker,
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+    expect(invoker).not.toHaveBeenCalled();
+  });
+});
+
 describe("usage overview IPC", () => {
   it("invokes and validates the usage overview contract", async () => {
     const invoker: CommandInvoker = (command, request) => {
@@ -149,6 +210,7 @@ function bootstrap(): IpcResponse<unknown> {
         closeBehavior: "quit",
         notificationsEnabled: false,
         storeProjectPaths: false,
+        revision: 1,
       },
       features: {
         usageOverview: false,
@@ -203,6 +265,23 @@ function refreshState(): IpcResponse<unknown> {
       jobId: "refresh-1000-0",
       trigger: "manual",
       lastSuccessfulRefreshAt: "2026-06-15T00:00:00+00:00",
+    },
+    meta,
+  };
+}
+
+function settingsResponse(revision: number): IpcResponse<unknown> {
+  return {
+    ok: true,
+    data: {
+      reportingTimezone: "UTC",
+      backgroundRefreshEnabled: false,
+      refreshIntervalMinutes: 15,
+      launchAtLogin: false,
+      closeBehavior: "quit",
+      notificationsEnabled: false,
+      storeProjectPaths: false,
+      revision,
     },
     meta,
   };

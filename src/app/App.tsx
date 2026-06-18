@@ -128,7 +128,7 @@ export function App({
             )}
             {viewMode === "sessions" && <SessionsView />}
             {viewMode === "settings" && (
-              <SettingsView settings={state.bootstrap.settings} />
+              <SettingsView capabilities={state.capabilities} />
             )}
           </div>
         ) : (

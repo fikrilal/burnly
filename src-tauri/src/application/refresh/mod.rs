@@ -9,8 +9,6 @@ mod state;
     reason = "refresh exposes the coordinator and state to bootstrap wiring and IPC"
 )]
 pub(crate) use coordinator::{RefreshCoordinator, RefreshEventSink};
-#[cfg(test)]
-pub(crate) use scheduler::ScheduledRefreshRequester;
 pub(crate) use scheduler::{RefreshPolicy, RefreshScheduler, RefreshSchedulerError};
 #[allow(
     unused_imports,

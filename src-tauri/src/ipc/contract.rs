@@ -28,10 +28,16 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "AppCapabilitiesResponse",
     },
     CommandSpec {
-        name: "app_update_settings",
-        export_name: "invokeAppUpdateSettings",
-        request_type: "UpdateSettingsRequest",
-        response_type: "Record<string, never>",
+        name: "settings_get",
+        export_name: "invokeSettingsGet",
+        request_type: "Record<string, never>",
+        response_type: "SettingsResponse",
+    },
+    CommandSpec {
+        name: "settings_update",
+        export_name: "invokeSettingsUpdate",
+        request_type: "UpdateSettingsCommandRequest",
+        response_type: "SettingsResponse",
     },
     CommandSpec {
         name: "refresh_get_state",

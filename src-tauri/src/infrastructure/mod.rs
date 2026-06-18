@@ -6,3 +6,4 @@
 pub(crate) mod bootstrap_store;
 pub(crate) mod collectors;
 pub mod database;
+pub(crate) mod settings_store;

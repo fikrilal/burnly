@@ -6,15 +6,15 @@ use tauri::{Emitter, State};
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
     Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary, Readiness,
-    RefreshState, RefreshStatus, RuntimeSettings, SettingsState, SourceStatus, SourceSummary,
+    RefreshState, RefreshStatus, SourceStatus, SourceSummary,
 };
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
-    RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSnapshot,
-    RefreshStatus as RefreshLifecycleStatus,
+    RefreshCoordinator, RefreshEventSink, RefreshSnapshot, RefreshStatus as RefreshLifecycleStatus,
 };
 
 use super::response::{ErrorCategory, IpcError, IpcResponse, CONTRACT_VERSION};
+use super::settings::SettingsResponse;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,7 +37,7 @@ pub(super) struct AppBootstrapResponse {
     app_version: String,
     contract_version: u16,
     database: DatabaseStateResponse,
-    settings: SettingsStateResponse,
+    settings: SettingsResponse,
     features: FeatureSummaryResponse,
     sources: SourceSummaryResponse,
     refresh: RefreshStateResponse,
@@ -49,18 +49,6 @@ pub(super) struct AppBootstrapResponse {
 struct DatabaseStateResponse {
     status: &'static str,
     schema_version: i64,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SettingsStateResponse {
-    reporting_timezone: String,
-    background_refresh_enabled: bool,
-    refresh_interval_minutes: i64,
-    launch_at_login: bool,
-    close_behavior: String,
-    notifications_enabled: bool,
-    store_project_paths: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -123,56 +111,6 @@ pub(super) fn app_get_bootstrap(
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct UpdateSettingsRequest {
-    reporting_timezone: String,
-    background_refresh_enabled: bool,
-    refresh_interval_minutes: i64,
-    launch_at_login: bool,
-    close_behavior: String,
-    notifications_enabled: bool,
-    store_project_paths: bool,
-}
-
-#[tauri::command]
-pub(super) fn app_update_settings<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
-    service: State<'_, BootstrapService>,
-    scheduler: State<'_, RefreshScheduler>,
-    runtime_settings: State<'_, RuntimeSettings>,
-    request: UpdateSettingsRequest,
-) -> IpcResponse<()> {
-    let settings = SettingsState {
-        reporting_timezone: request.reporting_timezone,
-        background_refresh_enabled: request.background_refresh_enabled,
-        refresh_interval_minutes: request.refresh_interval_minutes,
-        launch_at_login: request.launch_at_login,
-        close_behavior: request.close_behavior,
-        notifications_enabled: request.notifications_enabled,
-        store_project_paths: request.store_project_paths,
-    };
-    let refresh_policy = refresh_policy(&settings);
-
-    match service.update_settings(settings.clone()) {
-        Ok(()) => {
-            runtime_settings.update(&settings);
-            scheduler.apply_policy(refresh_policy);
-            let _ = app.emit("burnly://v1/settings-changed", ());
-            IpcResponse::success(())
-        }
-        Err(error) => IpcResponse::failure(bootstrap_error(error)),
-    }
-}
-
-fn refresh_policy(settings: &SettingsState) -> RefreshPolicy {
-    if settings.background_refresh_enabled {
-        RefreshPolicy::enabled_minutes(settings.refresh_interval_minutes)
-    } else {
-        RefreshPolicy::disabled()
-    }
-}
-
 #[tauri::command]
 pub(super) fn app_get_capabilities(
     service: State<'_, BootstrapService>,
@@ -200,20 +138,6 @@ impl From<DatabaseState> for DatabaseStateResponse {
         Self {
             status: readiness_label(value.status),
             schema_version: value.schema_version,
-        }
-    }
-}
-
-impl From<SettingsState> for SettingsStateResponse {
-    fn from(value: SettingsState) -> Self {
-        Self {
-            reporting_timezone: value.reporting_timezone,
-            background_refresh_enabled: value.background_refresh_enabled,
-            refresh_interval_minutes: value.refresh_interval_minutes,
-            launch_at_login: value.launch_at_login,
-            close_behavior: value.close_behavior,
-            notifications_enabled: value.notifications_enabled,
-            store_project_paths: value.store_project_paths,
         }
     }
 }

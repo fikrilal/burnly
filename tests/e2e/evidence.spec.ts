@@ -8,6 +8,7 @@ const settings = {
   closeBehavior: "quit",
   notificationsEnabled: false,
   storeProjectPaths: false,
+  revision: 1,
 } as const;
 
 const meta = () => ({
@@ -70,6 +71,22 @@ test.describe("Desktop Evidence: overview states", () => {
     await expect(page.getByText("Refresh running")).toBeVisible();
     await expect(page.getByText("2,000,000").first()).toBeVisible();
   });
+
+  test("settings load and save through the dedicated contract", async ({
+    page,
+  }) => {
+    await installTauriMock(page, "populated");
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings" }).click();
+    const timezone = page.getByLabel("Reporting timezone");
+    await expect(timezone).toHaveValue("UTC");
+    await timezone.fill("Asia/Jakarta");
+    await page.getByRole("button", { name: "Save settings" }).click();
+
+    await expect(page.getByText("Settings saved.")).toBeVisible();
+    await expect(timezone).toHaveValue("Asia/Jakarta");
+  });
 });
 
 async function installTauriMock(
@@ -96,6 +113,7 @@ async function installTauriMock(
       closeBehavior: "quit",
       notificationsEnabled: false,
       storeProjectPaths: false,
+      revision: 1,
     };
 
     const pageBootstrapResponse = () => ({
@@ -273,6 +291,29 @@ async function installTauriMock(
 
         if (command === "app_get_capabilities") {
           return Promise.resolve(pageCapabilitiesResponse());
+        }
+
+        if (command === "settings_get") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: pageSettings,
+          });
+        }
+
+        if (command === "settings_update") {
+          const request = args.request as typeof pageSettings & {
+            expectedRevision: number;
+          };
+          Object.assign(pageSettings, request, {
+            revision: request.expectedRevision + 1,
+          });
+          emit("burnly://v1/settings-changed", {});
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: pageSettings,
+          });
         }
 
         if (command === "refresh_get_state") {

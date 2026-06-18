@@ -7,7 +7,8 @@ import {
   CONTRACT_VERSION,
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
-  invokeAppUpdateSettings,
+  invokeSettingsGet,
+  invokeSettingsUpdate,
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
@@ -38,6 +39,7 @@ import {
   type SessionListResponse,
   type SessionDetailRequest,
   type SessionDetailResponse,
+  type SettingsResponse,
   type UpdateSettingsRequest,
 } from "./generated/contracts";
 
@@ -104,6 +106,7 @@ const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
     closeBehavior: z.enum(["hide", "quit"]),
     notificationsEnabled: z.boolean(),
     storeProjectPaths: z.boolean(),
+    revision: z.number().int().positive(),
   }),
   features: z.object({
     usageOverview: z.boolean(),
@@ -139,6 +142,17 @@ const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
   diagnostics: z.object({
     desktopEvidence: z.boolean(),
   }),
+});
+
+const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
+  reportingTimezone: z.string().min(1),
+  backgroundRefreshEnabled: z.boolean(),
+  refreshIntervalMinutes: z.number().int().min(5).max(1440),
+  launchAtLogin: z.boolean(),
+  closeBehavior: z.enum(["hide", "quit"]),
+  notificationsEnabled: z.boolean(),
+  storeProjectPaths: z.boolean(),
+  revision: z.number().int().positive(),
 });
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
@@ -357,14 +371,34 @@ export async function getAppCapabilities(
   return unwrapResponse(parsed);
 }
 
+export async function getSettings(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<SettingsResponse>> {
+  const response = await invokeSettingsGet(invoker);
+  return unwrapResponse(validateResponse(response, settingsDataSchema));
+}
+
 export async function updateSettings(
   request: UpdateSettingsRequest,
   invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<Record<string, never>>> {
-  const response = await invokeAppUpdateSettings(invoker, request);
-  return unwrapResponse(
-    validateResponse(response, z.record(z.string(), z.never())),
-  );
+): Promise<CommandResult<SettingsResponse>> {
+  const parsedRequest = settingsDataSchema.parse({
+    ...request,
+    revision: request.expectedRevision,
+  });
+  const response = await invokeSettingsUpdate(invoker, {
+    request: {
+      expectedRevision: parsedRequest.revision,
+      reportingTimezone: parsedRequest.reportingTimezone,
+      backgroundRefreshEnabled: parsedRequest.backgroundRefreshEnabled,
+      refreshIntervalMinutes: parsedRequest.refreshIntervalMinutes,
+      launchAtLogin: parsedRequest.launchAtLogin,
+      closeBehavior: parsedRequest.closeBehavior,
+      notificationsEnabled: parsedRequest.notificationsEnabled,
+      storeProjectPaths: parsedRequest.storeProjectPaths,
+    },
+  });
+  return unwrapResponse(validateResponse(response, settingsDataSchema));
 }
 
 export async function getRefreshState(

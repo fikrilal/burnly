@@ -27,6 +27,7 @@ rusqlite_migration = "=2.6.0"
 thiserror = "=2.0.18"
 iana-time-zone = "=0.1.65"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
+chrono-tz = "=0.10.4"
 uuid = { version = "=1.23.3", features = ["v4"] }
 sha2 = "=0.10.9"
 tempfile = "=3.27.0"

@@ -241,6 +241,7 @@ export interface AppBootstrapResponse {
     closeBehavior: "hide" | "quit";
     notificationsEnabled: boolean;
     storeProjectPaths: boolean;
+    revision: number;
   };
   features: {
     usageOverview: boolean;
@@ -274,6 +275,7 @@ export interface AppCapabilitiesResponse {
 }
 
 export interface UpdateSettingsRequest {
+  expectedRevision: number;
   reportingTimezone: string;
   backgroundRefreshEnabled: boolean;
   refreshIntervalMinutes: number;
@@ -281,6 +283,21 @@ export interface UpdateSettingsRequest {
   closeBehavior: "hide" | "quit";
   notificationsEnabled: boolean;
   storeProjectPaths: boolean;
+}
+
+export interface UpdateSettingsCommandRequest extends Record<string, unknown> {
+  request: UpdateSettingsRequest;
+}
+
+export interface SettingsResponse {
+  reportingTimezone: string;
+  backgroundRefreshEnabled: boolean;
+  refreshIntervalMinutes: number;
+  launchAtLogin: boolean;
+  closeBehavior: "hide" | "quit";
+  notificationsEnabled: boolean;
+  storeProjectPaths: boolean;
+  revision: number;
 }
 
 export interface DesktopCapability {

@@ -2,12 +2,14 @@ use std::sync::{Arc, Mutex};
 
 use thiserror::Error;
 
+use crate::domain::settings::{CloseBehavior, Settings, SettingsDocument};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AppBootstrap {
     pub app_version: String,
     pub contract_version: u16,
     pub database: DatabaseState,
-    pub settings: SettingsState,
+    pub settings: SettingsDocument,
     pub features: FeatureSummary,
     pub sources: SourceSummary,
     pub refresh: RefreshState,
@@ -23,17 +25,6 @@ pub(crate) struct DatabaseState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Readiness {
     Ready,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SettingsState {
-    pub reporting_timezone: String,
-    pub background_refresh_enabled: bool,
-    pub refresh_interval_minutes: i64,
-    pub launch_at_login: bool,
-    pub close_behavior: String,
-    pub notifications_enabled: bool,
-    pub store_project_paths: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,12 +100,12 @@ pub(crate) struct BootstrapStorage {
     pub close_behavior: String,
     pub notifications_enabled: bool,
     pub store_project_paths: bool,
+    pub settings_revision: i64,
     pub schema_version: i64,
 }
 
 pub(crate) trait BootstrapStore: Send + Sync {
     fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError>;
-    fn update_settings(&self, settings: &SettingsState) -> Result<(), BootstrapError>;
 }
 
 pub(crate) struct BootstrapService {
@@ -126,7 +117,7 @@ pub(crate) struct BootstrapService {
 
 #[derive(Clone)]
 pub(crate) struct RuntimeSettings {
-    close_behavior: Arc<Mutex<String>>,
+    close_behavior: Arc<Mutex<CloseBehavior>>,
 }
 
 #[derive(Clone)]
@@ -135,24 +126,24 @@ pub(crate) struct RuntimeCapabilities {
 }
 
 impl RuntimeSettings {
-    pub(crate) fn new(close_behavior: String) -> Self {
+    pub(crate) fn new(close_behavior: CloseBehavior) -> Self {
         Self {
             close_behavior: Arc::new(Mutex::new(close_behavior)),
         }
     }
 
-    pub(crate) fn update(&self, settings: &SettingsState) {
+    pub(crate) fn update(&self, settings: &Settings) {
         *self
             .close_behavior
             .lock()
-            .expect("runtime settings lock is poisoned") = settings.close_behavior.clone();
+            .expect("runtime settings lock is poisoned") = settings.close_behavior();
     }
 
-    pub(crate) fn close_behavior(&self) -> String {
-        self.close_behavior
+    pub(crate) fn close_behavior(&self) -> CloseBehavior {
+        *self
+            .close_behavior
             .lock()
             .expect("runtime settings lock is poisoned")
-            .clone()
     }
 }
 
@@ -181,20 +172,25 @@ impl BootstrapService {
                 status: Readiness::Ready,
                 schema_version: storage.schema_version,
             },
-            settings: SettingsState {
-                reporting_timezone: storage.reporting_timezone,
-                background_refresh_enabled: storage.background_refresh_enabled,
-                refresh_interval_minutes: storage.refresh_interval_minutes,
-                launch_at_login: storage.launch_at_login,
-                close_behavior: storage.close_behavior,
-                notifications_enabled: storage.notifications_enabled,
-                store_project_paths: storage.store_project_paths,
-            },
+            settings: SettingsDocument::new(
+                Settings::new(
+                    storage.reporting_timezone,
+                    storage.background_refresh_enabled,
+                    storage.refresh_interval_minutes,
+                    storage.launch_at_login,
+                    &storage.close_behavior,
+                    storage.notifications_enabled,
+                    storage.store_project_paths,
+                )
+                .map_err(|_| BootstrapError::storage_unavailable())?,
+                storage.settings_revision,
+            )
+            .map_err(|_| BootstrapError::storage_unavailable())?,
             features: FeatureSummary {
                 usage_overview: false,
                 collector_refresh: false,
                 budgets: false,
-                settings: false,
+                settings: true,
             },
             sources: SourceSummary {
                 status: SourceStatus::NotConfigured,
@@ -227,10 +223,6 @@ impl BootstrapService {
                 desktop_evidence: true,
             },
         }
-    }
-
-    pub(crate) fn update_settings(&self, settings: SettingsState) -> Result<(), BootstrapError> {
-        self.store.update_settings(&settings)
     }
 }
 
@@ -305,10 +297,6 @@ mod tests {
         fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
             Ok(self.storage.clone())
         }
-
-        fn update_settings(&self, _settings: &SettingsState) -> Result<(), BootstrapError> {
-            Ok(())
-        }
     }
 
     #[test]
@@ -325,7 +313,8 @@ mod tests {
                     close_behavior: "quit".to_owned(),
                     notifications_enabled: false,
                     store_project_paths: false,
-                    schema_version: 1,
+                    settings_revision: 1,
+                    schema_version: 2,
                 },
             },
             capabilities_without_tray(),
@@ -336,8 +325,12 @@ mod tests {
         assert_eq!(bootstrap.app_version, "0.1.0");
         assert_eq!(bootstrap.contract_version, 1);
         assert_eq!(bootstrap.database.status, Readiness::Ready);
-        assert_eq!(bootstrap.database.schema_version, 1);
-        assert_eq!(bootstrap.settings.reporting_timezone, "Asia/Jakarta");
+        assert_eq!(bootstrap.database.schema_version, 2);
+        assert_eq!(
+            bootstrap.settings.settings().reporting_timezone(),
+            "Asia/Jakarta"
+        );
+        assert_eq!(bootstrap.settings.revision(), 1);
         assert_eq!(bootstrap.sources.status, SourceStatus::NotConfigured);
         assert_eq!(bootstrap.refresh.status, RefreshStatus::Idle);
         assert!(!bootstrap.onboarding_complete);
@@ -346,20 +339,13 @@ mod tests {
 
     #[test]
     fn runtime_settings_tracks_close_behavior_after_settings_update() {
-        let runtime_settings = RuntimeSettings::new("quit".to_owned());
-        let settings = SettingsState {
-            reporting_timezone: "UTC".to_owned(),
-            background_refresh_enabled: false,
-            refresh_interval_minutes: 15,
-            launch_at_login: false,
-            close_behavior: "hide".to_owned(),
-            notifications_enabled: false,
-            store_project_paths: false,
-        };
+        let runtime_settings = RuntimeSettings::new(CloseBehavior::Quit);
+        let settings = Settings::new("UTC".to_owned(), false, 15, false, "hide", false, false)
+            .expect("valid settings");
 
         runtime_settings.update(&settings);
 
-        assert_eq!(runtime_settings.close_behavior(), "hide");
+        assert_eq!(runtime_settings.close_behavior(), CloseBehavior::Hide);
     }
 
     #[test]
@@ -376,7 +362,8 @@ mod tests {
                     close_behavior: "quit".to_owned(),
                     notifications_enabled: false,
                     store_project_paths: false,
-                    schema_version: 1,
+                    settings_revision: 1,
+                    schema_version: 2,
                 },
             },
             RuntimeCapabilities::new(RuntimeCapabilities::tray_available()),

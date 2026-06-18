@@ -70,7 +70,7 @@ pub(crate) struct RefreshCoordinator {
     clock: Arc<dyn Clock>,
     event_sink: Arc<dyn RefreshEventSink>,
     app_version: String,
-    aggregation_timezone: String,
+    aggregation_timezone: Arc<Mutex<String>>,
     sequence: Arc<AtomicU64>,
     state: Arc<Mutex<CoordinatorState>>,
 }
@@ -111,7 +111,7 @@ impl RefreshCoordinator {
             clock,
             event_sink,
             app_version: app_version.into(),
-            aggregation_timezone: aggregation_timezone.into(),
+            aggregation_timezone: Arc::new(Mutex::new(aggregation_timezone.into())),
             sequence: Arc::new(AtomicU64::new(0)),
             state: Arc::new(Mutex::new(CoordinatorState {
                 status: RefreshStatus::Idle,
@@ -124,6 +124,20 @@ impl RefreshCoordinator {
 
     pub(crate) fn snapshot(&self) -> RefreshSnapshot {
         self.lock_state().snapshot()
+    }
+
+    pub(crate) fn set_aggregation_timezone(&self, timezone: impl Into<String>) {
+        *self
+            .aggregation_timezone
+            .lock()
+            .expect("aggregation timezone lock is poisoned") = timezone.into();
+    }
+
+    fn aggregation_timezone(&self) -> String {
+        self.aggregation_timezone
+            .lock()
+            .expect("aggregation timezone lock is poisoned")
+            .clone()
     }
 
     /// Skeleton cancellation: moves an active run toward `cancelling`. Cooperative
@@ -255,6 +269,7 @@ impl RefreshCoordinator {
         let mut aggregate = RunOutcome::Succeeded;
         let mut usage_changed = false;
         let mut finished_at_ms = started_at_ms;
+        let aggregation_timezone = self.aggregation_timezone();
 
         for target in refresh_targets() {
             let source_id = self
@@ -263,7 +278,8 @@ impl RefreshCoordinator {
                 .map_err(|_| {
                     self.failure("refresh.source", "Could not resolve the usage source.")
                 })?;
-            let request = self.collection_request(job_id, target, requested_at)?;
+            let request =
+                self.collection_request(job_id, target, requested_at, &aggregation_timezone)?;
             let collection =
                 self.collector
                     .collect(request, &NeverCancelled)
@@ -273,7 +289,13 @@ impl RefreshCoordinator {
                             "The collector could not complete the refresh.",
                         )
                     })?;
-            let result = self.persist(refresh_run_id, source_id, started_at_ms, &collection)?;
+            let result = self.persist(
+                refresh_run_id,
+                source_id,
+                started_at_ms,
+                &aggregation_timezone,
+                &collection,
+            )?;
             aggregate = aggregate.combine(result.outcome);
             usage_changed = usage_changed || result.usage_changed;
             finished_at_ms = result.finished_at_ms;
@@ -310,6 +332,7 @@ impl RefreshCoordinator {
         job_id: &str,
         target: RefreshTarget,
         requested_at: DateTime<Utc>,
+        aggregation_timezone: &str,
     ) -> Result<CollectionRequest, ExecutionFailure> {
         let collection_id = CollectionId::new(format!(
             "{job_id}:{}:{}",
@@ -323,7 +346,7 @@ impl RefreshCoordinator {
                 collection_id,
                 target.source,
                 CollectionScope::Full,
-                self.aggregation_timezone.clone(),
+                aggregation_timezone.to_owned(),
                 requested_at,
             )
             .map_err(|_| self.failure("refresh.request", "Refresh request is invalid.")),
@@ -341,6 +364,7 @@ impl RefreshCoordinator {
         refresh_run_id: crate::application::reconciliation::RefreshRunId,
         source_id: crate::application::reconciliation::SourceId,
         now_ms: i64,
+        aggregation_timezone: &str,
         collection: &CollectionResult,
     ) -> Result<ExecutionResult, ExecutionFailure> {
         let metadata = collection.metadata();
@@ -356,7 +380,7 @@ impl RefreshCoordinator {
             import_collector,
             collection.projection(),
             CollectionScope::Full,
-            import_timezone(collection.projection(), &self.aggregation_timezone),
+            import_timezone(collection.projection(), aggregation_timezone),
         )
         .map_err(|_| self.failure("refresh.import", "Import metadata is invalid."))?;
         let import_run_id = self

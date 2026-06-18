@@ -120,6 +120,7 @@ function bootstrapResult(
         closeBehavior: "quit",
         notificationsEnabled: false,
         storeProjectPaths: false,
+        revision: 1,
       },
       features: {
         usageOverview: false,

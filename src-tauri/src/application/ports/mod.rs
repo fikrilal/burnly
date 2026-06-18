@@ -5,4 +5,5 @@ pub(crate) mod day_detail_store;
 pub(crate) mod overview_store;
 pub(crate) mod run_store;
 pub(crate) mod session_store;
+pub(crate) mod settings_store;
 pub(crate) mod usage_store;
