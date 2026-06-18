@@ -137,7 +137,7 @@ mod tests {
         assert_eq!(report.sessions.len(), 1);
         assert_eq!(report.sessions[0].session_id, "session-1");
         assert_eq!(report.sessions[0].session_file, "session_1.json");
-        assert_eq!(report.sessions[0].directory, "/home/fikrilal/project");
+        assert_eq!(report.sessions[0].directory, "/tmp/burnly-fixture/project");
         assert_eq!(report.sessions[0].total_tokens, 1_650);
         assert_eq!(report.sessions[0].models.len(), 2);
         assert_eq!(report.totals.total_tokens, 1_650);

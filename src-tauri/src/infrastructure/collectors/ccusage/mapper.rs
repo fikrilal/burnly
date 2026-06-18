@@ -658,7 +658,7 @@ mod tests {
         assert_eq!(first.source_session_id, "session-1");
         assert_eq!(
             first.project_path,
-            Some("/home/fikrilal/project".to_owned())
+            Some("/tmp/burnly-fixture/project".to_owned())
         );
         assert_eq!(first.tokens.total_tokens(), 1_650);
         assert_eq!(first.tokens.input_tokens(), Some(1000));

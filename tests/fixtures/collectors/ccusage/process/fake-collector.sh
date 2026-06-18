@@ -1,9 +1,13 @@
 #!/bin/sh
 script_path="$(readlink -f -- "$0" 2>/dev/null || printf '%s' "$0")"
-fixture_dir="$(CDPATH= cd -- "$(dirname -- "$script_path")/../claude-daily" && pwd)"
+fixture_root="$(CDPATH= cd -- "$(dirname -- "$script_path")/.." && pwd)"
 name="$(basename -- "$0")"
 
-if [ "$1" = "claude" ] && [ "$2" = "daily" ]; then
+if [ "$1" = "claude" ] || [ "$1" = "codex" ] || [ "$1" = "opencode" ]; then
+  fixture_dir="$fixture_root/$1-$2"
+  if [ ! -d "$fixture_dir" ]; then
+    exit 7
+  fi
   case "$name" in
     *empty*) cat "$fixture_dir/empty.json" ;;
     *invalid-json*) cat "$fixture_dir/invalid-json.json" ;;
@@ -13,7 +17,13 @@ if [ "$1" = "claude" ] && [ "$2" = "daily" ]; then
     *stdout-limit*) head -c 20000000 /dev/zero ;;
     *stderr-limit*) head -c 300000 /dev/zero >&2 ;;
     *timeout*) sleep 35 ;;
-    *) cat "$fixture_dir/valid.json" ;;
+    *)
+      if [ "$2" = "session" ] && [ -f "$fixture_dir/empty.json" ]; then
+        cat "$fixture_dir/empty.json"
+      else
+        cat "$fixture_dir/valid.json"
+      fi
+      ;;
   esac
   exit
 fi
