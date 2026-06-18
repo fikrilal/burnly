@@ -315,6 +315,88 @@ export interface ProjectPathRetentionResponse {
   clearedPaths: number;
 }
 
+export type BudgetLimit =
+  | {
+      kind: "tokens";
+      value: string;
+    }
+  | {
+      kind: "cost";
+      amountMicros: string;
+      currency: string;
+    };
+
+export type BudgetScope =
+  | {
+      kind: "global";
+    }
+  | {
+      kind: "source";
+      sourceId: string;
+    };
+
+export interface BudgetThreshold {
+  basisPoints: number;
+  enabled: boolean;
+}
+
+export interface BudgetDefinition {
+  name: string;
+  limit: BudgetLimit;
+  period: "daily" | "weekly" | "monthly";
+  scope: BudgetScope;
+  enabled: boolean;
+  thresholds: BudgetThreshold[];
+}
+
+export interface BudgetResponse extends BudgetDefinition {
+  id: string;
+  revision: string;
+}
+
+export interface BudgetListResponse {
+  items: BudgetResponse[];
+}
+
+export interface BudgetIdRequest {
+  budgetId: string;
+}
+
+export interface BudgetIdCommandRequest extends Record<string, unknown> {
+  request: BudgetIdRequest;
+}
+
+export interface CreateBudgetRequest {
+  budget: BudgetDefinition;
+}
+
+export interface CreateBudgetCommandRequest extends Record<string, unknown> {
+  request: CreateBudgetRequest;
+}
+
+export interface UpdateBudgetRequest {
+  budgetId: string;
+  expectedRevision: string;
+  budget: BudgetDefinition;
+}
+
+export interface UpdateBudgetCommandRequest extends Record<string, unknown> {
+  request: UpdateBudgetRequest;
+}
+
+export interface MutateBudgetRequest {
+  budgetId: string;
+  expectedRevision: string;
+}
+
+export interface MutateBudgetCommandRequest extends Record<string, unknown> {
+  request: MutateBudgetRequest;
+}
+
+export interface DeleteBudgetResponse {
+  budgetId: string;
+}
+
 export interface DesktopCapability {
   supported: boolean;
   status: "available" | "not_implemented" | "unavailable";

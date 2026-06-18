@@ -46,6 +46,48 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "ProjectPathRetentionResponse",
     },
     CommandSpec {
+        name: "budgets_list",
+        export_name: "invokeBudgetsList",
+        request_type: "Record<string, never>",
+        response_type: "BudgetListResponse",
+    },
+    CommandSpec {
+        name: "budgets_get",
+        export_name: "invokeBudgetsGet",
+        request_type: "BudgetIdCommandRequest",
+        response_type: "BudgetResponse",
+    },
+    CommandSpec {
+        name: "budgets_create",
+        export_name: "invokeBudgetsCreate",
+        request_type: "CreateBudgetCommandRequest",
+        response_type: "BudgetResponse",
+    },
+    CommandSpec {
+        name: "budgets_update",
+        export_name: "invokeBudgetsUpdate",
+        request_type: "UpdateBudgetCommandRequest",
+        response_type: "BudgetResponse",
+    },
+    CommandSpec {
+        name: "budgets_enable",
+        export_name: "invokeBudgetsEnable",
+        request_type: "MutateBudgetCommandRequest",
+        response_type: "BudgetResponse",
+    },
+    CommandSpec {
+        name: "budgets_disable",
+        export_name: "invokeBudgetsDisable",
+        request_type: "MutateBudgetCommandRequest",
+        response_type: "BudgetResponse",
+    },
+    CommandSpec {
+        name: "budgets_delete",
+        export_name: "invokeBudgetsDelete",
+        request_type: "MutateBudgetCommandRequest",
+        response_type: "DeleteBudgetResponse",
+    },
+    CommandSpec {
         name: "refresh_get_state",
         export_name: "invokeRefreshGetState",
         request_type: "Record<string, never>",

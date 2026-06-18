@@ -10,6 +10,13 @@ import {
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeSettingsUpdateProjectPathRetention,
+  invokeBudgetsList,
+  invokeBudgetsGet,
+  invokeBudgetsCreate,
+  invokeBudgetsUpdate,
+  invokeBudgetsEnable,
+  invokeBudgetsDisable,
+  invokeBudgetsDelete,
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
@@ -42,6 +49,14 @@ import {
   type SessionDetailResponse,
   type SettingsResponse,
   type ProjectPathRetentionResponse,
+  type BudgetDefinition,
+  type BudgetIdRequest,
+  type BudgetListResponse,
+  type BudgetResponse,
+  type CreateBudgetRequest,
+  type DeleteBudgetResponse,
+  type MutateBudgetRequest,
+  type UpdateBudgetRequest,
   type UpdateProjectPathRetentionRequest,
   type UpdateSettingsRequest,
 } from "./generated/contracts";
@@ -163,6 +178,72 @@ const projectPathRetentionDataSchema: z.ZodType<ProjectPathRetentionResponse> =
     settings: settingsDataSchema,
     clearedPaths: z.number().int().nonnegative(),
   });
+
+const positiveInt64StringSchema = z
+  .string()
+  .refine(
+    (value) =>
+      /^[1-9][0-9]*$/.test(value) &&
+      BigInt(value) <= 9_223_372_036_854_775_807n,
+    "Expected a canonical positive integer string in the supported range.",
+  );
+
+const budgetLimitSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("tokens"),
+    value: positiveInt64StringSchema,
+  }),
+  z.object({
+    kind: z.literal("cost"),
+    amountMicros: positiveInt64StringSchema,
+    currency: z.string().regex(/^[A-Z]{3}$/),
+  }),
+]);
+
+const budgetScopeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("global") }),
+  z.object({
+    kind: z.literal("source"),
+    sourceId: positiveInt64StringSchema,
+  }),
+]);
+
+const budgetThresholdSchema = z.object({
+  basisPoints: z.number().int().positive(),
+  enabled: z.boolean(),
+});
+
+const budgetDefinitionSchema: z.ZodType<BudgetDefinition> = z.object({
+  name: z.string().trim().min(1),
+  limit: budgetLimitSchema,
+  period: z.enum(["daily", "weekly", "monthly"]),
+  scope: budgetScopeSchema,
+  enabled: z.boolean(),
+  thresholds: z
+    .array(budgetThresholdSchema)
+    .refine(
+      (thresholds) =>
+        new Set(thresholds.map((threshold) => threshold.basisPoints)).size ===
+        thresholds.length,
+      "Budget thresholds must be unique.",
+    ),
+});
+
+const budgetDataSchema: z.ZodType<BudgetResponse> = z.intersection(
+  budgetDefinitionSchema,
+  z.object({
+    id: positiveInt64StringSchema,
+    revision: positiveInt64StringSchema,
+  }),
+);
+
+const budgetListDataSchema: z.ZodType<BudgetListResponse> = z.object({
+  items: z.array(budgetDataSchema),
+});
+
+const deleteBudgetDataSchema: z.ZodType<DeleteBudgetResponse> = z.object({
+  budgetId: positiveInt64StringSchema,
+});
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
   status: z.enum([
@@ -426,6 +507,96 @@ export async function updateProjectPathRetention(
   return unwrapResponse(
     validateResponse(response, projectPathRetentionDataSchema),
   );
+}
+
+export async function listBudgets(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetListResponse>> {
+  const response = await invokeBudgetsList(invoker);
+  return unwrapResponse(validateResponse(response, budgetListDataSchema));
+}
+
+export async function getBudget(
+  request: BudgetIdRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  const parsed = z
+    .object({ budgetId: positiveInt64StringSchema })
+    .parse(request);
+  const response = await invokeBudgetsGet(invoker, { request: parsed });
+  return unwrapResponse(validateResponse(response, budgetDataSchema));
+}
+
+export async function createBudget(
+  request: CreateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  const parsed = z.object({ budget: budgetDefinitionSchema }).parse(request);
+  const response = await invokeBudgetsCreate(invoker, { request: parsed });
+  return unwrapResponse(validateResponse(response, budgetDataSchema));
+}
+
+export async function updateBudget(
+  request: UpdateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  const parsed = z
+    .object({
+      budgetId: positiveInt64StringSchema,
+      expectedRevision: positiveInt64StringSchema,
+      budget: budgetDefinitionSchema,
+    })
+    .parse(request);
+  const response = await invokeBudgetsUpdate(invoker, { request: parsed });
+  return unwrapResponse(validateResponse(response, budgetDataSchema));
+}
+
+export async function enableBudget(
+  request: MutateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  return mutateBudget(invokeBudgetsEnable, request, invoker);
+}
+
+export async function disableBudget(
+  request: MutateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  return mutateBudget(invokeBudgetsDisable, request, invoker);
+}
+
+export async function deleteBudget(
+  request: MutateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DeleteBudgetResponse>> {
+  const parsed = parseBudgetMutation(request);
+  const response = await invokeBudgetsDelete(invoker, { request: parsed });
+  return unwrapResponse(validateResponse(response, deleteBudgetDataSchema));
+}
+
+async function mutateBudget(
+  invoke: (
+    invoker: CommandInvoker,
+    request: { request: MutateBudgetRequest },
+  ) => Promise<unknown>,
+  request: MutateBudgetRequest,
+  invoker: CommandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  const response = await invoke(invoker, {
+    request: parseBudgetMutation(request),
+  });
+  return unwrapResponse(validateResponse(response, budgetDataSchema));
+}
+
+function parseBudgetMutation(
+  request: MutateBudgetRequest,
+): MutateBudgetRequest {
+  return z
+    .object({
+      budgetId: positiveInt64StringSchema,
+      expectedRevision: positiveInt64StringSchema,
+    })
+    .parse(request);
 }
 
 export async function getRefreshState(

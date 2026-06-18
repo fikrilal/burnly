@@ -33,7 +33,7 @@ calculations, and native side effects.
 | Phase 8A: Settings foundation               | Completed | Phase 7      | [Plan](../completed/2026-06-18_phase-8a-settings-foundation.md)        |
 | Phase 8B: Privacy retention                 | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8b-project-path-privacy.md)       |
 | Phase 8C: Budget domain and storage         | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8c-budget-domain-storage.md)      |
-| Phase 8D: Budget IPC contracts              | Queued    | Phase 8C     | [Plan](../queued/2026-06-18_phase-8d-budget-ipc.md)                    |
+| Phase 8D: Budget IPC contracts              | Completed | Phase 8C     | [Plan](../completed/2026-06-18_phase-8d-budget-ipc.md)                 |
 | Phase 8E: Budget interface                  | Queued    | Phase 8D     | [Plan](../queued/2026-06-18_phase-8e-budget-interface.md)              |
 | Phase 8F: Budget evaluation                 | Queued    | Phase 8C     | [Plan](../queued/2026-06-18_phase-8f-budget-evaluation.md)             |
 | Phase 8G: Native notifications              | Queued    | Phase 8F     | [Plan](../queued/2026-06-18_phase-8g-native-notifications.md)          |
@@ -91,7 +91,7 @@ calculations, and native side effects.
 - [x] Phase 8A completed and verified.
 - [x] Phase 8B completed and verified.
 - [x] Phase 8C completed and verified.
-- [ ] Phase 8D completed and verified.
+- [x] Phase 8D completed and verified.
 - [ ] Phase 8E completed and verified.
 - [ ] Phase 8F completed and verified.
 - [ ] Phase 8G completed and verified.
@@ -116,6 +116,10 @@ calculations, and native side effects.
   and a transactional SQLite store. Threshold replacement preserves
   notification state for retained threshold identities and cascades removed
   identities.
+- Phase 8D exposed list, get, create, update, enable, disable, and delete
+  commands through discriminated budget DTOs. Local IDs, limits, and revisions
+  cross IPC as canonical decimal strings, and the TypeScript boundary validates
+  both requests and responses.
 
 ## Verification
 

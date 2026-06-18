@@ -4,6 +4,12 @@ import { ZodError } from "zod";
 import {
   getAppBootstrap,
   getAppCapabilities,
+  createBudget,
+  deleteBudget,
+  disableBudget,
+  enableBudget,
+  getBudget,
+  listBudgets,
   getContractProbe,
   getRefreshState,
   getSettings,
@@ -13,10 +19,12 @@ import {
   validateUint64String,
   updateSettings,
   updateProjectPathRetention,
+  updateBudget,
 } from "./client";
 import {
   COMMAND_NAMES,
   CONTRACT_VERSION,
+  type BudgetDefinition,
   type CommandInvoker,
   type IpcResponse,
   type UsageOverviewResponse,
@@ -171,6 +179,154 @@ describe("settings IPC", () => {
   });
 });
 
+describe("budget IPC queries", () => {
+  it("invokes list, get, and create contracts", async () => {
+    const invoker = vi.fn<CommandInvoker>((command, request) => {
+      if (command === COMMAND_NAMES.budgetsList) {
+        expect(request).toEqual({});
+        return Promise.resolve({
+          ok: true,
+          data: { items: [budgetResponseData("1")] },
+          meta,
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        data: budgetResponseData("2"),
+        meta,
+      });
+    });
+
+    expect((await listBudgets(invoker)).data.items[0]?.revision).toBe("1");
+    expect((await getBudget({ budgetId: "7" }, invoker)).data.id).toBe("7");
+    expect(
+      (await createBudget({ budget: tokenBudgetDefinition() }, invoker)).data
+        .limit,
+    ).toEqual({ kind: "tokens", value: "100000" });
+    expect(invoker.mock.calls.map(([command]) => command)).toEqual([
+      COMMAND_NAMES.budgetsList,
+      COMMAND_NAMES.budgetsGet,
+      COMMAND_NAMES.budgetsCreate,
+    ]);
+  });
+});
+
+describe("budget IPC mutations", () => {
+  it("invokes update, disable, enable, and delete contracts", async () => {
+    const invoker = vi.fn<CommandInvoker>((command, request) => {
+      if (command === COMMAND_NAMES.budgetsDelete) {
+        expect(request).toEqual({
+          request: { budgetId: "7", expectedRevision: "4" },
+        });
+        return Promise.resolve({
+          ok: true,
+          data: { budgetId: "7" },
+          meta,
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        data: budgetResponseData("2"),
+        meta,
+      });
+    });
+
+    expect(
+      (
+        await updateBudget(
+          {
+            budgetId: "7",
+            expectedRevision: "1",
+            budget: tokenBudgetDefinition(),
+          },
+          invoker,
+        )
+      ).data.revision,
+    ).toBe("2");
+    expect(
+      (await disableBudget({ budgetId: "7", expectedRevision: "2" }, invoker))
+        .data.enabled,
+    ).toBe(true);
+    expect(
+      (await enableBudget({ budgetId: "7", expectedRevision: "3" }, invoker))
+        .data.revision,
+    ).toBe("2");
+    expect(
+      (await deleteBudget({ budgetId: "7", expectedRevision: "4" }, invoker))
+        .data.budgetId,
+    ).toBe("7");
+    expect(invoker.mock.calls.map(([command]) => command)).toEqual([
+      COMMAND_NAMES.budgetsUpdate,
+      COMMAND_NAMES.budgetsDisable,
+      COMMAND_NAMES.budgetsEnable,
+      COMMAND_NAMES.budgetsDelete,
+    ]);
+    expect(invoker.mock.calls[0]?.[1]).toEqual({
+      request: {
+        budgetId: "7",
+        expectedRevision: "1",
+        budget: tokenBudgetDefinition(),
+      },
+    });
+  });
+});
+
+describe("budget IPC validation", () => {
+  it("rejects malformed exact values and duplicate thresholds before transport", async () => {
+    const invoker = vi.fn<CommandInvoker>();
+
+    await expect(
+      createBudget(
+        {
+          budget: {
+            ...tokenBudgetDefinition(),
+            limit: { kind: "tokens", value: "01" },
+          },
+        },
+        invoker,
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+    await expect(
+      getBudget({ budgetId: "not-an-id" }, invoker),
+    ).rejects.toBeInstanceOf(ZodError);
+    await expect(
+      updateBudget(
+        {
+          budgetId: "7",
+          expectedRevision: "1",
+          budget: {
+            ...tokenBudgetDefinition(),
+            thresholds: [
+              { basisPoints: 8000, enabled: true },
+              { basisPoints: 8000, enabled: false },
+            ],
+          },
+        },
+        invoker,
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+    expect(invoker).not.toHaveBeenCalled();
+  });
+});
+
+describe("budget IPC response validation", () => {
+  it("rejects malformed budget responses at the boundary", async () => {
+    const invoker: CommandInvoker = () =>
+      Promise.resolve({
+        ok: true,
+        data: {
+          ...budgetResponseData("1"),
+          scope: { kind: "source", sourceId: "0" },
+        },
+        meta,
+      });
+
+    await expect(getBudget({ budgetId: "7" }, invoker)).rejects.toBeInstanceOf(
+      ZodError,
+    );
+  });
+});
+
 describe("usage overview IPC", () => {
   it("invokes and validates the usage overview contract", async () => {
     const invoker: CommandInvoker = (command, request) => {
@@ -215,6 +371,28 @@ function contractProbe(): IpcResponse<{
       contractVersion: CONTRACT_VERSION,
     },
     meta,
+  };
+}
+
+function tokenBudgetDefinition(): BudgetDefinition {
+  return {
+    name: "Monthly tokens",
+    limit: { kind: "tokens", value: "100000" },
+    period: "monthly",
+    scope: { kind: "global" },
+    enabled: true,
+    thresholds: [
+      { basisPoints: 8000, enabled: true },
+      { basisPoints: 10000, enabled: true },
+    ],
+  };
+}
+
+function budgetResponseData(revision: string) {
+  return {
+    id: "7",
+    revision,
+    ...tokenBudgetDefinition(),
   };
 }
 

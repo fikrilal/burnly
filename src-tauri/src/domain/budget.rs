@@ -208,26 +208,14 @@ impl Budget {
         })
     }
 
-    #[allow(
-        dead_code,
-        reason = "Phase 8D will expose stored budget documents through IPC"
-    )]
     pub(crate) const fn id(&self) -> BudgetId {
         self.id
     }
 
-    #[allow(
-        dead_code,
-        reason = "Phase 8D will expose stored budget documents through IPC"
-    )]
     pub(crate) const fn revision(&self) -> i64 {
         self.revision
     }
 
-    #[allow(
-        dead_code,
-        reason = "Phase 8D will expose stored budget documents through IPC"
-    )]
     pub(crate) const fn definition(&self) -> &BudgetDefinition {
         &self.definition
     }

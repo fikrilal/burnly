@@ -3,6 +3,7 @@
 //! IPC handlers invoke application use cases and do not own product rules or
 //! infrastructure behavior.
 
+mod budgets;
 mod commands;
 mod contract;
 #[cfg_attr(
@@ -27,6 +28,13 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         settings::settings_get,
         settings::settings_update,
         settings::settings_update_project_path_retention,
+        budgets::budgets_list,
+        budgets::budgets_get,
+        budgets::budgets_create,
+        budgets::budgets_update,
+        budgets::budgets_enable,
+        budgets::budgets_disable,
+        budgets::budgets_delete,
         commands::refresh_get_state,
         commands::refresh_request,
         commands::refresh_cancel,

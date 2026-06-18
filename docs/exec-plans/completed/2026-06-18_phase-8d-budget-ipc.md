@@ -45,12 +45,12 @@ The main risk is freezing a broad or persistence-shaped public contract.
 
 ## Checklist
 
-- [ ] Define minimal request/response DTOs from application use cases.
-- [ ] Add thin command handlers and stable error mapping.
-- [ ] Register commands and regenerate TypeScript contracts.
-- [ ] Add frontend IPC functions with runtime validation where required.
-- [ ] Add Rust contract, Tauri bridge, and TypeScript client tests.
-- [ ] Run contract drift and architecture checks.
+- [x] Define minimal request/response DTOs from application use cases.
+- [x] Add thin command handlers and stable error mapping.
+- [x] Register commands and regenerate TypeScript contracts.
+- [x] Add frontend IPC functions with runtime validation where required.
+- [x] Add Rust contract, Tauri bridge, and TypeScript client tests.
+- [x] Run contract drift and architecture checks.
 
 ## Test Plan
 
@@ -69,11 +69,29 @@ The main risk is freezing a broad or persistence-shaped public contract.
 
 - Do not expose database IDs for thresholds when their natural identity is basis
   points within a budget.
+- Budget IDs, source IDs, limits, and revisions cross IPC as canonical decimal
+  strings. Threshold basis points remain bounded JSON integers.
+- Limit and scope use discriminated objects so invalid token/currency and
+  global/source combinations are not representable in TypeScript.
+- Delete returns the deleted budget ID; other mutations return the complete
+  saved budget document.
 
 ## Verification
 
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml budgets --no-fail-fast`
+- Outcome: passed; application and IPC budget tests passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml tauri_bridge_runs_budget_crud_with_exact_string_contracts --no-fail-fast`
+- Outcome: passed; all seven commands crossed the real Tauri handler.
+- Command: `pnpm vitest run src/ipc/client.test.ts`
+- Outcome: passed; 19 focused client tests passed.
+- Command: `pnpm contracts:check`
+- Outcome: passed.
+- Command: `pnpm architecture:check`
+- Outcome: passed.
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed; 48 frontend tests and 209 Rust tests passed with one
+  opt-in sidecar smoke test ignored. ESLint reported the existing 12
+  warning-level signals and no errors.
 
 ## Runtime Evidence
 

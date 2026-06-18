@@ -1,8 +1,3 @@
-#![expect(
-    dead_code,
-    reason = "Phase 8C defines budget use cases consumed by the Phase 8D IPC boundary"
-)]
-
 use std::sync::Arc;
 
 use crate::application::ports::budget_store::{BudgetStore, BudgetStoreError};

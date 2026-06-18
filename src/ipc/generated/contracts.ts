@@ -144,6 +144,88 @@ export interface ProjectPathRetentionResponse {
   clearedPaths: number;
 }
 
+export type BudgetLimit =
+  | {
+      kind: "tokens";
+      value: string;
+    }
+  | {
+      kind: "cost";
+      amountMicros: string;
+      currency: string;
+    };
+
+export type BudgetScope =
+  | {
+      kind: "global";
+    }
+  | {
+      kind: "source";
+      sourceId: string;
+    };
+
+export interface BudgetThreshold {
+  basisPoints: number;
+  enabled: boolean;
+}
+
+export interface BudgetDefinition {
+  name: string;
+  limit: BudgetLimit;
+  period: "daily" | "weekly" | "monthly";
+  scope: BudgetScope;
+  enabled: boolean;
+  thresholds: BudgetThreshold[];
+}
+
+export interface BudgetResponse extends BudgetDefinition {
+  id: string;
+  revision: string;
+}
+
+export interface BudgetListResponse {
+  items: BudgetResponse[];
+}
+
+export interface BudgetIdRequest {
+  budgetId: string;
+}
+
+export interface BudgetIdCommandRequest extends Record<string, unknown> {
+  request: BudgetIdRequest;
+}
+
+export interface CreateBudgetRequest {
+  budget: BudgetDefinition;
+}
+
+export interface CreateBudgetCommandRequest extends Record<string, unknown> {
+  request: CreateBudgetRequest;
+}
+
+export interface UpdateBudgetRequest {
+  budgetId: string;
+  expectedRevision: string;
+  budget: BudgetDefinition;
+}
+
+export interface UpdateBudgetCommandRequest extends Record<string, unknown> {
+  request: UpdateBudgetRequest;
+}
+
+export interface MutateBudgetRequest {
+  budgetId: string;
+  expectedRevision: string;
+}
+
+export interface MutateBudgetCommandRequest extends Record<string, unknown> {
+  request: MutateBudgetRequest;
+}
+
+export interface DeleteBudgetResponse {
+  budgetId: string;
+}
+
 export interface DesktopCapability {
   supported: boolean;
   status: "available" | "not_implemented" | "unavailable";
@@ -314,6 +396,13 @@ export const COMMAND_NAMES = {
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
   settingsUpdateProjectPathRetention: "settings_update_project_path_retention",
+  budgetsList: "budgets_list",
+  budgetsGet: "budgets_get",
+  budgetsCreate: "budgets_create",
+  budgetsUpdate: "budgets_update",
+  budgetsEnable: "budgets_enable",
+  budgetsDisable: "budgets_disable",
+  budgetsDelete: "budgets_delete",
   refreshGetState: "refresh_get_state",
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
@@ -333,6 +422,13 @@ export interface CommandRequests {
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: UpdateProjectPathRetentionCommandRequest;
+  [COMMAND_NAMES.budgetsList]: Record<string, never>;
+  [COMMAND_NAMES.budgetsGet]: BudgetIdCommandRequest;
+  [COMMAND_NAMES.budgetsCreate]: CreateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsUpdate]: UpdateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsEnable]: MutateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsDisable]: MutateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsDelete]: MutateBudgetCommandRequest;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
@@ -350,6 +446,13 @@ export interface CommandResponses {
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: IpcResponse<ProjectPathRetentionResponse>;
+  [COMMAND_NAMES.budgetsList]: IpcResponse<BudgetListResponse>;
+  [COMMAND_NAMES.budgetsGet]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsCreate]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsUpdate]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsEnable]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsDisable]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsDelete]: IpcResponse<DeleteBudgetResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
@@ -397,6 +500,52 @@ export function invokeSettingsUpdateProjectPathRetention(
   request: UpdateProjectPathRetentionCommandRequest,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.settingsUpdateProjectPathRetention, request);
+}
+
+export function invokeBudgetsList(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsList, {});
+}
+
+export function invokeBudgetsGet(
+  invoke: CommandInvoker,
+  request: BudgetIdCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsGet, request);
+}
+
+export function invokeBudgetsCreate(
+  invoke: CommandInvoker,
+  request: CreateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsCreate, request);
+}
+
+export function invokeBudgetsUpdate(
+  invoke: CommandInvoker,
+  request: UpdateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsUpdate, request);
+}
+
+export function invokeBudgetsEnable(
+  invoke: CommandInvoker,
+  request: MutateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsEnable, request);
+}
+
+export function invokeBudgetsDisable(
+  invoke: CommandInvoker,
+  request: MutateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsDisable, request);
+}
+
+export function invokeBudgetsDelete(
+  invoke: CommandInvoker,
+  request: MutateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsDelete, request);
 }
 
 export function invokeRefreshGetState(
