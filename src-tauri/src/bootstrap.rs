@@ -11,6 +11,7 @@ use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
 use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
+use crate::application::budgets::BudgetService;
 use crate::application::collection::CollectorFailure;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -23,8 +24,8 @@ use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteCalendarStore, SqliteOverviewStore,
-    SqliteReconciliationStore, SqliteSessionStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteBudgetStore, SqliteCalendarStore,
+    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -172,6 +173,11 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
     app.manage(build_session_query(&database_path)?);
+    let budget_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
+    app.manage(BudgetService::new(
+        Arc::new(SqliteBudgetStore::new(budget_database)),
+        Arc::new(SystemClock),
+    ));
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
         CONTRACT_VERSION,
@@ -524,7 +530,7 @@ mod tests {
         drop(initialize(&database_path, "Asia/Jakarta", 100).expect("initialize application"));
 
         let connection = Connection::open(database_path).expect("reopen database");
-        assert_eq!(pragma_i64(&connection, "user_version"), 2);
+        assert_eq!(pragma_i64(&connection, "user_version"), 3);
         assert_eq!(settings_count(&connection), 1);
         assert_eq!(
             setting_text(&connection, "reporting_timezone"),
@@ -553,7 +559,7 @@ mod tests {
         let database_path = directory.path().join("burnly.sqlite3");
         let connection = Connection::open(&database_path).expect("create database");
         connection
-            .pragma_update(None, "user_version", 3)
+            .pragma_update(None, "user_version", 4)
             .expect("set newer version");
         drop(connection);
 
@@ -567,7 +573,7 @@ mod tests {
             StartupErrorKind::Persistence(PersistenceErrorKind::Migration)
         );
         let connection = Connection::open(database_path).expect("reopen database");
-        assert_eq!(pragma_i64(&connection, "user_version"), 3);
+        assert_eq!(pragma_i64(&connection, "user_version"), 4);
     }
 
     #[test]

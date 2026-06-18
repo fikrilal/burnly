@@ -32,7 +32,7 @@ calculations, and native side effects.
 | ------------------------------------------- | --------- | ------------ | ---------------------------------------------------------------------- |
 | Phase 8A: Settings foundation               | Completed | Phase 7      | [Plan](../completed/2026-06-18_phase-8a-settings-foundation.md)        |
 | Phase 8B: Privacy retention                 | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8b-project-path-privacy.md)       |
-| Phase 8C: Budget domain and storage         | Queued    | Phase 8A     | [Plan](../queued/2026-06-18_phase-8c-budget-domain-storage.md)         |
+| Phase 8C: Budget domain and storage         | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8c-budget-domain-storage.md)      |
 | Phase 8D: Budget IPC contracts              | Queued    | Phase 8C     | [Plan](../queued/2026-06-18_phase-8d-budget-ipc.md)                    |
 | Phase 8E: Budget interface                  | Queued    | Phase 8D     | [Plan](../queued/2026-06-18_phase-8e-budget-interface.md)              |
 | Phase 8F: Budget evaluation                 | Queued    | Phase 8C     | [Plan](../queued/2026-06-18_phase-8f-budget-evaluation.md)             |
@@ -90,7 +90,7 @@ calculations, and native side effects.
 
 - [x] Phase 8A completed and verified.
 - [x] Phase 8B completed and verified.
-- [ ] Phase 8C completed and verified.
+- [x] Phase 8C completed and verified.
 - [ ] Phase 8D completed and verified.
 - [ ] Phase 8E completed and verified.
 - [ ] Phase 8F completed and verified.
@@ -111,6 +111,11 @@ calculations, and native side effects.
   atomic SQLite cleanup, future-import enforcement, and confirmation UI. Current
   persisted diagnostics do not include raw collector payload artifacts, so raw
   diagnostic payload policy remains outside Phase 8B.
+- Phase 8C established typed token/cost limits, explicit period and source
+  scopes, ordered basis-point thresholds, aggregate-level optimistic revisions,
+  and a transactional SQLite store. Threshold replacement preserves
+  notification state for retained threshold identities and cascades removed
+  identities.
 
 ## Verification
 

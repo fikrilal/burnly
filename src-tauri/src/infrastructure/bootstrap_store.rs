@@ -79,7 +79,7 @@ mod tests {
             .expect("read bootstrap storage");
 
         assert_eq!(storage.reporting_timezone, "Asia/Jakarta");
-        assert_eq!(storage.schema_version, 2);
+        assert_eq!(storage.schema_version, 3);
         assert_eq!(storage.settings_revision, 1);
         assert!(!storage.background_refresh_enabled);
         assert_eq!(storage.refresh_interval_minutes, 15);

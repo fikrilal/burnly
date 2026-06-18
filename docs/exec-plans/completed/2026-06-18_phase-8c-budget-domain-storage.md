@@ -48,15 +48,15 @@ notifications.
 
 ## Checklist
 
-- [ ] Finalize first-release budget value, period, source-scope, and threshold
+- [x] Finalize first-release budget value, period, source-scope, and threshold
       types from locked product/database decisions.
-- [ ] Define validation and revision-conflict errors.
-- [ ] Add the budget store port at aggregate granularity.
-- [ ] Implement real SQLite create/read/update/delete/list behavior.
-- [ ] Add migration changes only if revision support requires them.
-- [ ] Prove foreign keys, threshold replacement, delete cascade, and restart.
-- [ ] Add application commands independent of IPC.
-- [ ] Confirm no generic repository or rules engine is introduced.
+- [x] Define validation and revision-conflict errors.
+- [x] Add the budget store port at aggregate granularity.
+- [x] Implement real SQLite create/read/update/delete/list behavior.
+- [x] Add migration changes only if revision support requires them.
+- [x] Prove foreign keys, threshold replacement, delete cascade, and restart.
+- [x] Add application commands independent of IPC.
+- [x] Confirm no generic repository or rules engine is introduced.
 
 ## Test Plan
 
@@ -73,11 +73,32 @@ notifications.
 
 - A budget is an aggregate containing its thresholds.
 - Store values as integer tokens or cost micros; do not use floating point.
+- The aggregate exposes no persistence timestamps because Phase 8 consumers do
+  not need them.
+- Every mutable operation, including enable, disable, and delete, checks the
+  expected aggregate revision.
+- Thresholds may exceed 100 percent; the first release requires only a positive
+  basis-point value and deterministic uniqueness/order.
+- SQLite allocates budget identifiers. Domain identifiers and source scopes must
+  be positive integers.
 
 ## Verification
 
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml budget --no-fail-fast`
+- Outcome: passed; budget domain, application, migration, and real-SQLite tests
+  passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml migrations --no-fail-fast`
+- Outcome: passed; all 14 migration tests passed.
+- Command: `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- Outcome: passed.
+- Command: `pnpm migrations:check`
+- Outcome: passed.
+- Command: `pnpm architecture:check`
+- Outcome: passed.
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed; 44 frontend tests and 206 Rust tests passed with one
+  opt-in sidecar smoke test ignored. ESLint reported 12 existing warning-level
+  signals and no errors.
 
 ## Runtime Evidence
 

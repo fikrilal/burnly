@@ -1,5 +1,6 @@
 //! SQLite connection ownership and policy enforcement.
 
+mod budget_store;
 mod calendar_store;
 mod error;
 mod migrations;
@@ -15,6 +16,7 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
+pub(crate) use budget_store::SqliteBudgetStore;
 pub(crate) use calendar_store::SqliteCalendarStore;
 pub use error::{PersistenceError, PersistenceErrorKind};
 pub(crate) use overview_store::SqliteOverviewStore;
@@ -298,7 +300,7 @@ mod tests {
         assert!(!settings.5); // notifications_enabled
         assert!(!settings.6); // store_project_paths
 
-        assert_eq!(database.schema_version().expect("schema version"), 2);
+        assert_eq!(database.schema_version().expect("schema version"), 3);
     }
 
     fn pragma_i64(connection: &Connection, name: &str) -> i64 {
