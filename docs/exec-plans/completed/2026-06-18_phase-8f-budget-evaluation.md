@@ -50,14 +50,14 @@ progress.
 
 ## Checklist
 
-- [ ] Define period identity and boundary calculations.
-- [ ] Define progress and threshold-decision models.
-- [ ] Add authoritative daily-fact aggregation for budget scope.
-- [ ] Implement evaluation for all metric, period, and source variants.
-- [ ] Invoke evaluation after committed daily reconciliation changes.
-- [ ] Prove timezone, DST, period rollover, unavailable cost, and multi-threshold
+- [x] Define period identity and boundary calculations.
+- [x] Define progress and threshold-decision models.
+- [x] Add authoritative daily-fact aggregation for budget scope.
+- [x] Implement evaluation for all metric, period, and source variants.
+- [x] Invoke evaluation after committed daily reconciliation changes.
+- [x] Prove timezone, DST, period rollover, unavailable cost, and multi-threshold
       behavior.
-- [ ] Confirm evaluation failure does not invalidate committed usage.
+- [x] Confirm evaluation failure does not invalidate committed usage.
 
 ## Test Plan
 
@@ -76,11 +76,28 @@ progress.
 - Weekly periods require an explicit product convention during implementation;
   default to ISO Monday-start weeks unless an approved document says otherwise.
 - Progress may exceed 100 percent and must not be clamped in authoritative data.
+- Budget evaluation is read-only in Phase 8F. Threshold decisions are returned
+  in memory; persistence/deduplication for notification delivery remains Phase
+  8G.
+- Cost threshold decisions are emitted only when cost is computable in the
+  budget currency. Unavailable cost is represented explicitly and does not emit
+  threshold decisions.
+- Refresh invokes evaluation after daily reconciliation commits and ignores
+  evaluation failure so committed usage and refresh lifecycle are not rolled
+  back.
 
 ## Verification
 
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml budget_evaluation --no-fail-fast`
+- Outcome: passed; period, DST, token, cost, and refresh hook tests.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml budget_usage_store --no-fail-fast`
+- Outcome: passed; real SQLite aggregation tests.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml coordinator --no-fail-fast`
+- Outcome: passed; 13 refresh coordinator tests.
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed; 55 frontend tests, 217 Rust tests, 1 ignored sidecar smoke
+  test, clippy/rustfmt/harness checks passed. ESLint and duplication reports
+  remain warning-style configured output.
 
 ## Runtime Evidence
 
@@ -89,3 +106,4 @@ progress.
 ## Follow-Up Debt
 
 - Rolling periods and anomaly detection are outside Phase 8.
+- Expose the progress read model to overview/tray in Phase 8H.

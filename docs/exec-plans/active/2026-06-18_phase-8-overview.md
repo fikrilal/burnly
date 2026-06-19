@@ -35,7 +35,7 @@ calculations, and native side effects.
 | Phase 8C: Budget domain and storage         | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8c-budget-domain-storage.md)      |
 | Phase 8D: Budget IPC contracts              | Completed | Phase 8C     | [Plan](../completed/2026-06-18_phase-8d-budget-ipc.md)                 |
 | Phase 8E: Budget interface                  | Completed | Phase 8D     | [Plan](../completed/2026-06-18_phase-8e-budget-interface.md)           |
-| Phase 8F: Budget evaluation                 | Queued    | Phase 8C     | [Plan](../queued/2026-06-18_phase-8f-budget-evaluation.md)             |
+| Phase 8F: Budget evaluation                 | Completed | Phase 8C     | [Plan](../completed/2026-06-18_phase-8f-budget-evaluation.md)          |
 | Phase 8G: Native notifications              | Queued    | Phase 8F     | [Plan](../queued/2026-06-18_phase-8g-native-notifications.md)          |
 | Phase 8H: Progress integration and evidence | Queued    | Phases 8E-8G | [Plan](../queued/2026-06-18_phase-8h-progress-integration-evidence.md) |
 
@@ -93,7 +93,7 @@ calculations, and native side effects.
 - [x] Phase 8C completed and verified.
 - [x] Phase 8D completed and verified.
 - [x] Phase 8E completed and verified.
-- [ ] Phase 8F completed and verified.
+- [x] Phase 8F completed and verified.
 - [ ] Phase 8G completed and verified.
 - [ ] Phase 8H completed and phase exit criteria verified.
 
@@ -124,6 +124,11 @@ calculations, and native side effects.
   boundary for listing, creating, editing, enabling, disabling, and deleting
   budgets. Source-scoped budgets use explicit source IDs until a source catalog
   contract exists.
+- Phase 8F introduced authoritative Rust budget evaluation with
+  timezone-aware daily, ISO-weekly, and monthly period windows; integer
+  progress and threshold decisions; real SQLite active daily-fact aggregation;
+  and post-commit refresh invocation that does not roll back usage on
+  evaluation failure.
 
 ## Verification
 

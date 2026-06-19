@@ -8,7 +8,7 @@ mod state;
     unused_imports,
     reason = "refresh exposes the coordinator and state to bootstrap wiring and IPC"
 )]
-pub(crate) use coordinator::{RefreshCoordinator, RefreshEventSink};
+pub(crate) use coordinator::{RefreshCoordinator, RefreshCoordinatorHooks, RefreshEventSink};
 pub(crate) use scheduler::{RefreshPolicy, RefreshScheduler, RefreshSchedulerError};
 #[allow(
     unused_imports,

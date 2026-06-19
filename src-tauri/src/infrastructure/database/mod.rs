@@ -1,6 +1,7 @@
 //! SQLite connection ownership and policy enforcement.
 
 mod budget_store;
+mod budget_usage_store;
 mod calendar_store;
 mod error;
 mod migrations;
@@ -17,6 +18,7 @@ use std::time::Duration;
 use rusqlite::Connection;
 
 pub(crate) use budget_store::SqliteBudgetStore;
+pub(crate) use budget_usage_store::SqliteBudgetUsageStore;
 pub(crate) use calendar_store::SqliteCalendarStore;
 pub use error::{PersistenceError, PersistenceErrorKind};
 pub(crate) use overview_store::SqliteOverviewStore;

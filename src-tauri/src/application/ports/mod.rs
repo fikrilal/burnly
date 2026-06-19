@@ -1,4 +1,5 @@
 pub(crate) mod budget_store;
+pub(crate) mod budget_usage_store;
 pub(crate) mod calendar_store;
 pub(crate) mod clock;
 pub(crate) mod collector;

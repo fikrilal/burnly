@@ -11,12 +11,13 @@ use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
 use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
+use crate::application::budget_evaluation::BudgetEvaluationService;
 use crate::application::budgets::BudgetService;
 use crate::application::collection::CollectorFailure;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
-    RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
-    RefreshSnapshot, RefreshStatus,
+    RefreshCoordinator, RefreshCoordinatorHooks, RefreshEventSink, RefreshPolicy, RefreshScheduler,
+    RefreshSchedulerError, RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
 use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery};
@@ -24,8 +25,8 @@ use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteBudgetStore, SqliteCalendarStore,
-    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteBudgetStore, SqliteBudgetUsageStore,
+    SqliteCalendarStore, SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -330,14 +331,24 @@ fn compose_refresh_coordinator(
         .read_settings()
         .map_err(StartupError::Persistence)?;
     let store = Arc::new(SqliteReconciliationStore::new(write_database));
+    let budget_store = Arc::new(SqliteBudgetStore::new(
+        Database::open(database_path).map_err(StartupError::Persistence)?,
+    ));
+    let budget_usage_store = Arc::new(SqliteBudgetUsageStore::new(
+        Database::open(database_path).map_err(StartupError::Persistence)?,
+    ));
+    let budget_evaluator = Arc::new(BudgetEvaluationService::new(
+        budget_store,
+        budget_usage_store,
+    ));
     let clock = Arc::new(SystemClock);
 
-    Ok(RefreshCoordinator::with_event_sink(
+    Ok(RefreshCoordinator::with_event_sink_and_budget_evaluator(
         collector,
         store.clone(),
         store,
         clock,
-        refresh_event_sink,
+        RefreshCoordinatorHooks::new(refresh_event_sink, budget_evaluator),
         env!("CARGO_PKG_VERSION"),
         aggregation_timezone,
     ))
