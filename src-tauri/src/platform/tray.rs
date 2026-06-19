@@ -53,6 +53,7 @@ impl TrayRefreshStatus {
 pub(crate) struct TraySnapshot {
     pub(crate) status: TrayRefreshStatus,
     pub(crate) last_successful_refresh_at_ms: Option<i64>,
+    pub(crate) budget_summary: Option<String>,
 }
 
 pub(crate) struct TrayController<R: Runtime> {
@@ -141,9 +142,13 @@ fn status_label(snapshot: &TraySnapshot) -> String {
         TrayRefreshStatus::Partial => "Refresh partially completed",
         TrayRefreshStatus::Failed => "Refresh failed",
     };
-    match snapshot.last_successful_refresh_at_ms {
+    let refresh_status = match snapshot.last_successful_refresh_at_ms {
         Some(timestamp) => format!("{status} - last success {}", format_time(timestamp)),
         None => status.to_owned(),
+    };
+    match snapshot.budget_summary.as_deref() {
+        Some(summary) => format!("{refresh_status} - {summary}"),
+        None => refresh_status,
     }
 }
 
@@ -182,11 +187,27 @@ mod tests {
         let snapshot = TraySnapshot {
             status: TrayRefreshStatus::Succeeded,
             last_successful_refresh_at_ms: Some(1_765_000_000_000),
+            budget_summary: None,
         };
 
         assert_eq!(
             status_label(&snapshot),
             "Refresh succeeded - last success 2025-12-06 05:46 UTC"
+        );
+    }
+
+    #[test]
+    fn tooltip_includes_preformatted_budget_summary_when_available() {
+        let snapshot = TraySnapshot {
+            status: TrayRefreshStatus::Idle,
+            last_successful_refresh_at_ms: None,
+            budget_summary: Some("Budget: Monthly 82%".to_owned()),
+        };
+
+        assert_eq!(status_label(&snapshot), "Idle - Budget: Monthly 82%");
+        assert_eq!(
+            tooltip_label(&snapshot),
+            "Burnly - Idle - Budget: Monthly 82%"
         );
     }
 }

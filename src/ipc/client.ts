@@ -17,6 +17,7 @@ import {
   invokeBudgetsEnable,
   invokeBudgetsDisable,
   invokeBudgetsDelete,
+  invokeBudgetsGetProgress,
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
@@ -55,6 +56,7 @@ import {
   type BudgetResponse,
   type CreateBudgetRequest,
   type DeleteBudgetResponse,
+  type CurrentBudgetProgressResponse,
   type MutateBudgetRequest,
   type UpdateBudgetRequest,
   type UpdateProjectPathRetentionRequest,
@@ -247,6 +249,41 @@ const deleteBudgetDataSchema: z.ZodType<DeleteBudgetResponse> = z.object({
   budgetId: positiveInt64StringSchema,
 });
 
+const uint64StringSchema = z
+  .string()
+  .regex(/^(0|[1-9][0-9]*)$/, "Expected a canonical unsigned integer string.");
+
+const currentBudgetProgressDataSchema: z.ZodType<CurrentBudgetProgressResponse> =
+  z.object({
+    status: z.enum(["no_budgets", "all_disabled", "available"]),
+    reportingTimezone: z.string().min(1),
+    asOf: z.iso.datetime({ offset: true }),
+    configuredBudgetCount: z.number().int().nonnegative(),
+    enabledBudgetCount: z.number().int().nonnegative(),
+    traySummary: z.string().min(1).nullable(),
+    items: z.array(
+      z.object({
+        budgetId: positiveInt64StringSchema,
+        budgetName: z.string().min(1),
+        period: z.enum(["daily", "weekly", "monthly"]),
+        periodStartDate: z.iso.date(),
+        periodEndDate: z.iso.date(),
+        metric: z.enum(["tokens", "cost"]),
+        state: z.enum(["available", "cost_unavailable"]),
+        current: uint64StringSchema.nullable(),
+        limit: positiveInt64StringSchema,
+        currency: z
+          .string()
+          .regex(/^[A-Z]{3}$/)
+          .nullable(),
+        basisPoints: uint64StringSchema.nullable(),
+        exceeded: z.boolean(),
+        completeness: z.enum(["complete", "partial", "unavailable"]),
+        unavailableDays: z.number().int().nonnegative(),
+      }),
+    ),
+  });
+
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
   status: z.enum([
     "idle",
@@ -270,10 +307,6 @@ const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
     .nullable(),
   lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
 });
-
-const uint64StringSchema = z
-  .string()
-  .regex(/^(0|[1-9][0-9]*)$/, "Expected a canonical unsigned integer string.");
 
 const usageOverviewCostSchema: z.ZodType<UsageOverviewCostResponse> =
   z.discriminatedUnion("valuation", [
@@ -574,6 +607,15 @@ export async function deleteBudget(
   const parsed = parseBudgetMutation(request);
   const response = await invokeBudgetsDelete(invoker, { request: parsed });
   return unwrapResponse(validateResponse(response, deleteBudgetDataSchema));
+}
+
+export async function getCurrentBudgetProgress(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<CurrentBudgetProgressResponse>> {
+  const response = await invokeBudgetsGetProgress(invoker);
+  return unwrapResponse(
+    validateResponse(response, currentBudgetProgressDataSchema),
+  );
 }
 
 async function mutateBudget(

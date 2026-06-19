@@ -20,6 +20,7 @@ import type {
 } from "../../ipc/generated/contracts";
 
 export const budgetsQueryKey = ["budgets"] as const;
+const budgetProgressQueryKey = ["budgets", "progress"] as const;
 
 export function useBudgets() {
   const queryClient = useQueryClient();
@@ -31,6 +32,9 @@ export function useBudgets() {
     void subscribeToEvent(EVENT_NAMES.dataInvalidated, (payload) => {
       if (payload.scope === "budgets") {
         void queryClient.invalidateQueries({ queryKey: budgetsQueryKey });
+        void queryClient.invalidateQueries({
+          queryKey: budgetProgressQueryKey,
+        });
       }
     }).then((listener) => {
       if (active) {
@@ -60,6 +64,7 @@ export function useCreateBudget() {
       (await createBudget(request)).data,
     onSuccess: (budget) => {
       upsertBudget(queryClient, budget);
+      invalidateBudgetProgress(queryClient);
     },
   });
 }
@@ -72,6 +77,7 @@ export function useUpdateBudget() {
       (await updateBudget(request)).data,
     onSuccess: (budget) => {
       upsertBudget(queryClient, budget);
+      invalidateBudgetProgress(queryClient);
     },
   });
 }
@@ -92,6 +98,7 @@ export function useDeleteBudget() {
       (await deleteBudget(request)).data,
     onSuccess: (result) => {
       removeBudget(queryClient, result);
+      invalidateBudgetProgress(queryClient);
     },
   });
 }
@@ -106,8 +113,15 @@ function useBudgetMutation(
       (await mutation(request)).data,
     onSuccess: (budget) => {
       upsertBudget(queryClient, budget);
+      invalidateBudgetProgress(queryClient);
     },
   });
+}
+
+function invalidateBudgetProgress(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({ queryKey: budgetProgressQueryKey });
 }
 
 function upsertBudget(

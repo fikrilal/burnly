@@ -397,6 +397,33 @@ export interface DeleteBudgetResponse {
   budgetId: string;
 }
 
+export interface CurrentBudgetProgressResponse {
+  status: "no_budgets" | "all_disabled" | "available";
+  reportingTimezone: string;
+  asOf: string;
+  configuredBudgetCount: number;
+  enabledBudgetCount: number;
+  traySummary: string | null;
+  items: CurrentBudgetProgressItemResponse[];
+}
+
+export interface CurrentBudgetProgressItemResponse {
+  budgetId: string;
+  budgetName: string;
+  period: "daily" | "weekly" | "monthly";
+  periodStartDate: string;
+  periodEndDate: string;
+  metric: "tokens" | "cost";
+  state: "available" | "cost_unavailable";
+  current: string | null;
+  limit: string;
+  currency: string | null;
+  basisPoints: string | null;
+  exceeded: boolean;
+  completeness: "complete" | "partial" | "unavailable";
+  unavailableDays: number;
+}
+
 export interface DesktopCapability {
   supported: boolean;
   status: "available" | "not_implemented" | "unavailable";

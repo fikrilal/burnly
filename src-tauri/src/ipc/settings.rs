@@ -78,6 +78,10 @@ pub(super) fn settings_update<R: tauri::Runtime>(
     match service.update(request.expected_revision, settings) {
         Ok(updated) => {
             let _ = app.emit("burnly://v1/settings-changed", ());
+            let _ = app.emit(
+                "burnly://v1/data-invalidated",
+                serde_json::json!({ "scope": "budgets" }),
+            );
             IpcResponse::success(updated.into())
         }
         Err(error) => IpcResponse::failure(settings_error(error)),

@@ -28,16 +28,16 @@ calculations, and native side effects.
 
 ## Chunk Plan
 
-| Chunk                                       | Status    | Dependency   | Plan                                                                   |
-| ------------------------------------------- | --------- | ------------ | ---------------------------------------------------------------------- |
-| Phase 8A: Settings foundation               | Completed | Phase 7      | [Plan](../completed/2026-06-18_phase-8a-settings-foundation.md)        |
-| Phase 8B: Privacy retention                 | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8b-project-path-privacy.md)       |
-| Phase 8C: Budget domain and storage         | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8c-budget-domain-storage.md)      |
-| Phase 8D: Budget IPC contracts              | Completed | Phase 8C     | [Plan](../completed/2026-06-18_phase-8d-budget-ipc.md)                 |
-| Phase 8E: Budget interface                  | Completed | Phase 8D     | [Plan](../completed/2026-06-18_phase-8e-budget-interface.md)           |
-| Phase 8F: Budget evaluation                 | Completed | Phase 8C     | [Plan](../completed/2026-06-18_phase-8f-budget-evaluation.md)          |
-| Phase 8G: Native notifications              | Completed | Phase 8F     | [Plan](../completed/2026-06-18_phase-8g-native-notifications.md)       |
-| Phase 8H: Progress integration and evidence | Queued    | Phases 8E-8G | [Plan](../queued/2026-06-18_phase-8h-progress-integration-evidence.md) |
+| Chunk                                       | Status    | Dependency   | Plan                                                                      |
+| ------------------------------------------- | --------- | ------------ | ------------------------------------------------------------------------- |
+| Phase 8A: Settings foundation               | Completed | Phase 7      | [Plan](../completed/2026-06-18_phase-8a-settings-foundation.md)           |
+| Phase 8B: Privacy retention                 | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8b-project-path-privacy.md)          |
+| Phase 8C: Budget domain and storage         | Completed | Phase 8A     | [Plan](../completed/2026-06-18_phase-8c-budget-domain-storage.md)         |
+| Phase 8D: Budget IPC contracts              | Completed | Phase 8C     | [Plan](../completed/2026-06-18_phase-8d-budget-ipc.md)                    |
+| Phase 8E: Budget interface                  | Completed | Phase 8D     | [Plan](../completed/2026-06-18_phase-8e-budget-interface.md)              |
+| Phase 8F: Budget evaluation                 | Completed | Phase 8C     | [Plan](../completed/2026-06-18_phase-8f-budget-evaluation.md)             |
+| Phase 8G: Native notifications              | Completed | Phase 8F     | [Plan](../completed/2026-06-18_phase-8g-native-notifications.md)          |
+| Phase 8H: Progress integration and evidence | Completed | Phases 8E-8G | [Plan](../completed/2026-06-18_phase-8h-progress-integration-evidence.md) |
 
 ## Dependency Rules
 
@@ -95,7 +95,7 @@ calculations, and native side effects.
 - [x] Phase 8E completed and verified.
 - [x] Phase 8F completed and verified.
 - [x] Phase 8G completed and verified.
-- [ ] Phase 8H completed and phase exit criteria verified.
+- [x] Phase 8H completed and phase exit criteria verified.
 
 ## Decisions
 
@@ -134,15 +134,25 @@ calculations, and native side effects.
   durable pre-delivery threshold claims, delivered/failed/suppressed outcomes,
   and post-commit delivery that cannot roll back usage. Existing claims are not
   retried automatically, preserving at-most-once delivery across interruption.
+- Phase 8H introduced one Rust-owned current budget progress read model for
+  overview and tray, exposed it through typed IPC, rendered explicit progress
+  and exceptional states in overview, updated tray summaries from the
+  composition layer after data invalidation, and closed Phase 8 with automated
+  and runtime evidence.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. ESLint reported 17 warning-only existing complexity/export
+  warnings; duplication report remained warning-only with 74 clones.
+- Command: `pnpm verify:runtime`
+- Outcome: passed on Ubuntu GNOME/X11 with 18 Playwright desktop/compact
+  evidence tests.
 
 ## Runtime Evidence
 
-- Required in Phase 8H.
+- Completed in Phase 8H on Ubuntu 24.04 GNOME/X11. Cross-platform
+  release-matrix evidence remains Phase 10.
 
 ## Follow-Up Debt
 

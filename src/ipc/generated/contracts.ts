@@ -226,6 +226,33 @@ export interface DeleteBudgetResponse {
   budgetId: string;
 }
 
+export interface CurrentBudgetProgressResponse {
+  status: "no_budgets" | "all_disabled" | "available";
+  reportingTimezone: string;
+  asOf: string;
+  configuredBudgetCount: number;
+  enabledBudgetCount: number;
+  traySummary: string | null;
+  items: CurrentBudgetProgressItemResponse[];
+}
+
+export interface CurrentBudgetProgressItemResponse {
+  budgetId: string;
+  budgetName: string;
+  period: "daily" | "weekly" | "monthly";
+  periodStartDate: string;
+  periodEndDate: string;
+  metric: "tokens" | "cost";
+  state: "available" | "cost_unavailable";
+  current: string | null;
+  limit: string;
+  currency: string | null;
+  basisPoints: string | null;
+  exceeded: boolean;
+  completeness: "complete" | "partial" | "unavailable";
+  unavailableDays: number;
+}
+
 export interface DesktopCapability {
   supported: boolean;
   status: "available" | "not_implemented" | "unavailable";
@@ -407,6 +434,7 @@ export const COMMAND_NAMES = {
   budgetsEnable: "budgets_enable",
   budgetsDisable: "budgets_disable",
   budgetsDelete: "budgets_delete",
+  budgetsGetProgress: "budgets_get_progress",
   refreshGetState: "refresh_get_state",
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
@@ -433,6 +461,7 @@ export interface CommandRequests {
   [COMMAND_NAMES.budgetsEnable]: MutateBudgetCommandRequest;
   [COMMAND_NAMES.budgetsDisable]: MutateBudgetCommandRequest;
   [COMMAND_NAMES.budgetsDelete]: MutateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsGetProgress]: Record<string, never>;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
@@ -457,6 +486,7 @@ export interface CommandResponses {
   [COMMAND_NAMES.budgetsEnable]: IpcResponse<BudgetResponse>;
   [COMMAND_NAMES.budgetsDisable]: IpcResponse<BudgetResponse>;
   [COMMAND_NAMES.budgetsDelete]: IpcResponse<DeleteBudgetResponse>;
+  [COMMAND_NAMES.budgetsGetProgress]: IpcResponse<CurrentBudgetProgressResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
@@ -550,6 +580,12 @@ export function invokeBudgetsDelete(
   request: MutateBudgetCommandRequest,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.budgetsDelete, request);
+}
+
+export function invokeBudgetsGetProgress(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsGetProgress, {});
 }
 
 export function invokeRefreshGetState(

@@ -1,6 +1,14 @@
+use std::sync::Arc;
+
+use chrono::SecondsFormat;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, State};
 
+use crate::application::budget_evaluation::BudgetCostCompleteness;
+use crate::application::budget_progress::{
+    BudgetProgressError, BudgetProgressItemState, BudgetProgressMetric, BudgetProgressQuery,
+    BudgetProgressStatus, CurrentBudgetProgressItem, CurrentBudgetProgressReadModel,
+};
 use crate::application::budgets::{BudgetError, BudgetService};
 use crate::domain::budget::{
     Budget, BudgetDefinition, BudgetId, BudgetLimit, BudgetPeriod, BudgetScope, BudgetThreshold,
@@ -94,6 +102,37 @@ pub(super) struct MutateBudgetRequest {
 #[serde(rename_all = "camelCase")]
 pub(super) struct DeleteBudgetResponse {
     budget_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CurrentBudgetProgressResponse {
+    status: &'static str,
+    reporting_timezone: String,
+    as_of: String,
+    configured_budget_count: usize,
+    enabled_budget_count: usize,
+    tray_summary: Option<String>,
+    items: Vec<CurrentBudgetProgressItemResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CurrentBudgetProgressItemResponse {
+    budget_id: String,
+    budget_name: String,
+    period: &'static str,
+    period_start_date: String,
+    period_end_date: String,
+    metric: &'static str,
+    state: &'static str,
+    current: Option<String>,
+    limit: String,
+    currency: Option<String>,
+    basis_points: Option<String>,
+    exceeded: bool,
+    completeness: &'static str,
+    unavailable_days: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -237,6 +276,16 @@ pub(super) fn budgets_delete<R: tauri::Runtime>(
     }
 }
 
+#[tauri::command]
+pub(super) fn budgets_get_progress(
+    query: State<'_, Arc<BudgetProgressQuery>>,
+) -> IpcResponse<CurrentBudgetProgressResponse> {
+    match query.current() {
+        Ok(progress) => IpcResponse::success(progress.into()),
+        Err(error) => IpcResponse::failure(progress_error(error)),
+    }
+}
+
 fn mutate_budget<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     service: &BudgetService,
@@ -308,6 +357,73 @@ impl From<Budget> for BudgetResponse {
                 })
                 .collect(),
         }
+    }
+}
+
+impl From<CurrentBudgetProgressReadModel> for CurrentBudgetProgressResponse {
+    fn from(value: CurrentBudgetProgressReadModel) -> Self {
+        Self {
+            status: progress_status(value.status),
+            reporting_timezone: value.reporting_timezone,
+            as_of: value.as_of.to_rfc3339_opts(SecondsFormat::Millis, true),
+            configured_budget_count: value.configured_budget_count,
+            enabled_budget_count: value.enabled_budget_count,
+            tray_summary: value.tray_summary,
+            items: value.items.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<CurrentBudgetProgressItem> for CurrentBudgetProgressItemResponse {
+    fn from(value: CurrentBudgetProgressItem) -> Self {
+        Self {
+            budget_id: value.budget_id.to_string(),
+            budget_name: value.budget_name,
+            period: value.period.as_str(),
+            period_start_date: value.period_start_date,
+            period_end_date: value.period_end_date,
+            metric: progress_metric(value.metric),
+            state: progress_item_state(value.state),
+            current: value.current.map(|current| current.to_string()),
+            limit: value.limit.to_string(),
+            currency: value.currency,
+            basis_points: value
+                .basis_points
+                .map(|basis_points| basis_points.to_string()),
+            exceeded: value.exceeded,
+            completeness: cost_completeness(value.completeness),
+            unavailable_days: value.unavailable_days,
+        }
+    }
+}
+
+const fn progress_status(status: BudgetProgressStatus) -> &'static str {
+    match status {
+        BudgetProgressStatus::NoBudgets => "no_budgets",
+        BudgetProgressStatus::AllDisabled => "all_disabled",
+        BudgetProgressStatus::Available => "available",
+    }
+}
+
+const fn progress_metric(metric: BudgetProgressMetric) -> &'static str {
+    match metric {
+        BudgetProgressMetric::Tokens => "tokens",
+        BudgetProgressMetric::Cost => "cost",
+    }
+}
+
+const fn progress_item_state(state: BudgetProgressItemState) -> &'static str {
+    match state {
+        BudgetProgressItemState::Available => "available",
+        BudgetProgressItemState::CostUnavailable => "cost_unavailable",
+    }
+}
+
+const fn cost_completeness(completeness: BudgetCostCompleteness) -> &'static str {
+    match completeness {
+        BudgetCostCompleteness::Complete => "complete",
+        BudgetCostCompleteness::Partial => "partial",
+        BudgetCostCompleteness::Unavailable => "unavailable",
     }
 }
 
@@ -517,6 +633,31 @@ fn budget_error(error: BudgetError) -> IpcError {
         BudgetError::StorageUnavailable | BudgetError::InvalidStoredValue => IpcError::new(
             "budgets.storage_unavailable",
             "Burnly could not access local budgets.",
+            ErrorCategory::Persistence,
+            true,
+        ),
+    }
+}
+
+fn progress_error(error: BudgetProgressError) -> IpcError {
+    match error {
+        BudgetProgressError::InvalidTimezone => IpcError::new(
+            "budgets.progress_invalid_timezone",
+            "Budget progress could not use the configured reporting timezone.",
+            ErrorCategory::Validation,
+            false,
+        ),
+        BudgetProgressError::InvalidTimestamp => IpcError::new(
+            "budgets.progress_invalid_timestamp",
+            "Budget progress could not use the current system time.",
+            ErrorCategory::Internal,
+            false,
+        ),
+        BudgetProgressError::StorageUnavailable
+        | BudgetProgressError::InvalidStoredValue
+        | BudgetProgressError::CurrencyMismatch => IpcError::new(
+            "budgets.progress_unavailable",
+            "Burnly could not calculate current budget progress.",
             ErrorCategory::Persistence,
             true,
         ),

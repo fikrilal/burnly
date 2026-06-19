@@ -328,6 +328,47 @@ async function installTauriMock(
       dataStatus,
     });
 
+    const pageBudgetProgressResponse = () => {
+      if (overviewMode === "empty") {
+        return {
+          status: "no_budgets",
+          reportingTimezone: "UTC",
+          asOf: "2026-06-15T12:00:00Z",
+          configuredBudgetCount: 0,
+          enabledBudgetCount: 0,
+          traySummary: null,
+          items: [],
+        };
+      }
+
+      return {
+        status: "available",
+        reportingTimezone: "UTC",
+        asOf: "2026-06-15T12:00:00Z",
+        configuredBudgetCount: 2,
+        enabledBudgetCount: 1,
+        traySummary: "Budget: Monthly token cap 75%",
+        items: [
+          {
+            budgetId: "7",
+            budgetName: "Monthly token cap",
+            period: "monthly",
+            periodStartDate: "2026-06-01",
+            periodEndDate: "2026-06-30",
+            metric: "tokens",
+            state: "available",
+            current: overviewTokens,
+            limit: "2000000",
+            currency: null,
+            basisPoints: overviewTokens === "2000000" ? "10000" : "7500",
+            exceeded: overviewTokens === "2000000",
+            completeness: "complete",
+            unavailableDays: 0,
+          },
+        ],
+      };
+    };
+
     const emit = (event: string, payload: Record<string, unknown>) => {
       const ids = listeners.get(event);
       if (!ids) return;
@@ -453,6 +494,28 @@ async function installTauriMock(
             data: {
               items: overviewMode === "empty" ? [] : pageBudgets,
             },
+          });
+        }
+
+        if (command === "budgets_get_progress") {
+          if (overviewMode === "error") {
+            return Promise.resolve({
+              ok: false,
+              meta: pageMeta(),
+              error: {
+                code: "budgets.progress_unavailable",
+                message: "Simulated budget progress error",
+                category: "persistence",
+                retryable: true,
+                details: null,
+              },
+            });
+          }
+
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: pageBudgetProgressResponse(),
           });
         }
 

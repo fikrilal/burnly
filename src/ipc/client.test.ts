@@ -9,6 +9,7 @@ import {
   disableBudget,
   enableBudget,
   getBudget,
+  getCurrentBudgetProgress,
   listBudgets,
   getContractProbe,
   getRefreshState,
@@ -180,8 +181,12 @@ describe("settings IPC", () => {
 });
 
 describe("budget IPC queries", () => {
-  it("invokes list, get, and create contracts", async () => {
+  it("invokes list, get, create, and progress contracts", async () => {
     const invoker = vi.fn<CommandInvoker>((command, request) => {
+      if (command === COMMAND_NAMES.budgetsGetProgress) {
+        expect(request).toEqual({});
+        return Promise.resolve(currentBudgetProgress());
+      }
       if (command === COMMAND_NAMES.budgetsList) {
         expect(request).toEqual({});
         return Promise.resolve({
@@ -200,12 +205,16 @@ describe("budget IPC queries", () => {
     expect((await listBudgets(invoker)).data.items[0]?.revision).toBe("1");
     expect((await getBudget({ budgetId: "7" }, invoker)).data.id).toBe("7");
     expect(
+      (await getCurrentBudgetProgress(invoker)).data.items[0]?.exceeded,
+    ).toBe(true);
+    expect(
       (await createBudget({ budget: tokenBudgetDefinition() }, invoker)).data
         .limit,
     ).toEqual({ kind: "tokens", value: "100000" });
     expect(invoker.mock.calls.map(([command]) => command)).toEqual([
       COMMAND_NAMES.budgetsList,
       COMMAND_NAMES.budgetsGet,
+      COMMAND_NAMES.budgetsGetProgress,
       COMMAND_NAMES.budgetsCreate,
     ]);
   });
@@ -393,6 +402,39 @@ function budgetResponseData(revision: string) {
     id: "7",
     revision,
     ...tokenBudgetDefinition(),
+  };
+}
+
+function currentBudgetProgress(): IpcResponse<unknown> {
+  return {
+    ok: true,
+    data: {
+      status: "available",
+      reportingTimezone: "UTC",
+      asOf: "2026-06-15T07:30:00.000Z",
+      configuredBudgetCount: 1,
+      enabledBudgetCount: 1,
+      traySummary: "Budget: Monthly tokens 125%",
+      items: [
+        {
+          budgetId: "7",
+          budgetName: "Monthly tokens",
+          period: "monthly",
+          periodStartDate: "2026-06-01",
+          periodEndDate: "2026-06-30",
+          metric: "tokens",
+          state: "available",
+          current: "125000",
+          limit: "100000",
+          currency: null,
+          basisPoints: "12500",
+          exceeded: true,
+          completeness: "complete",
+          unavailableDays: 0,
+        },
+      ],
+    },
+    meta,
   };
 }
 

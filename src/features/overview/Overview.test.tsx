@@ -5,6 +5,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { Overview } from "./Overview";
 import {
+  getCurrentBudgetProgress,
   getUsageOverview,
   requestRefresh,
   type CommandResult,
@@ -12,6 +13,7 @@ import {
 import { subscribeToEvent } from "../../ipc/events";
 import type {
   RefreshStatusResponse,
+  CurrentBudgetProgressResponse,
   UsageOverviewResponse,
 } from "../../ipc/generated/contracts";
 import { createTestQueryWrapper } from "../../test/query";
@@ -98,10 +100,46 @@ function refreshResult(
   return { data, meta: responseMeta };
 }
 
+function budgetProgressResult(
+  data: CurrentBudgetProgressResponse = mockBudgetProgress,
+): CommandResult<CurrentBudgetProgressResponse> {
+  return { data, meta: responseMeta };
+}
+
+const mockBudgetProgress: CurrentBudgetProgressResponse = {
+  status: "available",
+  reportingTimezone: "UTC",
+  asOf: "2026-06-15T12:00:00Z",
+  configuredBudgetCount: 1,
+  enabledBudgetCount: 1,
+  traySummary: "Budget: Monthly token cap 75%",
+  items: [
+    {
+      budgetId: "7",
+      budgetName: "Monthly token cap",
+      period: "monthly",
+      periodStartDate: "2026-06-01",
+      periodEndDate: "2026-06-30",
+      metric: "tokens",
+      state: "available",
+      current: "1500000",
+      limit: "2000000",
+      currency: null,
+      basisPoints: "7500",
+      exceeded: false,
+      completeness: "complete",
+      unavailableDays: 0,
+    },
+  ],
+};
+
 describe("Overview Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(subscribeToEvent).mockResolvedValue(vi.fn());
+    vi.mocked(getCurrentBudgetProgress).mockResolvedValue(
+      budgetProgressResult(),
+    );
   });
 
   it("renders loading state initially", () => {
@@ -298,13 +336,13 @@ describe("Overview Component", () => {
   });
 
   it("preserves prior data when an invalidation re-query fails", async () => {
-    let invalidate: (() => void) | undefined;
+    const invalidationCallbacks: (() => void)[] = [];
 
     vi.mocked(subscribeToEvent).mockImplementation((event, callback) => {
       if (event === "burnly://v1/data-invalidated") {
-        invalidate = () => {
+        invalidationCallbacks.push(() => {
           callback({});
-        };
+        });
       }
       return Promise.resolve(vi.fn());
     });
@@ -321,7 +359,9 @@ describe("Overview Component", () => {
       expect(screen.getByText("1,500,000")).toBeInTheDocument();
     });
 
-    invalidate?.();
+    invalidationCallbacks.forEach((callback) => {
+      callback();
+    });
 
     await waitFor(() => {
       expect(screen.getByText("Overview update failed")).toBeInTheDocument();

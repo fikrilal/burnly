@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use iana_time_zone::GetTimezoneError;
-use tauri::{Manager, RunEvent, Runtime, WindowEvent};
+use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
 use crate::application::bootstrap::{
@@ -16,6 +16,7 @@ use crate::application::bootstrap::{
 };
 use crate::application::budget_evaluation::BudgetEvaluationService;
 use crate::application::budget_notifications::BudgetNotificationService;
+use crate::application::budget_progress::BudgetProgressQuery;
 use crate::application::budgets::BudgetService;
 use crate::application::collection::CollectorFailure;
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
@@ -151,9 +152,14 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         .map_err(StartupError::Persistence)?;
     let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
     let tray_state = Arc::new(Mutex::new(None));
+    let budget_progress_query = build_budget_progress_query(&database_path)?;
     let notification_port: Arc<dyn NotificationPort> =
         Arc::new(NativeNotificationAdapter::new(app.handle().clone()));
-    let refresh_event_sink = runtime_refresh_event_sink(app.handle().clone(), tray_state.clone());
+    let refresh_event_sink = runtime_refresh_event_sink(
+        app.handle().clone(),
+        tray_state.clone(),
+        budget_progress_query.clone(),
+    );
     let refresh_coordinator = build_refresh_coordinator(
         app,
         &database_path,
@@ -171,14 +177,18 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         })?);
     let tray_controller = tray::TrayController::install(
         app.handle(),
-        &tray_snapshot(&refresh_coordinator.snapshot()),
+        &tray_snapshot(&refresh_coordinator.snapshot(), &budget_progress_query),
     )
     .ok();
     if let Some(controller) = tray_controller.clone() {
         *tray_state.lock().expect("tray state lock is poisoned") = Some(controller.clone());
-        controller.update(&tray_snapshot(&refresh_coordinator.snapshot()));
+        controller.update(&tray_snapshot(
+            &refresh_coordinator.snapshot(),
+            &budget_progress_query,
+        ));
         app.manage(controller);
     }
+    install_tray_invalidation_listener(app.handle().clone(), budget_progress_query.clone());
     let tray_capability = match tray_controller {
         Some(_) => RuntimeCapabilities::tray_available(),
         None => RuntimeCapabilities::tray_unavailable(),
@@ -204,6 +214,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
     app.manage(build_session_query(&database_path)?);
+    app.manage(budget_progress_query);
     let budget_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
     app.manage(BudgetService::new(
         Arc::new(SqliteBudgetStore::new(budget_database)),
@@ -346,6 +357,23 @@ fn build_session_query(database_path: &Path) -> Result<SessionQuery, StartupErro
     ))))
 }
 
+fn build_budget_progress_query(
+    database_path: &Path,
+) -> Result<Arc<BudgetProgressQuery>, StartupError> {
+    Ok(Arc::new(BudgetProgressQuery::new(
+        Arc::new(SqliteBudgetStore::new(
+            Database::open(database_path).map_err(StartupError::Persistence)?,
+        )),
+        Arc::new(SqliteBudgetUsageStore::new(
+            Database::open(database_path).map_err(StartupError::Persistence)?,
+        )),
+        Arc::new(SqliteSettingsStore::new(
+            Database::open(database_path).map_err(StartupError::Persistence)?,
+        )),
+        Arc::new(SystemClock),
+    )))
+}
+
 fn build_refresh_coordinator<R: Runtime>(
     app: &tauri::App<R>,
     database_path: &Path,
@@ -411,6 +439,7 @@ fn compose_refresh_coordinator(
 struct RuntimeRefreshEventSink<R: Runtime> {
     frontend: Arc<dyn RefreshEventSink>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
+    budget_progress: Arc<BudgetProgressQuery>,
 }
 
 impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
@@ -422,7 +451,7 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
             .expect("tray state lock is poisoned")
             .as_ref()
         {
-            tray.update(&tray_snapshot(&snapshot));
+            tray.update(&tray_snapshot(&snapshot, &self.budget_progress));
         }
     }
 }
@@ -430,17 +459,41 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
 fn runtime_refresh_event_sink<R: Runtime>(
     app: tauri::AppHandle<R>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
+    budget_progress: Arc<BudgetProgressQuery>,
 ) -> Arc<dyn RefreshEventSink> {
     Arc::new(RuntimeRefreshEventSink {
         frontend: refresh_event_sink(app),
         tray,
+        budget_progress,
     })
 }
 
-fn tray_snapshot(snapshot: &RefreshSnapshot) -> tray::TraySnapshot {
+fn install_tray_invalidation_listener<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    budget_progress: Arc<BudgetProgressQuery>,
+) {
+    let listener_app = app.clone();
+    app.listen("burnly://v1/data-invalidated", move |_| {
+        if let (Some(controller), Some(coordinator)) = (
+            listener_app.try_state::<tray::TrayController<R>>(),
+            listener_app.try_state::<RefreshCoordinator>(),
+        ) {
+            controller.update(&tray_snapshot(&coordinator.snapshot(), &budget_progress));
+        }
+    });
+}
+
+pub(crate) fn tray_snapshot(
+    snapshot: &RefreshSnapshot,
+    budget_progress: &BudgetProgressQuery,
+) -> tray::TraySnapshot {
     tray::TraySnapshot {
         status: tray_refresh_status(snapshot.status),
         last_successful_refresh_at_ms: snapshot.last_successful_refresh_at_ms,
+        budget_summary: budget_progress
+            .current()
+            .ok()
+            .and_then(|progress| progress.tray_summary),
     }
 }
 

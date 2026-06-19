@@ -6,6 +6,7 @@
 pub(crate) mod bootstrap;
 pub(crate) mod budget_evaluation;
 pub(crate) mod budget_notifications;
+pub(crate) mod budget_progress;
 pub(crate) mod budgets;
 pub(crate) mod collection;
 pub(crate) mod ports;

@@ -35,6 +35,7 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         budgets::budgets_enable,
         budgets::budgets_disable,
         budgets::budgets_delete,
+        budgets::budgets_get_progress,
         commands::refresh_get_state,
         commands::refresh_request,
         commands::refresh_cancel,

@@ -88,6 +88,12 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "DeleteBudgetResponse",
     },
     CommandSpec {
+        name: "budgets_get_progress",
+        export_name: "invokeBudgetsGetProgress",
+        request_type: "Record<string, never>",
+        response_type: "CurrentBudgetProgressResponse",
+    },
+    CommandSpec {
         name: "refresh_get_state",
         export_name: "invokeRefreshGetState",
         request_type: "Record<string, never>",

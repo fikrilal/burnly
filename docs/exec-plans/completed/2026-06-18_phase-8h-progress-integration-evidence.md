@@ -50,14 +50,14 @@ cache invalidation, tray synchronization, and incomplete evidence.
 
 ## Checklist
 
-- [ ] Define the minimal current-progress read model.
-- [ ] Add typed IPC and frontend query integration.
-- [ ] Render overview progress and exceptional states.
-- [ ] Extend tray snapshot and refresh after relevant commits.
-- [ ] Verify cache/event invalidation for settings, budgets, and refresh.
-- [ ] Expand automated runtime evidence where stable.
-- [ ] Execute manual settings/privacy/notification/tray checklist.
-- [ ] Update all Phase 8 plans and verify phase exit criteria.
+- [x] Define the minimal current-progress read model.
+- [x] Add typed IPC and frontend query integration.
+- [x] Render overview progress and exceptional states.
+- [x] Extend tray snapshot and refresh after relevant commits.
+- [x] Verify cache/event invalidation for settings, budgets, and refresh.
+- [x] Expand automated runtime evidence where stable.
+- [x] Execute manual settings/privacy/notification/tray checklist.
+- [x] Update all Phase 8 plans and verify phase exit criteria.
 
 ## Test Plan
 
@@ -77,15 +77,44 @@ cache invalidation, tray synchronization, and incomplete evidence.
 
 - The tray consumes an application snapshot; it does not calculate progress or
   own budget queries.
+- Budget progress is exposed through `budgets_get_progress`, backed by a Rust
+  application read model that reuses Phase 8F evaluation.
+- Tray refresh is driven from the bootstrap/composition layer after
+  `data-invalidated` events, preserving the IPC/platform boundary.
+- Overview displays progress, no-budget, all-disabled, unavailable-cost,
+  exceeded, stale, and error states from the authoritative read model.
 
 ## Verification
 
+- Command: `pnpm contracts:generate`
+- Outcome: passed; IPC contract registry and generated bindings updated.
+- Command: `pnpm exec vitest run src/ipc/client.test.ts src/features/overview/use-overview.test.tsx src/features/budgets/BudgetsView.test.tsx`
+- Outcome: passed; 3 files, 30 tests.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib budget_progress`
+- Outcome: passed; 3 tests.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
+- Outcome: passed; 226 tests passed, 2 ignored.
+- Command: `pnpm architecture:check`
+- Outcome: passed after moving tray invalidation out of IPC and into bootstrap.
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. ESLint reported 17 warning-only existing complexity/export
+  warnings; duplication report remained warning-only with 74 clones.
+- Command: `pnpm verify:runtime`
+- Outcome: passed on Ubuntu GNOME/X11; includes contracts, frontend build, IPC
+  bridge tests, tray/platform tests, scheduler tests, and 18 Playwright
+  desktop/compact evidence tests.
 
 ## Runtime Evidence
 
-- Required before completion.
+- Environment: Linux 6.17.0-35-generic, Ubuntu 24.04, GNOME on X11, display
+  `:1`.
+- Tauri info completed with Rust 1.95.0, Node 22.22.0, pnpm 10.33.1.
+- Desktop runtime evidence passed; 18 Playwright tests covered populated,
+  empty, error, refresh invalidation, settings, privacy retention, and budget
+  interface evidence for Desktop and Compact projects.
+- Tray progress evidence is covered by unit/runtime platform tests and the
+  bootstrap event path. Real visual tray menu presentation was not manually
+  screen-captured in this environment.
 
 ## Follow-Up Debt
 
