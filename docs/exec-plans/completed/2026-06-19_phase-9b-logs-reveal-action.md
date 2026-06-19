@@ -48,12 +48,12 @@ This exposes local filesystem locations and platform actions.
 
 ## Checklist
 
-- [ ] Define log reveal capability and command result.
-- [ ] Add platform reveal adapter.
-- [ ] Add IPC command and frontend client validation.
-- [ ] Add diagnostics UI log section.
-- [ ] Add tests for missing/unsupported/failure states.
-- [ ] Record runtime evidence where stable.
+- [x] Define log reveal capability and command result.
+- [x] Add platform reveal adapter.
+- [x] Add IPC command and frontend client validation.
+- [x] Add diagnostics UI log section.
+- [x] Add tests for missing/unsupported/failure states.
+- [x] Record runtime evidence where stable.
 
 ## Test Plan
 
@@ -70,15 +70,31 @@ This exposes local filesystem locations and platform actions.
 ## Decisions
 
 - React does not receive or construct log filesystem paths.
+- Diagnostics status exposes only a safe log label and reveal availability, not
+  the resolved filesystem path.
+- Missing and unsupported log reveal states are returned as successful command
+  outcomes; opener failures are platform errors.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. Lint reported warnings only; no errors.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml diagnostics`
+- Outcome: passed.
+- Command:
+  `pnpm exec vitest run src/ipc/client.test.ts src/features/diagnostics/DiagnosticsView.test.tsx`
+- Outcome: passed.
+- Command: `pnpm contracts:check`
+- Outcome: passed.
+- Command: `pnpm architecture:check`
+- Outcome: passed.
+- Command: `pnpm test:e2e`
+- Outcome: passed.
 
 ## Runtime Evidence
 
-- Required if the reveal action can be exercised safely in the environment.
+- Playwright captured diagnostics evidence after invoking the reveal logs action
+  through the mocked Tauri bridge in Desktop and Compact projects.
 
 ## Follow-Up Debt
 

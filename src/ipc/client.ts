@@ -8,6 +8,7 @@ import {
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
   invokeDiagnosticsGetStatus,
+  invokeDiagnosticsRevealLogs,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeSettingsUpdateProjectPathRetention,
@@ -52,6 +53,7 @@ import {
   type SessionDetailResponse,
   type SettingsResponse,
   type ProjectPathRetentionResponse,
+  type RevealLogsResponse,
   type BudgetDefinition,
   type BudgetIdRequest,
   type BudgetListResponse,
@@ -193,7 +195,16 @@ const diagnosticsStatusDataSchema: z.ZodType<DiagnosticsStatusResponse> =
         details: z.array(z.string().min(1)),
       }),
     ),
+    logs: z.object({
+      status: z.enum(["available", "missing", "unsupported"]),
+      label: z.string().min(1),
+    }),
   });
+
+const revealLogsDataSchema: z.ZodType<RevealLogsResponse> = z.object({
+  status: z.enum(["revealed", "missing", "unsupported"]),
+  message: z.string().min(1),
+});
 
 const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
   reportingTimezone: z.string().min(1),
@@ -532,6 +543,13 @@ export async function getDiagnosticsStatus(
   return unwrapResponse(
     validateResponse(response, diagnosticsStatusDataSchema),
   );
+}
+
+export async function revealDiagnosticsLogs(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<RevealLogsResponse>> {
+  const response = await invokeDiagnosticsRevealLogs(invoker);
+  return unwrapResponse(validateResponse(response, revealLogsDataSchema));
 }
 
 export async function getSettings(

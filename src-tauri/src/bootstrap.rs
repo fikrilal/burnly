@@ -40,6 +40,7 @@ use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle;
+use crate::platform::logs::DesktopLogReveal;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{
     database_path, notifications::NativeNotificationAdapter, single_instance, system_clock,
@@ -248,6 +249,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
             Database::open(&database_path).map_err(StartupError::Persistence)?,
         )),
         settings_store,
+        Arc::new(DesktopLogReveal::new(app.handle().clone())),
         RuntimeDiagnosticRecord {
             app_version: env!("CARGO_PKG_VERSION").to_owned(),
             contract_version: CONTRACT_VERSION,

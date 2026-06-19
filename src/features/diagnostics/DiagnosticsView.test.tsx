@@ -2,7 +2,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getDiagnosticsStatus, type CommandResult } from "../../ipc/client";
+import {
+  getDiagnosticsStatus,
+  revealDiagnosticsLogs,
+  type CommandResult,
+} from "../../ipc/client";
 import type { DiagnosticsStatusResponse } from "../../ipc/generated/contracts";
 import { createTestQueryWrapper } from "../../test/query";
 import { DiagnosticsView } from "./DiagnosticsView";
@@ -44,7 +48,73 @@ describe("DiagnosticsView", () => {
     expect(screen.getByText("Database is reachable.")).toBeInTheDocument();
     expect(screen.getByText("Sources are configured.")).toBeInTheDocument();
     expect(screen.getByText("Schema version 1")).toBeInTheDocument();
+    expect(screen.getByText("Burnly logs")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Reveal logs" }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("healthy").length).toBeGreaterThan(0);
+  });
+
+  it("reveals logs and renders success feedback", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getDiagnosticsStatus).mockResolvedValue(
+      diagnosticsResult(diagnosticsStatus()),
+    );
+    vi.mocked(revealDiagnosticsLogs).mockResolvedValue({
+      data: {
+        status: "revealed",
+        message: "Logs opened in the system file manager.",
+      },
+      meta,
+    });
+
+    render(<DiagnosticsView />, { wrapper: createTestQueryWrapper() });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Reveal logs" }),
+    );
+
+    expect(revealDiagnosticsLogs).toHaveBeenCalled();
+    expect(
+      await screen.findByText("Logs opened in the system file manager."),
+    ).toBeInTheDocument();
+  });
+
+  it("disables reveal when logs are missing", async () => {
+    vi.mocked(getDiagnosticsStatus).mockResolvedValue(
+      diagnosticsResult({
+        ...diagnosticsStatus(),
+        logs: { status: "missing", label: "Burnly logs" },
+      }),
+    );
+
+    render(<DiagnosticsView />, { wrapper: createTestQueryWrapper() });
+
+    expect(await screen.findByText("Burnly logs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reveal logs" })).toBeDisabled();
+    expect(
+      screen.getByText(
+        "No log folder exists yet. This is expected before logs are written.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders reveal failure state", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getDiagnosticsStatus).mockResolvedValue(
+      diagnosticsResult(diagnosticsStatus()),
+    );
+    vi.mocked(revealDiagnosticsLogs).mockRejectedValue(
+      new Error("open failed"),
+    );
+
+    render(<DiagnosticsView />, { wrapper: createTestQueryWrapper() });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Reveal logs" }),
+    );
+
+    expect(await screen.findByText("open failed")).toBeInTheDocument();
   });
 
   it("renders empty state when runtime returns no components", async () => {
@@ -104,5 +174,9 @@ function diagnosticsStatus(): DiagnosticsStatusResponse {
         details: ["Detected sources 1", "Configured sources 1"],
       },
     ],
+    logs: {
+      status: "available",
+      label: "Burnly logs",
+    },
   };
 }

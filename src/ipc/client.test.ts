@@ -5,6 +5,7 @@ import {
   getAppBootstrap,
   getAppCapabilities,
   getDiagnosticsStatus,
+  revealDiagnosticsLogs,
   createBudget,
   deleteBudget,
   disableBudget,
@@ -82,6 +83,26 @@ describe("IPC command responses", () => {
       component: "database",
       status: "healthy",
     });
+    expect(result.data.logs.status).toBe("available");
+  });
+
+  it("invokes diagnostics log reveal through the dedicated command", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsRevealLogs);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        data: {
+          status: "revealed",
+          message: "Logs opened in the system file manager.",
+        },
+        meta,
+      });
+    };
+
+    const result = await revealDiagnosticsLogs(invoker);
+
+    expect(result.data.status).toBe("revealed");
   });
 
   it("validates refresh state from the desktop runtime", async () => {
@@ -540,6 +561,10 @@ function diagnosticsStatus(): IpcResponse<unknown> {
           details: ["Configured sources 1"],
         },
       ],
+      logs: {
+        status: "available",
+        label: "Burnly logs",
+      },
     },
     meta,
   };

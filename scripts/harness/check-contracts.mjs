@@ -291,6 +291,15 @@ export interface DiagnosticsStatusResponse {
   status: DiagnosticHealthStatus;
   contractVersion: number;
   components: DiagnosticComponentResponse[];
+  logs: {
+    status: "available" | "missing" | "unsupported";
+    label: string;
+  };
+}
+
+export interface RevealLogsResponse {
+  status: "revealed" | "missing" | "unsupported";
+  message: string;
 }
 
 export interface UpdateSettingsRequest {

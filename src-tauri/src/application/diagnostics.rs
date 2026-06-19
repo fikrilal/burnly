@@ -3,12 +3,22 @@ use std::sync::Arc;
 use crate::application::ports::diagnostics_store::{
     DiagnosticsStore, DiagnosticsStoreError, SourceDiagnosticRecord,
 };
+use crate::application::ports::log_reveal::{
+    LogRevealAvailability, LogRevealError, LogRevealOutcome, LogRevealPort,
+};
 use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DiagnosticsStatus {
     pub status: HealthStatus,
     pub components: Vec<DiagnosticComponent>,
+    pub logs: LogDiagnostics,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LogDiagnostics {
+    pub status: LogRevealAvailability,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +56,7 @@ pub(crate) struct RuntimeDiagnosticRecord {
 pub(crate) struct DiagnosticsService {
     diagnostics_store: Arc<dyn DiagnosticsStore>,
     settings_store: Arc<dyn SettingsStore>,
+    log_reveal: Arc<dyn LogRevealPort>,
     runtime: RuntimeDiagnosticRecord,
 }
 
@@ -53,11 +64,13 @@ impl DiagnosticsService {
     pub(crate) fn new(
         diagnostics_store: Arc<dyn DiagnosticsStore>,
         settings_store: Arc<dyn SettingsStore>,
+        log_reveal: Arc<dyn LogRevealPort>,
         runtime: RuntimeDiagnosticRecord,
     ) -> Self {
         Self {
             diagnostics_store,
             settings_store,
+            log_reveal,
             runtime,
         }
     }
@@ -71,7 +84,15 @@ impl DiagnosticsService {
             self.runtime_status(),
         ];
         let status = aggregate_status(&components);
-        DiagnosticsStatus { status, components }
+        DiagnosticsStatus {
+            status,
+            components,
+            logs: self.log_status(),
+        }
+    }
+
+    pub(crate) fn reveal_logs(&self) -> Result<LogRevealOutcome, LogRevealError> {
+        self.log_reveal.reveal_logs()
     }
 
     fn database_status(&self) -> DiagnosticComponent {
@@ -158,6 +179,15 @@ impl DiagnosticsService {
                 format!("IPC contract version {}", self.runtime.contract_version),
             ],
         )
+    }
+
+    fn log_status(&self) -> LogDiagnostics {
+        let capability = self.log_reveal.capability();
+        let redactor = DiagnosticRedactor;
+        LogDiagnostics {
+            status: capability.status,
+            label: redactor.redact(&capability.label),
+        }
     }
 }
 
@@ -345,6 +375,7 @@ mod tests {
 
     use super::*;
     use crate::application::ports::diagnostics_store::DatabaseDiagnosticRecord;
+    use crate::application::ports::log_reveal::LogRevealCapability;
     use crate::application::ports::settings_store::ProjectPathRetentionResult;
     use crate::domain::settings::{Settings, SettingsDocument};
 
@@ -391,6 +422,21 @@ mod tests {
         }
     }
 
+    struct FakeLogReveal {
+        capability: LogRevealCapability,
+        outcome: Mutex<Result<LogRevealOutcome, LogRevealError>>,
+    }
+
+    impl LogRevealPort for FakeLogReveal {
+        fn capability(&self) -> LogRevealCapability {
+            self.capability.clone()
+        }
+
+        fn reveal_logs(&self) -> Result<LogRevealOutcome, LogRevealError> {
+            *self.outcome.lock().expect("log reveal outcome")
+        }
+    }
+
     #[test]
     fn status_aggregates_component_health() {
         let service = service(
@@ -408,10 +454,48 @@ mod tests {
 
         assert_eq!(status.status, HealthStatus::Degraded);
         assert_eq!(status.components.len(), 5);
+        assert_eq!(status.logs.status, LogRevealAvailability::Available);
+        assert_eq!(status.logs.label, "Burnly logs");
         assert!(status.components.iter().any(|component| {
             component.component == DiagnosticComponentKind::Sources
                 && component.status == HealthStatus::Degraded
         }));
+    }
+
+    #[test]
+    fn log_capability_is_redacted_and_reveal_outcome_is_delegated() {
+        let service = DiagnosticsService::new(
+            Arc::new(FakeDiagnosticsStore {
+                database: Ok(DatabaseDiagnosticRecord { schema_version: 1 }),
+                sources: Ok(SourceDiagnosticRecord {
+                    detected_count: 0,
+                    configured_count: 0,
+                    enabled_count: 0,
+                }),
+            }),
+            Arc::new(FakeSettingsStore {
+                result: Mutex::new(Ok(settings_document())),
+            }),
+            Arc::new(FakeLogReveal {
+                capability: LogRevealCapability {
+                    status: LogRevealAvailability::Available,
+                    label: "Burnly logs at /home/fikrilal/.config/burnly/logs".to_owned(),
+                },
+                outcome: Mutex::new(Ok(LogRevealOutcome::Revealed)),
+            }),
+            RuntimeDiagnosticRecord {
+                app_version: "0.1.0".to_owned(),
+                contract_version: 1,
+                collector_initialized: true,
+            },
+        );
+
+        let status = service.status();
+
+        assert_eq!(status.logs.status, LogRevealAvailability::Available);
+        assert!(!status.logs.label.contains("/home/fikrilal"));
+        assert!(status.logs.label.contains("[redacted-path]"));
+        assert_eq!(service.reveal_logs(), Ok(LogRevealOutcome::Revealed));
     }
 
     #[test]
@@ -456,6 +540,13 @@ mod tests {
             Arc::new(FakeDiagnosticsStore { database, sources }),
             Arc::new(FakeSettingsStore {
                 result: Mutex::new(settings),
+            }),
+            Arc::new(FakeLogReveal {
+                capability: LogRevealCapability {
+                    status: LogRevealAvailability::Available,
+                    label: "Burnly logs".to_owned(),
+                },
+                outcome: Mutex::new(Ok(LogRevealOutcome::Revealed)),
             }),
             RuntimeDiagnosticRecord {
                 app_version: "0.1.0".to_owned(),

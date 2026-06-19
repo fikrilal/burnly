@@ -118,6 +118,15 @@ export interface DiagnosticsStatusResponse {
   status: DiagnosticHealthStatus;
   contractVersion: number;
   components: DiagnosticComponentResponse[];
+  logs: {
+    status: "available" | "missing" | "unsupported";
+    label: string;
+  };
+}
+
+export interface RevealLogsResponse {
+  status: "revealed" | "missing" | "unsupported";
+  message: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -444,6 +453,7 @@ export const COMMAND_NAMES = {
   appGetBootstrap: "app_get_bootstrap",
   appGetCapabilities: "app_get_capabilities",
   diagnosticsGetStatus: "diagnostics_get_status",
+  diagnosticsRevealLogs: "diagnostics_reveal_logs",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
   settingsUpdateProjectPathRetention: "settings_update_project_path_retention",
@@ -472,6 +482,7 @@ export interface CommandRequests {
   [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsGetStatus]: Record<string, never>;
+  [COMMAND_NAMES.diagnosticsRevealLogs]: Record<string, never>;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: UpdateProjectPathRetentionCommandRequest;
@@ -498,6 +509,7 @@ export interface CommandResponses {
   [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
   [COMMAND_NAMES.diagnosticsGetStatus]: IpcResponse<DiagnosticsStatusResponse>;
+  [COMMAND_NAMES.diagnosticsRevealLogs]: IpcResponse<RevealLogsResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: IpcResponse<ProjectPathRetentionResponse>;
@@ -544,6 +556,12 @@ export function invokeDiagnosticsGetStatus(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.diagnosticsGetStatus, {});
+}
+
+export function invokeDiagnosticsRevealLogs(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.diagnosticsRevealLogs, {});
 }
 
 export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {

@@ -5,11 +5,14 @@ import { BurnlyClientError } from "../../ipc/errors";
 import type {
   DiagnosticComponentResponse,
   DiagnosticHealthStatus,
+  DiagnosticsStatusResponse,
+  RevealLogsResponse,
 } from "../../ipc/generated/contracts";
-import { useDiagnostics } from "./use-diagnostics";
+import { useDiagnostics, useRevealDiagnosticsLogs } from "./use-diagnostics";
 
 export function DiagnosticsView() {
   const query = useDiagnostics();
+  const revealLogs = useRevealDiagnosticsLogs();
 
   if (query.isPending) {
     return <DiagnosticsShell title="Loading diagnostics" />;
@@ -69,7 +72,67 @@ export function DiagnosticsView() {
           <DiagnosticCard key={component.component} component={component} />
         ))}
       </div>
+
+      <LogRevealCard
+        logs={query.data.logs}
+        result={revealLogs.data}
+        error={revealLogs.error}
+        isPending={revealLogs.isPending}
+        onReveal={() => {
+          revealLogs.mutate();
+        }}
+      />
     </section>
+  );
+}
+
+function LogRevealCard({
+  logs,
+  result,
+  error,
+  isPending,
+  onReveal,
+}: {
+  logs: DiagnosticsStatusResponse["logs"];
+  result: RevealLogsResponse | undefined;
+  error: Error | null;
+  isPending: boolean;
+  onReveal: () => void;
+}) {
+  const isAvailable = logs.status === "available";
+
+  return (
+    <article className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Logs</p>
+          <h2 className="mt-2 text-lg font-semibold text-zinc-100">
+            {logs.label}
+          </h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            {logStatusText(logs.status)}
+          </p>
+        </div>
+        <button
+          type="button"
+          className={secondaryButtonClass}
+          disabled={!isAvailable || isPending}
+          onClick={onReveal}
+        >
+          {isPending ? "Opening..." : "Reveal logs"}
+        </button>
+      </div>
+      {result ? (
+        <p className="mt-4 rounded-lg bg-zinc-950/60 px-3 py-2 text-sm text-zinc-300">
+          {result.message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          {errorMessage(error)}
+        </p>
+      ) : null}
+    </article>
   );
 }
 
@@ -169,6 +232,17 @@ function componentLabel(component: DiagnosticComponentResponse["component"]) {
       return "Collector";
     case "runtime":
       return "Runtime";
+  }
+}
+
+function logStatusText(status: DiagnosticsStatusResponse["logs"]["status"]) {
+  switch (status) {
+    case "available":
+      return "Log folder can be opened from this device.";
+    case "missing":
+      return "No log folder exists yet. This is expected before logs are written.";
+    case "unsupported":
+      return "Opening logs is not supported on this platform.";
   }
 }
 

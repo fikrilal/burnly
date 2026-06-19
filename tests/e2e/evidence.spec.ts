@@ -166,6 +166,10 @@ test.describe("Desktop Evidence: overview states", () => {
     ).toBeVisible();
     await expect(page.getByText("Database is reachable.")).toBeVisible();
     await expect(page.getByText("Sources are configured.")).toBeVisible();
+    await page.getByRole("button", { name: "Reveal logs" }).click();
+    await expect(
+      page.getByText("Logs opened in the system file manager."),
+    ).toBeVisible();
 
     await page.screenshot({
       path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-diagnostics.png`,
@@ -321,6 +325,10 @@ async function installTauriMock(
             details: ["App version 1.0.0", "IPC contract version 1"],
           },
         ],
+        logs: {
+          status: "available",
+          label: "Burnly logs",
+        },
       },
     });
 
@@ -586,6 +594,17 @@ async function installTauriMock(
 
         if (command === "diagnostics_get_status") {
           return Promise.resolve(pageDiagnosticsResponse());
+        }
+
+        if (command === "diagnostics_reveal_logs") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              status: "revealed",
+              message: "Logs opened in the system file manager.",
+            },
+          });
         }
 
         if (command === "refresh_get_state") {
