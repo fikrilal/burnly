@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -12,6 +13,10 @@ import type {
 
 vi.mock("../features/overview", () => ({
   Overview: () => <div data-testid="overview-feature" />,
+}));
+
+vi.mock("../features/diagnostics", () => ({
+  DiagnosticsView: () => <div data-testid="diagnostics-feature" />,
 }));
 
 vi.mock("../ipc/events", () => ({
@@ -39,6 +44,23 @@ describe("App", () => {
     );
 
     expect(await screen.findByTestId("overview-feature")).toBeInTheDocument();
+  });
+
+  it("opens diagnostics from the main navigation", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <App
+        loadBootstrap={() => Promise.resolve(bootstrapResult())}
+        loadCapabilities={() => Promise.resolve(capabilitiesResult())}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Diagnostics" }),
+    );
+
+    expect(screen.getByTestId("diagnostics-feature")).toBeInTheDocument();
   });
 
   it("stops startup before capability loading when contract versions differ", async () => {

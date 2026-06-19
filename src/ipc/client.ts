@@ -7,6 +7,7 @@ import {
   CONTRACT_VERSION,
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
+  invokeDiagnosticsGetStatus,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeSettingsUpdateProjectPathRetention,
@@ -32,6 +33,7 @@ import {
   type CommandName,
   type CommandRequests,
   type ContractProbeResponse,
+  type DiagnosticsStatusResponse,
   type FieldError,
   type IpcError,
   type IpcResponse,
@@ -165,6 +167,33 @@ const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
     desktopEvidence: z.boolean(),
   }),
 });
+
+const diagnosticHealthStatusSchema = z.enum([
+  "healthy",
+  "degraded",
+  "unavailable",
+  "unknown",
+]);
+
+const diagnosticsStatusDataSchema: z.ZodType<DiagnosticsStatusResponse> =
+  z.object({
+    status: diagnosticHealthStatusSchema,
+    contractVersion: z.literal(CONTRACT_VERSION),
+    components: z.array(
+      z.object({
+        component: z.enum([
+          "database",
+          "settings",
+          "sources",
+          "collector",
+          "runtime",
+        ]),
+        status: diagnosticHealthStatusSchema,
+        summary: z.string().min(1),
+        details: z.array(z.string().min(1)),
+      }),
+    ),
+  });
 
 const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
   reportingTimezone: z.string().min(1),
@@ -494,6 +523,15 @@ export async function getAppCapabilities(
   const response = await invokeAppGetCapabilities(invoker);
   const parsed = validateCapabilitiesResponse(response);
   return unwrapResponse(parsed);
+}
+
+export async function getDiagnosticsStatus(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DiagnosticsStatusResponse>> {
+  const response = await invokeDiagnosticsGetStatus(invoker);
+  return unwrapResponse(
+    validateResponse(response, diagnosticsStatusDataSchema),
+  );
 }
 
 export async function getSettings(

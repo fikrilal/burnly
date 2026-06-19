@@ -154,6 +154,24 @@ test.describe("Desktop Evidence: overview states", () => {
       fullPage: true,
     });
   });
+
+  test("captures diagnostics evidence", async ({ page }, testInfo) => {
+    await installTauriMock(page, "populated");
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Diagnostics" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "Runtime health" }),
+    ).toBeVisible();
+    await expect(page.getByText("Database is reachable.")).toBeVisible();
+    await expect(page.getByText("Sources are configured.")).toBeVisible();
+
+    await page.screenshot({
+      path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-diagnostics.png`,
+      fullPage: true,
+    });
+  });
 });
 
 async function installTauriMock(
@@ -258,6 +276,53 @@ async function installTauriMock(
         },
       };
     };
+
+    const pageDiagnosticsResponse = () => ({
+      ok: true,
+      meta: pageMeta(),
+      data: {
+        status: "healthy",
+        contractVersion: 1,
+        components: [
+          {
+            component: "database",
+            status: "healthy",
+            summary: "Database is reachable.",
+            details: ["Schema version 1"],
+          },
+          {
+            component: "settings",
+            status: "healthy",
+            summary: "Settings are readable.",
+            details: ["Reporting timezone UTC", "Settings revision 1"],
+          },
+          {
+            component: "sources",
+            status: "healthy",
+            summary: "Sources are configured.",
+            details: [
+              "Detected sources 1",
+              "Configured sources 1",
+              "Enabled sources 1",
+            ],
+          },
+          {
+            component: "collector",
+            status: "healthy",
+            summary: "Collector runtime is initialized.",
+            details: [
+              "Collector health is available after startup initialization.",
+            ],
+          },
+          {
+            component: "runtime",
+            status: "healthy",
+            summary: "Runtime is initialized.",
+            details: ["App version 1.0.0", "IPC contract version 1"],
+          },
+        ],
+      },
+    });
 
     const pageRefreshResponse = (status: "idle" | "running") => ({
       ok: true,
@@ -517,6 +582,10 @@ async function installTauriMock(
             meta: pageMeta(),
             data: pageBudgetProgressResponse(),
           });
+        }
+
+        if (command === "diagnostics_get_status") {
+          return Promise.resolve(pageDiagnosticsResponse());
         }
 
         if (command === "refresh_get_state") {

@@ -9,6 +9,7 @@ pub(crate) mod budget_notifications;
 pub(crate) mod budget_progress;
 pub(crate) mod budgets;
 pub(crate) mod collection;
+pub(crate) mod diagnostics;
 pub(crate) mod ports;
 pub(crate) mod reconciliation;
 pub(crate) mod refresh;

@@ -19,6 +19,7 @@ use crate::application::budget_notifications::BudgetNotificationService;
 use crate::application::budget_progress::BudgetProgressQuery;
 use crate::application::budgets::BudgetService;
 use crate::application::collection::CollectorFailure;
+use crate::application::diagnostics::{DiagnosticsService, RuntimeDiagnosticRecord};
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -32,8 +33,8 @@ use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
-    SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteOverviewStore,
-    SqliteReconciliationStore, SqliteSessionStore,
+    SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDiagnosticsStore,
+    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -238,9 +239,20 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         notifications: notification_port,
     });
     app.manage(SettingsService::new(
-        settings_store,
+        settings_store.clone(),
         runtime,
         Arc::new(SystemClock),
+    ));
+    app.manage(DiagnosticsService::new(
+        Arc::new(SqliteDiagnosticsStore::new(
+            Database::open(&database_path).map_err(StartupError::Persistence)?,
+        )),
+        settings_store,
+        RuntimeDiagnosticRecord {
+            app_version: env!("CARGO_PKG_VERSION").to_owned(),
+            contract_version: CONTRACT_VERSION,
+            collector_initialized: true,
+        },
     ));
     Ok(())
 }

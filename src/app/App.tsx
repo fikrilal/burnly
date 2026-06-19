@@ -45,10 +45,17 @@ type AppState =
 import { Overview } from "../features/overview";
 import { BudgetsView } from "../features/budgets/BudgetsView";
 import { CalendarView } from "../features/calendar/CalendarView";
+import { DiagnosticsView } from "../features/diagnostics";
 import { SessionsView } from "../features/sessions/SessionsView";
 import { SettingsView } from "../features/settings/SettingsView";
 
-type ViewMode = "overview" | "calendar" | "sessions" | "budgets" | "settings";
+type ViewMode =
+  | "overview"
+  | "calendar"
+  | "sessions"
+  | "budgets"
+  | "settings"
+  | "diagnostics";
 
 export function App({
   loadBootstrap = getAppBootstrap,
@@ -116,6 +123,19 @@ export function App({
               >
                 Settings
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("diagnostics");
+                }}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  viewMode === "diagnostics"
+                    ? "border-b-2 border-cyan-400 text-cyan-400"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Diagnostics
+              </button>
               {state.bootstrap.features.budgets ? (
                 <button
                   type="button"
@@ -147,6 +167,7 @@ export function App({
             {viewMode === "settings" && (
               <SettingsView capabilities={state.capabilities} />
             )}
+            {viewMode === "diagnostics" && <DiagnosticsView />}
           </div>
         ) : (
           <div className="mt-12 grid gap-4 md:grid-cols-3">

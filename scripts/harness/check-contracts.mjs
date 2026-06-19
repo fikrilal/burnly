@@ -274,6 +274,25 @@ export interface AppCapabilitiesResponse {
   };
 }
 
+export type DiagnosticHealthStatus =
+  | "healthy"
+  | "degraded"
+  | "unavailable"
+  | "unknown";
+
+export interface DiagnosticComponentResponse {
+  component: "database" | "settings" | "sources" | "collector" | "runtime";
+  status: DiagnosticHealthStatus;
+  summary: string;
+  details: string[];
+}
+
+export interface DiagnosticsStatusResponse {
+  status: DiagnosticHealthStatus;
+  contractVersion: number;
+  components: DiagnosticComponentResponse[];
+}
+
 export interface UpdateSettingsRequest {
   expectedRevision: number;
   reportingTimezone: string;

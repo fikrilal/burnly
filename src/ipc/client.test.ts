@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import {
   getAppBootstrap,
   getAppCapabilities,
+  getDiagnosticsStatus,
   createBudget,
   deleteBudget,
   disableBudget,
@@ -65,6 +66,22 @@ describe("IPC command responses", () => {
     expect(result.data.tray.status).toBe("not_implemented");
     expect(result.data.exportFormats).toEqual([]);
     expect(result.data.diagnostics.desktopEvidence).toBe(true);
+  });
+
+  it("validates diagnostics status data from the desktop runtime", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsGetStatus);
+      expect(request).toEqual({});
+      return Promise.resolve(diagnosticsStatus());
+    };
+
+    const result = await getDiagnosticsStatus(invoker);
+
+    expect(result.data.status).toBe("degraded");
+    expect(result.data.components[0]).toMatchObject({
+      component: "database",
+      status: "healthy",
+    });
   });
 
   it("validates refresh state from the desktop runtime", async () => {
@@ -498,6 +515,31 @@ function capabilities(): IpcResponse<unknown> {
       diagnostics: {
         desktopEvidence: true,
       },
+    },
+    meta,
+  };
+}
+
+function diagnosticsStatus(): IpcResponse<unknown> {
+  return {
+    ok: true,
+    data: {
+      status: "degraded",
+      contractVersion: CONTRACT_VERSION,
+      components: [
+        {
+          component: "database",
+          status: "healthy",
+          summary: "Database is reachable.",
+          details: ["Schema version 1"],
+        },
+        {
+          component: "sources",
+          status: "degraded",
+          summary: "Sources are configured but disabled.",
+          details: ["Configured sources 1"],
+        },
+      ],
     },
     meta,
   };

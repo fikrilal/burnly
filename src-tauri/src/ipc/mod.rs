@@ -6,6 +6,7 @@
 mod budgets;
 mod commands;
 mod contract;
+mod diagnostics;
 #[cfg_attr(
     not(test),
     expect(
@@ -25,6 +26,7 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::__burnly_contract_probe,
         commands::app_get_bootstrap,
         commands::app_get_capabilities,
+        diagnostics::diagnostics_get_status,
         settings::settings_get,
         settings::settings_update,
         settings::settings_update_project_path_retention,
