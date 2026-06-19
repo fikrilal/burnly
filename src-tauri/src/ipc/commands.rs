@@ -5,9 +5,11 @@ use tauri::{Emitter, State};
 
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
-    Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary, Readiness,
-    RefreshState, RefreshStatus, SourceStatus, SourceSummary,
+    Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary,
+    NativeNotificationCapability, Readiness, RefreshState, RefreshStatus, SourceStatus,
+    SourceSummary,
 };
+use crate::application::ports::notification::NotificationPermission;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshEventSink, RefreshSnapshot, RefreshStatus as RefreshLifecycleStatus,
@@ -82,7 +84,7 @@ struct RefreshStateResponse {
 pub(super) struct AppCapabilitiesResponse {
     tray: CapabilityResponse,
     launch_at_login: CapabilityResponse,
-    native_notifications: CapabilityResponse,
+    native_notifications: NativeNotificationCapabilityResponse,
     updates: CapabilityResponse,
     export_formats: Vec<String>,
     diagnostics: DiagnosticCapabilitiesResponse,
@@ -93,6 +95,14 @@ pub(super) struct AppCapabilitiesResponse {
 struct CapabilityResponse {
     supported: bool,
     status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeNotificationCapabilityResponse {
+    supported: bool,
+    status: &'static str,
+    permission: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -202,6 +212,16 @@ impl From<Capability> for CapabilityResponse {
     }
 }
 
+impl From<NativeNotificationCapability> for NativeNotificationCapabilityResponse {
+    fn from(value: NativeNotificationCapability) -> Self {
+        Self {
+            supported: value.supported,
+            status: capability_status_label(value.status),
+            permission: notification_permission_label(value.permission),
+        }
+    }
+}
+
 fn readiness_label(value: Readiness) -> &'static str {
     match value {
         Readiness::Ready => "ready",
@@ -225,6 +245,15 @@ fn capability_status_label(value: CapabilityStatus) -> &'static str {
         CapabilityStatus::Available => "available",
         CapabilityStatus::NotImplemented => "not_implemented",
         CapabilityStatus::Unavailable => "unavailable",
+    }
+}
+
+fn notification_permission_label(value: NotificationPermission) -> &'static str {
+    match value {
+        NotificationPermission::Granted => "granted",
+        NotificationPermission::Denied => "denied",
+        NotificationPermission::Prompt => "prompt",
+        NotificationPermission::Unknown => "unknown",
     }
 }
 

@@ -139,6 +139,8 @@ function SettingsForm({
         <PlatformSettings
           settings={settings}
           capabilities={capabilities}
+          notificationsEnabled={form.notificationsEnabled}
+          onNotificationsChange={form.setNotificationsEnabled}
           privacySaving={privacySaving}
           privacyError={privacyError}
           clearedPaths={clearedPaths}
@@ -161,7 +163,7 @@ function settingsRequest(
     refreshIntervalMinutes: form.refreshIntervalMinutes,
     launchAtLogin: settings.launchAtLogin,
     closeBehavior: form.closeBehavior,
-    notificationsEnabled: settings.notificationsEnabled,
+    notificationsEnabled: form.notificationsEnabled,
     storeProjectPaths: settings.storeProjectPaths,
   };
 }
@@ -179,6 +181,9 @@ function useSettingsFormState(settings: SettingsResponse) {
   const [closeBehavior, setCloseBehavior] = useState<"hide" | "quit">(
     settings.closeBehavior,
   );
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    settings.notificationsEnabled,
+  );
   return {
     reportingTimezone,
     setReportingTimezone,
@@ -188,6 +193,8 @@ function useSettingsFormState(settings: SettingsResponse) {
     setRefreshIntervalMinutes,
     closeBehavior,
     setCloseBehavior,
+    notificationsEnabled,
+    setNotificationsEnabled,
   };
 }
 
@@ -319,6 +326,8 @@ function RefreshSettings({
 function PlatformSettings({
   settings,
   capabilities,
+  notificationsEnabled,
+  onNotificationsChange,
   privacySaving,
   privacyError,
   clearedPaths,
@@ -326,6 +335,8 @@ function PlatformSettings({
 }: {
   settings: SettingsResponse;
   capabilities: AppCapabilitiesResponse;
+  notificationsEnabled: boolean;
+  onNotificationsChange: (enabled: boolean) => void;
   privacySaving: boolean;
   privacyError: Error | null;
   clearedPaths: number | undefined;
@@ -338,11 +349,25 @@ function PlatformSettings({
         checked={settings.launchAtLogin}
         available={capabilities.launchAtLogin.supported}
       />
-      <ReadOnlySetting
-        label="Native notifications"
-        checked={settings.notificationsEnabled}
-        available={capabilities.nativeNotifications.supported}
-      />
+      {capabilities.nativeNotifications.supported ? (
+        <div className="space-y-1">
+          <Toggle
+            id="native-notifications"
+            label="Native notifications"
+            checked={notificationsEnabled}
+            onChange={onNotificationsChange}
+          />
+          <p className="text-xs text-zinc-500">
+            Permission: {capabilities.nativeNotifications.permission}
+          </p>
+        </div>
+      ) : (
+        <ReadOnlySetting
+          label="Native notifications"
+          checked={false}
+          available={false}
+        />
+      )}
       <ProjectPathPrivacy
         enabled={settings.storeProjectPaths}
         saving={privacySaving}

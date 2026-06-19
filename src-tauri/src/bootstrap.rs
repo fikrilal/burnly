@@ -10,10 +10,15 @@ use iana_time_zone::GetTimezoneError;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
-use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
+use crate::application::bootstrap::{
+    BootstrapService, CapabilityStatus, NativeNotificationCapability, RuntimeCapabilities,
+    RuntimeSettings,
+};
 use crate::application::budget_evaluation::BudgetEvaluationService;
+use crate::application::budget_notifications::BudgetNotificationService;
 use crate::application::budgets::BudgetService;
 use crate::application::collection::CollectorFailure;
+use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshCoordinatorHooks, RefreshEventSink, RefreshPolicy, RefreshScheduler,
@@ -25,15 +30,19 @@ use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteBudgetStore, SqliteBudgetUsageStore,
-    SqliteCalendarStore, SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
+    SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteOverviewStore,
+    SqliteReconciliationStore, SqliteSessionStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle;
 use crate::platform::system_clock::SystemClock;
-use crate::platform::{database_path, single_instance, system_clock, system_timezone, tray};
+use crate::platform::{
+    database_path, notifications::NativeNotificationAdapter, single_instance, system_clock,
+    system_timezone, tray,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupErrorKind {
@@ -93,6 +102,7 @@ pub(crate) fn run() {
     let app = tauri::Builder::default()
         .plugin(single_instance::plugin())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(crate::ipc::invoke_handler())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -141,8 +151,15 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         .map_err(StartupError::Persistence)?;
     let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
     let tray_state = Arc::new(Mutex::new(None));
+    let notification_port: Arc<dyn NotificationPort> =
+        Arc::new(NativeNotificationAdapter::new(app.handle().clone()));
     let refresh_event_sink = runtime_refresh_event_sink(app.handle().clone(), tray_state.clone());
-    let refresh_coordinator = build_refresh_coordinator(app, &database_path, refresh_event_sink)?;
+    let refresh_coordinator = build_refresh_coordinator(
+        app,
+        &database_path,
+        refresh_event_sink,
+        notification_port.clone(),
+    )?;
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
             .map_err(StartupError::RefreshScheduler)?;
@@ -162,10 +179,23 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         controller.update(&tray_snapshot(&refresh_coordinator.snapshot()));
         app.manage(controller);
     }
-    let runtime_capabilities = match tray_controller {
-        Some(_) => RuntimeCapabilities::new(RuntimeCapabilities::tray_available()),
-        None => RuntimeCapabilities::new(RuntimeCapabilities::tray_unavailable()),
+    let tray_capability = match tray_controller {
+        Some(_) => RuntimeCapabilities::tray_available(),
+        None => RuntimeCapabilities::tray_unavailable(),
     };
+    let notification_capability = notification_port.capability();
+    let runtime_capabilities = RuntimeCapabilities::with_native_notifications(
+        tray_capability,
+        NativeNotificationCapability {
+            supported: notification_capability.supported,
+            status: if notification_capability.supported {
+                CapabilityStatus::Available
+            } else {
+                CapabilityStatus::Unavailable
+            },
+            permission: notification_capability.permission,
+        },
+    );
 
     app.manage(refresh_coordinator);
     app.manage(refresh_scheduler);
@@ -194,7 +224,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         app: app.handle().clone(),
         runtime_settings,
         launch_at_login_available: false,
-        notifications_available: false,
+        notifications: notification_port,
     });
     app.manage(SettingsService::new(
         settings_store,
@@ -208,7 +238,7 @@ struct DesktopSettingsRuntime<R: Runtime> {
     app: tauri::AppHandle<R>,
     runtime_settings: RuntimeSettings,
     launch_at_login_available: bool,
-    notifications_available: bool,
+    notifications: Arc<dyn NotificationPort>,
 }
 
 impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
@@ -219,11 +249,8 @@ impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
         {
             return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
         }
-        if proposed.notifications_enabled()
-            && !current.notifications_enabled()
-            && !self.notifications_available
-        {
-            return Err(RuntimeSettingError::NotificationsUnavailable);
+        if proposed.notifications_enabled() && !current.notifications_enabled() {
+            ensure_notification_permission(self.notifications.as_ref())?;
         }
         if proposed.store_project_paths() != current.store_project_paths() {
             return Err(RuntimeSettingError::ProjectPathRetentionRequiresPrivacyFlow);
@@ -242,6 +269,24 @@ impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
         if let Some(coordinator) = self.app.try_state::<RefreshCoordinator>() {
             coordinator.set_aggregation_timezone(settings.reporting_timezone());
         }
+    }
+}
+
+fn ensure_notification_permission(
+    notifications: &dyn NotificationPort,
+) -> Result<(), RuntimeSettingError> {
+    let capability = notifications.capability();
+    if !capability.supported {
+        return Err(RuntimeSettingError::NotificationsUnavailable);
+    }
+    let permission = match capability.permission {
+        NotificationPermission::Prompt => notifications.request_permission(),
+        permission => permission,
+    };
+    if permission == NotificationPermission::Granted {
+        Ok(())
+    } else {
+        Err(RuntimeSettingError::NotificationsUnavailable)
     }
 }
 
@@ -305,6 +350,7 @@ fn build_refresh_coordinator<R: Runtime>(
     app: &tauri::App<R>,
     database_path: &Path,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
+    notifications: Arc<dyn NotificationPort>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let resource_directory = app
         .path()
@@ -318,13 +364,14 @@ fn build_refresh_coordinator<R: Runtime>(
         .map_err(StartupError::Collector)?,
     );
 
-    compose_refresh_coordinator(database_path, collector, refresh_event_sink)
+    compose_refresh_coordinator(database_path, collector, refresh_event_sink, notifications)
 }
 
 fn compose_refresh_coordinator(
     database_path: &Path,
     collector: Arc<CcusageCollector>,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
+    notifications: Arc<dyn NotificationPort>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let (aggregation_timezone, ..) = write_database
@@ -337,9 +384,16 @@ fn compose_refresh_coordinator(
     let budget_usage_store = Arc::new(SqliteBudgetUsageStore::new(
         Database::open(database_path).map_err(StartupError::Persistence)?,
     ));
-    let budget_evaluator = Arc::new(BudgetEvaluationService::new(
-        budget_store,
-        budget_usage_store,
+    let budget_evaluator = BudgetEvaluationService::new(budget_store, budget_usage_store);
+    let budget_notifications = Arc::new(BudgetNotificationService::new(
+        budget_evaluator,
+        Arc::new(SqliteSettingsStore::new(
+            Database::open(database_path).map_err(StartupError::Persistence)?,
+        )),
+        Arc::new(SqliteBudgetNotificationStore::new(
+            Database::open(database_path).map_err(StartupError::Persistence)?,
+        )),
+        notifications,
     ));
     let clock = Arc::new(SystemClock);
 
@@ -348,7 +402,7 @@ fn compose_refresh_coordinator(
         store.clone(),
         store,
         clock,
-        RefreshCoordinatorHooks::new(refresh_event_sink, budget_evaluator),
+        RefreshCoordinatorHooks::new(refresh_event_sink, budget_notifications),
         env!("CARGO_PKG_VERSION"),
         aggregation_timezone,
     ))
@@ -426,6 +480,9 @@ mod tests {
     use crate::application::bootstrap::{
         BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
     };
+    use crate::application::ports::notification::{
+        NotificationCapability, NotificationDeliveryOutcome, NotificationMessage,
+    };
     use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
     use crate::domain::settings::{Settings, SettingsDocument};
 
@@ -436,6 +493,49 @@ mod tests {
     use super::*;
 
     struct FixedBootstrapStore;
+
+    struct TestNotificationPort;
+
+    impl NotificationPort for TestNotificationPort {
+        fn capability(&self) -> NotificationCapability {
+            NotificationCapability {
+                supported: false,
+                permission: NotificationPermission::Unknown,
+            }
+        }
+
+        fn request_permission(&self) -> NotificationPermission {
+            NotificationPermission::Unknown
+        }
+
+        fn deliver(&self, _message: &NotificationMessage) -> NotificationDeliveryOutcome {
+            NotificationDeliveryOutcome::Failed
+        }
+    }
+
+    struct PermissionNotificationPort {
+        initial: NotificationPermission,
+        requested: NotificationPermission,
+        requests: Mutex<u32>,
+    }
+
+    impl NotificationPort for PermissionNotificationPort {
+        fn capability(&self) -> NotificationCapability {
+            NotificationCapability {
+                supported: true,
+                permission: self.initial,
+            }
+        }
+
+        fn request_permission(&self) -> NotificationPermission {
+            *self.requests.lock().expect("requests lock") += 1;
+            self.requested
+        }
+
+        fn deliver(&self, _message: &NotificationMessage) -> NotificationDeliveryOutcome {
+            NotificationDeliveryOutcome::Failed
+        }
+    }
 
     impl BootstrapStore for FixedBootstrapStore {
         fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
@@ -531,6 +631,28 @@ mod tests {
             supported: false,
             status: CapabilityStatus::NotImplemented,
         })
+    }
+
+    #[test]
+    fn notification_enablement_requests_prompted_permission_and_rejects_denial() {
+        let granted = PermissionNotificationPort {
+            initial: NotificationPermission::Prompt,
+            requested: NotificationPermission::Granted,
+            requests: Mutex::new(0),
+        };
+        assert_eq!(ensure_notification_permission(&granted), Ok(()));
+        assert_eq!(*granted.requests.lock().expect("requests"), 1);
+
+        let denied = PermissionNotificationPort {
+            initial: NotificationPermission::Denied,
+            requested: NotificationPermission::Granted,
+            requests: Mutex::new(0),
+        };
+        assert_eq!(
+            ensure_notification_permission(&denied),
+            Err(RuntimeSettingError::NotificationsUnavailable)
+        );
+        assert_eq!(*denied.requests.lock().expect("requests"), 0);
     }
 
     #[test]
@@ -963,6 +1085,7 @@ mod tests {
             &database_path,
             collector,
             refresh_event_sink(app.handle().clone()),
+            Arc::new(TestNotificationPort),
         )
         .expect("coordinator");
         assert!(app.manage(coordinator));

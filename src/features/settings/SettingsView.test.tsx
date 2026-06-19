@@ -62,6 +62,21 @@ describe("SettingsView", () => {
     });
     expect(await screen.findByText("Settings saved.")).toBeInTheDocument();
   });
+
+  it("submits the native notification preference when supported", async () => {
+    const user = userEvent.setup();
+    render(<SettingsView capabilities={capabilities(true)} />, {
+      wrapper: queryWrapper(),
+    });
+
+    await user.click(await screen.findByLabelText("Native notifications"));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ notificationsEnabled: true }),
+    );
+    expect(screen.getByText("Permission: granted")).toBeInTheDocument();
+  });
 });
 
 describe("SettingsView project-path privacy", () => {
@@ -143,7 +158,7 @@ function setupMocks() {
   });
 }
 
-function capabilities(): AppCapabilitiesResponse {
+function capabilities(notificationsSupported = false): AppCapabilitiesResponse {
   const unavailable = {
     supported: false,
     status: "not_implemented" as const,
@@ -151,7 +166,9 @@ function capabilities(): AppCapabilitiesResponse {
   return {
     tray: unavailable,
     launchAtLogin: unavailable,
-    nativeNotifications: unavailable,
+    nativeNotifications: notificationsSupported
+      ? { supported: true, status: "available", permission: "granted" }
+      : { ...unavailable, permission: "unknown" },
     updates: unavailable,
     exportFormats: [],
     diagnostics: { desktopEvidence: true },

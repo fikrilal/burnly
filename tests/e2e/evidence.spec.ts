@@ -248,7 +248,10 @@ async function installTauriMock(
         data: {
           tray: { supported: true, status: "available" },
           launchAtLogin: unavailableCapability,
-          nativeNotifications: unavailableCapability,
+          nativeNotifications: {
+            ...unavailableCapability,
+            permission: "unknown",
+          },
           updates: unavailableCapability,
           exportFormats: ["csv"],
           diagnostics: { desktopEvidence: true },
@@ -540,7 +543,10 @@ function capabilitiesResponse() {
     data: {
       tray: { supported: true, status: "available" },
       launchAtLogin: unavailableCapability,
-      nativeNotifications: unavailableCapability,
+      nativeNotifications: {
+        ...unavailableCapability,
+        permission: "unknown",
+      },
       updates: unavailableCapability,
       exportFormats: ["csv"],
       diagnostics: { desktopEvidence: true },

@@ -1,9 +1,11 @@
+pub(crate) mod budget_notification_store;
 pub(crate) mod budget_store;
 pub(crate) mod budget_usage_store;
 pub(crate) mod calendar_store;
 pub(crate) mod clock;
 pub(crate) mod collector;
 pub(crate) mod day_detail_store;
+pub(crate) mod notification;
 pub(crate) mod overview_store;
 pub(crate) mod run_store;
 pub(crate) mod session_store;

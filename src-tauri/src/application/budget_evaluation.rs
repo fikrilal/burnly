@@ -157,6 +157,7 @@ pub(crate) enum BudgetCostCompleteness {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BudgetProgress {
     pub budget_id: BudgetId,
+    pub budget_name: String,
     pub period: BudgetPeriodWindow,
     pub limit: BudgetLimit,
     pub value: BudgetProgressValue,
@@ -189,9 +190,17 @@ pub(crate) struct BudgetThresholdProgress {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BudgetThresholdDecision {
     pub budget_id: BudgetId,
+    pub budget_name: String,
     pub period: BudgetPeriodWindow,
+    pub metric: BudgetMetric,
     pub threshold_basis_points: u32,
     pub observed_value: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BudgetMetric {
+    Tokens,
+    Cost,
 }
 
 fn period_bounds(
@@ -257,6 +266,7 @@ fn progress_for_budget(
 
     Ok(BudgetProgress {
         budget_id: budget.id(),
+        budget_name: budget.definition().name().to_owned(),
         period,
         limit: budget.definition().limit().clone(),
         value,
@@ -315,7 +325,12 @@ fn threshold_decisions(progress: &BudgetProgress) -> Vec<BudgetThresholdDecision
         .filter(|threshold| threshold.crossed)
         .map(|threshold| BudgetThresholdDecision {
             budget_id: progress.budget_id,
+            budget_name: progress.budget_name.clone(),
             period: progress.period.clone(),
+            metric: match &progress.limit {
+                BudgetLimit::Tokens(_) => BudgetMetric::Tokens,
+                BudgetLimit::CostMicros { .. } => BudgetMetric::Cost,
+            },
             threshold_basis_points: threshold.basis_points,
             observed_value,
         })

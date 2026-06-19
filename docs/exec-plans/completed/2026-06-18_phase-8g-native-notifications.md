@@ -50,13 +50,13 @@ and post-commit failure handling.
 
 ## Checklist
 
-- [ ] Define notification message, capability, permission, and delivery outcome.
-- [ ] Add notification port and Tauri adapter.
-- [ ] Implement durable threshold claim/status behavior.
-- [ ] Integrate settings and runtime capability checks.
-- [ ] Deliver evaluation decisions after commit.
-- [ ] Prove duplicate prevention, suppression, failure, and safe retry.
-- [ ] Add supported-platform manual runtime evidence and document limitations.
+- [x] Define notification message, capability, permission, and delivery outcome.
+- [x] Add notification port and Tauri adapter.
+- [x] Implement durable threshold claim/status behavior.
+- [x] Integrate settings and runtime capability checks.
+- [x] Deliver evaluation decisions after commit.
+- [x] Prove duplicate prevention, suppression, failure, and safe retry.
+- [x] Add supported-platform manual runtime evidence and document limitations.
 
 ## Test Plan
 
@@ -75,18 +75,42 @@ and post-commit failure handling.
 ## Decisions
 
 - Do not hold a SQLite transaction open while invoking the OS notification API.
-- Exact crash-recovery semantics between claim and delivery must be decided and
-  recorded before implementation, preserving at-most-once delivered behavior.
+- Claim a threshold identity durably before invoking the OS. The initial claim
+  uses `failed` as the conservative persisted state because the locked schema
+  has no in-flight status.
+- Existing claims are never delivered automatically, including `failed`
+  claims. A crash between claim and delivery can therefore lose one alert, but
+  cannot create a duplicate alert after restart.
+- Definite adapter failures are recorded as `failed`; a future explicit retry
+  policy requires a schema extension that distinguishes safe failures from
+  ambiguous interrupted attempts.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. Frontend tests passed, Rust tests passed with the opt-in
+  notification smoke test ignored by default, clippy and rustfmt passed, and
+  architecture, contract, migration, collector, and duplication gates passed.
+- Command: `pnpm verify:runtime`
+- Outcome: passed on Ubuntu GNOME/X11, including Tauri prerequisites, frontend
+  production build, IPC bridge tests, platform tests, scheduler tests, and 18
+  Playwright desktop evidence tests.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml platform::notifications::tests::smoke_sends_a_native_notification -- --ignored --nocapture`
+- Outcome: passed; the native adapter reported granted permission and the
+  operating-system notification API accepted the Burnly smoke notification.
 
 ## Runtime Evidence
 
-- Not run yet.
+- Tested on Linux x64, Ubuntu GNOME, X11.
+- The Rust `tauri-plugin-notification` integration was detected and a real
+  notification smoke delivery returned success.
+- macOS and Windows notification presentation and permission behavior remain
+  unverified in this environment.
 
 ## Follow-Up Debt
 
 - Notification action buttons and notification center history are not required.
+- Automatic retry of failed or interrupted notification attempts is deliberately
+  absent. Supporting it safely requires persisted attempt certainty rather than
+  reusing the current three-state schema.

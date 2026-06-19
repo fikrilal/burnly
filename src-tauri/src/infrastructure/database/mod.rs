@@ -1,5 +1,6 @@
 //! SQLite connection ownership and policy enforcement.
 
+mod budget_notification_store;
 mod budget_store;
 mod budget_usage_store;
 mod calendar_store;
@@ -17,6 +18,7 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
+pub(crate) use budget_notification_store::SqliteBudgetNotificationStore;
 pub(crate) use budget_store::SqliteBudgetStore;
 pub(crate) use budget_usage_store::SqliteBudgetUsageStore;
 pub(crate) use calendar_store::SqliteCalendarStore;

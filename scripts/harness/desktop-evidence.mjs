@@ -79,7 +79,8 @@ function hasBlockingMissingPlugin(output) {
     .some(
       (line) =>
         line.includes("not installed") &&
-        !line.includes("@tauri-apps/plugin-single-instance"),
+        !line.includes("@tauri-apps/plugin-single-instance") &&
+        !line.includes("@tauri-apps/plugin-notification"),
     );
 }
 

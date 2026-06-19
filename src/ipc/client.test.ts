@@ -450,7 +450,7 @@ function capabilities(): IpcResponse<unknown> {
     data: {
       tray: capability,
       launchAtLogin: capability,
-      nativeNotifications: capability,
+      nativeNotifications: { ...capability, permission: "unknown" },
       updates: capability,
       exportFormats: [],
       diagnostics: {
