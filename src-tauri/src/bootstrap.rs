@@ -20,6 +20,7 @@ use crate::application::budget_progress::BudgetProgressQuery;
 use crate::application::budgets::BudgetService;
 use crate::application::collection::CollectorFailure;
 use crate::application::diagnostics::{DiagnosticsService, RuntimeDiagnosticRecord};
+use crate::application::history::HistoryService;
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -34,7 +35,7 @@ use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
     SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDiagnosticsStore,
-    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
+    SqliteHistoryStore, SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -255,6 +256,12 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
             contract_version: CONTRACT_VERSION,
             collector_initialized: true,
         },
+    ));
+    app.manage(HistoryService::new(
+        Arc::new(SqliteHistoryStore::new(
+            Database::open(&database_path).map_err(StartupError::Persistence)?,
+        )),
+        Arc::new(SystemClock),
     ));
     Ok(())
 }

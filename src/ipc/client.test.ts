@@ -5,6 +5,7 @@ import {
   getAppBootstrap,
   getAppCapabilities,
   getDiagnosticsStatus,
+  getDiagnosticsHistory,
   revealDiagnosticsLogs,
   createBudget,
   deleteBudget,
@@ -103,6 +104,50 @@ describe("IPC command responses", () => {
     const result = await revealDiagnosticsLogs(invoker);
 
     expect(result.data.status).toBe("revealed");
+  });
+
+  it("validates bounded diagnostics history", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsGetHistory);
+      expect(request).toEqual({ request: { limit: 10 } });
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: {
+          items: [
+            {
+              trigger: "manual",
+              status: "succeeded",
+              summary: "1 imports; 2 accepted; 0 rejected.",
+              startedAt: "2026-06-19T01:00:00.000Z",
+              finishedAt: "2026-06-19T01:00:01.000Z",
+              importCount: 1,
+              recordsSeen: "2",
+              recordsRejected: "0",
+              failure: null,
+              imports: [
+                {
+                  source: "Claude Code",
+                  projection: "daily",
+                  scope: "full",
+                  status: "succeeded",
+                  startedAt: "2026-06-19T01:00:00.000Z",
+                  finishedAt: "2026-06-19T01:00:01.000Z",
+                  recordsSeen: "2",
+                  recordsRejected: "0",
+                  failure: null,
+                },
+              ],
+            },
+          ],
+          nextCursor: null,
+          limit: 10,
+        },
+      });
+    };
+
+    const result = await getDiagnosticsHistory({ limit: 10 }, invoker);
+    expect(result.data.items[0]?.imports[0]?.source).toBe("Claude Code");
   });
 
   it("validates refresh state from the desktop runtime", async () => {

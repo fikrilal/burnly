@@ -302,6 +302,61 @@ export interface RevealLogsResponse {
   message: string;
 }
 
+export interface HistoryRequest {
+  cursor?: string | undefined;
+  limit?: number | undefined;
+}
+
+export interface HistoryCommandRequest extends Record<string, unknown> {
+  request: HistoryRequest;
+}
+
+export type HistoryStatus =
+  | "queued"
+  | "running"
+  | "stale"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+export interface HistoryFailure {
+  category: "collector" | "reconciliation" | "persistence" | "cancelled" | "unknown";
+  retryable: boolean;
+  summary: string;
+}
+
+export interface ImportHistoryItem {
+  source: string;
+  projection: "daily" | "session";
+  scope: "full" | "incremental";
+  status: HistoryStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  recordsSeen: string;
+  recordsRejected: string;
+  failure: HistoryFailure | null;
+}
+
+export interface RefreshHistoryItem {
+  trigger: "launch" | "manual" | "scheduled" | "file_change" | "resume" | "reconcile";
+  status: HistoryStatus;
+  summary: string;
+  startedAt: string;
+  finishedAt: string | null;
+  importCount: number;
+  recordsSeen: string;
+  recordsRejected: string;
+  failure: HistoryFailure | null;
+  imports: ImportHistoryItem[];
+}
+
+export interface HistoryResponse {
+  items: RefreshHistoryItem[];
+  nextCursor: string | null;
+  limit: number;
+}
+
 export interface UpdateSettingsRequest {
   expectedRevision: number;
   reportingTimezone: string;

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getDiagnosticsStatus,
+  getDiagnosticsHistory,
   revealDiagnosticsLogs,
   type CommandResult,
 } from "../../ipc/client";
@@ -22,6 +23,10 @@ const meta = {
 describe("DiagnosticsView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getDiagnosticsHistory).mockResolvedValue({
+      data: { items: [], nextCursor: null, limit: 10 },
+      meta,
+    });
   });
 
   it("renders loading state", () => {
@@ -53,6 +58,42 @@ describe("DiagnosticsView", () => {
       screen.getByRole("button", { name: "Reveal logs" }),
     ).toBeInTheDocument();
     expect(screen.getAllByText("healthy").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("No import or refresh runs have been recorded."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders persisted history and loads an older page", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getDiagnosticsStatus).mockResolvedValue(
+      diagnosticsResult(diagnosticsStatus()),
+    );
+    vi.mocked(getDiagnosticsHistory)
+      .mockResolvedValueOnce({
+        data: { items: [historyItem("partial")], nextCursor: "8", limit: 10 },
+        meta,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          items: [historyItem("succeeded")],
+          nextCursor: null,
+          limit: 10,
+        },
+        meta,
+      });
+
+    render(<DiagnosticsView />, { wrapper: createTestQueryWrapper() });
+
+    expect(await screen.findByText(/manual refresh/i)).toBeInTheDocument();
+    expect(screen.getByText(/Collector failure/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Load older runs" }));
+    await waitFor(() => {
+      expect(getDiagnosticsHistory).toHaveBeenLastCalledWith({
+        cursor: "8",
+        limit: 10,
+      });
+    });
+    expect(screen.getAllByText(/manual refresh/i)).toHaveLength(2);
   });
 
   it("reveals logs and renders success feedback", async () => {
@@ -178,5 +219,39 @@ function diagnosticsStatus(): DiagnosticsStatusResponse {
       status: "available",
       label: "Burnly logs",
     },
+  };
+}
+
+function historyItem(status: "partial" | "succeeded") {
+  return {
+    trigger: "manual" as const,
+    status,
+    summary: "1 imports; 10 accepted; 1 rejected.",
+    startedAt: "2026-06-19T01:00:00.000Z",
+    finishedAt: "2026-06-19T01:00:01.000Z",
+    importCount: 1,
+    recordsSeen: "10",
+    recordsRejected: "1",
+    failure:
+      status === "partial"
+        ? {
+            category: "collector" as const,
+            retryable: true,
+            summary: "Collector timed out.",
+          }
+        : null,
+    imports: [
+      {
+        source: "Claude Code",
+        projection: "daily" as const,
+        scope: "full" as const,
+        status,
+        startedAt: "2026-06-19T01:00:00.000Z",
+        finishedAt: "2026-06-19T01:00:01.000Z",
+        recordsSeen: "10",
+        recordsRejected: "1",
+        failure: null,
+      },
+    ],
   };
 }

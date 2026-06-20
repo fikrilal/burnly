@@ -47,12 +47,12 @@ History surfaces error data and operational metadata that must stay redacted.
 
 ## Checklist
 
-- [ ] Define history query/request/response models.
-- [ ] Add SQLite-backed history store queries.
-- [ ] Add IPC command and frontend client validation.
-- [ ] Add History UI section.
-- [ ] Add bounded query and pagination tests.
-- [ ] Add E2E evidence states.
+- [x] Define history query/request/response models.
+- [x] Add SQLite-backed history store queries.
+- [x] Add IPC command and frontend client validation.
+- [x] Add History UI section.
+- [x] Add bounded query and pagination tests.
+- [x] Add E2E evidence states.
 
 ## Test Plan
 
@@ -68,15 +68,24 @@ History surfaces error data and operational metadata that must stay redacted.
 ## Decisions
 
 - History rows expose safe operational summaries only.
+- Cursor pagination uses descending refresh-run identity internally and exposes
+  only an opaque string cursor; pages default to 10 and are capped at 50.
+- Application policy classifies runs left active for one hour as stale and
+  owns failure categories, retryability, summaries, and diagnostic redaction.
+- Existing persisted run records are sufficient, so Phase 9C adds no migration.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. ESLint reported existing and non-blocking size/complexity
+  warnings; duplication reporting remains non-failing.
+- Command: `pnpm test:e2e`
+- Outcome: passed, 22 tests across desktop and compact projects.
 
 ## Runtime Evidence
 
-- Not required yet.
+- Browser evidence covers populated, empty, and failed history states. Native
+  desktop runtime evidence remains consolidated in Phase 9G.
 
 ## Follow-Up Debt
 

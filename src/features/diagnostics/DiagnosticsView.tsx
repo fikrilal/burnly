@@ -7,12 +7,18 @@ import type {
   DiagnosticHealthStatus,
   DiagnosticsStatusResponse,
   RevealLogsResponse,
+  RefreshHistoryItem,
 } from "../../ipc/generated/contracts";
-import { useDiagnostics, useRevealDiagnosticsLogs } from "./use-diagnostics";
+import {
+  useDiagnostics,
+  useDiagnosticsHistory,
+  useRevealDiagnosticsLogs,
+} from "./use-diagnostics";
 
 export function DiagnosticsView() {
   const query = useDiagnostics();
   const revealLogs = useRevealDiagnosticsLogs();
+  const history = useDiagnosticsHistory();
 
   if (query.isPending) {
     return <DiagnosticsShell title="Loading diagnostics" />;
@@ -82,8 +88,154 @@ export function DiagnosticsView() {
           revealLogs.mutate();
         }}
       />
+      <HistorySection query={history} />
     </section>
   );
+}
+
+function HistorySection({
+  query,
+}: {
+  query: ReturnType<typeof useDiagnosticsHistory>;
+}) {
+  const items = query.data?.pages.flatMap((page) => page.items) ?? [];
+  return (
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-zinc-500">
+            History
+          </p>
+          <h2 className="mt-2 text-lg font-semibold text-zinc-100">
+            Import and refresh runs
+          </h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            Persisted operational summaries without paths, prompts, or session
+            identifiers.
+          </p>
+        </div>
+      </div>
+      {query.isPending ? (
+        <p className="mt-4 text-sm text-zinc-400">Loading run history...</p>
+      ) : null}
+      {query.isError ? (
+        <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+          <p className="text-sm text-red-200">{errorMessage(query.error)}</p>
+          <button
+            type="button"
+            className={`${secondaryButtonClass} mt-3`}
+            onClick={() => void query.refetch()}
+          >
+            Retry history
+          </button>
+        </div>
+      ) : null}
+      {!query.isPending && !query.isError && items.length === 0 ? (
+        <p className="mt-4 rounded-lg bg-zinc-950/60 px-3 py-4 text-sm text-zinc-400">
+          No import or refresh runs have been recorded.
+        </p>
+      ) : null}
+      {items.length > 0 ? (
+        <ol className="mt-4 space-y-3">
+          {items.map((item, index) => (
+            <HistoryCard key={`${item.startedAt}-${index}`} item={item} />
+          ))}
+        </ol>
+      ) : null}
+      {query.hasNextPage ? (
+        <button
+          type="button"
+          className={`${secondaryButtonClass} mt-4`}
+          disabled={query.isFetchingNextPage}
+          onClick={() => void query.fetchNextPage()}
+        >
+          {query.isFetchingNextPage ? "Loading..." : "Load older runs"}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function HistoryCard({ item }: { item: RefreshHistoryItem }) {
+  return (
+    <li className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium capitalize text-zinc-200">
+            {triggerLabel(item.trigger)} refresh
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {formatTimestamp(item.startedAt)}
+          </p>
+        </div>
+        <HistoryStatusBadge status={item.status} />
+      </div>
+      <p className="mt-3 text-sm text-zinc-400">{item.summary}</p>
+      {item.failure ? (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          {failureLabel(item.failure.category)} · {item.failure.summary}
+          {item.failure.retryable ? " Retry is available." : ""}
+        </p>
+      ) : null}
+      {item.imports.length > 0 ? (
+        <ul className="mt-3 divide-y divide-zinc-800 border-t border-zinc-800">
+          {item.imports.map((entry, index) => (
+            <li
+              key={`${entry.source}-${entry.projection}-${index}`}
+              className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"
+            >
+              <span className="text-zinc-300">
+                {entry.source} · {entry.projection} · {entry.scope}
+              </span>
+              <span className="text-zinc-500">
+                {entry.recordsSeen} accepted · {entry.recordsRejected} rejected
+                · {entry.status}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function HistoryStatusBadge({
+  status,
+}: {
+  status: RefreshHistoryItem["status"];
+}) {
+  const className =
+    status === "succeeded"
+      ? "border-emerald-500/40 text-emerald-300"
+      : status === "running" || status === "queued"
+        ? "border-blue-500/40 text-blue-300"
+        : status === "failed" || status === "stale"
+          ? "border-red-500/40 text-red-300"
+          : "border-amber-500/40 text-amber-300";
+  return (
+    <span
+      className={`rounded-full border px-2.5 py-1 text-xs capitalize ${className}`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function triggerLabel(trigger: RefreshHistoryItem["trigger"]) {
+  return trigger.replace("_", " ");
+}
+function failureLabel(
+  category: NonNullable<RefreshHistoryItem["failure"]>["category"],
+) {
+  return category === "unknown"
+    ? "Operational failure"
+    : `${category.charAt(0).toUpperCase()}${category.slice(1)} failure`;
+}
+function formatTimestamp(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function LogRevealCard({

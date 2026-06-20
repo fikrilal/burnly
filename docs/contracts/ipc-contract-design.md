@@ -736,6 +736,13 @@ Returns redacted health information:
 
 Performs a platform action. It does not return the log file contents.
 
+#### `diagnostics_get_history`
+
+Returns a bounded, newest-first page of persisted refresh runs and their import
+summaries. The cursor is opaque to callers. Rows include safe status, trigger,
+timestamps, counts, and classified failure details; they exclude paths, prompts,
+collector payloads, job keys, storage identifiers, and session identifiers.
+
 #### `diagnostics_clear`
 
 Clears permitted diagnostic artifacts without deleting canonical usage or Burnly-owned settings.

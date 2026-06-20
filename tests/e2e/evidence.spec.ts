@@ -166,6 +166,8 @@ test.describe("Desktop Evidence: overview states", () => {
     ).toBeVisible();
     await expect(page.getByText("Database is reachable.")).toBeVisible();
     await expect(page.getByText("Sources are configured.")).toBeVisible();
+    await expect(page.getByText(/manual refresh/i)).toBeVisible();
+    await expect(page.getByText(/Collector failure/)).toBeVisible();
     await page.getByRole("button", { name: "Reveal logs" }).click();
     await expect(
       page.getByText("Logs opened in the system file manager."),
@@ -175,6 +177,23 @@ test.describe("Desktop Evidence: overview states", () => {
       path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-diagnostics.png`,
       fullPage: true,
     });
+  });
+
+  test("shows empty and failed history states", async ({ page }) => {
+    await installTauriMock(page, "empty");
+    await page.goto("/");
+    await page.getByRole("button", { name: "Diagnostics" }).click();
+    await expect(
+      page.getByText("No import or refresh runs have been recorded."),
+    ).toBeVisible();
+
+    await installTauriMock(page, "error");
+    await page.reload();
+    await page.getByRole("button", { name: "Diagnostics" }).click();
+    await expect(page.getByText("Simulated history error")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Retry history" }),
+    ).toBeVisible();
   });
 });
 
@@ -329,6 +348,60 @@ async function installTauriMock(
           status: "available",
           label: "Burnly logs",
         },
+      },
+    });
+
+    const pageHistoryResponse = () => ({
+      ok: true,
+      meta: pageMeta(),
+      data: {
+        items: [
+          {
+            trigger: "manual",
+            status: "partial",
+            summary: "2 imports; 42 accepted; 1 rejected.",
+            startedAt: "2026-06-19T01:00:00.000Z",
+            finishedAt: "2026-06-19T01:00:02.000Z",
+            importCount: 2,
+            recordsSeen: "42",
+            recordsRejected: "1",
+            failure: {
+              category: "collector",
+              retryable: true,
+              summary: "One collector timed out.",
+            },
+            imports: [
+              {
+                source: "Claude Code",
+                projection: "daily",
+                scope: "full",
+                status: "succeeded",
+                startedAt: "2026-06-19T01:00:00.000Z",
+                finishedAt: "2026-06-19T01:00:01.000Z",
+                recordsSeen: "42",
+                recordsRejected: "0",
+                failure: null,
+              },
+              {
+                source: "Codex",
+                projection: "session",
+                scope: "incremental",
+                status: "failed",
+                startedAt: "2026-06-19T01:00:01.000Z",
+                finishedAt: "2026-06-19T01:00:02.000Z",
+                recordsSeen: "0",
+                recordsRejected: "1",
+                failure: {
+                  category: "collector",
+                  retryable: true,
+                  summary: "Collector timed out.",
+                },
+              },
+            ],
+          },
+        ],
+        nextCursor: null,
+        limit: 10,
       },
     });
 
@@ -594,6 +667,30 @@ async function installTauriMock(
 
         if (command === "diagnostics_get_status") {
           return Promise.resolve(pageDiagnosticsResponse());
+        }
+
+        if (command === "diagnostics_get_history") {
+          if (overviewMode === "error") {
+            return Promise.resolve({
+              ok: false,
+              meta: pageMeta(),
+              error: {
+                code: "diagnostics.history_unavailable",
+                message: "Simulated history error",
+                category: "persistence",
+                retryable: true,
+                details: null,
+              },
+            });
+          }
+          if (overviewMode === "empty") {
+            return Promise.resolve({
+              ok: true,
+              meta: pageMeta(),
+              data: { items: [], nextCursor: null, limit: 10 },
+            });
+          }
+          return Promise.resolve(pageHistoryResponse());
         }
 
         if (command === "diagnostics_reveal_logs") {

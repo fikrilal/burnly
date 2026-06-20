@@ -8,6 +8,7 @@ import {
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
   invokeDiagnosticsGetStatus,
+  invokeDiagnosticsGetHistory,
   invokeDiagnosticsRevealLogs,
   invokeSettingsGet,
   invokeSettingsUpdate,
@@ -35,6 +36,8 @@ import {
   type CommandRequests,
   type ContractProbeResponse,
   type DiagnosticsStatusResponse,
+  type HistoryRequest,
+  type HistoryResponse,
   type FieldError,
   type IpcError,
   type IpcResponse,
@@ -204,6 +207,76 @@ const diagnosticsStatusDataSchema: z.ZodType<DiagnosticsStatusResponse> =
 const revealLogsDataSchema: z.ZodType<RevealLogsResponse> = z.object({
   status: z.enum(["revealed", "missing", "unsupported"]),
   message: z.string().min(1),
+});
+
+const historyRequestSchema: z.ZodType<HistoryRequest> = z.object({
+  cursor: z
+    .string()
+    .regex(/^[1-9][0-9]*$/)
+    .optional(),
+  limit: z.number().int().min(1).max(50).optional(),
+});
+
+const historyStatusSchema = z.enum([
+  "queued",
+  "running",
+  "stale",
+  "succeeded",
+  "partial",
+  "failed",
+  "cancelled",
+]);
+
+const historyFailureSchema = z.object({
+  category: z.enum([
+    "collector",
+    "reconciliation",
+    "persistence",
+    "cancelled",
+    "unknown",
+  ]),
+  retryable: z.boolean(),
+  summary: z.string().min(1),
+});
+
+const historyCountSchema = z.string().regex(/^(0|[1-9][0-9]*)$/);
+
+const historyItemBaseSchema = z.object({
+  status: historyStatusSchema,
+  startedAt: z.iso.datetime({ offset: true }),
+  finishedAt: z.iso.datetime({ offset: true }).nullable(),
+  recordsSeen: historyCountSchema,
+  recordsRejected: historyCountSchema,
+  failure: historyFailureSchema.nullable(),
+});
+
+const historyDataSchema: z.ZodType<HistoryResponse> = z.object({
+  items: z.array(
+    historyItemBaseSchema.extend({
+      trigger: z.enum([
+        "launch",
+        "manual",
+        "scheduled",
+        "file_change",
+        "resume",
+        "reconcile",
+      ]),
+      summary: z.string().min(1),
+      importCount: z.number().int().nonnegative(),
+      imports: z.array(
+        historyItemBaseSchema.extend({
+          source: z.string().min(1),
+          projection: z.enum(["daily", "session"]),
+          scope: z.enum(["full", "incremental"]),
+        }),
+      ),
+    }),
+  ),
+  nextCursor: z
+    .string()
+    .regex(/^[1-9][0-9]*$/)
+    .nullable(),
+  limit: z.number().int().min(1).max(50),
 });
 
 const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
@@ -543,6 +616,17 @@ export async function getDiagnosticsStatus(
   return unwrapResponse(
     validateResponse(response, diagnosticsStatusDataSchema),
   );
+}
+
+export async function getDiagnosticsHistory(
+  request: HistoryRequest = {},
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<HistoryResponse>> {
+  const parsedRequest = historyRequestSchema.parse(request);
+  const response = await invokeDiagnosticsGetHistory(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, historyDataSchema));
 }
 
 export async function revealDiagnosticsLogs(

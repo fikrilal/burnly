@@ -34,6 +34,12 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "DiagnosticsStatusResponse",
     },
     CommandSpec {
+        name: "diagnostics_get_history",
+        export_name: "invokeDiagnosticsGetHistory",
+        request_type: "HistoryCommandRequest",
+        response_type: "HistoryResponse",
+    },
+    CommandSpec {
         name: "diagnostics_reveal_logs",
         export_name: "invokeDiagnosticsRevealLogs",
         request_type: "Record<string, never>",
