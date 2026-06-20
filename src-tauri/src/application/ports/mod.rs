@@ -8,6 +8,7 @@ pub(crate) mod day_detail_store;
 pub(crate) mod diagnostics_store;
 pub(crate) mod export_store;
 pub(crate) mod export_writer;
+pub(crate) mod history_deletion_store;
 pub(crate) mod history_store;
 pub(crate) mod log_reveal;
 pub(crate) mod notification;

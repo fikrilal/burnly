@@ -15,6 +15,7 @@ import {
   useRevealDiagnosticsLogs,
 } from "./use-diagnostics";
 import { ExportCard } from "./ExportCard";
+import { DeleteHistoryCard } from "./DeleteHistoryCard";
 
 export function DiagnosticsView() {
   const query = useDiagnostics();
@@ -91,6 +92,7 @@ export function DiagnosticsView() {
       />
       <HistorySection query={history} />
       <ExportCard errorMessage={errorMessage} />
+      <DeleteHistoryCard errorMessage={errorMessage} />
     </section>
   );
 }

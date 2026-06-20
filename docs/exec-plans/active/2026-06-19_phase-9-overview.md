@@ -34,7 +34,7 @@ history, and changes database maintenance/recovery behavior.
 | Phase 9B: Logs and reveal action              | Done   | Phase 9A     | [Plan](../completed/2026-06-19_phase-9b-logs-reveal-action.md)                |
 | Phase 9C: Import and refresh history          | Done   | Phase 9A     | [Plan](../completed/2026-06-19_phase-9c-import-refresh-history.md)            |
 | Phase 9D: Export preview and export           | Done   | Phases 9A-9C | [Plan](../completed/2026-06-19_phase-9d-export-preview-export.md)             |
-| Phase 9E: Delete-history preview and deletion | Queued | Phases 9A-9C | [Plan](../queued/2026-06-19_phase-9e-delete-history-preview-deletion.md)      |
+| Phase 9E: Delete-history preview and deletion | Done   | Phases 9A-9C | [Plan](../completed/2026-06-19_phase-9e-delete-history-preview-deletion.md)   |
 | Phase 9F: Database maintenance and recovery   | Queued | Phase 9A     | [Plan](../queued/2026-06-19_phase-9f-database-maintenance-recovery.md)        |
 | Phase 9G: Phase exit evidence                 | Queued | Phases 9A-9F | [Plan](../queued/2026-06-19_phase-9g-diagnostics-export-recovery-evidence.md) |
 
@@ -92,7 +92,7 @@ history, and changes database maintenance/recovery behavior.
 - [x] Phase 9B completed and verified.
 - [x] Phase 9C completed and verified.
 - [x] Phase 9D completed and verified.
-- [ ] Phase 9E completed and verified.
+- [x] Phase 9E completed and verified.
 - [ ] Phase 9F completed and verified.
 - [ ] Phase 9G completed and phase exit criteria verified.
 
@@ -109,6 +109,9 @@ history, and changes database maintenance/recovery behavior.
 - Phase 9D added preview-bound CSV export for approved canonical usage datasets,
   with explicit field selection, row limits, native destination selection,
   cancellation/write failures, and no filesystem paths crossing into React.
+- Phase 9E added a global imported-history reset with exact confirmation,
+  preview/snapshot conflict protection, active-refresh blocking, transactional
+  rollback, preserved configuration, and read-model invalidation.
 - Export and delete operations require previews before side effects.
 - Raw diagnostic payload policy remains unimplemented until explicitly approved.
 - Recovery and maintenance behavior remains Rust-owned; React only invokes
@@ -117,7 +120,7 @@ history, and changes database maintenance/recovery behavior.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: passed for Phase 9D. Lint reported warnings only; no errors.
+- Outcome: passed for Phase 9E. Lint reported warnings only; no errors.
 
 ## Runtime Evidence
 

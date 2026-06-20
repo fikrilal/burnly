@@ -58,6 +58,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "ExportResponse",
     },
     CommandSpec {
+        name: "history_get_delete_preview",
+        export_name: "invokeHistoryGetDeletePreview",
+        request_type: "Record<string, never>",
+        response_type: "DeleteHistoryPreviewResponse",
+    },
+    CommandSpec {
+        name: "history_delete",
+        export_name: "invokeHistoryDelete",
+        request_type: "DeleteHistoryCommandRequest",
+        response_type: "DeleteHistoryResponse",
+    },
+    CommandSpec {
         name: "settings_get",
         export_name: "invokeSettingsGet",
         request_type: "Record<string, never>",

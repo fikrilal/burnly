@@ -396,6 +396,46 @@ export interface ExportResponse {
   message: string;
 }
 
+export interface DeleteHistoryCounts {
+  dailyUsage: string;
+  dailyModelUsage: string;
+  sessions: string;
+  sessionModelUsage: string;
+  refreshRuns: string;
+  importRuns: string;
+  projects: string;
+  sourceModels: string;
+  notificationRecords: string;
+}
+
+export interface DeleteHistoryPreviewResponse {
+  scope: string;
+  earliestDate: string | null;
+  latestDate: string | null;
+  sourceCount: string;
+  counts: DeleteHistoryCounts;
+  totalRecords: string;
+  preserved: string[];
+  previewToken: string;
+  canDelete: boolean;
+  activeRefresh: boolean;
+  confirmationText: string;
+}
+
+export interface DeleteHistoryRequest {
+  previewToken: string;
+  confirmation: string;
+}
+
+export interface DeleteHistoryCommandRequest extends Record<string, unknown> {
+  request: DeleteHistoryRequest;
+}
+
+export interface DeleteHistoryResponse {
+  deletedRecords: string;
+  message: string;
+}
+
 export interface UpdateSettingsRequest {
   expectedRevision: number;
   reportingTimezone: string;

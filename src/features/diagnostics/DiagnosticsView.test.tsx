@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   exportHistory,
+  deleteHistory,
+  getDeleteHistoryPreview,
   getExportPreview,
   getDiagnosticsStatus,
   getDiagnosticsHistory,
@@ -174,6 +176,60 @@ describe("DiagnosticsView", () => {
     );
   });
 
+  it("requires preview and exact confirmation before deleting history", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getDiagnosticsStatus).mockResolvedValue(
+      diagnosticsResult(diagnosticsStatus()),
+    );
+    vi.mocked(getDeleteHistoryPreview).mockResolvedValue({
+      data: deletionPreview(),
+      meta,
+    });
+    vi.mocked(deleteHistory).mockResolvedValue({
+      data: { deletedRecords: "9", message: "Local imported history deleted." },
+      meta,
+    });
+
+    render(<DiagnosticsView />, { wrapper: createTestQueryWrapper() });
+    await user.click(
+      await screen.findByRole("button", { name: "Preview deletion" }),
+    );
+    expect(
+      await screen.findByText("9 records across 1 sources"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Budget definitions and thresholds"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete history" }));
+    const confirmButton = screen.getByRole("button", {
+      name: "Delete all history",
+    });
+    expect(confirmButton).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.queryByText("Delete all imported history?"),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete history" }));
+    await user.type(
+      screen.getByLabelText("Delete history confirmation"),
+      "DELETE ALL HISTORY",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete all history" }),
+    );
+    expect(deleteHistory).toHaveBeenCalledWith(
+      "b".repeat(64),
+      "DELETE ALL HISTORY",
+    );
+    expect(
+      await screen.findByText(
+        /Local imported history deleted. 9 records removed./,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("disables reveal when logs are missing", async () => {
     vi.mocked(getDiagnosticsStatus).mockResolvedValue(
       diagnosticsResult({
@@ -306,5 +362,36 @@ function historyItem(status: "partial" | "succeeded") {
         failure: null,
       },
     ],
+  };
+}
+
+function deletionPreview() {
+  return {
+    scope: "All imported history, all dates, and all sources.",
+    earliestDate: "2026-06-01",
+    latestDate: "2026-06-19",
+    sourceCount: "1",
+    counts: {
+      dailyUsage: "2",
+      dailyModelUsage: "1",
+      sessions: "2",
+      sessionModelUsage: "1",
+      refreshRuns: "1",
+      importRuns: "1",
+      projects: "1",
+      sourceModels: "0",
+      notificationRecords: "0",
+    },
+    totalRecords: "9",
+    preserved: [
+      "Sources and source enablement",
+      "Settings and notification preferences",
+      "Budget definitions and thresholds",
+      "Application configuration",
+    ],
+    previewToken: "b".repeat(64),
+    canDelete: true,
+    activeRefresh: false,
+    confirmationText: "DELETE ALL HISTORY",
   };
 }

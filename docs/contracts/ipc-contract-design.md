@@ -715,10 +715,19 @@ presented to `history_export`; changed counts require a new preview.
 #### `history_get_delete_preview`
 
 Returns exact counts and categories that would be deleted for the requested scope.
+The first release scope is all imported history across all dates and sources.
+The response also reports the observed date span, source count, preserved state,
+active-refresh blocking, required confirmation text, and a preview token.
 
 #### `history_delete`
 
 Request:
+
+- Current preview token
+- Exact confirmation text `DELETE ALL HISTORY`
+
+The command rechecks the snapshot inside the deletion transaction and emits a
+`history_deleted` data-invalidation scope only after commit.
 
 - Delete scope
 - Preview token

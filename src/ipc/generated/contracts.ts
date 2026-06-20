@@ -234,6 +234,46 @@ export interface ExportResponse {
   message: string;
 }
 
+export interface DeleteHistoryCounts {
+  dailyUsage: string;
+  dailyModelUsage: string;
+  sessions: string;
+  sessionModelUsage: string;
+  refreshRuns: string;
+  importRuns: string;
+  projects: string;
+  sourceModels: string;
+  notificationRecords: string;
+}
+
+export interface DeleteHistoryPreviewResponse {
+  scope: string;
+  earliestDate: string | null;
+  latestDate: string | null;
+  sourceCount: string;
+  counts: DeleteHistoryCounts;
+  totalRecords: string;
+  preserved: string[];
+  previewToken: string;
+  canDelete: boolean;
+  activeRefresh: boolean;
+  confirmationText: string;
+}
+
+export interface DeleteHistoryRequest {
+  previewToken: string;
+  confirmation: string;
+}
+
+export interface DeleteHistoryCommandRequest extends Record<string, unknown> {
+  request: DeleteHistoryRequest;
+}
+
+export interface DeleteHistoryResponse {
+  deletedRecords: string;
+  message: string;
+}
+
 export interface UpdateSettingsRequest {
   expectedRevision: number;
   reportingTimezone: string;
@@ -562,6 +602,8 @@ export const COMMAND_NAMES = {
   diagnosticsRevealLogs: "diagnostics_reveal_logs",
   historyGetExportPreview: "history_get_export_preview",
   historyExport: "history_export",
+  historyGetDeletePreview: "history_get_delete_preview",
+  historyDelete: "history_delete",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
   settingsUpdateProjectPathRetention: "settings_update_project_path_retention",
@@ -594,6 +636,8 @@ export interface CommandRequests {
   [COMMAND_NAMES.diagnosticsRevealLogs]: Record<string, never>;
   [COMMAND_NAMES.historyGetExportPreview]: ExportPreviewCommandRequest;
   [COMMAND_NAMES.historyExport]: ConfirmedExportCommandRequest;
+  [COMMAND_NAMES.historyGetDeletePreview]: Record<string, never>;
+  [COMMAND_NAMES.historyDelete]: DeleteHistoryCommandRequest;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: UpdateProjectPathRetentionCommandRequest;
@@ -624,6 +668,8 @@ export interface CommandResponses {
   [COMMAND_NAMES.diagnosticsRevealLogs]: IpcResponse<RevealLogsResponse>;
   [COMMAND_NAMES.historyGetExportPreview]: IpcResponse<ExportPreviewResponse>;
   [COMMAND_NAMES.historyExport]: IpcResponse<ExportResponse>;
+  [COMMAND_NAMES.historyGetDeletePreview]: IpcResponse<DeleteHistoryPreviewResponse>;
+  [COMMAND_NAMES.historyDelete]: IpcResponse<DeleteHistoryResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: IpcResponse<ProjectPathRetentionResponse>;
@@ -697,6 +743,19 @@ export function invokeHistoryExport(
   request: ConfirmedExportCommandRequest,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.historyExport, request);
+}
+
+export function invokeHistoryGetDeletePreview(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.historyGetDeletePreview, {});
+}
+
+export function invokeHistoryDelete(
+  invoke: CommandInvoker,
+  request: DeleteHistoryCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.historyDelete, request);
 }
 
 export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {

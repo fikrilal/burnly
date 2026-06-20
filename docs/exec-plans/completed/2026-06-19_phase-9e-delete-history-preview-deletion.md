@@ -51,13 +51,13 @@ This is destructive user-owned data mutation.
 
 ## Checklist
 
-- [ ] Define deletion scope and preview model.
-- [ ] Add transactional deletion service.
-- [ ] Add invalidation events for affected read models.
-- [ ] Add IPC contracts and frontend validation.
-- [ ] Add delete-history UI with explicit confirmation.
-- [ ] Add tests for preservation, rollback, and stale preview.
-- [ ] Add runtime evidence for preview/cancel/delete states.
+- [x] Define deletion scope and preview model.
+- [x] Add transactional deletion service.
+- [x] Add invalidation events for affected read models.
+- [x] Add IPC contracts and frontend validation.
+- [x] Add delete-history UI with explicit confirmation.
+- [x] Add tests for preservation, rollback, and stale preview.
+- [x] Add runtime evidence for preview/cancel/delete states.
 
 ## Test Plan
 
@@ -75,15 +75,31 @@ This is destructive user-owned data mutation.
 ## Decisions
 
 - Delete history does not delete settings or budget definitions by default.
+- Phase 9E deletes all imported history across all dates and sources. Partial
+  date/source deletion is deferred because shared import provenance cannot
+  guarantee corresponding run-history removal without deleting out-of-scope
+  records.
+- The preview reports the observed date span, source count, detailed table
+  counts, preserved state, active-refresh status, and an exact confirmation
+  phrase.
+- Deletion requires `DELETE ALL HISTORY`, a current preview token, no active
+  refresh, and an unchanged snapshot inside an `IMMEDIATE` transaction.
+- Imported usage, model breakdowns, sessions, runs/imports, imported project and
+  model metadata, and derived notification delivery state are deleted. Sources,
+  settings/preferences, budgets/thresholds, and app configuration are preserved.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. ESLint reported warning-only size/complexity findings and
+  duplication reporting remained non-failing.
+- Command: `pnpm test:e2e`
+- Outcome: passed, 24 tests across desktop and compact projects.
 
 ## Runtime Evidence
 
-- Required before completion.
+- Disposable browser evidence covers preview, cancellation, exact confirmation,
+  successful deletion, and authoritative history/overview invalidation.
 
 ## Follow-Up Debt
 

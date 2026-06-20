@@ -8,6 +8,8 @@ import {
   getDiagnosticsHistory,
   getExportPreview,
   exportHistory,
+  deleteHistory,
+  getDeleteHistoryPreview,
   revealDiagnosticsLogs,
   createBudget,
   deleteBudget,
@@ -192,6 +194,66 @@ describe("IPC command responses", () => {
     };
     const result = await exportHistory(request, "a".repeat(64), exportInvoker);
     expect(result.data.status).toBe("exported");
+  });
+
+  it("previews and confirms destructive history deletion through separate commands", async () => {
+    const previewInvoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.historyGetDeletePreview);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: {
+          scope: "All imported history.",
+          earliestDate: "2026-06-01",
+          latestDate: "2026-06-19",
+          sourceCount: "1",
+          totalRecords: "4",
+          preserved: ["Settings"],
+          previewToken: "b".repeat(64),
+          canDelete: true,
+          activeRefresh: false,
+          confirmationText: "DELETE ALL HISTORY",
+          counts: {
+            dailyUsage: "1",
+            dailyModelUsage: "0",
+            sessions: "1",
+            sessionModelUsage: "0",
+            refreshRuns: "1",
+            importRuns: "1",
+            projects: "0",
+            sourceModels: "0",
+            notificationRecords: "0",
+          },
+        },
+      });
+    };
+    const preview = await getDeleteHistoryPreview(previewInvoker);
+    expect(preview.data.totalRecords).toBe("4");
+
+    const deleteInvoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.historyDelete);
+      expect(request).toEqual({
+        request: {
+          previewToken: "b".repeat(64),
+          confirmation: "DELETE ALL HISTORY",
+        },
+      });
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: {
+          deletedRecords: "4",
+          message: "Local imported history deleted.",
+        },
+      });
+    };
+    const result = await deleteHistory(
+      "b".repeat(64),
+      "DELETE ALL HISTORY",
+      deleteInvoker,
+    );
+    expect(result.data.deletedRecords).toBe("4");
   });
 
   it("validates refresh state from the desktop runtime", async () => {

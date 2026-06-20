@@ -199,6 +199,35 @@ test.describe("Desktop Evidence: overview states", () => {
       page.getByRole("button", { name: "Retry history" }),
     ).toBeVisible();
   });
+
+  test("previews, cancels, confirms, and invalidates deleted history", async ({
+    page,
+  }) => {
+    await installTauriMock(page, "populated");
+    await page.goto("/");
+    await page.getByRole("button", { name: "Diagnostics" }).click();
+    await page.getByRole("button", { name: "Preview deletion" }).click();
+    await expect(page.getByText("9 records across 1 sources")).toBeVisible();
+    await page.getByRole("button", { name: "Delete history" }).click();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(
+      page.getByText("Delete all imported history?"),
+    ).not.toBeVisible();
+
+    await page.getByRole("button", { name: "Delete history" }).click();
+    await page
+      .getByLabel("Delete history confirmation")
+      .fill("DELETE ALL HISTORY");
+    await page.getByRole("button", { name: "Delete all history" }).click();
+    await expect(
+      page.getByText(/Local imported history deleted/),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No import or refresh runs have been recorded."),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Overview" }).click();
+    await expect(page.getByText("No data collected")).toBeVisible();
+  });
 });
 
 async function installTauriMock(
@@ -728,6 +757,55 @@ async function installTauriMock(
               previewToken:
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
               canExport: true,
+            },
+          });
+        }
+
+        if (command === "history_get_delete_preview") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              scope: "All imported history, all dates, and all sources.",
+              earliestDate: "2026-06-01",
+              latestDate: "2026-06-19",
+              sourceCount: "1",
+              counts: {
+                dailyUsage: "2",
+                dailyModelUsage: "1",
+                sessions: "2",
+                sessionModelUsage: "1",
+                refreshRuns: "1",
+                importRuns: "1",
+                projects: "1",
+                sourceModels: "0",
+                notificationRecords: "0",
+              },
+              totalRecords: "9",
+              preserved: [
+                "Sources and source enablement",
+                "Settings and notification preferences",
+                "Budget definitions and thresholds",
+                "Application configuration",
+              ],
+              previewToken:
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              canDelete: true,
+              activeRefresh: false,
+              confirmationText: "DELETE ALL HISTORY",
+            },
+          });
+        }
+
+        if (command === "history_delete") {
+          overviewMode = "empty";
+          emit("burnly://v1/data-invalidated", { scope: "history_deleted" });
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              deletedRecords: "9",
+              message: "Local imported history deleted.",
             },
           });
         }

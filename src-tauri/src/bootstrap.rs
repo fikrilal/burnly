@@ -22,6 +22,7 @@ use crate::application::collection::CollectorFailure;
 use crate::application::diagnostics::{DiagnosticsService, RuntimeDiagnosticRecord};
 use crate::application::export::ExportService;
 use crate::application::history::HistoryService;
+use crate::application::history_deletion::HistoryDeletionService;
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -36,8 +37,8 @@ use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
     SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDiagnosticsStore,
-    SqliteExportStore, SqliteHistoryStore, SqliteOverviewStore, SqliteReconciliationStore,
-    SqliteSessionStore,
+    SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore, SqliteOverviewStore,
+    SqliteReconciliationStore, SqliteSessionStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -273,6 +274,11 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         )),
         Arc::new(DesktopExportWriter::new(app.handle().clone())),
     ));
+    app.manage(HistoryDeletionService::new(Arc::new(
+        SqliteHistoryDeletionStore::new(
+            Database::open(&database_path).map_err(StartupError::Persistence)?,
+        ),
+    )));
     Ok(())
 }
 

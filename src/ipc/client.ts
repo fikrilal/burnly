@@ -12,6 +12,8 @@ import {
   invokeDiagnosticsRevealLogs,
   invokeHistoryExport,
   invokeHistoryGetExportPreview,
+  invokeHistoryGetDeletePreview,
+  invokeHistoryDelete,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeSettingsUpdateProjectPathRetention,
@@ -43,6 +45,8 @@ import {
   type ExportPreviewRequest,
   type ExportPreviewResponse,
   type ExportResponse,
+  type DeleteHistoryPreviewResponse,
+  type DeleteHistoryResponse,
   type FieldError,
   type IpcError,
   type IpcResponse,
@@ -310,6 +314,38 @@ const exportPreviewDataSchema: z.ZodType<ExportPreviewResponse> = z.object({
 const exportDataSchema: z.ZodType<ExportResponse> = z.object({
   status: z.enum(["exported", "cancelled"]),
   rows: historyCountSchema,
+  message: z.string().min(1),
+});
+
+const deletionCountsSchema = z.object({
+  dailyUsage: historyCountSchema,
+  dailyModelUsage: historyCountSchema,
+  sessions: historyCountSchema,
+  sessionModelUsage: historyCountSchema,
+  refreshRuns: historyCountSchema,
+  importRuns: historyCountSchema,
+  projects: historyCountSchema,
+  sourceModels: historyCountSchema,
+  notificationRecords: historyCountSchema,
+});
+
+const deleteHistoryPreviewDataSchema: z.ZodType<DeleteHistoryPreviewResponse> =
+  z.object({
+    scope: z.string().min(1),
+    earliestDate: z.iso.date().nullable(),
+    latestDate: z.iso.date().nullable(),
+    sourceCount: historyCountSchema,
+    counts: deletionCountsSchema,
+    totalRecords: historyCountSchema,
+    preserved: z.array(z.string().min(1)),
+    previewToken: z.string().regex(/^[a-f0-9]{64}$/),
+    canDelete: z.boolean(),
+    activeRefresh: z.boolean(),
+    confirmationText: z.string().min(1),
+  });
+
+const deleteHistoryDataSchema: z.ZodType<DeleteHistoryResponse> = z.object({
+  deletedRecords: historyCountSchema,
   message: z.string().min(1),
 });
 
@@ -691,6 +727,26 @@ export async function exportHistory(
     request: { request: parsedRequest, previewToken },
   });
   return unwrapResponse(validateResponse(response, exportDataSchema));
+}
+
+export async function getDeleteHistoryPreview(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DeleteHistoryPreviewResponse>> {
+  const response = await invokeHistoryGetDeletePreview(invoker);
+  return unwrapResponse(
+    validateResponse(response, deleteHistoryPreviewDataSchema),
+  );
+}
+
+export async function deleteHistory(
+  previewToken: string,
+  confirmation: string,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DeleteHistoryResponse>> {
+  const response = await invokeHistoryDelete(invoker, {
+    request: { previewToken, confirmation },
+  });
+  return unwrapResponse(validateResponse(response, deleteHistoryDataSchema));
 }
 
 export async function getSettings(
