@@ -20,7 +20,24 @@
       }
     ],
     "security": {
-      "csp": null
+      "capabilities": ["main-window"],
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost",
+        "font-src": "'self'",
+        "img-src": "'self' data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "script-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "frame-src": "'none'"
+      },
+      "assetProtocol": {
+        "enable": false,
+        "scope": []
+      },
+      "dangerousDisableAssetCspModification": false,
+      "freezePrototype": true
     }
   },
   "bundle": {
