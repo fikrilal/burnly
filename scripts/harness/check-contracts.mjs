@@ -357,6 +357,45 @@ export interface HistoryResponse {
   limit: number;
 }
 
+export type ExportDataset = "daily_usage" | "sessions";
+
+export interface ExportPreviewRequest {
+  startDate: string;
+  endDate: string;
+  datasets: ExportDataset[];
+}
+
+export interface ExportPreviewCommandRequest extends Record<string, unknown> {
+  request: ExportPreviewRequest;
+}
+
+export interface ConfirmedExportRequest {
+  request: ExportPreviewRequest;
+  previewToken: string;
+}
+
+export interface ConfirmedExportCommandRequest extends Record<string, unknown> {
+  request: ConfirmedExportRequest;
+}
+
+export interface ExportPreviewResponse {
+  startDate: string;
+  endDate: string;
+  format: "csv";
+  datasets: { dataset: ExportDataset; rows: string }[];
+  totalRows: string;
+  estimatedBytes: string;
+  privacyNotes: string[];
+  previewToken: string;
+  canExport: boolean;
+}
+
+export interface ExportResponse {
+  status: "exported" | "cancelled";
+  rows: string;
+  message: string;
+}
+
 export interface UpdateSettingsRequest {
   expectedRevision: number;
   reportingTimezone: string;

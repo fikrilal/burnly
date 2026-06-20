@@ -46,6 +46,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "RevealLogsResponse",
     },
     CommandSpec {
+        name: "history_get_export_preview",
+        export_name: "invokeHistoryGetExportPreview",
+        request_type: "ExportPreviewCommandRequest",
+        response_type: "ExportPreviewResponse",
+    },
+    CommandSpec {
+        name: "history_export",
+        export_name: "invokeHistoryExport",
+        request_type: "ConfirmedExportCommandRequest",
+        response_type: "ExportResponse",
+    },
+    CommandSpec {
         name: "settings_get",
         export_name: "invokeSettingsGet",
         request_type: "Record<string, never>",

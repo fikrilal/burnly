@@ -258,7 +258,9 @@ fn notification_permission_label(value: NotificationPermission) -> &'static str 
 }
 
 fn export_format_label(value: ExportFormat) -> String {
-    match value {}
+    match value {
+        ExportFormat::Csv => "csv".to_owned(),
+    }
 }
 
 fn bootstrap_error(error: BootstrapError) -> IpcError {

@@ -47,13 +47,13 @@ Exports can leak local data if field selection/redaction is wrong.
 
 ## Checklist
 
-- [ ] Define approved export datasets and fields.
-- [ ] Add export preview use case.
-- [ ] Add export command and writer boundary.
-- [ ] Add IPC contracts and frontend validation.
-- [ ] Add Export UI flow.
-- [ ] Add tests for redaction, cancellation, and write failure.
-- [ ] Add runtime evidence for preview/export states where stable.
+- [x] Define approved export datasets and fields.
+- [x] Add export preview use case.
+- [x] Add export command and writer boundary.
+- [x] Add IPC contracts and frontend validation.
+- [x] Add Export UI flow.
+- [x] Add tests for redaction, cancellation, and write failure.
+- [x] Add runtime evidence for preview/export states where stable.
 
 ## Test Plan
 
@@ -71,15 +71,29 @@ Exports can leak local data if field selection/redaction is wrong.
 
 - CSV is the default export target unless product requirements require another
   format before implementation starts.
+- Approved datasets are canonical daily usage and sessions. CSV fields are
+  explicitly selected and exclude project identity/path data, prompts,
+  collector payloads, credentials, and session identifiers.
+- Preview tokens bind date range, selected datasets, and current row counts.
+  Export rejects stale tokens or count changes before writing.
+- Exports are capped at 100,000 rows. Session date filtering uses UTC activity
+  dates and is disclosed in the preview.
+- The native save dialog and file write run behind an application port on a
+  blocking worker; React never receives or submits a filesystem path.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. ESLint reported warning-only size/complexity findings and
+  duplication reporting remained non-failing.
+- Command: `pnpm test:e2e`
+- Outcome: passed, 22 tests across desktop and compact projects.
 
 ## Runtime Evidence
 
-- Required if the platform file-write flow can be exercised safely.
+- Browser evidence covers preview and successful export outcomes. Native save
+  dialog cancellation and write failure are covered through the writer port;
+  consolidated native desktop evidence remains Phase 9G.
 
 ## Follow-Up Debt
 

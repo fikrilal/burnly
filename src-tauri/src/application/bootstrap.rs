@@ -92,7 +92,9 @@ pub(crate) enum CapabilityStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExportFormat {}
+pub(crate) enum ExportFormat {
+    Csv,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DiagnosticCapabilities {
@@ -227,7 +229,7 @@ impl BootstrapService {
             launch_at_login: unavailable.clone(),
             native_notifications: self.runtime_capabilities.native_notifications(),
             updates: unavailable,
-            export_formats: Vec::new(),
+            export_formats: vec![ExportFormat::Csv],
             diagnostics: DiagnosticCapabilities {
                 desktop_evidence: true,
             },
@@ -406,7 +408,7 @@ mod tests {
 
         assert!(capabilities.tray.supported);
         assert_eq!(capabilities.tray.status, CapabilityStatus::Available);
-        assert!(capabilities.export_formats.is_empty());
+        assert_eq!(capabilities.export_formats, vec![ExportFormat::Csv]);
         assert!(capabilities.diagnostics.desktop_evidence);
     }
 }

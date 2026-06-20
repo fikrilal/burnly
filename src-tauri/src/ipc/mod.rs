@@ -7,6 +7,7 @@ mod budgets;
 mod commands;
 mod contract;
 mod diagnostics;
+mod export;
 #[cfg_attr(
     not(test),
     expect(
@@ -29,6 +30,8 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         diagnostics::diagnostics_get_status,
         diagnostics::diagnostics_get_history,
         diagnostics::diagnostics_reveal_logs,
+        export::history_get_export_preview,
+        export::history_export,
         settings::settings_get,
         settings::settings_update,
         settings::settings_update_project_path_retention,

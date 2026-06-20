@@ -33,6 +33,7 @@ sha2 = "=0.10.9"
 tempfile = "=3.27.0"
 tauri-plugin-single-instance = "=2.4.2"
 tauri-plugin-notification = "=2.3.3"
+tauri-plugin-dialog = "=2.3.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.186"

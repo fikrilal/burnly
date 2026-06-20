@@ -195,6 +195,45 @@ export interface HistoryResponse {
   limit: number;
 }
 
+export type ExportDataset = "daily_usage" | "sessions";
+
+export interface ExportPreviewRequest {
+  startDate: string;
+  endDate: string;
+  datasets: ExportDataset[];
+}
+
+export interface ExportPreviewCommandRequest extends Record<string, unknown> {
+  request: ExportPreviewRequest;
+}
+
+export interface ConfirmedExportRequest {
+  request: ExportPreviewRequest;
+  previewToken: string;
+}
+
+export interface ConfirmedExportCommandRequest extends Record<string, unknown> {
+  request: ConfirmedExportRequest;
+}
+
+export interface ExportPreviewResponse {
+  startDate: string;
+  endDate: string;
+  format: "csv";
+  datasets: { dataset: ExportDataset; rows: string }[];
+  totalRows: string;
+  estimatedBytes: string;
+  privacyNotes: string[];
+  previewToken: string;
+  canExport: boolean;
+}
+
+export interface ExportResponse {
+  status: "exported" | "cancelled";
+  rows: string;
+  message: string;
+}
+
 export interface UpdateSettingsRequest {
   expectedRevision: number;
   reportingTimezone: string;
@@ -521,6 +560,8 @@ export const COMMAND_NAMES = {
   diagnosticsGetStatus: "diagnostics_get_status",
   diagnosticsGetHistory: "diagnostics_get_history",
   diagnosticsRevealLogs: "diagnostics_reveal_logs",
+  historyGetExportPreview: "history_get_export_preview",
+  historyExport: "history_export",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
   settingsUpdateProjectPathRetention: "settings_update_project_path_retention",
@@ -551,6 +592,8 @@ export interface CommandRequests {
   [COMMAND_NAMES.diagnosticsGetStatus]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsGetHistory]: HistoryCommandRequest;
   [COMMAND_NAMES.diagnosticsRevealLogs]: Record<string, never>;
+  [COMMAND_NAMES.historyGetExportPreview]: ExportPreviewCommandRequest;
+  [COMMAND_NAMES.historyExport]: ConfirmedExportCommandRequest;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: UpdateProjectPathRetentionCommandRequest;
@@ -579,6 +622,8 @@ export interface CommandResponses {
   [COMMAND_NAMES.diagnosticsGetStatus]: IpcResponse<DiagnosticsStatusResponse>;
   [COMMAND_NAMES.diagnosticsGetHistory]: IpcResponse<HistoryResponse>;
   [COMMAND_NAMES.diagnosticsRevealLogs]: IpcResponse<RevealLogsResponse>;
+  [COMMAND_NAMES.historyGetExportPreview]: IpcResponse<ExportPreviewResponse>;
+  [COMMAND_NAMES.historyExport]: IpcResponse<ExportResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: IpcResponse<ProjectPathRetentionResponse>;
@@ -638,6 +683,20 @@ export function invokeDiagnosticsRevealLogs(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.diagnosticsRevealLogs, {});
+}
+
+export function invokeHistoryGetExportPreview(
+  invoke: CommandInvoker,
+  request: ExportPreviewCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.historyGetExportPreview, request);
+}
+
+export function invokeHistoryExport(
+  invoke: CommandInvoker,
+  request: ConfirmedExportCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.historyExport, request);
 }
 
 export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {

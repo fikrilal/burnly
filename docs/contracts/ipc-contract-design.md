@@ -697,6 +697,7 @@ Request:
 - Included dimensions
 - Sensitive-field choices
 - Destination selected through an approved native path flow
+- Preview token binding the requested scope and current row counts
 
 Response:
 
@@ -704,6 +705,12 @@ Response:
 - Final metadata when completed synchronously
 
 React cannot provide arbitrary unrestricted filesystem paths unless the platform capability explicitly authorizes the selected path.
+
+#### `history_get_export_preview`
+
+Returns the selected datasets, date range, exact row counts, estimated CSV
+size, privacy notes, export eligibility, and a preview token. The token must be
+presented to `history_export`; changed counts require a new preview.
 
 #### `history_get_delete_preview`
 

@@ -20,6 +20,7 @@ use crate::application::budget_progress::BudgetProgressQuery;
 use crate::application::budgets::BudgetService;
 use crate::application::collection::CollectorFailure;
 use crate::application::diagnostics::{DiagnosticsService, RuntimeDiagnosticRecord};
+use crate::application::export::ExportService;
 use crate::application::history::HistoryService;
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::reconciliation::RefreshTrigger;
@@ -35,11 +36,13 @@ use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
     SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDiagnosticsStore,
-    SqliteHistoryStore, SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
+    SqliteExportStore, SqliteHistoryStore, SqliteOverviewStore, SqliteReconciliationStore,
+    SqliteSessionStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
+use crate::platform::export::DesktopExportWriter;
 use crate::platform::lifecycle;
 use crate::platform::logs::DesktopLogReveal;
 use crate::platform::system_clock::SystemClock;
@@ -107,6 +110,7 @@ pub(crate) fn run() {
         .plugin(single_instance::plugin())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(crate::ipc::invoke_handler())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -262,6 +266,12 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
             Database::open(&database_path).map_err(StartupError::Persistence)?,
         )),
         Arc::new(SystemClock),
+    ));
+    app.manage(ExportService::new(
+        Arc::new(SqliteExportStore::new(
+            Database::open(&database_path).map_err(StartupError::Persistence)?,
+        )),
+        Arc::new(DesktopExportWriter::new(app.handle().clone())),
     ));
     Ok(())
 }

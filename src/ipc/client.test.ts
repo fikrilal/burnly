@@ -6,6 +6,8 @@ import {
   getAppCapabilities,
   getDiagnosticsStatus,
   getDiagnosticsHistory,
+  getExportPreview,
+  exportHistory,
   revealDiagnosticsLogs,
   createBudget,
   deleteBudget,
@@ -148,6 +150,48 @@ describe("IPC command responses", () => {
 
     const result = await getDiagnosticsHistory({ limit: 10 }, invoker);
     expect(result.data.items[0]?.imports[0]?.source).toBe("Claude Code");
+  });
+
+  it("previews and confirms export through separate commands", async () => {
+    const request = {
+      startDate: "2026-06-01",
+      endDate: "2026-06-30",
+      datasets: ["daily_usage" as const],
+    };
+    const previewInvoker: CommandInvoker = (command, payload) => {
+      expect(command).toBe(COMMAND_NAMES.historyGetExportPreview);
+      expect(payload).toEqual({ request });
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: {
+          ...request,
+          format: "csv",
+          datasets: [{ dataset: "daily_usage", rows: "2" }],
+          totalRows: "2",
+          estimatedBytes: "640",
+          privacyNotes: ["No raw paths."],
+          previewToken: "a".repeat(64),
+          canExport: true,
+        },
+      });
+    };
+    const preview = await getExportPreview(request, previewInvoker);
+    expect(preview.data.totalRows).toBe("2");
+
+    const exportInvoker: CommandInvoker = (command, payload) => {
+      expect(command).toBe(COMMAND_NAMES.historyExport);
+      expect(payload).toEqual({
+        request: { request, previewToken: "a".repeat(64) },
+      });
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: { status: "exported", rows: "2", message: "CSV export saved." },
+      });
+    };
+    const result = await exportHistory(request, "a".repeat(64), exportInvoker);
+    expect(result.data.status).toBe("exported");
   });
 
   it("validates refresh state from the desktop runtime", async () => {

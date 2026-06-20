@@ -168,6 +168,10 @@ test.describe("Desktop Evidence: overview states", () => {
     await expect(page.getByText("Sources are configured.")).toBeVisible();
     await expect(page.getByText(/manual refresh/i)).toBeVisible();
     await expect(page.getByText(/Collector failure/)).toBeVisible();
+    await page.getByRole("button", { name: "Preview export" }).click();
+    await expect(page.getByText(/CSV preview · 16 rows/)).toBeVisible();
+    await page.getByRole("button", { name: "Export CSV" }).click();
+    await expect(page.getByText("CSV export saved.")).toBeVisible();
     await page.getByRole("button", { name: "Reveal logs" }).click();
     await expect(
       page.getByText("Logs opened in the system file manager."),
@@ -700,6 +704,42 @@ async function installTauriMock(
             data: {
               status: "revealed",
               message: "Logs opened in the system file manager.",
+            },
+          });
+        }
+
+        if (command === "history_get_export_preview") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              startDate: "2026-06-01",
+              endDate: "2026-06-30",
+              format: "csv",
+              datasets: [
+                { dataset: "daily_usage", rows: "12" },
+                { dataset: "sessions", rows: "4" },
+              ],
+              totalRows: "16",
+              estimatedBytes: "4000",
+              privacyNotes: [
+                "Exports exclude raw project paths and session identifiers.",
+              ],
+              previewToken:
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              canExport: true,
+            },
+          });
+        }
+
+        if (command === "history_export") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              status: "exported",
+              rows: "16",
+              message: "CSV export saved.",
             },
           });
         }

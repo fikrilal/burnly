@@ -10,6 +10,8 @@ import {
   invokeDiagnosticsGetStatus,
   invokeDiagnosticsGetHistory,
   invokeDiagnosticsRevealLogs,
+  invokeHistoryExport,
+  invokeHistoryGetExportPreview,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeSettingsUpdateProjectPathRetention,
@@ -38,6 +40,9 @@ import {
   type DiagnosticsStatusResponse,
   type HistoryRequest,
   type HistoryResponse,
+  type ExportPreviewRequest,
+  type ExportPreviewResponse,
+  type ExportResponse,
   type FieldError,
   type IpcError,
   type IpcResponse,
@@ -277,6 +282,35 @@ const historyDataSchema: z.ZodType<HistoryResponse> = z.object({
     .regex(/^[1-9][0-9]*$/)
     .nullable(),
   limit: z.number().int().min(1).max(50),
+});
+
+const exportPreviewRequestSchema: z.ZodType<ExportPreviewRequest> = z.object({
+  startDate: z.iso.date(),
+  endDate: z.iso.date(),
+  datasets: z.array(z.enum(["daily_usage", "sessions"])).min(1),
+});
+
+const exportPreviewDataSchema: z.ZodType<ExportPreviewResponse> = z.object({
+  startDate: z.iso.date(),
+  endDate: z.iso.date(),
+  format: z.literal("csv"),
+  datasets: z.array(
+    z.object({
+      dataset: z.enum(["daily_usage", "sessions"]),
+      rows: historyCountSchema,
+    }),
+  ),
+  totalRows: historyCountSchema,
+  estimatedBytes: historyCountSchema,
+  privacyNotes: z.array(z.string().min(1)),
+  previewToken: z.string().regex(/^[a-f0-9]{64}$/),
+  canExport: z.boolean(),
+});
+
+const exportDataSchema: z.ZodType<ExportResponse> = z.object({
+  status: z.enum(["exported", "cancelled"]),
+  rows: historyCountSchema,
+  message: z.string().min(1),
 });
 
 const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
@@ -634,6 +668,29 @@ export async function revealDiagnosticsLogs(
 ): Promise<CommandResult<RevealLogsResponse>> {
   const response = await invokeDiagnosticsRevealLogs(invoker);
   return unwrapResponse(validateResponse(response, revealLogsDataSchema));
+}
+
+export async function getExportPreview(
+  request: ExportPreviewRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<ExportPreviewResponse>> {
+  const parsedRequest = exportPreviewRequestSchema.parse(request);
+  const response = await invokeHistoryGetExportPreview(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, exportPreviewDataSchema));
+}
+
+export async function exportHistory(
+  request: ExportPreviewRequest,
+  previewToken: string,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<ExportResponse>> {
+  const parsedRequest = exportPreviewRequestSchema.parse(request);
+  const response = await invokeHistoryExport(invoker, {
+    request: { request: parsedRequest, previewToken },
+  });
+  return unwrapResponse(validateResponse(response, exportDataSchema));
 }
 
 export async function getSettings(

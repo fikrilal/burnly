@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  exportHistory,
+  getExportPreview,
   getDiagnosticsStatus,
   getDiagnosticsHistory,
   revealDiagnosticsLogs,
@@ -119,6 +121,57 @@ describe("DiagnosticsView", () => {
     expect(
       await screen.findByText("Logs opened in the system file manager."),
     ).toBeInTheDocument();
+  });
+
+  it("previews approved data before saving and reports cancellation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getDiagnosticsStatus).mockResolvedValue(
+      diagnosticsResult(diagnosticsStatus()),
+    );
+    vi.mocked(getExportPreview).mockResolvedValue({
+      data: {
+        startDate: "2026-06-01",
+        endDate: "2026-06-30",
+        format: "csv",
+        datasets: [
+          { dataset: "daily_usage", rows: "12" },
+          { dataset: "sessions", rows: "4" },
+        ],
+        totalRows: "16",
+        estimatedBytes: "4000",
+        privacyNotes: ["Exports exclude raw project paths."],
+        previewToken: "a".repeat(64),
+        canExport: true,
+      },
+      meta,
+    });
+    vi.mocked(exportHistory).mockResolvedValue({
+      data: {
+        status: "cancelled",
+        rows: "0",
+        message: "Export cancelled. No file was written.",
+      },
+      meta,
+    });
+
+    render(<DiagnosticsView />, { wrapper: createTestQueryWrapper() });
+    await user.click(
+      await screen.findByRole("button", { name: "Preview export" }),
+    );
+    expect(
+      await screen.findByText(/CSV preview · 16 rows/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Exports exclude raw project paths."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(
+      await screen.findByText("Export cancelled. No file was written."),
+    ).toBeInTheDocument();
+    expect(exportHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ datasets: ["daily_usage", "sessions"] }),
+      "a".repeat(64),
+    );
   });
 
   it("disables reveal when logs are missing", async () => {
