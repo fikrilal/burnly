@@ -47,13 +47,13 @@ side effects and documentation completeness.
 
 ## Checklist
 
-- [ ] Expand stable Playwright evidence for Phase 9 states.
-- [ ] Run focused checks for any final harness changes.
-- [ ] Run `pnpm verify`.
-- [ ] Run `pnpm verify:runtime`.
-- [ ] Record environment, limitations, and outcomes.
-- [ ] Mark Phase 9 overview complete.
-- [ ] Move completed plans and identify Phase 10 follow-up debt.
+- [x] Expand stable Playwright evidence for Phase 9 states.
+- [x] Run focused checks for any final harness changes.
+- [x] Run `pnpm verify`.
+- [x] Run `pnpm verify:runtime`.
+- [x] Record environment, limitations, and outcomes.
+- [x] Mark Phase 9 overview complete.
+- [x] Move completed plans and identify Phase 10 follow-up debt.
 
 ## Test Plan
 
@@ -69,16 +69,36 @@ side effects and documentation completeness.
 ## Decisions
 
 - Phase 9G is evidence-only unless a blocking bug is found.
+- Tauri prerequisite evidence trusts the `tauri info` process result. Missing
+  JavaScript counterparts for Rust-only plugins are informational and do not
+  make the desktop prerequisite gate fail.
+- Playwright evidence runs the same workflows at 1200x800 and 800x600.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. Formatting, lint, TypeScript, 73 frontend tests, Rust format,
+  Clippy, 247 Rust tests with 2 ignored native smoke tests, architecture,
+  contracts, migrations, collector fixtures, public API, and duplication
+  reporting completed successfully. Lint warnings remain non-blocking.
 
 ## Runtime Evidence
 
-- Required before completion.
+- Command: `pnpm verify:runtime`
+- Outcome: passed.
+- Environment: Ubuntu 24.04 x86_64, Linux 6.17.0-35-generic, GNOME, X11,
+  `DISPLAY=:1`.
+- Evidence: Tauri prerequisite report, generated contracts, production frontend
+  build, 6 IPC bridge tests, 8 platform tests with 1 ignored notification smoke
+  test, 4 scheduler tests, and 30 Playwright workflows.
+- Phase 9 UI evidence covers diagnostics, log reveal, populated/empty/failed
+  history, export preview/export, confirmed deletion and invalidation,
+  integrity/checkpoint/vacuum actions, read-only guidance, and recovery-only
+  startup with verified backup restoration.
 
 ## Follow-Up Debt
 
 - Phase 10 owns cross-platform release-matrix validation.
+- Native file manager, save dialog, and recovery filesystem effects are covered
+  through Rust adapters and browser-level contract evidence; packaged manual
+  smoke validation remains part of Phase 10 release hardening.

@@ -28,15 +28,15 @@ history, and changes database maintenance/recovery behavior.
 
 ## Chunk Plan
 
-| Chunk                                         | Status | Dependency   | Plan                                                                          |
-| --------------------------------------------- | ------ | ------------ | ----------------------------------------------------------------------------- |
-| Phase 9A: Diagnostics foundation              | Done   | Phase 8      | [Plan](../completed/2026-06-19_phase-9a-diagnostics-foundation.md)            |
-| Phase 9B: Logs and reveal action              | Done   | Phase 9A     | [Plan](../completed/2026-06-19_phase-9b-logs-reveal-action.md)                |
-| Phase 9C: Import and refresh history          | Done   | Phase 9A     | [Plan](../completed/2026-06-19_phase-9c-import-refresh-history.md)            |
-| Phase 9D: Export preview and export           | Done   | Phases 9A-9C | [Plan](../completed/2026-06-19_phase-9d-export-preview-export.md)             |
-| Phase 9E: Delete-history preview and deletion | Done   | Phases 9A-9C | [Plan](../completed/2026-06-19_phase-9e-delete-history-preview-deletion.md)   |
-| Phase 9F: Database maintenance and recovery   | Done   | Phase 9A     | [Plan](../completed/2026-06-19_phase-9f-database-maintenance-recovery.md)     |
-| Phase 9G: Phase exit evidence                 | Queued | Phases 9A-9F | [Plan](../queued/2026-06-19_phase-9g-diagnostics-export-recovery-evidence.md) |
+| Chunk                                         | Status | Dependency   | Plan                                                                |
+| --------------------------------------------- | ------ | ------------ | ------------------------------------------------------------------- |
+| Phase 9A: Diagnostics foundation              | Done   | Phase 8      | [Plan](2026-06-19_phase-9a-diagnostics-foundation.md)               |
+| Phase 9B: Logs and reveal action              | Done   | Phase 9A     | [Plan](2026-06-19_phase-9b-logs-reveal-action.md)                   |
+| Phase 9C: Import and refresh history          | Done   | Phase 9A     | [Plan](2026-06-19_phase-9c-import-refresh-history.md)               |
+| Phase 9D: Export preview and export           | Done   | Phases 9A-9C | [Plan](2026-06-19_phase-9d-export-preview-export.md)                |
+| Phase 9E: Delete-history preview and deletion | Done   | Phases 9A-9C | [Plan](2026-06-19_phase-9e-delete-history-preview-deletion.md)      |
+| Phase 9F: Database maintenance and recovery   | Done   | Phase 9A     | [Plan](2026-06-19_phase-9f-database-maintenance-recovery.md)        |
+| Phase 9G: Phase exit evidence                 | Done   | Phases 9A-9F | [Plan](2026-06-19_phase-9g-diagnostics-export-recovery-evidence.md) |
 
 ## Dependency Rules
 
@@ -94,7 +94,7 @@ history, and changes database maintenance/recovery behavior.
 - [x] Phase 9D completed and verified.
 - [x] Phase 9E completed and verified.
 - [x] Phase 9F completed and verified.
-- [ ] Phase 9G completed and phase exit criteria verified.
+- [x] Phase 9G completed and phase exit criteria verified.
 
 ## Decisions
 
@@ -115,6 +115,9 @@ history, and changes database maintenance/recovery behavior.
 - Phase 9F added guarded integrity, passive WAL checkpoint, vacuum, verified
   pre-migration backup/restore, read-only/unavailable status, and a recovery-only
   startup UI that remains reachable after persistence initialization failure.
+- Phase 9G expanded desktop/compact Playwright evidence across every Phase 9
+  workflow and corrected runtime prerequisite classification for Rust-only
+  Tauri plugins.
 - Export and delete operations require previews before side effects.
 - Raw diagnostic payload policy remains unimplemented until explicitly approved.
 - Recovery and maintenance behavior remains Rust-owned; React only invokes
@@ -123,12 +126,19 @@ history, and changes database maintenance/recovery behavior.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: passed through Phase 9F. Lint reported warnings only; no errors.
+- Outcome: passed for the completed phase. Lint reported warnings only; no
+  errors.
 
 ## Runtime Evidence
 
-- Required in Phase 9G.
+- Command: `pnpm verify:runtime`
+- Outcome: passed on Ubuntu 24.04 x86_64, GNOME, X11.
+- Evidence included the production build, generated contracts, IPC bridge,
+  platform and scheduler tests, plus 30 desktop/compact Playwright workflows
+  covering all Phase 9 UI states and confirmation flows.
 
 ## Follow-Up Debt
 
 - Cross-platform release-matrix evidence remains Phase 10.
+- Packaged native reveal, save-dialog, and recovery filesystem smoke validation
+  remains Phase 10 work.

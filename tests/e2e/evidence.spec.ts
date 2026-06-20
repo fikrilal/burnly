@@ -228,11 +228,73 @@ test.describe("Desktop Evidence: overview states", () => {
     await page.getByRole("button", { name: "Overview" }).click();
     await expect(page.getByText("No data collected")).toBeVisible();
   });
+
+  test("runs guarded database maintenance actions", async ({ page }) => {
+    await installTauriMock(page, "populated");
+    await page.goto("/");
+    await page.getByRole("button", { name: "Diagnostics" }).click();
+
+    await page.getByRole("button", { name: "Check integrity" }).click();
+    await expect(
+      page.getByText("Database integrity check passed."),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Checkpoint WAL" }).click();
+    await expect(page.getByText(/WAL checkpoint completed/)).toBeVisible();
+    await expect(page.getByText(/8 of 8 WAL frames processed/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Vacuum database" }).click();
+    await page.getByRole("button", { name: "Confirm vacuum" }).click();
+    await expect(page.getByText("Database vacuum completed.")).toBeVisible();
+  });
+
+  test("shows read-only database recovery guidance", async ({
+    page,
+  }, testInfo) => {
+    await installTauriMock(page, "read_only");
+    await page.goto("/");
+    await page.getByRole("button", { name: "Diagnostics" }).click();
+
+    await expect(page.getByText("Read-only")).toBeVisible();
+    await expect(
+      page.getByText(/Correct the file permissions before retrying/),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Checkpoint WAL" }),
+    ).toBeDisabled();
+
+    await page.screenshot({
+      path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-database-read-only.png`,
+      fullPage: true,
+    });
+  });
+
+  test("keeps verified recovery available after startup failure", async ({
+    page,
+  }, testInfo) => {
+    await installTauriMock(page, "recovery");
+    await page.goto("/");
+
+    await expect(page.getByText("Database recovery required")).toBeVisible();
+    await expect(page.getByText("Recovery backup")).toBeVisible();
+    await expect(page.getByText("Available", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Restore backup" }).click();
+    await page.getByRole("button", { name: "Confirm restore" }).click();
+    await expect(
+      page.getByText("The verified pre-migration backup was restored."),
+    ).toBeVisible();
+
+    await page.screenshot({
+      path: `screenshots/evidence-${testInfo.project.name.toLowerCase()}-database-recovery.png`,
+      fullPage: true,
+    });
+  });
 });
 
 async function installTauriMock(
   page: Parameters<Parameters<typeof test>[1]>[0]["page"],
-  mode: "populated" | "empty" | "error",
+  mode: "populated" | "empty" | "error" | "read_only" | "recovery",
 ) {
   await page.addInitScript((initialMode) => {
     let overviewMode = initialMode;
@@ -601,6 +663,20 @@ async function installTauriMock(
         }
 
         if (command === "app_get_bootstrap") {
+          if (initialMode === "recovery") {
+            return Promise.resolve({
+              ok: false,
+              meta: pageMeta(),
+              error: {
+                code: "bootstrap.recovery_required",
+                message:
+                  "Burnly could not initialize the database. Review the recovery status and restore a verified backup when available.",
+                category: "persistence",
+                retryable: false,
+                details: null,
+              },
+            });
+          }
           return Promise.resolve(pageBootstrapResponse());
         }
 
@@ -733,6 +809,77 @@ async function installTauriMock(
             data: {
               status: "revealed",
               message: "Logs opened in the system file manager.",
+            },
+          });
+        }
+
+        if (command === "database_get_maintenance_status") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              access:
+                initialMode === "read_only"
+                  ? "read_only"
+                  : initialMode === "recovery"
+                    ? "unavailable"
+                    : "read_write",
+              schemaVersion: initialMode === "recovery" ? null : 3,
+              backupAvailable: initialMode === "recovery",
+              maintenanceAvailable:
+                initialMode !== "read_only" && initialMode !== "recovery",
+            },
+          });
+        }
+
+        if (command === "database_integrity_check") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              status: "healthy",
+              message: "Database integrity check passed.",
+              checkpoint: null,
+            },
+          });
+        }
+
+        if (command === "database_checkpoint") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              status: "checkpointed",
+              message: "WAL checkpoint completed.",
+              checkpoint: {
+                busy: 0,
+                logFrames: 8,
+                checkpointedFrames: 8,
+              },
+            },
+          });
+        }
+
+        if (command === "database_vacuum") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              status: "vacuumed",
+              message: "Database vacuum completed.",
+              checkpoint: null,
+            },
+          });
+        }
+
+        if (command === "database_restore_migration_backup") {
+          return Promise.resolve({
+            ok: true,
+            meta: pageMeta(),
+            data: {
+              status: "restored",
+              message: "The verified pre-migration backup was restored.",
+              checkpoint: null,
             },
           });
         }
