@@ -46,6 +46,36 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "RevealLogsResponse",
     },
     CommandSpec {
+        name: "database_get_maintenance_status",
+        export_name: "invokeDatabaseGetMaintenanceStatus",
+        request_type: "Record<string, never>",
+        response_type: "DatabaseMaintenanceStatusResponse",
+    },
+    CommandSpec {
+        name: "database_integrity_check",
+        export_name: "invokeDatabaseIntegrityCheck",
+        request_type: "Record<string, never>",
+        response_type: "DatabaseMaintenanceActionResponse",
+    },
+    CommandSpec {
+        name: "database_checkpoint",
+        export_name: "invokeDatabaseCheckpoint",
+        request_type: "Record<string, never>",
+        response_type: "DatabaseMaintenanceActionResponse",
+    },
+    CommandSpec {
+        name: "database_vacuum",
+        export_name: "invokeDatabaseVacuum",
+        request_type: "Record<string, never>",
+        response_type: "DatabaseMaintenanceActionResponse",
+    },
+    CommandSpec {
+        name: "database_restore_migration_backup",
+        export_name: "invokeDatabaseRestoreMigrationBackup",
+        request_type: "Record<string, never>",
+        response_type: "DatabaseMaintenanceActionResponse",
+    },
+    CommandSpec {
         name: "history_get_export_preview",
         export_name: "invokeHistoryGetExportPreview",
         request_type: "ExportPreviewCommandRequest",

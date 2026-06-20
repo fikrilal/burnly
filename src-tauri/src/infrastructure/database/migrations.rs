@@ -13,6 +13,8 @@ const MIGRATION_LIST: &[M<'static>] = &[
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
+pub(super) const LATEST_SCHEMA_VERSION: i64 = MIGRATION_LIST.len() as i64;
+
 pub(super) fn to_latest(connection: &mut Connection) -> Result<(), PersistenceError> {
     MIGRATIONS
         .to_latest(connection)

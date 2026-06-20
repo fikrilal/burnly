@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 use crate::application::ports::notification::NotificationPermission;
+
+pub(crate) struct StartupRecoveryState;
 use crate::domain::settings::{CloseBehavior, Settings, SettingsDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

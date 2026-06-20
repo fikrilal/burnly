@@ -10,6 +10,11 @@ import {
   invokeDiagnosticsGetStatus,
   invokeDiagnosticsGetHistory,
   invokeDiagnosticsRevealLogs,
+  invokeDatabaseGetMaintenanceStatus,
+  invokeDatabaseIntegrityCheck,
+  invokeDatabaseCheckpoint,
+  invokeDatabaseVacuum,
+  invokeDatabaseRestoreMigrationBackup,
   invokeHistoryExport,
   invokeHistoryGetExportPreview,
   invokeHistoryGetDeletePreview,
@@ -40,6 +45,8 @@ import {
   type CommandRequests,
   type ContractProbeResponse,
   type DiagnosticsStatusResponse,
+  type DatabaseMaintenanceStatusResponse,
+  type DatabaseMaintenanceActionResponse,
   type HistoryRequest,
   type HistoryResponse,
   type ExportPreviewRequest,
@@ -217,6 +224,34 @@ const revealLogsDataSchema: z.ZodType<RevealLogsResponse> = z.object({
   status: z.enum(["revealed", "missing", "unsupported"]),
   message: z.string().min(1),
 });
+
+const databaseMaintenanceStatusDataSchema: z.ZodType<DatabaseMaintenanceStatusResponse> =
+  z.object({
+    access: z.enum(["read_write", "read_only", "unavailable"]),
+    schemaVersion: z.number().int().nonnegative().nullable(),
+    backupAvailable: z.boolean(),
+    maintenanceAvailable: z.boolean(),
+  });
+
+const databaseMaintenanceActionDataSchema: z.ZodType<DatabaseMaintenanceActionResponse> =
+  z.object({
+    status: z.enum([
+      "healthy",
+      "corrupt",
+      "checkpointed",
+      "busy",
+      "vacuumed",
+      "restored",
+    ]),
+    message: z.string().min(1),
+    checkpoint: z
+      .object({
+        busy: z.number().int().nonnegative(),
+        logFrames: z.number().int().nonnegative(),
+        checkpointedFrames: z.number().int().nonnegative(),
+      })
+      .nullable(),
+  });
 
 const historyRequestSchema: z.ZodType<HistoryRequest> = z.object({
   cursor: z
@@ -704,6 +739,48 @@ export async function revealDiagnosticsLogs(
 ): Promise<CommandResult<RevealLogsResponse>> {
   const response = await invokeDiagnosticsRevealLogs(invoker);
   return unwrapResponse(validateResponse(response, revealLogsDataSchema));
+}
+
+export async function getDatabaseMaintenanceStatus(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DatabaseMaintenanceStatusResponse>> {
+  const response = await invokeDatabaseGetMaintenanceStatus(invoker);
+  return unwrapResponse(
+    validateResponse(response, databaseMaintenanceStatusDataSchema),
+  );
+}
+
+async function runDatabaseMaintenanceAction(
+  invokeAction: (invoker: CommandInvoker) => Promise<unknown>,
+  invoker: CommandInvoker,
+): Promise<CommandResult<DatabaseMaintenanceActionResponse>> {
+  const response = await invokeAction(invoker);
+  return unwrapResponse(
+    validateResponse(response, databaseMaintenanceActionDataSchema),
+  );
+}
+
+export function checkDatabaseIntegrity(
+  invoker: CommandInvoker = commandInvoker,
+) {
+  return runDatabaseMaintenanceAction(invokeDatabaseIntegrityCheck, invoker);
+}
+
+export function checkpointDatabase(invoker: CommandInvoker = commandInvoker) {
+  return runDatabaseMaintenanceAction(invokeDatabaseCheckpoint, invoker);
+}
+
+export function vacuumDatabase(invoker: CommandInvoker = commandInvoker) {
+  return runDatabaseMaintenanceAction(invokeDatabaseVacuum, invoker);
+}
+
+export function restoreDatabaseMigrationBackup(
+  invoker: CommandInvoker = commandInvoker,
+) {
+  return runDatabaseMaintenanceAction(
+    invokeDatabaseRestoreMigrationBackup,
+    invoker,
+  );
 }
 
 export async function getExportPreview(

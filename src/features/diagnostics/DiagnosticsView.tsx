@@ -16,6 +16,7 @@ import {
 } from "./use-diagnostics";
 import { ExportCard } from "./ExportCard";
 import { DeleteHistoryCard } from "./DeleteHistoryCard";
+import { DatabaseMaintenanceCard } from "./DatabaseMaintenanceCard";
 
 export function DiagnosticsView() {
   const query = useDiagnostics();
@@ -90,6 +91,7 @@ export function DiagnosticsView() {
           revealLogs.mutate();
         }}
       />
+      <DatabaseMaintenanceCard errorMessage={errorMessage} />
       <HistorySection query={history} />
       <ExportCard errorMessage={errorMessage} />
       <DeleteHistoryCard errorMessage={errorMessage} />

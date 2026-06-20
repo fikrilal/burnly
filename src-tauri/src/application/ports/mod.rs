@@ -4,6 +4,7 @@ pub(crate) mod budget_usage_store;
 pub(crate) mod calendar_store;
 pub(crate) mod clock;
 pub(crate) mod collector;
+pub(crate) mod database_maintenance;
 pub(crate) mod day_detail_store;
 pub(crate) mod diagnostics_store;
 pub(crate) mod export_store;

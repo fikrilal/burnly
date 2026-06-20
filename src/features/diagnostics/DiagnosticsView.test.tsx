@@ -9,6 +9,7 @@ import {
   getExportPreview,
   getDiagnosticsStatus,
   getDiagnosticsHistory,
+  getDatabaseMaintenanceStatus,
   revealDiagnosticsLogs,
   type CommandResult,
 } from "../../ipc/client";
@@ -29,6 +30,15 @@ describe("DiagnosticsView", () => {
     vi.clearAllMocks();
     vi.mocked(getDiagnosticsHistory).mockResolvedValue({
       data: { items: [], nextCursor: null, limit: 10 },
+      meta,
+    });
+    vi.mocked(getDatabaseMaintenanceStatus).mockResolvedValue({
+      data: {
+        access: "read_write",
+        schemaVersion: 3,
+        backupAvailable: false,
+        maintenanceAvailable: true,
+      },
       meta,
     });
   });
@@ -58,6 +68,12 @@ describe("DiagnosticsView", () => {
     expect(screen.getByText("Sources are configured.")).toBeInTheDocument();
     expect(screen.getByText("Schema version 1")).toBeInTheDocument();
     expect(screen.getByText("Burnly logs")).toBeInTheDocument();
+    expect(screen.getByText("Maintenance and recovery")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Check integrity" }),
+      ).toBeEnabled();
+    });
     expect(
       screen.getByRole("button", { name: "Reveal logs" }),
     ).toBeInTheDocument();

@@ -13,6 +13,7 @@ pub enum PersistenceErrorKind {
     Configure,
     PolicyMismatch,
     Migration,
+    Backup,
     HealthCheck,
     Seed,
     Read,
@@ -55,6 +56,12 @@ pub enum PersistenceError {
     #[error("database migration failed")]
     Migration(#[source] MigrationError),
 
+    #[error("database backup or restore failed")]
+    Backup(#[source] SqliteError),
+
+    #[error("database backup could not be published")]
+    BackupPublish(#[source] io::Error),
+
     #[error("database health check failed: {check}")]
     HealthCheckQuery {
         check: &'static str,
@@ -88,6 +95,7 @@ impl PersistenceError {
             Self::Configure { .. } => PersistenceErrorKind::Configure,
             Self::PolicyMismatch { .. } => PersistenceErrorKind::PolicyMismatch,
             Self::Migration(_) => PersistenceErrorKind::Migration,
+            Self::Backup(_) | Self::BackupPublish(_) => PersistenceErrorKind::Backup,
             Self::HealthCheckQuery { .. } | Self::Unhealthy { .. } => {
                 PersistenceErrorKind::HealthCheck
             }
@@ -123,6 +131,14 @@ impl PersistenceError {
 
     pub(super) fn migration(source: MigrationError) -> Self {
         Self::Migration(source)
+    }
+
+    pub(super) fn backup(source: SqliteError) -> Self {
+        Self::Backup(source)
+    }
+
+    pub(super) fn backup_publish(source: io::Error) -> Self {
+        Self::BackupPublish(source)
     }
 
     pub(super) fn health_check(check: &'static str, source: SqliteError) -> Self {

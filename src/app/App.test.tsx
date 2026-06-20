@@ -19,6 +19,10 @@ vi.mock("../features/diagnostics", () => ({
   DiagnosticsView: () => <div data-testid="diagnostics-feature" />,
 }));
 
+vi.mock("../features/diagnostics/DatabaseMaintenanceCard", () => ({
+  DatabaseMaintenanceCard: () => <div data-testid="database-recovery" />,
+}));
+
 vi.mock("../ipc/events", () => ({
   EVENT_NAMES: {
     settingsChanged: "burnly://v1/settings-changed",
@@ -120,6 +124,35 @@ describe("App startup failures", () => {
     expect(
       screen.getByText("Burnly could not read local application state."),
     ).toBeInTheDocument();
+  });
+
+  it("renders database recovery controls when startup requires recovery", async () => {
+    render(
+      <App
+        loadBootstrap={() =>
+          Promise.reject(
+            new BurnlyClientError({
+              kind: "application",
+              error: {
+                code: "bootstrap.recovery_required",
+                message: "Database recovery is required.",
+                category: "persistence",
+                retryable: false,
+                details: null,
+              },
+              requestId: meta.requestId,
+              generatedAt: meta.generatedAt,
+            }),
+          )
+        }
+        loadCapabilities={() => Promise.resolve(capabilitiesResult())}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Database recovery required"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("database-recovery")).toBeInTheDocument();
   });
 });
 

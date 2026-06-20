@@ -1,13 +1,13 @@
 use chrono::DateTime;
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
     Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary,
     NativeNotificationCapability, Readiness, RefreshState, RefreshStatus, SourceStatus,
-    SourceSummary,
+    SourceSummary, StartupRecoveryState,
 };
 use crate::application::ports::notification::NotificationPermission;
 use crate::application::reconciliation::RefreshTrigger;
@@ -112,9 +112,25 @@ struct DiagnosticCapabilitiesResponse {
 }
 
 #[tauri::command]
-pub(super) fn app_get_bootstrap(
-    service: State<'_, BootstrapService>,
+pub(super) fn app_get_bootstrap<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
 ) -> IpcResponse<AppBootstrapResponse> {
+    if app.try_state::<StartupRecoveryState>().is_some() {
+        return IpcResponse::failure(IpcError::new(
+            "bootstrap.recovery_required",
+            "Burnly could not initialize the database. Review the recovery status and restore a verified backup when available.",
+            ErrorCategory::Persistence,
+            false,
+        ));
+    }
+    let Some(service) = app.try_state::<BootstrapService>() else {
+        return IpcResponse::failure(IpcError::new(
+            "bootstrap.storage_unavailable",
+            "Burnly could not read local application state.",
+            ErrorCategory::Unavailable,
+            true,
+        ));
+    };
     match service.bootstrap() {
         Ok(bootstrap) => IpcResponse::success(bootstrap.into()),
         Err(error) => IpcResponse::failure(bootstrap_error(error)),

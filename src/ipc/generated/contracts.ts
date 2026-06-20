@@ -129,6 +129,31 @@ export interface RevealLogsResponse {
   message: string;
 }
 
+export interface DatabaseMaintenanceStatusResponse {
+  access: "read_write" | "read_only" | "unavailable";
+  schemaVersion: number | null;
+  backupAvailable: boolean;
+  maintenanceAvailable: boolean;
+}
+
+export interface DatabaseCheckpointResponse {
+  busy: number;
+  logFrames: number;
+  checkpointedFrames: number;
+}
+
+export interface DatabaseMaintenanceActionResponse {
+  status:
+    | "healthy"
+    | "corrupt"
+    | "checkpointed"
+    | "busy"
+    | "vacuumed"
+    | "restored";
+  message: string;
+  checkpoint: DatabaseCheckpointResponse | null;
+}
+
 export interface HistoryRequest {
   cursor?: string | undefined;
   limit?: number | undefined;
@@ -600,6 +625,11 @@ export const COMMAND_NAMES = {
   diagnosticsGetStatus: "diagnostics_get_status",
   diagnosticsGetHistory: "diagnostics_get_history",
   diagnosticsRevealLogs: "diagnostics_reveal_logs",
+  databaseGetMaintenanceStatus: "database_get_maintenance_status",
+  databaseIntegrityCheck: "database_integrity_check",
+  databaseCheckpoint: "database_checkpoint",
+  databaseVacuum: "database_vacuum",
+  databaseRestoreMigrationBackup: "database_restore_migration_backup",
   historyGetExportPreview: "history_get_export_preview",
   historyExport: "history_export",
   historyGetDeletePreview: "history_get_delete_preview",
@@ -634,6 +664,11 @@ export interface CommandRequests {
   [COMMAND_NAMES.diagnosticsGetStatus]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsGetHistory]: HistoryCommandRequest;
   [COMMAND_NAMES.diagnosticsRevealLogs]: Record<string, never>;
+  [COMMAND_NAMES.databaseGetMaintenanceStatus]: Record<string, never>;
+  [COMMAND_NAMES.databaseIntegrityCheck]: Record<string, never>;
+  [COMMAND_NAMES.databaseCheckpoint]: Record<string, never>;
+  [COMMAND_NAMES.databaseVacuum]: Record<string, never>;
+  [COMMAND_NAMES.databaseRestoreMigrationBackup]: Record<string, never>;
   [COMMAND_NAMES.historyGetExportPreview]: ExportPreviewCommandRequest;
   [COMMAND_NAMES.historyExport]: ConfirmedExportCommandRequest;
   [COMMAND_NAMES.historyGetDeletePreview]: Record<string, never>;
@@ -666,6 +701,11 @@ export interface CommandResponses {
   [COMMAND_NAMES.diagnosticsGetStatus]: IpcResponse<DiagnosticsStatusResponse>;
   [COMMAND_NAMES.diagnosticsGetHistory]: IpcResponse<HistoryResponse>;
   [COMMAND_NAMES.diagnosticsRevealLogs]: IpcResponse<RevealLogsResponse>;
+  [COMMAND_NAMES.databaseGetMaintenanceStatus]: IpcResponse<DatabaseMaintenanceStatusResponse>;
+  [COMMAND_NAMES.databaseIntegrityCheck]: IpcResponse<DatabaseMaintenanceActionResponse>;
+  [COMMAND_NAMES.databaseCheckpoint]: IpcResponse<DatabaseMaintenanceActionResponse>;
+  [COMMAND_NAMES.databaseVacuum]: IpcResponse<DatabaseMaintenanceActionResponse>;
+  [COMMAND_NAMES.databaseRestoreMigrationBackup]: IpcResponse<DatabaseMaintenanceActionResponse>;
   [COMMAND_NAMES.historyGetExportPreview]: IpcResponse<ExportPreviewResponse>;
   [COMMAND_NAMES.historyExport]: IpcResponse<ExportResponse>;
   [COMMAND_NAMES.historyGetDeletePreview]: IpcResponse<DeleteHistoryPreviewResponse>;
@@ -729,6 +769,34 @@ export function invokeDiagnosticsRevealLogs(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.diagnosticsRevealLogs, {});
+}
+
+export function invokeDatabaseGetMaintenanceStatus(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseGetMaintenanceStatus, {});
+}
+
+export function invokeDatabaseIntegrityCheck(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseIntegrityCheck, {});
+}
+
+export function invokeDatabaseCheckpoint(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseCheckpoint, {});
+}
+
+export function invokeDatabaseVacuum(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseVacuum, {});
+}
+
+export function invokeDatabaseRestoreMigrationBackup(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseRestoreMigrationBackup, {});
 }
 
 export function invokeHistoryGetExportPreview(

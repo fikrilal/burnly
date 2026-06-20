@@ -12,17 +12,19 @@ use thiserror::Error;
 
 use crate::application::bootstrap::{
     BootstrapService, CapabilityStatus, NativeNotificationCapability, RuntimeCapabilities,
-    RuntimeSettings,
+    RuntimeSettings, StartupRecoveryState,
 };
 use crate::application::budget_evaluation::BudgetEvaluationService;
 use crate::application::budget_notifications::BudgetNotificationService;
 use crate::application::budget_progress::BudgetProgressQuery;
 use crate::application::budgets::BudgetService;
 use crate::application::collection::CollectorFailure;
+use crate::application::database_maintenance::DatabaseMaintenanceService;
 use crate::application::diagnostics::{DiagnosticsService, RuntimeDiagnosticRecord};
 use crate::application::export::ExportService;
 use crate::application::history::HistoryService;
 use crate::application::history_deletion::HistoryDeletionService;
+use crate::application::ports::database_maintenance::{MaintenanceActivity, MaintenanceGuard};
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -36,9 +38,9 @@ use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
-    SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDiagnosticsStore,
-    SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore, SqliteOverviewStore,
-    SqliteReconciliationStore, SqliteSessionStore,
+    SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDatabaseMaintenanceStore,
+    SqliteDiagnosticsStore, SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore,
+    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -154,7 +156,22 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let database_path = database_path::resolve(app.handle()).map_err(StartupError::DatabasePath)?;
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
-    let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
+    let database = match initialize(&database_path, &reporting_timezone, created_at_ms) {
+        Ok(database) => database,
+        Err(StartupError::Persistence(error)) => {
+            eprintln!(
+                "Burnly persistence startup entered recovery mode ({:?})",
+                error.kind()
+            );
+            app.manage(StartupRecoveryState);
+            app.manage(DatabaseMaintenanceService::new(
+                Arc::new(SqliteDatabaseMaintenanceStore::new(database_path)),
+                Arc::new(RecoveryMaintenanceGuard),
+            ));
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     let (_, background_refresh_enabled, refresh_interval_minutes, _, close_behavior, ..) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
@@ -215,6 +232,12 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         },
     );
 
+    app.manage(DatabaseMaintenanceService::new(
+        Arc::new(SqliteDatabaseMaintenanceStore::new(database_path.clone())),
+        Arc::new(RuntimeMaintenanceGuard {
+            coordinator: refresh_coordinator.clone(),
+        }),
+    ));
     app.manage(refresh_coordinator);
     app.manage(refresh_scheduler);
     app.manage(runtime_settings.clone());
@@ -280,6 +303,32 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         ),
     )));
     Ok(())
+}
+
+struct RecoveryMaintenanceGuard;
+
+impl MaintenanceGuard for RecoveryMaintenanceGuard {
+    fn activity(&self) -> MaintenanceActivity {
+        MaintenanceActivity::Idle
+    }
+}
+
+struct RuntimeMaintenanceGuard {
+    coordinator: RefreshCoordinator,
+}
+
+impl MaintenanceGuard for RuntimeMaintenanceGuard {
+    fn activity(&self) -> MaintenanceActivity {
+        match self.coordinator.snapshot().status {
+            RefreshStatus::Queued | RefreshStatus::Running | RefreshStatus::Cancelling => {
+                MaintenanceActivity::Busy
+            }
+            RefreshStatus::Idle
+            | RefreshStatus::Succeeded
+            | RefreshStatus::Partial
+            | RefreshStatus::Failed => MaintenanceActivity::Idle,
+        }
+    }
 }
 
 struct DesktopSettingsRuntime<R: Runtime> {
@@ -552,6 +601,14 @@ fn initialize(
     created_at_ms: i64,
 ) -> Result<Database, StartupError> {
     let mut database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    if database
+        .needs_migration()
+        .map_err(StartupError::Persistence)?
+    {
+        database
+            .create_verified_migration_backup(database_path)
+            .map_err(StartupError::Persistence)?;
+    }
     database
         .migrate_to_latest()
         .map_err(StartupError::Persistence)?;

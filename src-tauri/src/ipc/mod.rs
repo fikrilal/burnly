@@ -6,6 +6,7 @@
 mod budgets;
 mod commands;
 mod contract;
+mod database_maintenance;
 mod diagnostics;
 mod export;
 mod history_deletion;
@@ -28,6 +29,11 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::__burnly_contract_probe,
         commands::app_get_bootstrap,
         commands::app_get_capabilities,
+        database_maintenance::database_get_maintenance_status,
+        database_maintenance::database_integrity_check,
+        database_maintenance::database_checkpoint,
+        database_maintenance::database_vacuum,
+        database_maintenance::database_restore_migration_backup,
         diagnostics::diagnostics_get_status,
         diagnostics::diagnostics_get_history,
         diagnostics::diagnostics_reveal_logs,

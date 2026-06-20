@@ -35,7 +35,7 @@ history, and changes database maintenance/recovery behavior.
 | Phase 9C: Import and refresh history          | Done   | Phase 9A     | [Plan](../completed/2026-06-19_phase-9c-import-refresh-history.md)            |
 | Phase 9D: Export preview and export           | Done   | Phases 9A-9C | [Plan](../completed/2026-06-19_phase-9d-export-preview-export.md)             |
 | Phase 9E: Delete-history preview and deletion | Done   | Phases 9A-9C | [Plan](../completed/2026-06-19_phase-9e-delete-history-preview-deletion.md)   |
-| Phase 9F: Database maintenance and recovery   | Queued | Phase 9A     | [Plan](../queued/2026-06-19_phase-9f-database-maintenance-recovery.md)        |
+| Phase 9F: Database maintenance and recovery   | Done   | Phase 9A     | [Plan](../completed/2026-06-19_phase-9f-database-maintenance-recovery.md)     |
 | Phase 9G: Phase exit evidence                 | Queued | Phases 9A-9F | [Plan](../queued/2026-06-19_phase-9g-diagnostics-export-recovery-evidence.md) |
 
 ## Dependency Rules
@@ -93,7 +93,7 @@ history, and changes database maintenance/recovery behavior.
 - [x] Phase 9C completed and verified.
 - [x] Phase 9D completed and verified.
 - [x] Phase 9E completed and verified.
-- [ ] Phase 9F completed and verified.
+- [x] Phase 9F completed and verified.
 - [ ] Phase 9G completed and phase exit criteria verified.
 
 ## Decisions
@@ -112,6 +112,9 @@ history, and changes database maintenance/recovery behavior.
 - Phase 9E added a global imported-history reset with exact confirmation,
   preview/snapshot conflict protection, active-refresh blocking, transactional
   rollback, preserved configuration, and read-model invalidation.
+- Phase 9F added guarded integrity, passive WAL checkpoint, vacuum, verified
+  pre-migration backup/restore, read-only/unavailable status, and a recovery-only
+  startup UI that remains reachable after persistence initialization failure.
 - Export and delete operations require previews before side effects.
 - Raw diagnostic payload policy remains unimplemented until explicitly approved.
 - Recovery and maintenance behavior remains Rust-owned; React only invokes
@@ -120,7 +123,7 @@ history, and changes database maintenance/recovery behavior.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: passed for Phase 9E. Lint reported warnings only; no errors.
+- Outcome: passed through Phase 9F. Lint reported warnings only; no errors.
 
 ## Runtime Evidence
 

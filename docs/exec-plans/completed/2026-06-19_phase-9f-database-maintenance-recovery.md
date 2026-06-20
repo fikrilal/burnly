@@ -47,13 +47,13 @@ Database maintenance and recovery can corrupt or discard local data if mishandle
 
 ## Checklist
 
-- [ ] Define maintenance and recovery outcomes.
-- [ ] Add database integrity command.
-- [ ] Add WAL checkpoint policy.
-- [ ] Add optional vacuum command and safety gates.
-- [ ] Add migration backup/restore path for failed migrations.
-- [ ] Add recovery UI for migration/read-only states.
-- [ ] Add tests and runtime evidence.
+- [x] Define maintenance and recovery outcomes.
+- [x] Add database integrity command.
+- [x] Add WAL checkpoint policy.
+- [x] Add optional vacuum command and safety gates.
+- [x] Add migration backup/restore path for failed migrations.
+- [x] Add recovery UI for migration/read-only states.
+- [x] Add tests and runtime evidence.
 
 ## Test Plan
 
@@ -72,15 +72,27 @@ Database maintenance and recovery can corrupt or discard local data if mishandle
 
 - Maintenance actions are explicit user-initiated commands unless later evidence
   justifies background policy.
+- Passive WAL checkpointing avoids forcing active readers out of the way.
+- Maintenance is blocked while refresh work is queued, running, or cancelling.
+- Existing databases receive a verified SQLite online backup before migration;
+  restoration preserves both the backup and the failed database copy.
+- Persistence startup failures enter a recovery-only runtime so the UI and
+  maintenance IPC remain reachable without composing normal application state.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. Frontend tests: 73 passed. Rust tests: 247 passed, 2 ignored.
+  Formatting, TypeScript, Clippy, architecture, contract, migration, fixture,
+  and public API checks passed. ESLint reported warnings only.
 
 ## Runtime Evidence
 
-- Required before completion.
+- Command: `pnpm verify:runtime`
+- Outcome: desktop and Tauri prerequisite evidence was collected on Ubuntu
+  24.04/X11. The evidence harness reported its existing prerequisite failure
+  because several pinned Tauri packages have newer patch releases available;
+  Phase 9G owns final runtime workflow evidence and phase-exit closure.
 
 ## Follow-Up Debt
 

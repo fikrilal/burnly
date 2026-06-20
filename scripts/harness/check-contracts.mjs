@@ -302,6 +302,25 @@ export interface RevealLogsResponse {
   message: string;
 }
 
+export interface DatabaseMaintenanceStatusResponse {
+  access: "read_write" | "read_only" | "unavailable";
+  schemaVersion: number | null;
+  backupAvailable: boolean;
+  maintenanceAvailable: boolean;
+}
+
+export interface DatabaseCheckpointResponse {
+  busy: number;
+  logFrames: number;
+  checkpointedFrames: number;
+}
+
+export interface DatabaseMaintenanceActionResponse {
+  status: "healthy" | "corrupt" | "checkpointed" | "busy" | "vacuumed" | "restored";
+  message: string;
+  checkpoint: DatabaseCheckpointResponse | null;
+}
+
 export interface HistoryRequest {
   cursor?: string | undefined;
   limit?: number | undefined;
