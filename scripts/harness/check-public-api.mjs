@@ -11,6 +11,14 @@ const budgetPath = path.join(
 const budgets = JSON.parse(await readFile(budgetPath, "utf8"));
 const failures = [];
 
+function repositoryPath(filePath) {
+  return filePath.replaceAll("\\", "/");
+}
+
+if (repositoryPath("src\\lib\\index.ts") !== "src/lib/index.ts") {
+  throw new Error("public API path normalization failed");
+}
+
 async function collectPublicApiFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true }).catch(
     () => [],
@@ -22,7 +30,7 @@ async function collectPublicApiFiles(directory) {
     if (entry.isDirectory()) {
       files.push(...(await collectPublicApiFiles(fullPath)));
     } else if (entry.name === "index.ts" || entry.name === "index.tsx") {
-      files.push(path.relative(root, fullPath));
+      files.push(repositoryPath(path.relative(root, fullPath)));
     }
   }
 

@@ -132,6 +132,10 @@ supported platform matrix without exposing release secrets to untrusted jobs.
 - The first compile-only Windows run reached the architecture harness and
   exposed path-separator assumptions. Harness paths are now normalized to
   repository-style separators, with a self-test covering Windows input.
+- The following Windows run reached the public API budget and exposed its own
+  separator assumption. The repository-wide harness audit found no other raw
+  relative-path comparisons; the public API checker now normalizes and
+  self-checks Windows paths too.
 - A successful rerun of the real GitHub Actions matrix is still required before
   this plan can move to completed.
 
