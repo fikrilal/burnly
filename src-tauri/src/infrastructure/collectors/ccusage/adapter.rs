@@ -412,7 +412,7 @@ mod tests {
 
         let descriptor = collector.describe().expect("descriptor");
         assert_eq!(descriptor.collector.as_str(), "ccusage");
-        assert_eq!(descriptor.runtime_version, "20.0.11");
+        assert_eq!(descriptor.runtime_version, "20.0.14");
 
         let detection = collector
             .detect(
@@ -520,12 +520,12 @@ mod tests {
     #[ignore = "set BURNLY_CCUSAGE_DEV_BINARY to run the pinned local sidecar smoke test"]
     fn smoke_tests_opt_in_real_sidecar_shape() {
         let binary = std::env::var_os("BURNLY_CCUSAGE_DEV_BINARY")
-            .expect("BURNLY_CCUSAGE_DEV_BINARY must point to a ccusage 20.0.11 binary");
+            .expect("BURNLY_CCUSAGE_DEV_BINARY must point to a ccusage 20.0.14 binary");
         let collector = CcusageCollector::development(PathBuf::from(binary)).expect("collector");
         let descriptor = collector.describe().expect("descriptor");
 
         assert_eq!(descriptor.collector.as_str(), "ccusage");
-        assert_eq!(descriptor.runtime_version, "20.0.11");
+        assert_eq!(descriptor.runtime_version, "20.0.14");
     }
 
     fn fake_collector(name: &str) -> FakeCollector {

@@ -29,6 +29,7 @@ This directory is the source of truth for Burnly product and engineering decisio
 - [Architecture boundaries](./engineering/architecture-boundaries.md)
 - [Desktop runtime evidence](./engineering/desktop-runtime-evidence.md)
 - [Release security baseline](./engineering/release-security-baseline.md)
+- [Packaged sidecars](./engineering/packaged-sidecars.md)
 
 ## Planning
 

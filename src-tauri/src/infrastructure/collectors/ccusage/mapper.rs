@@ -573,7 +573,7 @@ mod tests {
     #[test]
     fn rejects_invalid_mapping_context_and_values() {
         assert_eq!(
-            build_context(SourceKey::ClaudeCode, "20.0.11", 1, " ").expect_err("empty timezone"),
+            build_context(SourceKey::ClaudeCode, "20.0.14", 1, " ").expect_err("empty timezone"),
             MappingError::EmptyAggregationTimezone
         );
         assert_eq!(
@@ -581,7 +581,7 @@ mod tests {
             MappingError::EmptyCollectorVersion
         );
         assert_eq!(
-            build_context(SourceKey::ClaudeCode, "20.0.11", 0, "UTC").expect_err("invalid profile"),
+            build_context(SourceKey::ClaudeCode, "20.0.14", 0, "UTC").expect_err("invalid profile"),
             MappingError::InvalidProfileVersion
         );
         assert_eq!(map_cost(-0.1, 1), Err(MappingError::InvalidCost));
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn maps_codex_daily_usage_with_deterministic_identity() {
         let context =
-            build_context(SourceKey::Codex, "20.0.11", 1, "Asia/Jakarta").expect("context");
+            build_context(SourceKey::Codex, "20.0.14", 1, "Asia/Jakarta").expect("context");
         let candidates = map_codex_daily(
             decode_codex_daily(CODEX_DAILY_VALID).expect("decoded fixture"),
             context,
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn maps_codex_session_usage_with_deterministic_identity() {
-        let context = build_context(SourceKey::Codex, "20.0.11", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::Codex, "20.0.14", 1, "UTC").expect("context");
         let candidates = map_codex_session(
             decode_codex_session(CODEX_SESSION_VALID).expect("decoded fixture"),
             context,
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn maps_opencode_daily_usage_with_deterministic_identity() {
         let context =
-            build_context(SourceKey::OpenCode, "20.0.11", 1, "Asia/Jakarta").expect("context");
+            build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
         let candidates = map_opencode_daily(
             decode_opencode_daily(OPENCODE_DAILY_VALID).expect("decoded fixture"),
             context,
@@ -714,7 +714,7 @@ mod tests {
 
     #[test]
     fn maps_opencode_session_usage_with_deterministic_identity() {
-        let context = build_context(SourceKey::OpenCode, "20.0.11", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::OpenCode, "20.0.14", 1, "UTC").expect("context");
         let candidates = map_opencode_session(
             decode_opencode_session(OPENCODE_SESSION_VALID).expect("decoded fixture"),
             context,
@@ -735,7 +735,7 @@ mod tests {
     }
 
     fn context(timezone: &str) -> MappingContext {
-        build_context(SourceKey::ClaudeCode, "20.0.11", 1, timezone).expect("mapping context")
+        build_context(SourceKey::ClaudeCode, "20.0.14", 1, timezone).expect("mapping context")
     }
 
     fn build_context(

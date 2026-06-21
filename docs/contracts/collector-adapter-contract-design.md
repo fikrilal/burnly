@@ -226,7 +226,7 @@ Initial priority sources:
 - `codex` mapped to `ccusage codex`
 - `opencode` mapped to `ccusage opencode`
 
-Other sources exposed by `ccusage 20.0.11` are not automatically Burnly-supported. Each requires fixtures, a capability profile, privacy review, and cross-platform validation before being marked `supported`.
+Other sources exposed by `ccusage 20.0.14` are not automatically Burnly-supported. Each requires fixtures, a capability profile, privacy review, and cross-platform validation before being marked `supported`.
 
 The registry may be expanded without changing the collector port.
 
@@ -316,7 +316,7 @@ The exact values require fixtures, but the shape is:
 
 ```text
 source: codex
-collector: ccusage 20.0.11
+collector: ccusage 20.0.14
 daily: supported
 session: supported
 model: supported
@@ -544,7 +544,7 @@ The adapter must not replace aggregate totals with the sum of model rows because
 The reviewed local baseline is:
 
 ```text
-ccusage version: 20.0.11
+ccusage version: 20.0.14
 repository commit: 43836bc
 review date: June 14, 2026
 ```
@@ -637,7 +637,7 @@ Profile-specific examples:
 
 ### Controlled configuration
 
-`ccusage 20.0.11` discovers configuration from the working directory and Claude configuration directories unless `--config` is supplied.
+`ccusage 20.0.14` discovers configuration from the working directory and Claude configuration directories unless `--config` is supplied.
 
 Burnly always passes a bundle- or app-owned valid empty JSON object:
 
@@ -814,7 +814,7 @@ Do not use a completely untyped `serde_json::Value` mapper for canonical ingesti
 
 Fields with known source differences use source-specific typed envelopes or narrowly scoped custom deserializers.
 
-### Known envelope differences in `20.0.11`
+### Known envelope differences in `20.0.14`
 
 Examples from the reviewed implementation:
 
@@ -979,7 +979,7 @@ For zero usage:
 
 ### Missing pricing
 
-`ccusage 20.0.11` may communicate missing embedded pricing through stderr warnings while still producing JSON.
+`ccusage 20.0.14` may communicate missing embedded pricing through stderr warnings while still producing JSON.
 
 The adapter uses:
 

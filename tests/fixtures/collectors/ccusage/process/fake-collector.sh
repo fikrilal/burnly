@@ -29,7 +29,7 @@ if [ "$1" = "claude" ] || [ "$1" = "codex" ] || [ "$1" = "opencode" ]; then
 fi
 
 case "$1" in
-  --version) printf 'ccusage 20.0.11\n' ;;
+  --version) printf 'ccusage 20.0.14\n' ;;
   success)
     if IFS= read -r _; then exit 8; fi
     if [ -n "${CCUSAGE_MODEL_ALIASES:-}" ]; then exit 9; fi

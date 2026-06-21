@@ -11,7 +11,8 @@
       "packageName": "@ccusage/ccusage-darwin-arm64",
       "executableName": "ccusage",
       "integrity": {
-        "kind": "unverified_dev"
+        "kind": "release_sha256",
+        "sha256": "df44e944327d6fc071c313d59785bb5ad28f1f57b70075bb6c5ef6da957cb3fc"
       }
     },
     {
@@ -20,7 +21,8 @@
       "packageName": "@ccusage/ccusage-darwin-x64",
       "executableName": "ccusage",
       "integrity": {
-        "kind": "unverified_dev"
+        "kind": "release_sha256",
+        "sha256": "97f5de32caab953e3ce789f3b62d45551219a8cc106d871dc93afccdf6bf61bf"
       }
     },
     {
@@ -29,7 +31,8 @@
       "packageName": "@ccusage/ccusage-linux-arm64",
       "executableName": "ccusage",
       "integrity": {
-        "kind": "unverified_dev"
+        "kind": "release_sha256",
+        "sha256": "f1f7e21073f17905a02daa31cc2b117e39fe10aae18454b228dec04a11a5d1de"
       }
     },
     {
@@ -38,7 +41,8 @@
       "packageName": "@ccusage/ccusage-linux-x64",
       "executableName": "ccusage",
       "integrity": {
-        "kind": "unverified_dev"
+        "kind": "release_sha256",
+        "sha256": "dfcd0ea98fc56d71cff77db000d307b011fe218333ac93f7697d242e1f587e35"
       }
     },
     {
@@ -47,7 +51,8 @@
       "packageName": "@ccusage/ccusage-win32-arm64",
       "executableName": "ccusage.exe",
       "integrity": {
-        "kind": "unverified_dev"
+        "kind": "release_sha256",
+        "sha256": "336d4d321517546921a6b242e00b7c9d58d91317f23fed98a334f3c96faec6b1"
       }
     },
     {
@@ -56,7 +61,8 @@
       "packageName": "@ccusage/ccusage-win32-x64",
       "executableName": "ccusage.exe",
       "integrity": {
-        "kind": "unverified_dev"
+        "kind": "release_sha256",
+        "sha256": "e25ee0cf400037fa4bcb4e2b7d267cfd56f1d43487c5bc5c823b6fc3c5c24c5c"
       }
     }
   ]

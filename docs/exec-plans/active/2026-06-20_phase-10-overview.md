@@ -33,7 +33,7 @@ platform behavior, distribution automation, and upgrade paths.
 | Chunk                                 | Status | Dependency     | Plan                                                                   |
 | ------------------------------------- | ------ | -------------- | ---------------------------------------------------------------------- |
 | Phase 10A: Release security baseline  | Done   | Phase 9        | [Plan](../completed/2026-06-20_phase-10a-release-security-baseline.md) |
-| Phase 10B: Packaged sidecars          | Queued | Phase 10A      | [Plan](../queued/2026-06-20_phase-10b-packaged-sidecars.md)            |
+| Phase 10B: Packaged sidecars          | Done   | Phase 10A      | [Plan](../completed/2026-06-20_phase-10b-packaged-sidecars.md)         |
 | Phase 10C: Packaging and metadata     | Queued | Phase 10A      | [Plan](../queued/2026-06-20_phase-10c-packaging-metadata.md)           |
 | Phase 10D: Cross-platform behavior    | Queued | Phases 10B-10C | [Plan](../queued/2026-06-20_phase-10d-cross-platform-behavior.md)      |
 | Phase 10E: CI and release workflow    | Queued | Phases 10B-10C | [Plan](../queued/2026-06-20_phase-10e-ci-release-workflow.md)          |
@@ -84,7 +84,7 @@ platform behavior, distribution automation, and upgrade paths.
 ## Progress
 
 - [x] Phase 10A completed and verified.
-- [ ] Phase 10B completed and verified.
+- [x] Phase 10B completed and verified.
 - [ ] Phase 10C completed and verified.
 - [ ] Phase 10D completed and verified.
 - [ ] Phase 10E completed and verified.
@@ -105,11 +105,14 @@ platform behavior, distribution automation, and upgrade paths.
   permissions with exact Burnly command and event-listener permissions, added a
   restrictive CSP, disabled the asset protocol, and added command/CSP/capability
   drift checks.
+- Phase 10B pinned `ccusage 20.0.14`, recorded reviewed native-package checksums
+  for six targets, added deterministic target staging, and packaged only the
+  verified selected binary plus its release manifest.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: passed through Phase 10A.
+- Outcome: passed through Phase 10B.
 
 ## Runtime Evidence
 
@@ -117,7 +120,10 @@ platform behavior, distribution automation, and upgrade paths.
   Ubuntu 24.04 x86_64, GNOME, X11.
 - An isolated native launch smoke remained healthy until its expected timeout
   with the enforced CSP and capability policy.
-- Remaining supported-platform evidence is required in later chunks.
+- Phase 10B built and inspected a Debian package whose installed sidecar had
+  mode `0755`, the reviewed checksum, and reported `ccusage 20.0.14`.
+- Remaining macOS, Windows, and Linux ARM64 evidence is required in Phases 10D,
+  10E, and 10H.
 
 ## Follow-Up Debt
 

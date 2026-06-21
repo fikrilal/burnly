@@ -12,8 +12,8 @@ const DEVELOPMENT_MANIFEST: &str = include_str!(concat!(
     "/sidecars/ccusage/development-manifest.json"
 ));
 const EXPECTED_COLLECTOR_KEY: &str = "ccusage";
-const EXPECTED_VERSION: &str = "20.0.11";
-const EXPECTED_SOURCE_REVISION: &str = "43836bcec1558fec9da7cb73017928c51443b32b";
+const EXPECTED_VERSION: &str = "20.0.14";
+const EXPECTED_SOURCE_REVISION: &str = "a7726bb9227ef828a8fa06422a08162254a61563";
 const ADAPTER_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -123,6 +123,8 @@ pub(crate) fn development_manifest() -> &'static SidecarManifest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SidecarEntry {
     target: BinaryTarget,
+    rust_target_triple: String,
+    package_name: String,
     executable_name: String,
     integrity: IntegrityPolicy,
 }
@@ -136,6 +138,14 @@ impl SidecarEntry {
         &self.executable_name
     }
 
+    pub(crate) fn rust_target_triple(&self) -> &str {
+        &self.rust_target_triple
+    }
+
+    pub(crate) fn package_name(&self) -> &str {
+        &self.package_name
+    }
+
     pub(crate) fn integrity(&self) -> &IntegrityPolicy {
         &self.integrity
     }
@@ -143,6 +153,12 @@ impl SidecarEntry {
     fn validate(&self) -> Result<(), ManifestError> {
         if self.executable_name != self.target.executable_name() {
             return Err(ManifestError::UnexpectedExecutableName(self.target));
+        }
+        if self.rust_target_triple != self.target.rust_target_triple() {
+            return Err(ManifestError::UnexpectedTargetTriple(self.target));
+        }
+        if self.package_name != self.target.package_name() {
+            return Err(ManifestError::UnexpectedPackageName(self.target));
         }
         self.integrity.validate()
     }
@@ -231,6 +247,17 @@ impl BinaryTarget {
         }
     }
 
+    pub(crate) const fn rust_target_triple(self) -> &'static str {
+        match self {
+            Self::DarwinArm64 => "aarch64-apple-darwin",
+            Self::DarwinX64 => "x86_64-apple-darwin",
+            Self::LinuxArm64 => "aarch64-unknown-linux-gnu",
+            Self::LinuxX64 => "x86_64-unknown-linux-gnu",
+            Self::WindowsArm64 => "aarch64-pc-windows-msvc",
+            Self::WindowsX64 => "x86_64-pc-windows-msvc",
+        }
+    }
+
     pub(crate) const fn executable_name(self) -> &'static str {
         match self {
             Self::WindowsArm64 | Self::WindowsX64 => "ccusage.exe",
@@ -254,6 +281,12 @@ impl BinaryTarget {
         } else {
             None
         }
+    }
+
+    pub(crate) fn from_rust_target_triple(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|target| target.rust_target_triple() == value)
     }
 }
 
@@ -283,6 +316,10 @@ pub(crate) enum ManifestError {
     InvalidIntegrityState,
     #[error("ccusage manifest has an unexpected executable name for {0:?}")]
     UnexpectedExecutableName(BinaryTarget),
+    #[error("ccusage manifest has an unexpected Rust target triple for {0:?}")]
+    UnexpectedTargetTriple(BinaryTarget),
+    #[error("ccusage manifest has an unexpected package name for {0:?}")]
+    UnexpectedPackageName(BinaryTarget),
     #[error("ccusage release checksum must be 64 lowercase hexadecimal characters")]
     InvalidSha256,
 }
@@ -301,11 +338,22 @@ mod tests {
     #[test]
     fn parses_checked_in_development_manifest_with_explicit_unverified_state() {
         let manifest = development_manifest();
+        for target in BinaryTarget::ALL {
+            assert_eq!(
+                manifest
+                    .entry_for(target)
+                    .expect("supported development target")
+                    .integrity(),
+                &IntegrityPolicy::UnverifiedDev
+            );
+        }
         let entry = manifest
             .entry_for(BinaryTarget::LinuxX64)
             .expect("linux x64 development entry");
 
         assert_eq!(entry.executable_name(), "ccusage");
+        assert_eq!(entry.rust_target_triple(), "x86_64-unknown-linux-gnu");
+        assert_eq!(entry.package_name(), "@ccusage/ccusage-linux-x64");
         assert_eq!(entry.integrity(), &IntegrityPolicy::UnverifiedDev);
         assert_eq!(
             manifest
@@ -381,6 +429,35 @@ mod tests {
                 "@ccusage/ccusage-win32-x64",
             ]
         );
+        for target in BinaryTarget::ALL {
+            assert_eq!(
+                BinaryTarget::from_rust_target_triple(target.rust_target_triple()),
+                Some(target)
+            );
+        }
+        assert_eq!(
+            BinaryTarget::from_rust_target_triple("wasm32-unknown-unknown"),
+            None
+        );
+    }
+
+    #[test]
+    fn checked_in_release_manifest_is_complete_and_verified() {
+        let manifest = SidecarManifest::parse(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/sidecars/ccusage/release-manifest.json"
+        )))
+        .expect("release manifest");
+
+        for target in BinaryTarget::ALL {
+            let entry = manifest.entry_for(target).expect("release target entry");
+            assert_eq!(entry.rust_target_triple(), target.rust_target_triple());
+            assert_eq!(entry.package_name(), target.package_name());
+            assert!(matches!(
+                entry.integrity(),
+                IntegrityPolicy::ReleaseSha256 { .. }
+            ));
+        }
     }
 
     #[test]
@@ -395,10 +472,14 @@ mod tests {
 
     #[test]
     fn rejects_unknown_target_and_malformed_manifest() {
+        let linux_only_manifest =
+            SidecarManifest::parse(&manifest_json(r#"{"kind":"unverified_dev"}"#))
+                .expect("linux-only manifest");
+
         assert!(matches!(
-            development_manifest().descriptor(
+            linux_only_manifest.descriptor(
                 BinaryTarget::DarwinArm64,
-                "20.0.11".to_owned(),
+                "20.0.14".to_owned(),
                 CollectorIntegrity::UnverifiedDevelopment,
             ),
             Err(ManifestError::TargetNotDeclared(BinaryTarget::DarwinArm64))
@@ -414,11 +495,13 @@ mod tests {
             r#"{{
                 "collectorKey":"ccusage",
                 "displayName":"ccusage",
-                "expectedVersion":"20.0.11",
-                "sourceRevision":"43836bcec1558fec9da7cb73017928c51443b32b",
+                "expectedVersion":"20.0.14",
+                "sourceRevision":"a7726bb9227ef828a8fa06422a08162254a61563",
                 "adapterVersion":1,
                 "entries":[{{
                     "target":"linux-x64",
+                    "rustTargetTriple":"x86_64-unknown-linux-gnu",
+                    "packageName":"@ccusage/ccusage-linux-x64",
                     "executableName":"ccusage",
                     "integrity":{integrity}
                 }}]

@@ -38,12 +38,12 @@ location, permissions, version, and execution policy from installed bundles.
 
 ## Checklist
 
-- [ ] Define supported target triples and artifact naming.
-- [ ] Pin collector versions and acquire reproducible binaries.
-- [ ] Record and verify SHA-256 checksums.
-- [ ] Configure Tauri external binaries for each target.
-- [ ] Test packaged path, permissions, version, and smoke execution.
-- [ ] Add manifest completeness and tamper tests.
+- [x] Define supported target triples and artifact naming.
+- [x] Pin collector versions and acquire reproducible binaries.
+- [x] Record and verify SHA-256 checksums.
+- [x] Configure Tauri resources for the selected target binary and manifest.
+- [x] Test packaged path, permissions, version, and smoke execution on Linux.
+- [x] Add manifest completeness and tamper tests.
 
 ## Test Plan
 
@@ -59,16 +59,39 @@ location, permissions, version, and execution policy from installed bundles.
 ## Decisions
 
 - Release builds fail closed when sidecar integrity cannot be established.
+- `ccusage` is pinned exactly to `20.0.14`; the release manifest records the
+  source revision, native package, target triple, executable name, and SHA-256
+  for six supported targets.
+- Packaging stages only the selected target under an ignored runtime directory.
+  The staging command verifies package identity, version, checksum, and native
+  host execution before Tauri assembles a bundle.
+- Tauri packages the staged binary and release manifest as resources. The Rust
+  adapter remains responsible for runtime version and checksum enforcement.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed; 250 Rust tests passed with 2 ignored, 73 frontend tests
+  passed, and all harness checks passed.
+- Command: `pnpm verify:runtime`
+- Outcome: passed on Ubuntu 24.04 x86_64, GNOME, X11; 30 Playwright tests
+  passed.
+- Command: `pnpm sidecar:prepare && pnpm sidecar:check`
+- Outcome: passed for `x86_64-unknown-linux-gnu`; staged `ccusage 20.0.14`
+  matched the reviewed SHA-256 and executed successfully.
+- Command: `pnpm tauri build --debug --bundles deb`
+- Outcome: passed; the Debian package contained the executable sidecar and
+  release manifest at the configured resource path.
 
 ## Runtime Evidence
 
-- Required on each supported target.
+- The extracted Debian package contained
+  `usr/lib/Burnly/sidecars/ccusage/ccusage` with mode `0755`, the reviewed
+  checksum, and output `ccusage 20.0.14`.
+- macOS and Windows installed-bundle execution remains part of Phase 10D
+  cross-platform evidence and Phase 10E's build matrix.
 
 ## Follow-Up Debt
 
-- None.
+- Capture installed-bundle sidecar execution on macOS ARM64/x64, Windows
+  ARM64/x64, and Linux ARM64 once the platform matrix is available.
