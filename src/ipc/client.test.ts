@@ -1,19 +1,38 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 
 import {
   getAppBootstrap,
   getAppCapabilities,
+  getDiagnosticsStatus,
+  getDiagnosticsHistory,
+  getExportPreview,
+  exportHistory,
+  deleteHistory,
+  getDeleteHistoryPreview,
+  revealDiagnosticsLogs,
+  createBudget,
+  deleteBudget,
+  disableBudget,
+  enableBudget,
+  getBudget,
+  getCurrentBudgetProgress,
+  listBudgets,
   getContractProbe,
   getRefreshState,
+  getSettings,
   getUsageOverview,
   invokeCommand,
   validateInt64String,
   validateUint64String,
+  updateSettings,
+  updateProjectPathRetention,
+  updateBudget,
 } from "./client";
 import {
   COMMAND_NAMES,
   CONTRACT_VERSION,
+  type BudgetDefinition,
   type CommandInvoker,
   type IpcResponse,
   type UsageOverviewResponse,
@@ -55,6 +74,188 @@ describe("IPC command responses", () => {
     expect(result.data.diagnostics.desktopEvidence).toBe(true);
   });
 
+  it("validates diagnostics status data from the desktop runtime", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsGetStatus);
+      expect(request).toEqual({});
+      return Promise.resolve(diagnosticsStatus());
+    };
+
+    const result = await getDiagnosticsStatus(invoker);
+
+    expect(result.data.status).toBe("degraded");
+    expect(result.data.components[0]).toMatchObject({
+      component: "database",
+      status: "healthy",
+    });
+    expect(result.data.logs.status).toBe("available");
+  });
+
+  it("invokes diagnostics log reveal through the dedicated command", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsRevealLogs);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        data: {
+          status: "revealed",
+          message: "Logs opened in the system file manager.",
+        },
+        meta,
+      });
+    };
+
+    const result = await revealDiagnosticsLogs(invoker);
+
+    expect(result.data.status).toBe("revealed");
+  });
+
+  it("validates bounded diagnostics history", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsGetHistory);
+      expect(request).toEqual({ request: { limit: 10 } });
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: {
+          items: [
+            {
+              trigger: "manual",
+              status: "succeeded",
+              summary: "1 imports; 2 accepted; 0 rejected.",
+              startedAt: "2026-06-19T01:00:00.000Z",
+              finishedAt: "2026-06-19T01:00:01.000Z",
+              importCount: 1,
+              recordsSeen: "2",
+              recordsRejected: "0",
+              failure: null,
+              imports: [
+                {
+                  source: "Claude Code",
+                  projection: "daily",
+                  scope: "full",
+                  status: "succeeded",
+                  startedAt: "2026-06-19T01:00:00.000Z",
+                  finishedAt: "2026-06-19T01:00:01.000Z",
+                  recordsSeen: "2",
+                  recordsRejected: "0",
+                  failure: null,
+                },
+              ],
+            },
+          ],
+          nextCursor: null,
+          limit: 10,
+        },
+      });
+    };
+
+    const result = await getDiagnosticsHistory({ limit: 10 }, invoker);
+    expect(result.data.items[0]?.imports[0]?.source).toBe("Claude Code");
+  });
+
+  it("previews and confirms export through separate commands", async () => {
+    const request = {
+      startDate: "2026-06-01",
+      endDate: "2026-06-30",
+      datasets: ["daily_usage" as const],
+    };
+    const previewInvoker: CommandInvoker = (command, payload) => {
+      expect(command).toBe(COMMAND_NAMES.historyGetExportPreview);
+      expect(payload).toEqual({ request });
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: {
+          ...request,
+          format: "csv",
+          datasets: [{ dataset: "daily_usage", rows: "2" }],
+          totalRows: "2",
+          estimatedBytes: "640",
+          privacyNotes: ["No raw paths."],
+          previewToken: "a".repeat(64),
+          canExport: true,
+        },
+      });
+    };
+    const preview = await getExportPreview(request, previewInvoker);
+    expect(preview.data.totalRows).toBe("2");
+
+    const exportInvoker: CommandInvoker = (command, payload) => {
+      expect(command).toBe(COMMAND_NAMES.historyExport);
+      expect(payload).toEqual({
+        request: { request, previewToken: "a".repeat(64) },
+      });
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: { status: "exported", rows: "2", message: "CSV export saved." },
+      });
+    };
+    const result = await exportHistory(request, "a".repeat(64), exportInvoker);
+    expect(result.data.status).toBe("exported");
+  });
+
+  it("previews and confirms destructive history deletion through separate commands", async () => {
+    const previewInvoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.historyGetDeletePreview);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: {
+          scope: "All imported history.",
+          earliestDate: "2026-06-01",
+          latestDate: "2026-06-19",
+          sourceCount: "1",
+          totalRecords: "4",
+          preserved: ["Settings"],
+          previewToken: "b".repeat(64),
+          canDelete: true,
+          activeRefresh: false,
+          confirmationText: "DELETE ALL HISTORY",
+          counts: {
+            dailyUsage: "1",
+            dailyModelUsage: "0",
+            sessions: "1",
+            sessionModelUsage: "0",
+            refreshRuns: "1",
+            importRuns: "1",
+            projects: "0",
+            sourceModels: "0",
+            notificationRecords: "0",
+          },
+        },
+      });
+    };
+    const preview = await getDeleteHistoryPreview(previewInvoker);
+    expect(preview.data.totalRecords).toBe("4");
+
+    const deleteInvoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.historyDelete);
+      expect(request).toEqual({
+        request: {
+          previewToken: "b".repeat(64),
+          confirmation: "DELETE ALL HISTORY",
+        },
+      });
+      return Promise.resolve({
+        ok: true,
+        meta,
+        data: {
+          deletedRecords: "4",
+          message: "Local imported history deleted.",
+        },
+      });
+    };
+    const result = await deleteHistory(
+      "b".repeat(64),
+      "DELETE ALL HISTORY",
+      deleteInvoker,
+    );
+    expect(result.data.deletedRecords).toBe("4");
+  });
+
   it("validates refresh state from the desktop runtime", async () => {
     const invoker: CommandInvoker = () => Promise.resolve(refreshState());
 
@@ -81,6 +282,246 @@ describe("IPC command responses", () => {
         },
       ],
     });
+  });
+});
+
+describe("settings IPC", () => {
+  it("gets and updates revisioned settings through dedicated commands", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      if (command === COMMAND_NAMES.settingsGet) {
+        expect(request).toEqual({});
+        return Promise.resolve(settingsResponse(1));
+      }
+      expect(command).toBe(COMMAND_NAMES.settingsUpdate);
+      expect(request).toMatchObject({
+        request: {
+          expectedRevision: 1,
+          reportingTimezone: "UTC",
+        },
+      });
+      return Promise.resolve(settingsResponse(2));
+    };
+
+    expect((await getSettings(invoker)).data.revision).toBe(1);
+    expect(
+      (
+        await updateSettings(
+          {
+            expectedRevision: 1,
+            reportingTimezone: "UTC",
+            backgroundRefreshEnabled: false,
+            refreshIntervalMinutes: 15,
+            launchAtLogin: false,
+            closeBehavior: "quit",
+            notificationsEnabled: false,
+            storeProjectPaths: false,
+          },
+          invoker,
+        )
+      ).data.revision,
+    ).toBe(2);
+  });
+
+  it("wraps project-path retention transitions in the named request argument", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.settingsUpdateProjectPathRetention);
+      expect(request).toEqual({
+        request: { expectedRevision: 1, retainPaths: false },
+      });
+      return Promise.resolve({
+        ok: true,
+        data: {
+          settings: settingsResponseData(2),
+          clearedPaths: 3,
+        },
+        meta,
+      });
+    };
+
+    const result = await updateProjectPathRetention(
+      { expectedRevision: 1, retainPaths: false },
+      invoker,
+    );
+
+    expect(result.data.clearedPaths).toBe(3);
+    expect(result.data.settings.revision).toBe(2);
+  });
+
+  it("rejects invalid settings before transport", async () => {
+    const invoker = vi.fn<CommandInvoker>();
+
+    await expect(
+      updateSettings(
+        {
+          expectedRevision: 1,
+          reportingTimezone: "UTC",
+          backgroundRefreshEnabled: true,
+          refreshIntervalMinutes: 1,
+          launchAtLogin: false,
+          closeBehavior: "quit",
+          notificationsEnabled: false,
+          storeProjectPaths: false,
+        },
+        invoker,
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+    expect(invoker).not.toHaveBeenCalled();
+  });
+});
+
+describe("budget IPC queries", () => {
+  it("invokes list, get, create, and progress contracts", async () => {
+    const invoker = vi.fn<CommandInvoker>((command, request) => {
+      if (command === COMMAND_NAMES.budgetsGetProgress) {
+        expect(request).toEqual({});
+        return Promise.resolve(currentBudgetProgress());
+      }
+      if (command === COMMAND_NAMES.budgetsList) {
+        expect(request).toEqual({});
+        return Promise.resolve({
+          ok: true,
+          data: { items: [budgetResponseData("1")] },
+          meta,
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        data: budgetResponseData("2"),
+        meta,
+      });
+    });
+
+    expect((await listBudgets(invoker)).data.items[0]?.revision).toBe("1");
+    expect((await getBudget({ budgetId: "7" }, invoker)).data.id).toBe("7");
+    expect(
+      (await getCurrentBudgetProgress(invoker)).data.items[0]?.exceeded,
+    ).toBe(true);
+    expect(
+      (await createBudget({ budget: tokenBudgetDefinition() }, invoker)).data
+        .limit,
+    ).toEqual({ kind: "tokens", value: "100000" });
+    expect(invoker.mock.calls.map(([command]) => command)).toEqual([
+      COMMAND_NAMES.budgetsList,
+      COMMAND_NAMES.budgetsGet,
+      COMMAND_NAMES.budgetsGetProgress,
+      COMMAND_NAMES.budgetsCreate,
+    ]);
+  });
+});
+
+describe("budget IPC mutations", () => {
+  it("invokes update, disable, enable, and delete contracts", async () => {
+    const invoker = vi.fn<CommandInvoker>((command, request) => {
+      if (command === COMMAND_NAMES.budgetsDelete) {
+        expect(request).toEqual({
+          request: { budgetId: "7", expectedRevision: "4" },
+        });
+        return Promise.resolve({
+          ok: true,
+          data: { budgetId: "7" },
+          meta,
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        data: budgetResponseData("2"),
+        meta,
+      });
+    });
+
+    expect(
+      (
+        await updateBudget(
+          {
+            budgetId: "7",
+            expectedRevision: "1",
+            budget: tokenBudgetDefinition(),
+          },
+          invoker,
+        )
+      ).data.revision,
+    ).toBe("2");
+    expect(
+      (await disableBudget({ budgetId: "7", expectedRevision: "2" }, invoker))
+        .data.enabled,
+    ).toBe(true);
+    expect(
+      (await enableBudget({ budgetId: "7", expectedRevision: "3" }, invoker))
+        .data.revision,
+    ).toBe("2");
+    expect(
+      (await deleteBudget({ budgetId: "7", expectedRevision: "4" }, invoker))
+        .data.budgetId,
+    ).toBe("7");
+    expect(invoker.mock.calls.map(([command]) => command)).toEqual([
+      COMMAND_NAMES.budgetsUpdate,
+      COMMAND_NAMES.budgetsDisable,
+      COMMAND_NAMES.budgetsEnable,
+      COMMAND_NAMES.budgetsDelete,
+    ]);
+    expect(invoker.mock.calls[0]?.[1]).toEqual({
+      request: {
+        budgetId: "7",
+        expectedRevision: "1",
+        budget: tokenBudgetDefinition(),
+      },
+    });
+  });
+});
+
+describe("budget IPC validation", () => {
+  it("rejects malformed exact values and duplicate thresholds before transport", async () => {
+    const invoker = vi.fn<CommandInvoker>();
+
+    await expect(
+      createBudget(
+        {
+          budget: {
+            ...tokenBudgetDefinition(),
+            limit: { kind: "tokens", value: "01" },
+          },
+        },
+        invoker,
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+    await expect(
+      getBudget({ budgetId: "not-an-id" }, invoker),
+    ).rejects.toBeInstanceOf(ZodError);
+    await expect(
+      updateBudget(
+        {
+          budgetId: "7",
+          expectedRevision: "1",
+          budget: {
+            ...tokenBudgetDefinition(),
+            thresholds: [
+              { basisPoints: 8000, enabled: true },
+              { basisPoints: 8000, enabled: false },
+            ],
+          },
+        },
+        invoker,
+      ),
+    ).rejects.toBeInstanceOf(ZodError);
+    expect(invoker).not.toHaveBeenCalled();
+  });
+});
+
+describe("budget IPC response validation", () => {
+  it("rejects malformed budget responses at the boundary", async () => {
+    const invoker: CommandInvoker = () =>
+      Promise.resolve({
+        ok: true,
+        data: {
+          ...budgetResponseData("1"),
+          scope: { kind: "source", sourceId: "0" },
+        },
+        meta,
+      });
+
+    await expect(getBudget({ budgetId: "7" }, invoker)).rejects.toBeInstanceOf(
+      ZodError,
+    );
   });
 });
 
@@ -131,6 +572,61 @@ function contractProbe(): IpcResponse<{
   };
 }
 
+function tokenBudgetDefinition(): BudgetDefinition {
+  return {
+    name: "Monthly tokens",
+    limit: { kind: "tokens", value: "100000" },
+    period: "monthly",
+    scope: { kind: "global" },
+    enabled: true,
+    thresholds: [
+      { basisPoints: 8000, enabled: true },
+      { basisPoints: 10000, enabled: true },
+    ],
+  };
+}
+
+function budgetResponseData(revision: string) {
+  return {
+    id: "7",
+    revision,
+    ...tokenBudgetDefinition(),
+  };
+}
+
+function currentBudgetProgress(): IpcResponse<unknown> {
+  return {
+    ok: true,
+    data: {
+      status: "available",
+      reportingTimezone: "UTC",
+      asOf: "2026-06-15T07:30:00.000Z",
+      configuredBudgetCount: 1,
+      enabledBudgetCount: 1,
+      traySummary: "Budget: Monthly tokens 125%",
+      items: [
+        {
+          budgetId: "7",
+          budgetName: "Monthly tokens",
+          period: "monthly",
+          periodStartDate: "2026-06-01",
+          periodEndDate: "2026-06-30",
+          metric: "tokens",
+          state: "available",
+          current: "125000",
+          limit: "100000",
+          currency: null,
+          basisPoints: "12500",
+          exceeded: true,
+          completeness: "complete",
+          unavailableDays: 0,
+        },
+      ],
+    },
+    meta,
+  };
+}
+
 function bootstrap(): IpcResponse<unknown> {
   return {
     ok: true,
@@ -149,6 +645,7 @@ function bootstrap(): IpcResponse<unknown> {
         closeBehavior: "quit",
         notificationsEnabled: false,
         storeProjectPaths: false,
+        revision: 1,
       },
       features: {
         usageOverview: false,
@@ -184,11 +681,40 @@ function capabilities(): IpcResponse<unknown> {
     data: {
       tray: capability,
       launchAtLogin: capability,
-      nativeNotifications: capability,
+      nativeNotifications: { ...capability, permission: "unknown" },
       updates: capability,
       exportFormats: [],
       diagnostics: {
         desktopEvidence: true,
+      },
+    },
+    meta,
+  };
+}
+
+function diagnosticsStatus(): IpcResponse<unknown> {
+  return {
+    ok: true,
+    data: {
+      status: "degraded",
+      contractVersion: CONTRACT_VERSION,
+      components: [
+        {
+          component: "database",
+          status: "healthy",
+          summary: "Database is reachable.",
+          details: ["Schema version 1"],
+        },
+        {
+          component: "sources",
+          status: "degraded",
+          summary: "Sources are configured but disabled.",
+          details: ["Configured sources 1"],
+        },
+      ],
+      logs: {
+        status: "available",
+        label: "Burnly logs",
       },
     },
     meta,
@@ -205,6 +731,27 @@ function refreshState(): IpcResponse<unknown> {
       lastSuccessfulRefreshAt: "2026-06-15T00:00:00+00:00",
     },
     meta,
+  };
+}
+
+function settingsResponse(revision: number): IpcResponse<unknown> {
+  return {
+    ok: true,
+    data: settingsResponseData(revision),
+    meta,
+  };
+}
+
+function settingsResponseData(revision: number) {
+  return {
+    reportingTimezone: "UTC",
+    backgroundRefreshEnabled: false,
+    refreshIntervalMinutes: 15,
+    launchAtLogin: false,
+    closeBehavior: "quit" as const,
+    notificationsEnabled: false,
+    storeProjectPaths: false,
+    revision,
   };
 }
 

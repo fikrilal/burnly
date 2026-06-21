@@ -17,6 +17,8 @@ use std::thread;
 
 use chrono::{DateTime, Utc};
 
+use crate::application::budget_evaluation::{BudgetEvaluationError, BudgetEvaluationService};
+use crate::application::budget_notifications::BudgetNotificationService;
 use crate::application::collection::{
     CollectionId, CollectionOutcome, CollectionProjection, CollectionRequest, CollectionResult,
     CollectionScope,
@@ -56,10 +58,68 @@ pub(crate) trait RefreshEventSink: Send + Sync {
     fn publish(&self, snapshot: RefreshSnapshot, usage_changed: bool);
 }
 
+pub(crate) trait BudgetEvaluationRunner: Send + Sync {
+    fn evaluate_after_commit(
+        &self,
+        aggregation_timezone: &str,
+        now_epoch_ms: i64,
+    ) -> Result<(), BudgetEvaluationError>;
+}
+
 struct NoopRefreshEventSink;
 
 impl RefreshEventSink for NoopRefreshEventSink {
     fn publish(&self, _snapshot: RefreshSnapshot, _usage_changed: bool) {}
+}
+
+struct NoopBudgetEvaluationRunner;
+
+impl BudgetEvaluationRunner for NoopBudgetEvaluationRunner {
+    fn evaluate_after_commit(
+        &self,
+        _aggregation_timezone: &str,
+        _now_epoch_ms: i64,
+    ) -> Result<(), BudgetEvaluationError> {
+        Ok(())
+    }
+}
+
+impl BudgetEvaluationRunner for BudgetEvaluationService {
+    fn evaluate_after_commit(
+        &self,
+        aggregation_timezone: &str,
+        now_epoch_ms: i64,
+    ) -> Result<(), BudgetEvaluationError> {
+        self.evaluate(aggregation_timezone, now_epoch_ms)
+            .map(|_| ())
+    }
+}
+
+impl BudgetEvaluationRunner for BudgetNotificationService {
+    fn evaluate_after_commit(
+        &self,
+        aggregation_timezone: &str,
+        now_epoch_ms: i64,
+    ) -> Result<(), BudgetEvaluationError> {
+        self.evaluate_and_deliver(aggregation_timezone, now_epoch_ms)
+    }
+}
+
+pub(crate) struct RefreshCoordinatorHooks {
+    event_sink: Arc<dyn RefreshEventSink>,
+    budget_evaluator: Arc<dyn BudgetEvaluationRunner>,
+}
+
+impl RefreshCoordinatorHooks {
+    pub(crate) fn new(
+        event_sink: Arc<dyn RefreshEventSink>,
+        budget_evaluator: Arc<dyn BudgetEvaluationRunner>,
+    ) -> Self {
+        Self {
+            event_sink,
+            budget_evaluator,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -67,10 +127,11 @@ pub(crate) struct RefreshCoordinator {
     collector: Arc<dyn Collector>,
     run_store: Arc<dyn RunStore>,
     usage_store: Arc<dyn UsageStore>,
+    budget_evaluator: Arc<dyn BudgetEvaluationRunner>,
     clock: Arc<dyn Clock>,
     event_sink: Arc<dyn RefreshEventSink>,
     app_version: String,
-    aggregation_timezone: String,
+    aggregation_timezone: Arc<Mutex<String>>,
     sequence: Arc<AtomicU64>,
     state: Arc<Mutex<CoordinatorState>>,
 }
@@ -104,14 +165,35 @@ impl RefreshCoordinator {
         app_version: impl Into<String>,
         aggregation_timezone: impl Into<String>,
     ) -> Self {
-        Self {
+        Self::with_event_sink_and_budget_evaluator(
             collector,
             run_store,
             usage_store,
             clock,
-            event_sink,
+            RefreshCoordinatorHooks::new(event_sink, Arc::new(NoopBudgetEvaluationRunner)),
+            app_version,
+            aggregation_timezone,
+        )
+    }
+
+    pub(crate) fn with_event_sink_and_budget_evaluator(
+        collector: Arc<dyn Collector>,
+        run_store: Arc<dyn RunStore>,
+        usage_store: Arc<dyn UsageStore>,
+        clock: Arc<dyn Clock>,
+        hooks: RefreshCoordinatorHooks,
+        app_version: impl Into<String>,
+        aggregation_timezone: impl Into<String>,
+    ) -> Self {
+        Self {
+            collector,
+            run_store,
+            usage_store,
+            budget_evaluator: hooks.budget_evaluator,
+            clock,
+            event_sink: hooks.event_sink,
             app_version: app_version.into(),
-            aggregation_timezone: aggregation_timezone.into(),
+            aggregation_timezone: Arc::new(Mutex::new(aggregation_timezone.into())),
             sequence: Arc::new(AtomicU64::new(0)),
             state: Arc::new(Mutex::new(CoordinatorState {
                 status: RefreshStatus::Idle,
@@ -124,6 +206,20 @@ impl RefreshCoordinator {
 
     pub(crate) fn snapshot(&self) -> RefreshSnapshot {
         self.lock_state().snapshot()
+    }
+
+    pub(crate) fn set_aggregation_timezone(&self, timezone: impl Into<String>) {
+        *self
+            .aggregation_timezone
+            .lock()
+            .expect("aggregation timezone lock is poisoned") = timezone.into();
+    }
+
+    fn aggregation_timezone(&self) -> String {
+        self.aggregation_timezone
+            .lock()
+            .expect("aggregation timezone lock is poisoned")
+            .clone()
     }
 
     /// Skeleton cancellation: moves an active run toward `cancelling`. Cooperative
@@ -255,6 +351,7 @@ impl RefreshCoordinator {
         let mut aggregate = RunOutcome::Succeeded;
         let mut usage_changed = false;
         let mut finished_at_ms = started_at_ms;
+        let aggregation_timezone = self.aggregation_timezone();
 
         for target in refresh_targets() {
             let source_id = self
@@ -263,7 +360,8 @@ impl RefreshCoordinator {
                 .map_err(|_| {
                     self.failure("refresh.source", "Could not resolve the usage source.")
                 })?;
-            let request = self.collection_request(job_id, target, requested_at)?;
+            let request =
+                self.collection_request(job_id, target, requested_at, &aggregation_timezone)?;
             let collection =
                 self.collector
                     .collect(request, &NeverCancelled)
@@ -273,7 +371,13 @@ impl RefreshCoordinator {
                             "The collector could not complete the refresh.",
                         )
                     })?;
-            let result = self.persist(refresh_run_id, source_id, started_at_ms, &collection)?;
+            let result = self.persist(
+                refresh_run_id,
+                source_id,
+                started_at_ms,
+                &aggregation_timezone,
+                &collection,
+            )?;
             aggregate = aggregate.combine(result.outcome);
             usage_changed = usage_changed || result.usage_changed;
             finished_at_ms = result.finished_at_ms;
@@ -310,6 +414,7 @@ impl RefreshCoordinator {
         job_id: &str,
         target: RefreshTarget,
         requested_at: DateTime<Utc>,
+        aggregation_timezone: &str,
     ) -> Result<CollectionRequest, ExecutionFailure> {
         let collection_id = CollectionId::new(format!(
             "{job_id}:{}:{}",
@@ -323,7 +428,7 @@ impl RefreshCoordinator {
                 collection_id,
                 target.source,
                 CollectionScope::Full,
-                self.aggregation_timezone.clone(),
+                aggregation_timezone.to_owned(),
                 requested_at,
             )
             .map_err(|_| self.failure("refresh.request", "Refresh request is invalid.")),
@@ -341,6 +446,7 @@ impl RefreshCoordinator {
         refresh_run_id: crate::application::reconciliation::RefreshRunId,
         source_id: crate::application::reconciliation::SourceId,
         now_ms: i64,
+        aggregation_timezone: &str,
         collection: &CollectionResult,
     ) -> Result<ExecutionResult, ExecutionFailure> {
         let metadata = collection.metadata();
@@ -356,7 +462,7 @@ impl RefreshCoordinator {
             import_collector,
             collection.projection(),
             CollectionScope::Full,
-            import_timezone(collection.projection(), &self.aggregation_timezone),
+            import_timezone(collection.projection(), aggregation_timezone),
         )
         .map_err(|_| self.failure("refresh.import", "Import metadata is invalid."))?;
         let import_run_id = self
@@ -367,17 +473,23 @@ impl RefreshCoordinator {
         let collection_outcome = collection.outcome();
         let records_seen = records_seen(collection);
         let records_rejected = clamp_count(collection.rejection_count());
-        self.reconcile_collection(source_id, import_run_id, now_ms, collection)
-            .map_err(|_| {
-                self.import_failure(
-                    import_run_id,
-                    records_seen,
-                    records_rejected,
-                    false,
-                    "refresh.reconciliation",
-                    "Could not reconcile collected usage.",
-                )
-            })?;
+        self.reconcile_collection(
+            source_id,
+            import_run_id,
+            now_ms,
+            aggregation_timezone,
+            collection,
+        )
+        .map_err(|_| {
+            self.import_failure(
+                import_run_id,
+                records_seen,
+                records_rejected,
+                false,
+                "refresh.reconciliation",
+                "Could not reconcile collected usage.",
+            )
+        })?;
 
         let outcome = RunOutcome::from_collection(collection_outcome);
         let finished_at_ms = self.clock.now_epoch_ms();
@@ -415,6 +527,7 @@ impl RefreshCoordinator {
         source_id: crate::application::reconciliation::SourceId,
         import_run_id: crate::application::reconciliation::ImportRunId,
         now_ms: i64,
+        aggregation_timezone: &str,
         collection: &CollectionResult,
     ) -> Result<(), crate::application::ports::usage_store::UsageStoreError> {
         match collection.projection() {
@@ -427,7 +540,11 @@ impl RefreshCoordinator {
                     now_ms,
                     collection.daily_candidates().to_vec(),
                 );
-                self.usage_store.reconcile_daily(reconciliation).map(|_| ())
+                self.usage_store.reconcile_daily(reconciliation)?;
+                let _ = self
+                    .budget_evaluator
+                    .evaluate_after_commit(aggregation_timezone, now_ms);
+                Ok(())
             }
             CollectionProjection::Session => {
                 let reconciliation = SessionReconciliationRequest::new(
@@ -788,6 +905,45 @@ mod tests {
                 .lock()
                 .expect("lock")
                 .push((snapshot.status, usage_changed));
+        }
+    }
+
+    struct RecordingBudgetEvaluator {
+        calls: Mutex<Vec<(String, i64)>>,
+        fail: AtomicBool,
+    }
+
+    impl RecordingBudgetEvaluator {
+        fn new() -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                fail: AtomicBool::new(false),
+            }
+        }
+
+        fn fail(&self) {
+            self.fail.store(true, Ordering::Release);
+        }
+
+        fn calls(&self) -> Vec<(String, i64)> {
+            self.calls.lock().expect("lock").clone()
+        }
+    }
+
+    impl BudgetEvaluationRunner for RecordingBudgetEvaluator {
+        fn evaluate_after_commit(
+            &self,
+            aggregation_timezone: &str,
+            now_epoch_ms: i64,
+        ) -> Result<(), BudgetEvaluationError> {
+            self.calls
+                .lock()
+                .expect("lock")
+                .push((aggregation_timezone.to_owned(), now_epoch_ms));
+            if self.fail.load(Ordering::Acquire) {
+                return Err(BudgetEvaluationError::StorageUnavailable);
+            }
+            Ok(())
         }
     }
 
@@ -1278,6 +1434,47 @@ mod tests {
             vec![
                 (RefreshStatus::Running, false),
                 (RefreshStatus::Succeeded, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn budget_evaluation_runs_after_daily_commit_without_failing_refresh() {
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
+        }));
+        let run_store = Arc::new(FakeRunStore::new());
+        let usage_store = Arc::new(FakeUsageStore::new());
+        let evaluator = Arc::new(RecordingBudgetEvaluator::new());
+        evaluator.fail();
+        let coordinator = RefreshCoordinator::with_event_sink_and_budget_evaluator(
+            collector,
+            run_store.clone(),
+            usage_store.clone(),
+            Arc::new(FakeClock { now_ms: 1_000 }),
+            RefreshCoordinatorHooks::new(Arc::new(NoopRefreshEventSink), evaluator.clone()),
+            "0.1.0",
+            "Asia/Jakarta",
+        );
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Succeeded);
+        assert_eq!(
+            usage_store.reconciled_projections(),
+            expected_refresh_projections()
+        );
+        assert_eq!(
+            run_store.refresh_outcomes(),
+            repeated_refresh_outcomes(RefreshOutcome::Succeeded)
+        );
+        assert_eq!(
+            evaluator.calls(),
+            vec![
+                ("Asia/Jakarta".to_owned(), 1_000),
+                ("Asia/Jakarta".to_owned(), 1_000),
+                ("Asia/Jakarta".to_owned(), 1_000),
             ]
         );
     }

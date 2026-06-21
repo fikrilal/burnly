@@ -35,6 +35,7 @@ type AppState =
       status: "failed";
       title: string;
       message: string;
+      recovery: boolean;
     }
   | {
       status: "incompatible";
@@ -43,11 +44,20 @@ type AppState =
     };
 
 import { Overview } from "../features/overview";
+import { BudgetsView } from "../features/budgets/BudgetsView";
 import { CalendarView } from "../features/calendar/CalendarView";
+import { DiagnosticsView } from "../features/diagnostics";
+import { DatabaseMaintenanceCard } from "../features/diagnostics/DatabaseMaintenanceCard";
 import { SessionsView } from "../features/sessions/SessionsView";
 import { SettingsView } from "../features/settings/SettingsView";
 
-type ViewMode = "overview" | "calendar" | "sessions" | "settings";
+type ViewMode =
+  | "overview"
+  | "calendar"
+  | "sessions"
+  | "budgets"
+  | "settings"
+  | "diagnostics";
 
 export function App({
   loadBootstrap = getAppBootstrap,
@@ -115,6 +125,34 @@ export function App({
               >
                 Settings
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("diagnostics");
+                }}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  viewMode === "diagnostics"
+                    ? "border-b-2 border-cyan-400 text-cyan-400"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Diagnostics
+              </button>
+              {state.bootstrap.features.budgets ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode("budgets");
+                  }}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    viewMode === "budgets"
+                      ? "border-b-2 border-cyan-400 text-cyan-400"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  Budgets
+                </button>
+              ) : null}
             </div>
             {viewMode === "overview" && (
               <Overview
@@ -127,9 +165,21 @@ export function App({
               />
             )}
             {viewMode === "sessions" && <SessionsView />}
+            {viewMode === "budgets" && <BudgetsView />}
             {viewMode === "settings" && (
-              <SettingsView settings={state.bootstrap.settings} />
+              <SettingsView capabilities={state.capabilities} />
             )}
+            {viewMode === "diagnostics" && <DiagnosticsView />}
+          </div>
+        ) : state.status === "failed" && state.recovery ? (
+          <div className="mt-12 space-y-4">
+            <StatusCard
+              icon={Database}
+              label="Storage"
+              value={state.title}
+              detail={state.message}
+            />
+            <DatabaseMaintenanceCard errorMessage={startupErrorMessage} />
           </div>
         ) : (
           <div className="mt-12 grid gap-4 md:grid-cols-3">
@@ -280,14 +330,21 @@ function isCompatibleContractVersion(runtimeContractVersion: number): boolean {
   return runtimeContractVersion === CONTRACT_VERSION;
 }
 
-function failureContent(error: unknown): { title: string; message: string } {
+function failureContent(error: unknown): {
+  title: string;
+  message: string;
+  recovery: boolean;
+} {
   if (error instanceof BurnlyClientError) {
     return {
       title:
-        error.kind === "application"
-          ? "Application error"
-          : "Runtime unavailable",
+        error.code === "bootstrap.recovery_required"
+          ? "Database recovery required"
+          : error.kind === "application"
+            ? "Application error"
+            : "Runtime unavailable",
       message: error.message,
+      recovery: error.code === "bootstrap.recovery_required",
     };
   }
 
@@ -297,7 +354,14 @@ function failureContent(error: unknown): { title: string; message: string } {
       error instanceof Error
         ? error.message
         : "Burnly could not load local runtime state.",
+    recovery: false,
   };
+}
+
+function startupErrorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "Database recovery could not be completed.";
 }
 
 interface StatusCardProps {

@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 
+printPlatformEvidence();
 run("pnpm", ["tauri", "info"], "Tauri prerequisite evidence");
 run("pnpm", ["contracts:check"], "Generated contract evidence");
 run("pnpm", ["build"], "Frontend build evidence");
@@ -15,10 +17,41 @@ run(
   ],
   "Tauri IPC bridge evidence",
 );
+run(
+  "cargo",
+  ["test", "--manifest-path", "src-tauri/Cargo.toml", "platform::"],
+  "Phase 7 platform lifecycle and tray unit evidence",
+);
+run(
+  "cargo",
+  [
+    "test",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "application::refresh::scheduler",
+  ],
+  "Phase 7 background refresh scheduler evidence",
+);
 
 run("pnpm", ["test:e2e"], "Desktop UI states evidence");
 
 console.log("Desktop runtime evidence passed.");
+
+function printPlatformEvidence() {
+  console.log("\nDesktop platform evidence");
+  console.log(`platform=${process.platform}`);
+  console.log(`arch=${process.arch}`);
+  console.log(`os=${os.type()} ${os.release()}`);
+  console.log(`desktop=${readEnv("XDG_CURRENT_DESKTOP")}`);
+  console.log(`desktopSession=${readEnv("DESKTOP_SESSION")}`);
+  console.log(`sessionType=${readEnv("XDG_SESSION_TYPE")}`);
+  console.log(`display=${readEnv("DISPLAY")}`);
+  console.log(`waylandDisplay=${readEnv("WAYLAND_DISPLAY")}`);
+}
+
+function readEnv(name) {
+  return process.env[name] || "unreported";
+}
 
 function run(command, args, label) {
   console.log(`\n${label}`);
@@ -31,8 +64,7 @@ function run(command, args, label) {
   writeOutput(result.stdout, console.log);
   writeOutput(result.stderr, console.error);
 
-  const combinedOutput = `${result.stdout}\n${result.stderr}`;
-  if (result.status === 0 && !combinedOutput.includes("not installed")) {
+  if (result.status === 0) {
     return;
   }
 

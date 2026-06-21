@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useOverview } from "./use-overview";
+import { useBudgetProgress } from "./use-budget-progress";
 import { OverviewSummary } from "./components/OverviewSummary";
+import { BudgetProgressPanel } from "./components/BudgetProgressPanel";
 import { SourceList } from "./components/SourceList";
 import { ModelList } from "./components/ModelList";
 import { RefreshHeader } from "./components/RefreshHeader";
@@ -41,6 +43,7 @@ export function Overview({ reportingTimezone }: OverviewProps) {
     endDate: dateRange.endDate,
     reportingTimezone,
   });
+  const budgetProgress = useBudgetProgress();
 
   const handleRefresh = async () => {
     await manualRefresh();
@@ -122,6 +125,16 @@ export function Overview({ reportingTimezone }: OverviewProps) {
       ) : (
         <>
           <OverviewSummary overview={data} />
+
+          <BudgetProgressPanel
+            progress={budgetProgress.data}
+            isPending={budgetProgress.isPending}
+            isError={budgetProgress.isError}
+            isFetching={budgetProgress.isFetching}
+            onRetry={() => {
+              void budgetProgress.refetch();
+            }}
+          />
 
           <div className="flex flex-col gap-4">
             <h3 className="text-lg font-medium text-white">Sources</h3>

@@ -1,19 +1,22 @@
 use chrono::DateTime;
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
-    Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary, Readiness,
-    RefreshState, RefreshStatus, SettingsState, SourceStatus, SourceSummary,
+    Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary,
+    NativeNotificationCapability, Readiness, RefreshState, RefreshStatus, SourceStatus,
+    SourceSummary, StartupRecoveryState,
 };
+use crate::application::ports::notification::NotificationPermission;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshEventSink, RefreshSnapshot, RefreshStatus as RefreshLifecycleStatus,
 };
 
 use super::response::{ErrorCategory, IpcError, IpcResponse, CONTRACT_VERSION};
+use super::settings::SettingsResponse;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +39,7 @@ pub(super) struct AppBootstrapResponse {
     app_version: String,
     contract_version: u16,
     database: DatabaseStateResponse,
-    settings: SettingsStateResponse,
+    settings: SettingsResponse,
     features: FeatureSummaryResponse,
     sources: SourceSummaryResponse,
     refresh: RefreshStateResponse,
@@ -48,18 +51,6 @@ pub(super) struct AppBootstrapResponse {
 struct DatabaseStateResponse {
     status: &'static str,
     schema_version: i64,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SettingsStateResponse {
-    reporting_timezone: String,
-    background_refresh_enabled: bool,
-    refresh_interval_minutes: i64,
-    launch_at_login: bool,
-    close_behavior: String,
-    notifications_enabled: bool,
-    store_project_paths: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -93,7 +84,7 @@ struct RefreshStateResponse {
 pub(super) struct AppCapabilitiesResponse {
     tray: CapabilityResponse,
     launch_at_login: CapabilityResponse,
-    native_notifications: CapabilityResponse,
+    native_notifications: NativeNotificationCapabilityResponse,
     updates: CapabilityResponse,
     export_formats: Vec<String>,
     diagnostics: DiagnosticCapabilitiesResponse,
@@ -108,53 +99,40 @@ struct CapabilityResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct NativeNotificationCapabilityResponse {
+    supported: bool,
+    status: &'static str,
+    permission: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DiagnosticCapabilitiesResponse {
     desktop_evidence: bool,
 }
 
 #[tauri::command]
-pub(super) fn app_get_bootstrap(
-    service: State<'_, BootstrapService>,
+pub(super) fn app_get_bootstrap<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
 ) -> IpcResponse<AppBootstrapResponse> {
+    if app.try_state::<StartupRecoveryState>().is_some() {
+        return IpcResponse::failure(IpcError::new(
+            "bootstrap.recovery_required",
+            "Burnly could not initialize the database. Review the recovery status and restore a verified backup when available.",
+            ErrorCategory::Persistence,
+            false,
+        ));
+    }
+    let Some(service) = app.try_state::<BootstrapService>() else {
+        return IpcResponse::failure(IpcError::new(
+            "bootstrap.storage_unavailable",
+            "Burnly could not read local application state.",
+            ErrorCategory::Unavailable,
+            true,
+        ));
+    };
     match service.bootstrap() {
         Ok(bootstrap) => IpcResponse::success(bootstrap.into()),
-        Err(error) => IpcResponse::failure(bootstrap_error(error)),
-    }
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct UpdateSettingsRequest {
-    reporting_timezone: String,
-    background_refresh_enabled: bool,
-    refresh_interval_minutes: i64,
-    launch_at_login: bool,
-    close_behavior: String,
-    notifications_enabled: bool,
-    store_project_paths: bool,
-}
-
-#[tauri::command]
-pub(super) fn app_update_settings<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
-    service: State<'_, BootstrapService>,
-    request: UpdateSettingsRequest,
-) -> IpcResponse<()> {
-    let settings = SettingsState {
-        reporting_timezone: request.reporting_timezone,
-        background_refresh_enabled: request.background_refresh_enabled,
-        refresh_interval_minutes: request.refresh_interval_minutes,
-        launch_at_login: request.launch_at_login,
-        close_behavior: request.close_behavior,
-        notifications_enabled: request.notifications_enabled,
-        store_project_paths: request.store_project_paths,
-    };
-
-    match service.update_settings(settings) {
-        Ok(()) => {
-            let _ = app.emit("burnly://v1/settings-changed", ());
-            IpcResponse::success(())
-        }
         Err(error) => IpcResponse::failure(bootstrap_error(error)),
     }
 }
@@ -186,20 +164,6 @@ impl From<DatabaseState> for DatabaseStateResponse {
         Self {
             status: readiness_label(value.status),
             schema_version: value.schema_version,
-        }
-    }
-}
-
-impl From<SettingsState> for SettingsStateResponse {
-    fn from(value: SettingsState) -> Self {
-        Self {
-            reporting_timezone: value.reporting_timezone,
-            background_refresh_enabled: value.background_refresh_enabled,
-            refresh_interval_minutes: value.refresh_interval_minutes,
-            launch_at_login: value.launch_at_login,
-            close_behavior: value.close_behavior,
-            notifications_enabled: value.notifications_enabled,
-            store_project_paths: value.store_project_paths,
         }
     }
 }
@@ -264,6 +228,16 @@ impl From<Capability> for CapabilityResponse {
     }
 }
 
+impl From<NativeNotificationCapability> for NativeNotificationCapabilityResponse {
+    fn from(value: NativeNotificationCapability) -> Self {
+        Self {
+            supported: value.supported,
+            status: capability_status_label(value.status),
+            permission: notification_permission_label(value.permission),
+        }
+    }
+}
+
 fn readiness_label(value: Readiness) -> &'static str {
     match value {
         Readiness::Ready => "ready",
@@ -284,12 +258,25 @@ fn refresh_status_label(value: RefreshStatus) -> &'static str {
 
 fn capability_status_label(value: CapabilityStatus) -> &'static str {
     match value {
+        CapabilityStatus::Available => "available",
         CapabilityStatus::NotImplemented => "not_implemented",
+        CapabilityStatus::Unavailable => "unavailable",
+    }
+}
+
+fn notification_permission_label(value: NotificationPermission) -> &'static str {
+    match value {
+        NotificationPermission::Granted => "granted",
+        NotificationPermission::Denied => "denied",
+        NotificationPermission::Prompt => "prompt",
+        NotificationPermission::Unknown => "unknown",
     }
 }
 
 fn export_format_label(value: ExportFormat) -> String {
-    match value {}
+    match value {
+        ExportFormat::Csv => "csv".to_owned(),
+    }
 }
 
 fn bootstrap_error(error: BootstrapError) -> IpcError {

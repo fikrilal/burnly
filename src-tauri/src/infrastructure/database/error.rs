@@ -13,9 +13,11 @@ pub enum PersistenceErrorKind {
     Configure,
     PolicyMismatch,
     Migration,
+    Backup,
     HealthCheck,
     Seed,
     Read,
+    InvalidStoredValue,
 }
 
 #[derive(Debug, Error)]
@@ -54,6 +56,12 @@ pub enum PersistenceError {
     #[error("database migration failed")]
     Migration(#[source] MigrationError),
 
+    #[error("database backup or restore failed")]
+    Backup(#[source] SqliteError),
+
+    #[error("database backup could not be published")]
+    BackupPublish(#[source] io::Error),
+
     #[error("database health check failed: {check}")]
     HealthCheckQuery {
         check: &'static str,
@@ -73,6 +81,9 @@ pub enum PersistenceError {
         #[source]
         source: SqliteError,
     },
+
+    #[error("database contains an invalid value: {field}")]
+    InvalidStoredValue { field: &'static str },
 }
 
 impl PersistenceError {
@@ -84,11 +95,13 @@ impl PersistenceError {
             Self::Configure { .. } => PersistenceErrorKind::Configure,
             Self::PolicyMismatch { .. } => PersistenceErrorKind::PolicyMismatch,
             Self::Migration(_) => PersistenceErrorKind::Migration,
+            Self::Backup(_) | Self::BackupPublish(_) => PersistenceErrorKind::Backup,
             Self::HealthCheckQuery { .. } | Self::Unhealthy { .. } => {
                 PersistenceErrorKind::HealthCheck
             }
             Self::Seed(_) => PersistenceErrorKind::Seed,
             Self::Read { .. } => PersistenceErrorKind::Read,
+            Self::InvalidStoredValue { .. } => PersistenceErrorKind::InvalidStoredValue,
         }
     }
 
@@ -120,6 +133,14 @@ impl PersistenceError {
         Self::Migration(source)
     }
 
+    pub(super) fn backup(source: SqliteError) -> Self {
+        Self::Backup(source)
+    }
+
+    pub(super) fn backup_publish(source: io::Error) -> Self {
+        Self::BackupPublish(source)
+    }
+
     pub(super) fn health_check(check: &'static str, source: SqliteError) -> Self {
         Self::HealthCheckQuery { check, source }
     }
@@ -135,7 +156,11 @@ impl PersistenceError {
         Self::Seed(source)
     }
 
-    pub(super) fn read(operation: &'static str, source: SqliteError) -> Self {
+    pub(crate) fn read(operation: &'static str, source: SqliteError) -> Self {
         Self::Read { operation, source }
+    }
+
+    pub(crate) fn invalid_stored_value(field: &'static str) -> Self {
+        Self::InvalidStoredValue { field }
     }
 }

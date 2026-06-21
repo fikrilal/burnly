@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn verifies_explicit_development_binary_without_claiming_release_integrity() {
-        let fixture = Fixture::new("20.0.11");
+        let fixture = Fixture::new("20.0.14");
         let manifest = fixture.manifest(r#"{"kind":"unverified_dev"}"#);
 
         let verified = verify(
@@ -142,12 +142,12 @@ mod tests {
             verified.descriptor.integrity,
             CollectorIntegrity::UnverifiedDevelopment
         );
-        assert_eq!(verified.descriptor.runtime_version, "20.0.11");
+        assert_eq!(verified.descriptor.runtime_version, "20.0.14");
     }
 
     #[test]
     fn verifies_packaged_binary_checksum_before_version() {
-        let fixture = Fixture::new("20.0.11");
+        let fixture = Fixture::new("20.0.14");
         let (package_root, packaged) = fixture.package();
         let checksum = sha256(&packaged).expect("checksum");
         let manifest = fixture.manifest(&format!(
@@ -229,7 +229,7 @@ mod tests {
         fn new(version: &str) -> Self {
             let target = BinaryTarget::current().expect("supported test target");
             let directory = tempfile::tempdir().expect("fixture directory");
-            let fixture = if version == "20.0.11" {
+            let fixture = if version == "20.0.14" {
                 "fake-collector.sh"
             } else {
                 "fake-collector-old.sh"
@@ -247,16 +247,20 @@ mod tests {
                 r#"{{
                     "collectorKey":"ccusage",
                     "displayName":"ccusage",
-                    "expectedVersion":"20.0.11",
-                    "sourceRevision":"43836bcec1558fec9da7cb73017928c51443b32b",
+                    "expectedVersion":"20.0.14",
+                    "sourceRevision":"a7726bb9227ef828a8fa06422a08162254a61563",
                     "adapterVersion":1,
                     "entries":[{{
                         "target":"{}",
+                        "rustTargetTriple":"{}",
+                        "packageName":"{}",
                         "executableName":"{}",
                         "integrity":{integrity}
                     }}]
                 }}"#,
                 self.target.as_str(),
+                self.target.rust_target_triple(),
+                self.target.package_name(),
                 self.target.executable_name()
             ))
             .expect("sidecar manifest")

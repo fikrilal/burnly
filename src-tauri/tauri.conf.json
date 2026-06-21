@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Burnly",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "app.burnly.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build:tauri",
     "frontendDist": "../dist"
   },
   "app": {
@@ -20,13 +20,37 @@
       }
     ],
     "security": {
-      "csp": null
+      "capabilities": ["main-window"],
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost",
+        "font-src": "'self'",
+        "img-src": "'self' data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "script-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "frame-src": "'none'"
+      },
+      "assetProtocol": {
+        "enable": false,
+        "scope": []
+      },
+      "dangerousDisableAssetCspModification": false,
+      "freezePrototype": true
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": ["sidecars/ccusage/*"],
+    "publisher": "Burnly",
+    "copyright": "Copyright © 2026 Burnly contributors",
+    "category": "DeveloperTool",
+    "shortDescription": "Local AI coding-tool usage tracker.",
+    "longDescription": "Burnly is a private, local-first desktop application for understanding AI coding-tool token usage, estimated cost, sessions, and budgets.",
+    "resources": {
+      "sidecars/ccusage/runtime/*": "sidecars/ccusage/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

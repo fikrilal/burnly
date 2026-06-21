@@ -1,13 +1,60 @@
 {
   "collectorKey": "ccusage",
   "displayName": "ccusage",
-  "expectedVersion": "20.0.11",
-  "sourceRevision": "43836bcec1558fec9da7cb73017928c51443b32b",
+  "expectedVersion": "20.0.14",
+  "sourceRevision": "a7726bb9227ef828a8fa06422a08162254a61563",
   "adapterVersion": 1,
   "entries": [
     {
-      "target": "linux-x64",
+      "target": "darwin-arm64",
+      "rustTargetTriple": "aarch64-apple-darwin",
+      "packageName": "@ccusage/ccusage-darwin-arm64",
       "executableName": "ccusage",
+      "integrity": {
+        "kind": "unverified_dev"
+      }
+    },
+    {
+      "target": "darwin-x64",
+      "rustTargetTriple": "x86_64-apple-darwin",
+      "packageName": "@ccusage/ccusage-darwin-x64",
+      "executableName": "ccusage",
+      "integrity": {
+        "kind": "unverified_dev"
+      }
+    },
+    {
+      "target": "linux-arm64",
+      "rustTargetTriple": "aarch64-unknown-linux-gnu",
+      "packageName": "@ccusage/ccusage-linux-arm64",
+      "executableName": "ccusage",
+      "integrity": {
+        "kind": "unverified_dev"
+      }
+    },
+    {
+      "target": "linux-x64",
+      "rustTargetTriple": "x86_64-unknown-linux-gnu",
+      "packageName": "@ccusage/ccusage-linux-x64",
+      "executableName": "ccusage",
+      "integrity": {
+        "kind": "unverified_dev"
+      }
+    },
+    {
+      "target": "windows-arm64",
+      "rustTargetTriple": "aarch64-pc-windows-msvc",
+      "packageName": "@ccusage/ccusage-win32-arm64",
+      "executableName": "ccusage.exe",
+      "integrity": {
+        "kind": "unverified_dev"
+      }
+    },
+    {
+      "target": "windows-x64",
+      "rustTargetTriple": "x86_64-pc-windows-msvc",
+      "packageName": "@ccusage/ccusage-win32-x64",
+      "executableName": "ccusage.exe",
       "integrity": {
         "kind": "unverified_dev"
       }

@@ -1,5 +1,6 @@
 {
   "src/components/ui/index.ts": 1,
+  "src/features/diagnostics/index.ts": 3,
   "src/features/overview/index.ts": 3,
   "src/lib/format/index.ts": 4,
   "src/lib/query/index.tsx": 1,

@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -12,6 +13,14 @@ import type {
 
 vi.mock("../features/overview", () => ({
   Overview: () => <div data-testid="overview-feature" />,
+}));
+
+vi.mock("../features/diagnostics", () => ({
+  DiagnosticsView: () => <div data-testid="diagnostics-feature" />,
+}));
+
+vi.mock("../features/diagnostics/DatabaseMaintenanceCard", () => ({
+  DatabaseMaintenanceCard: () => <div data-testid="database-recovery" />,
 }));
 
 vi.mock("../ipc/events", () => ({
@@ -39,6 +48,23 @@ describe("App", () => {
     );
 
     expect(await screen.findByTestId("overview-feature")).toBeInTheDocument();
+  });
+
+  it("opens diagnostics from the main navigation", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <App
+        loadBootstrap={() => Promise.resolve(bootstrapResult())}
+        loadCapabilities={() => Promise.resolve(capabilitiesResult())}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Diagnostics" }),
+    );
+
+    expect(screen.getByTestId("diagnostics-feature")).toBeInTheDocument();
   });
 
   it("stops startup before capability loading when contract versions differ", async () => {
@@ -99,6 +125,35 @@ describe("App startup failures", () => {
       screen.getByText("Burnly could not read local application state."),
     ).toBeInTheDocument();
   });
+
+  it("renders database recovery controls when startup requires recovery", async () => {
+    render(
+      <App
+        loadBootstrap={() =>
+          Promise.reject(
+            new BurnlyClientError({
+              kind: "application",
+              error: {
+                code: "bootstrap.recovery_required",
+                message: "Database recovery is required.",
+                category: "persistence",
+                retryable: false,
+                details: null,
+              },
+              requestId: meta.requestId,
+              generatedAt: meta.generatedAt,
+            }),
+          )
+        }
+        loadCapabilities={() => Promise.resolve(capabilitiesResult())}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Database recovery required"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("database-recovery")).toBeInTheDocument();
+  });
 });
 
 function bootstrapResult(
@@ -120,6 +175,7 @@ function bootstrapResult(
         closeBehavior: "quit",
         notificationsEnabled: false,
         storeProjectPaths: false,
+        revision: 1,
       },
       features: {
         usageOverview: false,
@@ -154,7 +210,7 @@ function capabilitiesResult(): CommandResult<AppCapabilitiesResponse> {
     data: {
       tray: capability,
       launchAtLogin: capability,
-      nativeNotifications: capability,
+      nativeNotifications: { ...capability, permission: "unknown" },
       updates: capability,
       exportFormats: [],
       diagnostics: {

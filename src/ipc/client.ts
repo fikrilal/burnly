@@ -7,7 +7,29 @@ import {
   CONTRACT_VERSION,
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
-  invokeAppUpdateSettings,
+  invokeDiagnosticsGetStatus,
+  invokeDiagnosticsGetHistory,
+  invokeDiagnosticsRevealLogs,
+  invokeDatabaseGetMaintenanceStatus,
+  invokeDatabaseIntegrityCheck,
+  invokeDatabaseCheckpoint,
+  invokeDatabaseVacuum,
+  invokeDatabaseRestoreMigrationBackup,
+  invokeHistoryExport,
+  invokeHistoryGetExportPreview,
+  invokeHistoryGetDeletePreview,
+  invokeHistoryDelete,
+  invokeSettingsGet,
+  invokeSettingsUpdate,
+  invokeSettingsUpdateProjectPathRetention,
+  invokeBudgetsList,
+  invokeBudgetsGet,
+  invokeBudgetsCreate,
+  invokeBudgetsUpdate,
+  invokeBudgetsEnable,
+  invokeBudgetsDisable,
+  invokeBudgetsDelete,
+  invokeBudgetsGetProgress,
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
@@ -22,6 +44,16 @@ import {
   type CommandName,
   type CommandRequests,
   type ContractProbeResponse,
+  type DiagnosticsStatusResponse,
+  type DatabaseMaintenanceStatusResponse,
+  type DatabaseMaintenanceActionResponse,
+  type HistoryRequest,
+  type HistoryResponse,
+  type ExportPreviewRequest,
+  type ExportPreviewResponse,
+  type ExportResponse,
+  type DeleteHistoryPreviewResponse,
+  type DeleteHistoryResponse,
   type FieldError,
   type IpcError,
   type IpcResponse,
@@ -38,6 +70,19 @@ import {
   type SessionListResponse,
   type SessionDetailRequest,
   type SessionDetailResponse,
+  type SettingsResponse,
+  type ProjectPathRetentionResponse,
+  type RevealLogsResponse,
+  type BudgetDefinition,
+  type BudgetIdRequest,
+  type BudgetListResponse,
+  type BudgetResponse,
+  type CreateBudgetRequest,
+  type DeleteBudgetResponse,
+  type CurrentBudgetProgressResponse,
+  type MutateBudgetRequest,
+  type UpdateBudgetRequest,
+  type UpdateProjectPathRetentionRequest,
   type UpdateSettingsRequest,
 } from "./generated/contracts";
 
@@ -104,6 +149,7 @@ const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
     closeBehavior: z.enum(["hide", "quit"]),
     notificationsEnabled: z.boolean(),
     storeProjectPaths: z.boolean(),
+    revision: z.number().int().positive(),
   }),
   features: z.object({
     usageOverview: z.boolean(),
@@ -127,19 +173,334 @@ const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
 
 const capabilitySchema = z.object({
   supported: z.boolean(),
-  status: z.literal("not_implemented"),
+  status: z.enum(["available", "not_implemented", "unavailable"]),
 });
 
 const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
   tray: capabilitySchema,
   launchAtLogin: capabilitySchema,
-  nativeNotifications: capabilitySchema,
+  nativeNotifications: capabilitySchema.extend({
+    permission: z.enum(["granted", "denied", "prompt", "unknown"]),
+  }),
   updates: capabilitySchema,
   exportFormats: z.array(z.string().min(1)),
   diagnostics: z.object({
     desktopEvidence: z.boolean(),
   }),
 });
+
+const diagnosticHealthStatusSchema = z.enum([
+  "healthy",
+  "degraded",
+  "unavailable",
+  "unknown",
+]);
+
+const diagnosticsStatusDataSchema: z.ZodType<DiagnosticsStatusResponse> =
+  z.object({
+    status: diagnosticHealthStatusSchema,
+    contractVersion: z.literal(CONTRACT_VERSION),
+    components: z.array(
+      z.object({
+        component: z.enum([
+          "database",
+          "settings",
+          "sources",
+          "collector",
+          "runtime",
+        ]),
+        status: diagnosticHealthStatusSchema,
+        summary: z.string().min(1),
+        details: z.array(z.string().min(1)),
+      }),
+    ),
+    logs: z.object({
+      status: z.enum(["available", "missing", "unsupported"]),
+      label: z.string().min(1),
+    }),
+  });
+
+const revealLogsDataSchema: z.ZodType<RevealLogsResponse> = z.object({
+  status: z.enum(["revealed", "missing", "unsupported"]),
+  message: z.string().min(1),
+});
+
+const databaseMaintenanceStatusDataSchema: z.ZodType<DatabaseMaintenanceStatusResponse> =
+  z.object({
+    access: z.enum(["read_write", "read_only", "unavailable"]),
+    schemaVersion: z.number().int().nonnegative().nullable(),
+    backupAvailable: z.boolean(),
+    maintenanceAvailable: z.boolean(),
+  });
+
+const databaseMaintenanceActionDataSchema: z.ZodType<DatabaseMaintenanceActionResponse> =
+  z.object({
+    status: z.enum([
+      "healthy",
+      "corrupt",
+      "checkpointed",
+      "busy",
+      "vacuumed",
+      "restored",
+    ]),
+    message: z.string().min(1),
+    checkpoint: z
+      .object({
+        busy: z.number().int().nonnegative(),
+        logFrames: z.number().int().nonnegative(),
+        checkpointedFrames: z.number().int().nonnegative(),
+      })
+      .nullable(),
+  });
+
+const historyRequestSchema: z.ZodType<HistoryRequest> = z.object({
+  cursor: z
+    .string()
+    .regex(/^[1-9][0-9]*$/)
+    .optional(),
+  limit: z.number().int().min(1).max(50).optional(),
+});
+
+const historyStatusSchema = z.enum([
+  "queued",
+  "running",
+  "stale",
+  "succeeded",
+  "partial",
+  "failed",
+  "cancelled",
+]);
+
+const historyFailureSchema = z.object({
+  category: z.enum([
+    "collector",
+    "reconciliation",
+    "persistence",
+    "cancelled",
+    "unknown",
+  ]),
+  retryable: z.boolean(),
+  summary: z.string().min(1),
+});
+
+const historyCountSchema = z.string().regex(/^(0|[1-9][0-9]*)$/);
+
+const historyItemBaseSchema = z.object({
+  status: historyStatusSchema,
+  startedAt: z.iso.datetime({ offset: true }),
+  finishedAt: z.iso.datetime({ offset: true }).nullable(),
+  recordsSeen: historyCountSchema,
+  recordsRejected: historyCountSchema,
+  failure: historyFailureSchema.nullable(),
+});
+
+const historyDataSchema: z.ZodType<HistoryResponse> = z.object({
+  items: z.array(
+    historyItemBaseSchema.extend({
+      trigger: z.enum([
+        "launch",
+        "manual",
+        "scheduled",
+        "file_change",
+        "resume",
+        "reconcile",
+      ]),
+      summary: z.string().min(1),
+      importCount: z.number().int().nonnegative(),
+      imports: z.array(
+        historyItemBaseSchema.extend({
+          source: z.string().min(1),
+          projection: z.enum(["daily", "session"]),
+          scope: z.enum(["full", "incremental"]),
+        }),
+      ),
+    }),
+  ),
+  nextCursor: z
+    .string()
+    .regex(/^[1-9][0-9]*$/)
+    .nullable(),
+  limit: z.number().int().min(1).max(50),
+});
+
+const exportPreviewRequestSchema: z.ZodType<ExportPreviewRequest> = z.object({
+  startDate: z.iso.date(),
+  endDate: z.iso.date(),
+  datasets: z.array(z.enum(["daily_usage", "sessions"])).min(1),
+});
+
+const exportPreviewDataSchema: z.ZodType<ExportPreviewResponse> = z.object({
+  startDate: z.iso.date(),
+  endDate: z.iso.date(),
+  format: z.literal("csv"),
+  datasets: z.array(
+    z.object({
+      dataset: z.enum(["daily_usage", "sessions"]),
+      rows: historyCountSchema,
+    }),
+  ),
+  totalRows: historyCountSchema,
+  estimatedBytes: historyCountSchema,
+  privacyNotes: z.array(z.string().min(1)),
+  previewToken: z.string().regex(/^[a-f0-9]{64}$/),
+  canExport: z.boolean(),
+});
+
+const exportDataSchema: z.ZodType<ExportResponse> = z.object({
+  status: z.enum(["exported", "cancelled"]),
+  rows: historyCountSchema,
+  message: z.string().min(1),
+});
+
+const deletionCountsSchema = z.object({
+  dailyUsage: historyCountSchema,
+  dailyModelUsage: historyCountSchema,
+  sessions: historyCountSchema,
+  sessionModelUsage: historyCountSchema,
+  refreshRuns: historyCountSchema,
+  importRuns: historyCountSchema,
+  projects: historyCountSchema,
+  sourceModels: historyCountSchema,
+  notificationRecords: historyCountSchema,
+});
+
+const deleteHistoryPreviewDataSchema: z.ZodType<DeleteHistoryPreviewResponse> =
+  z.object({
+    scope: z.string().min(1),
+    earliestDate: z.iso.date().nullable(),
+    latestDate: z.iso.date().nullable(),
+    sourceCount: historyCountSchema,
+    counts: deletionCountsSchema,
+    totalRecords: historyCountSchema,
+    preserved: z.array(z.string().min(1)),
+    previewToken: z.string().regex(/^[a-f0-9]{64}$/),
+    canDelete: z.boolean(),
+    activeRefresh: z.boolean(),
+    confirmationText: z.string().min(1),
+  });
+
+const deleteHistoryDataSchema: z.ZodType<DeleteHistoryResponse> = z.object({
+  deletedRecords: historyCountSchema,
+  message: z.string().min(1),
+});
+
+const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
+  reportingTimezone: z.string().min(1),
+  backgroundRefreshEnabled: z.boolean(),
+  refreshIntervalMinutes: z.number().int().min(5).max(1440),
+  launchAtLogin: z.boolean(),
+  closeBehavior: z.enum(["hide", "quit"]),
+  notificationsEnabled: z.boolean(),
+  storeProjectPaths: z.boolean(),
+  revision: z.number().int().positive(),
+});
+
+const projectPathRetentionDataSchema: z.ZodType<ProjectPathRetentionResponse> =
+  z.object({
+    settings: settingsDataSchema,
+    clearedPaths: z.number().int().nonnegative(),
+  });
+
+const positiveInt64StringSchema = z
+  .string()
+  .refine(
+    (value) =>
+      /^[1-9][0-9]*$/.test(value) &&
+      BigInt(value) <= 9_223_372_036_854_775_807n,
+    "Expected a canonical positive integer string in the supported range.",
+  );
+
+const budgetLimitSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("tokens"),
+    value: positiveInt64StringSchema,
+  }),
+  z.object({
+    kind: z.literal("cost"),
+    amountMicros: positiveInt64StringSchema,
+    currency: z.string().regex(/^[A-Z]{3}$/),
+  }),
+]);
+
+const budgetScopeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("global") }),
+  z.object({
+    kind: z.literal("source"),
+    sourceId: positiveInt64StringSchema,
+  }),
+]);
+
+const budgetThresholdSchema = z.object({
+  basisPoints: z.number().int().positive(),
+  enabled: z.boolean(),
+});
+
+const budgetDefinitionSchema: z.ZodType<BudgetDefinition> = z.object({
+  name: z.string().trim().min(1),
+  limit: budgetLimitSchema,
+  period: z.enum(["daily", "weekly", "monthly"]),
+  scope: budgetScopeSchema,
+  enabled: z.boolean(),
+  thresholds: z
+    .array(budgetThresholdSchema)
+    .refine(
+      (thresholds) =>
+        new Set(thresholds.map((threshold) => threshold.basisPoints)).size ===
+        thresholds.length,
+      "Budget thresholds must be unique.",
+    ),
+});
+
+const budgetDataSchema: z.ZodType<BudgetResponse> = z.intersection(
+  budgetDefinitionSchema,
+  z.object({
+    id: positiveInt64StringSchema,
+    revision: positiveInt64StringSchema,
+  }),
+);
+
+const budgetListDataSchema: z.ZodType<BudgetListResponse> = z.object({
+  items: z.array(budgetDataSchema),
+});
+
+const deleteBudgetDataSchema: z.ZodType<DeleteBudgetResponse> = z.object({
+  budgetId: positiveInt64StringSchema,
+});
+
+const uint64StringSchema = z
+  .string()
+  .regex(/^(0|[1-9][0-9]*)$/, "Expected a canonical unsigned integer string.");
+
+const currentBudgetProgressDataSchema: z.ZodType<CurrentBudgetProgressResponse> =
+  z.object({
+    status: z.enum(["no_budgets", "all_disabled", "available"]),
+    reportingTimezone: z.string().min(1),
+    asOf: z.iso.datetime({ offset: true }),
+    configuredBudgetCount: z.number().int().nonnegative(),
+    enabledBudgetCount: z.number().int().nonnegative(),
+    traySummary: z.string().min(1).nullable(),
+    items: z.array(
+      z.object({
+        budgetId: positiveInt64StringSchema,
+        budgetName: z.string().min(1),
+        period: z.enum(["daily", "weekly", "monthly"]),
+        periodStartDate: z.iso.date(),
+        periodEndDate: z.iso.date(),
+        metric: z.enum(["tokens", "cost"]),
+        state: z.enum(["available", "cost_unavailable"]),
+        current: uint64StringSchema.nullable(),
+        limit: positiveInt64StringSchema,
+        currency: z
+          .string()
+          .regex(/^[A-Z]{3}$/)
+          .nullable(),
+        basisPoints: uint64StringSchema.nullable(),
+        exceeded: z.boolean(),
+        completeness: z.enum(["complete", "partial", "unavailable"]),
+        unavailableDays: z.number().int().nonnegative(),
+      }),
+    ),
+  });
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
   status: z.enum([
@@ -164,10 +525,6 @@ const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
     .nullable(),
   lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
 });
-
-const uint64StringSchema = z
-  .string()
-  .regex(/^(0|[1-9][0-9]*)$/, "Expected a canonical unsigned integer string.");
 
 const usageOverviewCostSchema: z.ZodType<UsageOverviewCostResponse> =
   z.discriminatedUnion("valuation", [
@@ -357,14 +714,263 @@ export async function getAppCapabilities(
   return unwrapResponse(parsed);
 }
 
+export async function getDiagnosticsStatus(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DiagnosticsStatusResponse>> {
+  const response = await invokeDiagnosticsGetStatus(invoker);
+  return unwrapResponse(
+    validateResponse(response, diagnosticsStatusDataSchema),
+  );
+}
+
+export async function getDiagnosticsHistory(
+  request: HistoryRequest = {},
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<HistoryResponse>> {
+  const parsedRequest = historyRequestSchema.parse(request);
+  const response = await invokeDiagnosticsGetHistory(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, historyDataSchema));
+}
+
+export async function revealDiagnosticsLogs(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<RevealLogsResponse>> {
+  const response = await invokeDiagnosticsRevealLogs(invoker);
+  return unwrapResponse(validateResponse(response, revealLogsDataSchema));
+}
+
+export async function getDatabaseMaintenanceStatus(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DatabaseMaintenanceStatusResponse>> {
+  const response = await invokeDatabaseGetMaintenanceStatus(invoker);
+  return unwrapResponse(
+    validateResponse(response, databaseMaintenanceStatusDataSchema),
+  );
+}
+
+async function runDatabaseMaintenanceAction(
+  invokeAction: (invoker: CommandInvoker) => Promise<unknown>,
+  invoker: CommandInvoker,
+): Promise<CommandResult<DatabaseMaintenanceActionResponse>> {
+  const response = await invokeAction(invoker);
+  return unwrapResponse(
+    validateResponse(response, databaseMaintenanceActionDataSchema),
+  );
+}
+
+export function checkDatabaseIntegrity(
+  invoker: CommandInvoker = commandInvoker,
+) {
+  return runDatabaseMaintenanceAction(invokeDatabaseIntegrityCheck, invoker);
+}
+
+export function checkpointDatabase(invoker: CommandInvoker = commandInvoker) {
+  return runDatabaseMaintenanceAction(invokeDatabaseCheckpoint, invoker);
+}
+
+export function vacuumDatabase(invoker: CommandInvoker = commandInvoker) {
+  return runDatabaseMaintenanceAction(invokeDatabaseVacuum, invoker);
+}
+
+export function restoreDatabaseMigrationBackup(
+  invoker: CommandInvoker = commandInvoker,
+) {
+  return runDatabaseMaintenanceAction(
+    invokeDatabaseRestoreMigrationBackup,
+    invoker,
+  );
+}
+
+export async function getExportPreview(
+  request: ExportPreviewRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<ExportPreviewResponse>> {
+  const parsedRequest = exportPreviewRequestSchema.parse(request);
+  const response = await invokeHistoryGetExportPreview(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, exportPreviewDataSchema));
+}
+
+export async function exportHistory(
+  request: ExportPreviewRequest,
+  previewToken: string,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<ExportResponse>> {
+  const parsedRequest = exportPreviewRequestSchema.parse(request);
+  const response = await invokeHistoryExport(invoker, {
+    request: { request: parsedRequest, previewToken },
+  });
+  return unwrapResponse(validateResponse(response, exportDataSchema));
+}
+
+export async function getDeleteHistoryPreview(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DeleteHistoryPreviewResponse>> {
+  const response = await invokeHistoryGetDeletePreview(invoker);
+  return unwrapResponse(
+    validateResponse(response, deleteHistoryPreviewDataSchema),
+  );
+}
+
+export async function deleteHistory(
+  previewToken: string,
+  confirmation: string,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DeleteHistoryResponse>> {
+  const response = await invokeHistoryDelete(invoker, {
+    request: { previewToken, confirmation },
+  });
+  return unwrapResponse(validateResponse(response, deleteHistoryDataSchema));
+}
+
+export async function getSettings(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<SettingsResponse>> {
+  const response = await invokeSettingsGet(invoker);
+  return unwrapResponse(validateResponse(response, settingsDataSchema));
+}
+
 export async function updateSettings(
   request: UpdateSettingsRequest,
   invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<Record<string, never>>> {
-  const response = await invokeAppUpdateSettings(invoker, request);
+): Promise<CommandResult<SettingsResponse>> {
+  const parsedRequest = settingsDataSchema.parse({
+    ...request,
+    revision: request.expectedRevision,
+  });
+  const response = await invokeSettingsUpdate(invoker, {
+    request: {
+      expectedRevision: parsedRequest.revision,
+      reportingTimezone: parsedRequest.reportingTimezone,
+      backgroundRefreshEnabled: parsedRequest.backgroundRefreshEnabled,
+      refreshIntervalMinutes: parsedRequest.refreshIntervalMinutes,
+      launchAtLogin: parsedRequest.launchAtLogin,
+      closeBehavior: parsedRequest.closeBehavior,
+      notificationsEnabled: parsedRequest.notificationsEnabled,
+      storeProjectPaths: parsedRequest.storeProjectPaths,
+    },
+  });
+  return unwrapResponse(validateResponse(response, settingsDataSchema));
+}
+
+export async function updateProjectPathRetention(
+  request: UpdateProjectPathRetentionRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<ProjectPathRetentionResponse>> {
+  const parsed = z
+    .object({
+      expectedRevision: z.number().int().positive(),
+      retainPaths: z.boolean(),
+    })
+    .parse(request);
+  const response = await invokeSettingsUpdateProjectPathRetention(invoker, {
+    request: parsed,
+  });
   return unwrapResponse(
-    validateResponse(response, z.record(z.string(), z.never())),
+    validateResponse(response, projectPathRetentionDataSchema),
   );
+}
+
+export async function listBudgets(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetListResponse>> {
+  const response = await invokeBudgetsList(invoker);
+  return unwrapResponse(validateResponse(response, budgetListDataSchema));
+}
+
+export async function getBudget(
+  request: BudgetIdRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  const parsed = z
+    .object({ budgetId: positiveInt64StringSchema })
+    .parse(request);
+  const response = await invokeBudgetsGet(invoker, { request: parsed });
+  return unwrapResponse(validateResponse(response, budgetDataSchema));
+}
+
+export async function createBudget(
+  request: CreateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  const parsed = z.object({ budget: budgetDefinitionSchema }).parse(request);
+  const response = await invokeBudgetsCreate(invoker, { request: parsed });
+  return unwrapResponse(validateResponse(response, budgetDataSchema));
+}
+
+export async function updateBudget(
+  request: UpdateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  const parsed = z
+    .object({
+      budgetId: positiveInt64StringSchema,
+      expectedRevision: positiveInt64StringSchema,
+      budget: budgetDefinitionSchema,
+    })
+    .parse(request);
+  const response = await invokeBudgetsUpdate(invoker, { request: parsed });
+  return unwrapResponse(validateResponse(response, budgetDataSchema));
+}
+
+export async function enableBudget(
+  request: MutateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  return mutateBudget(invokeBudgetsEnable, request, invoker);
+}
+
+export async function disableBudget(
+  request: MutateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  return mutateBudget(invokeBudgetsDisable, request, invoker);
+}
+
+export async function deleteBudget(
+  request: MutateBudgetRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DeleteBudgetResponse>> {
+  const parsed = parseBudgetMutation(request);
+  const response = await invokeBudgetsDelete(invoker, { request: parsed });
+  return unwrapResponse(validateResponse(response, deleteBudgetDataSchema));
+}
+
+export async function getCurrentBudgetProgress(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<CurrentBudgetProgressResponse>> {
+  const response = await invokeBudgetsGetProgress(invoker);
+  return unwrapResponse(
+    validateResponse(response, currentBudgetProgressDataSchema),
+  );
+}
+
+async function mutateBudget(
+  invoke: (
+    invoker: CommandInvoker,
+    request: { request: MutateBudgetRequest },
+  ) => Promise<unknown>,
+  request: MutateBudgetRequest,
+  invoker: CommandInvoker,
+): Promise<CommandResult<BudgetResponse>> {
+  const response = await invoke(invoker, {
+    request: parseBudgetMutation(request),
+  });
+  return unwrapResponse(validateResponse(response, budgetDataSchema));
+}
+
+function parseBudgetMutation(
+  request: MutateBudgetRequest,
+): MutateBudgetRequest {
+  return z
+    .object({
+      budgetId: positiveInt64StringSchema,
+      expectedRevision: positiveInt64StringSchema,
+    })
+    .parse(request);
 }
 
 export async function getRefreshState(

@@ -25,34 +25,6 @@ impl BootstrapStore for SqliteBootstrapStore {
 
         read_storage(&database).map_err(|_| BootstrapError::storage_unavailable())
     }
-
-    fn update_settings(
-        &self,
-        settings: &crate::application::bootstrap::SettingsState,
-    ) -> Result<(), BootstrapError> {
-        let database = self
-            .database
-            .lock()
-            .map_err(|_| BootstrapError::storage_unavailable())?;
-
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-
-        database
-            .update_settings(
-                &settings.reporting_timezone,
-                settings.background_refresh_enabled,
-                settings.refresh_interval_minutes,
-                settings.launch_at_login,
-                &settings.close_behavior,
-                settings.notifications_enabled,
-                settings.store_project_paths,
-                now_ms,
-            )
-            .map_err(|_| BootstrapError::storage_unavailable())
-    }
 }
 
 fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceError> {
@@ -65,6 +37,14 @@ fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceErro
         notifications_enabled,
         store_project_paths,
     ) = database.read_settings()?;
+    let settings_revision = database
+        .connection()
+        .query_row(
+            "SELECT revision FROM app_settings WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|source| PersistenceError::read("app_settings revision", source))?;
 
     Ok(BootstrapStorage {
         reporting_timezone,
@@ -74,6 +54,7 @@ fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceErro
         close_behavior,
         notifications_enabled,
         store_project_paths,
+        settings_revision,
         schema_version: database.schema_version()?,
     })
 }
@@ -98,31 +79,9 @@ mod tests {
             .expect("read bootstrap storage");
 
         assert_eq!(storage.reporting_timezone, "Asia/Jakarta");
-        assert_eq!(storage.schema_version, 1);
+        assert_eq!(storage.schema_version, 3);
+        assert_eq!(storage.settings_revision, 1);
         assert!(!storage.background_refresh_enabled);
         assert_eq!(storage.refresh_interval_minutes, 15);
-
-        // Test updating
-        let settings = crate::application::bootstrap::SettingsState {
-            reporting_timezone: "UTC".to_owned(),
-            background_refresh_enabled: true,
-            refresh_interval_minutes: 30,
-            launch_at_login: true,
-            close_behavior: "hide".to_owned(),
-            notifications_enabled: true,
-            store_project_paths: true,
-        };
-        store.update_settings(&settings).expect("update settings");
-
-        let updated = store
-            .read_bootstrap_storage()
-            .expect("read updated storage");
-        assert_eq!(updated.reporting_timezone, "UTC");
-        assert!(updated.background_refresh_enabled);
-        assert_eq!(updated.refresh_interval_minutes, 30);
-        assert!(updated.launch_at_login);
-        assert_eq!(updated.close_behavior, "hide");
-        assert!(updated.notifications_enabled);
-        assert!(updated.store_project_paths);
     }
 }

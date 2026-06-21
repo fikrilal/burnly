@@ -697,6 +697,7 @@ Request:
 - Included dimensions
 - Sensitive-field choices
 - Destination selected through an approved native path flow
+- Preview token binding the requested scope and current row counts
 
 Response:
 
@@ -705,13 +706,28 @@ Response:
 
 React cannot provide arbitrary unrestricted filesystem paths unless the platform capability explicitly authorizes the selected path.
 
+#### `history_get_export_preview`
+
+Returns the selected datasets, date range, exact row counts, estimated CSV
+size, privacy notes, export eligibility, and a preview token. The token must be
+presented to `history_export`; changed counts require a new preview.
+
 #### `history_get_delete_preview`
 
 Returns exact counts and categories that would be deleted for the requested scope.
+The first release scope is all imported history across all dates and sources.
+The response also reports the observed date span, source count, preserved state,
+active-refresh blocking, required confirmation text, and a preview token.
 
 #### `history_delete`
 
 Request:
+
+- Current preview token
+- Exact confirmation text `DELETE ALL HISTORY`
+
+The command rechecks the snapshot inside the deletion transaction and emits a
+`history_deleted` data-invalidation scope only after commit.
 
 - Delete scope
 - Preview token
@@ -735,6 +751,13 @@ Returns redacted health information:
 #### `diagnostics_reveal_logs`
 
 Performs a platform action. It does not return the log file contents.
+
+#### `diagnostics_get_history`
+
+Returns a bounded, newest-first page of persisted refresh runs and their import
+summaries. The cursor is opaque to callers. Rows include safe status, trigger,
+timestamps, counts, and classified failure details; they exclude paths, prompts,
+collector payloads, job keys, storage identifiers, and session identifiers.
 
 #### `diagnostics_clear`
 

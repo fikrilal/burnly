@@ -91,12 +91,16 @@ async function collectFiles(directory, extensions) {
 }
 
 function relative(filePath) {
-  return path.relative(root, filePath);
+  return repositoryPath(path.relative(root, filePath));
+}
+
+function repositoryPath(filePath) {
+  return filePath.replaceAll("\\", "/");
 }
 
 function checkGenericName(file) {
   const rel = relative(file);
-  const segments = rel.split(path.sep);
+  const segments = rel.split("/");
 
   for (const segment of segments) {
     const name = path.parse(segment).name.toLowerCase();
@@ -195,6 +199,11 @@ async function checkRequiredRustStructure() {
 }
 
 function runRustBoundarySelfTest() {
+  if (repositoryPath("src\\ipc\\client.ts") !== "src/ipc/client.ts") {
+    console.error("Architecture path normalization self-test failed.");
+    process.exit(1);
+  }
+
   const cases = [
     {
       name: "application may depend on domain",

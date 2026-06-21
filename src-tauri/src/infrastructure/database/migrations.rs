@@ -3,9 +3,17 @@ use rusqlite_migration::{Migrations, M};
 
 use super::PersistenceError;
 
-const MIGRATION_LIST: &[M<'static>] =
-    &[M::up(include_str!("../../../migrations/0001_initial.sql")).foreign_key_check()];
+const MIGRATION_LIST: &[M<'static>] = &[
+    M::up(include_str!("../../../migrations/0001_initial.sql")).foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0002_settings_revision.sql"
+    ))
+    .foreign_key_check(),
+    M::up(include_str!("../../../migrations/0003_budget_revision.sql")).foreign_key_check(),
+];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
+
+pub(super) const LATEST_SCHEMA_VERSION: i64 = MIGRATION_LIST.len() as i64;
 
 pub(super) fn to_latest(connection: &mut Connection) -> Result<(), PersistenceError> {
     MIGRATIONS
@@ -38,7 +46,7 @@ mod tests {
             .migrate_to_latest()
             .expect("migrate database");
 
-        assert_eq!(schema_version(test_database.database()), 1);
+        assert_eq!(schema_version(test_database.database()), 3);
         assert_eq!(table_count(test_database.database()), 13);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
@@ -58,8 +66,70 @@ mod tests {
             .migrate_to_latest()
             .expect("second migration");
 
-        assert_eq!(schema_version(test_database.database()), 1);
+        assert_eq!(schema_version(test_database.database()), 3);
         assert_eq!(table_count(test_database.database()), 13);
+    }
+
+    #[test]
+    fn settings_revision_migration_preserves_existing_settings() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 1)
+            .expect("apply initial migration");
+        connection
+            .execute(
+                "INSERT INTO app_settings (
+                    id, reporting_timezone, background_refresh_enabled,
+                    refresh_interval_minutes, launch_at_login, close_behavior,
+                    notifications_enabled, store_project_paths,
+                    created_at_ms, updated_at_ms
+                ) VALUES (1, 'Asia/Jakarta', 1, 30, 0, 'hide', 0, 0, 100, 100)",
+                [],
+            )
+            .expect("insert existing settings");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply revision migration");
+
+        let stored: (String, i64) = connection
+            .query_row(
+                "SELECT reporting_timezone, revision FROM app_settings WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read migrated settings");
+        assert_eq!(stored, ("Asia/Jakarta".to_owned(), 1));
+    }
+
+    #[test]
+    fn budget_revision_migration_preserves_existing_budgets() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 2)
+            .expect("apply settings revision migration");
+        connection
+            .execute(
+                "INSERT INTO budgets (
+                    id, name, metric, period, limit_value, currency, enabled,
+                    created_at_ms, updated_at_ms
+                ) VALUES (1, 'Monthly tokens', 'tokens', 'monthly', 1000, NULL, 1, 100, 100)",
+                [],
+            )
+            .expect("insert existing budget");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply budget revision migration");
+
+        let stored: (String, i64) = connection
+            .query_row(
+                "SELECT name, revision FROM budgets WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read migrated budget");
+        assert_eq!(stored, ("Monthly tokens".to_owned(), 1));
     }
 
     #[test]
@@ -68,7 +138,7 @@ mod tests {
         test_database
             .database()
             .connection
-            .pragma_update(None, "user_version", 2)
+            .pragma_update(None, "user_version", 4)
             .expect("set newer schema version");
 
         let error = test_database
@@ -77,7 +147,7 @@ mod tests {
             .expect_err("newer schema must fail");
 
         assert_eq!(error.kind(), PersistenceErrorKind::Migration);
-        assert_eq!(schema_version(test_database.database()), 2);
+        assert_eq!(schema_version(test_database.database()), 4);
     }
 
     #[test]

@@ -11,14 +11,24 @@ const fixturesDir = path.join(
 
 await access(fixturesDir);
 
-const manifestPath = path.join(
+const developmentManifestPath = path.join(
   process.cwd(),
   "src-tauri",
   "sidecars",
   "ccusage",
   "development-manifest.json",
 );
-const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const releaseManifestPath = path.join(
+  process.cwd(),
+  "src-tauri",
+  "sidecars",
+  "ccusage",
+  "release-manifest.json",
+);
+const developmentManifest = JSON.parse(
+  await readFile(developmentManifestPath, "utf8"),
+);
+const releaseManifest = JSON.parse(await readFile(releaseManifestPath, "utf8"));
 const processFixtures = ["fake-collector.sh", "fake-collector-old.sh"];
 
 for (const fixture of processFixtures) {
@@ -112,27 +122,8 @@ for (const [directoryName, expectedFixtures] of envelopeMatrices) {
   }
 }
 
-assertEqual(manifest.collectorKey, "ccusage", "collector key");
-assertEqual(manifest.expectedVersion, "20.0.11", "expected version");
-assertEqual(
-  manifest.sourceRevision,
-  "43836bcec1558fec9da7cb73017928c51443b32b",
-  "source revision",
-);
-assertEqual(manifest.adapterVersion, 1, "adapter version");
-
-if (!Array.isArray(manifest.entries) || manifest.entries.length === 0) {
-  throw new Error("ccusage manifest must declare at least one target");
-}
-
-const targets = new Set();
-for (const entry of manifest.entries) {
-  if (targets.has(entry.target)) {
-    throw new Error(`ccusage manifest duplicates target ${entry.target}`);
-  }
-  targets.add(entry.target);
-  validateIntegrity(entry.integrity, entry.target);
-}
+validateManifest(developmentManifest, false);
+validateManifest(releaseManifest, true);
 
 console.log(
   "Collector manifest, process fixtures, and envelope fixture matrices passed.",
@@ -141,6 +132,107 @@ console.log(
 function assertEqual(actual, expected, field) {
   if (actual !== expected) {
     throw new Error(`ccusage manifest has an unexpected ${field}`);
+  }
+}
+
+function validateManifest(manifest, release) {
+  assertEqual(manifest.collectorKey, "ccusage", "collector key");
+  assertEqual(manifest.expectedVersion, "20.0.14", "expected version");
+  assertEqual(
+    manifest.sourceRevision,
+    "a7726bb9227ef828a8fa06422a08162254a61563",
+    "source revision",
+  );
+  assertEqual(manifest.adapterVersion, 1, "adapter version");
+
+  if (!Array.isArray(manifest.entries) || manifest.entries.length === 0) {
+    throw new Error("ccusage manifest must declare at least one target");
+  }
+
+  const expectedTargets = new Map([
+    [
+      "darwin-arm64",
+      ["aarch64-apple-darwin", "@ccusage/ccusage-darwin-arm64", "ccusage"],
+    ],
+    [
+      "darwin-x64",
+      ["x86_64-apple-darwin", "@ccusage/ccusage-darwin-x64", "ccusage"],
+    ],
+    [
+      "linux-arm64",
+      ["aarch64-unknown-linux-gnu", "@ccusage/ccusage-linux-arm64", "ccusage"],
+    ],
+    [
+      "linux-x64",
+      ["x86_64-unknown-linux-gnu", "@ccusage/ccusage-linux-x64", "ccusage"],
+    ],
+    [
+      "windows-arm64",
+      [
+        "aarch64-pc-windows-msvc",
+        "@ccusage/ccusage-win32-arm64",
+        "ccusage.exe",
+      ],
+    ],
+    [
+      "windows-x64",
+      ["x86_64-pc-windows-msvc", "@ccusage/ccusage-win32-x64", "ccusage.exe"],
+    ],
+  ]);
+  const releaseChecksums = new Map([
+    [
+      "darwin-arm64",
+      "df44e944327d6fc071c313d59785bb5ad28f1f57b70075bb6c5ef6da957cb3fc",
+    ],
+    [
+      "darwin-x64",
+      "97f5de32caab953e3ce789f3b62d45551219a8cc106d871dc93afccdf6bf61bf",
+    ],
+    [
+      "linux-arm64",
+      "f1f7e21073f17905a02daa31cc2b117e39fe10aae18454b228dec04a11a5d1de",
+    ],
+    [
+      "linux-x64",
+      "dfcd0ea98fc56d71cff77db000d307b011fe218333ac93f7697d242e1f587e35",
+    ],
+    [
+      "windows-arm64",
+      "336d4d321517546921a6b242e00b7c9d58d91317f23fed98a334f3c96faec6b1",
+    ],
+    [
+      "windows-x64",
+      "e25ee0cf400037fa4bcb4e2b7d267cfd56f1d43487c5bc5c823b6fc3c5c24c5c",
+    ],
+  ]);
+  const targets = new Set();
+  for (const entry of manifest.entries) {
+    if (targets.has(entry.target)) {
+      throw new Error(`ccusage manifest duplicates target ${entry.target}`);
+    }
+    targets.add(entry.target);
+    const expected = expectedTargets.get(entry.target);
+    if (!expected) {
+      throw new Error(`ccusage manifest has unknown target ${entry.target}`);
+    }
+    assertEqual(entry.rustTargetTriple, expected[0], "Rust target triple");
+    assertEqual(entry.packageName, expected[1], "native package");
+    assertEqual(entry.executableName, expected[2], "executable name");
+    validateIntegrity(entry.integrity, entry.target);
+    if (release && entry.integrity.kind !== "release_sha256") {
+      throw new Error(`release target ${entry.target} must be verified`);
+    }
+    if (
+      release &&
+      entry.integrity.sha256 !== releaseChecksums.get(entry.target)
+    ) {
+      throw new Error(`release target ${entry.target} checksum drifted`);
+    }
+  }
+  if (release && targets.size !== expectedTargets.size) {
+    throw new Error(
+      "ccusage release manifest must declare all supported targets",
+    );
   }
 }
 

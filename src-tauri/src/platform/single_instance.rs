@@ -1,4 +1,11 @@
-//! Reserved integration point for process-wide single-instance behavior.
-//!
-//! Phase 1A names the ownership boundary only. Registration and activation
-//! behavior will be added when the lifecycle contract is implemented.
+//! Process-wide single-instance behavior.
+
+use tauri::{plugin::TauriPlugin, Runtime};
+
+use super::lifecycle;
+
+pub(crate) fn plugin<R: Runtime>() -> TauriPlugin<R> {
+    tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        let _ = lifecycle::activate_main_window(app);
+    })
+}

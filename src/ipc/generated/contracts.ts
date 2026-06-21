@@ -68,6 +68,7 @@ export interface AppBootstrapResponse {
     closeBehavior: "hide" | "quit";
     notificationsEnabled: boolean;
     storeProjectPaths: boolean;
+    revision: number;
   };
   features: {
     usageOverview: boolean;
@@ -92,7 +93,7 @@ export interface AppBootstrapResponse {
 export interface AppCapabilitiesResponse {
   tray: DesktopCapability;
   launchAtLogin: DesktopCapability;
-  nativeNotifications: DesktopCapability;
+  nativeNotifications: NativeNotificationCapability;
   updates: DesktopCapability;
   exportFormats: string[];
   diagnostics: {
@@ -100,7 +101,206 @@ export interface AppCapabilitiesResponse {
   };
 }
 
+export type DiagnosticHealthStatus =
+  | "healthy"
+  | "degraded"
+  | "unavailable"
+  | "unknown";
+
+export interface DiagnosticComponentResponse {
+  component: "database" | "settings" | "sources" | "collector" | "runtime";
+  status: DiagnosticHealthStatus;
+  summary: string;
+  details: string[];
+}
+
+export interface DiagnosticsStatusResponse {
+  status: DiagnosticHealthStatus;
+  contractVersion: number;
+  components: DiagnosticComponentResponse[];
+  logs: {
+    status: "available" | "missing" | "unsupported";
+    label: string;
+  };
+}
+
+export interface RevealLogsResponse {
+  status: "revealed" | "missing" | "unsupported";
+  message: string;
+}
+
+export interface DatabaseMaintenanceStatusResponse {
+  access: "read_write" | "read_only" | "unavailable";
+  schemaVersion: number | null;
+  backupAvailable: boolean;
+  maintenanceAvailable: boolean;
+}
+
+export interface DatabaseCheckpointResponse {
+  busy: number;
+  logFrames: number;
+  checkpointedFrames: number;
+}
+
+export interface DatabaseMaintenanceActionResponse {
+  status:
+    | "healthy"
+    | "corrupt"
+    | "checkpointed"
+    | "busy"
+    | "vacuumed"
+    | "restored";
+  message: string;
+  checkpoint: DatabaseCheckpointResponse | null;
+}
+
+export interface HistoryRequest {
+  cursor?: string | undefined;
+  limit?: number | undefined;
+}
+
+export interface HistoryCommandRequest extends Record<string, unknown> {
+  request: HistoryRequest;
+}
+
+export type HistoryStatus =
+  | "queued"
+  | "running"
+  | "stale"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+export interface HistoryFailure {
+  category:
+    | "collector"
+    | "reconciliation"
+    | "persistence"
+    | "cancelled"
+    | "unknown";
+  retryable: boolean;
+  summary: string;
+}
+
+export interface ImportHistoryItem {
+  source: string;
+  projection: "daily" | "session";
+  scope: "full" | "incremental";
+  status: HistoryStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  recordsSeen: string;
+  recordsRejected: string;
+  failure: HistoryFailure | null;
+}
+
+export interface RefreshHistoryItem {
+  trigger:
+    | "launch"
+    | "manual"
+    | "scheduled"
+    | "file_change"
+    | "resume"
+    | "reconcile";
+  status: HistoryStatus;
+  summary: string;
+  startedAt: string;
+  finishedAt: string | null;
+  importCount: number;
+  recordsSeen: string;
+  recordsRejected: string;
+  failure: HistoryFailure | null;
+  imports: ImportHistoryItem[];
+}
+
+export interface HistoryResponse {
+  items: RefreshHistoryItem[];
+  nextCursor: string | null;
+  limit: number;
+}
+
+export type ExportDataset = "daily_usage" | "sessions";
+
+export interface ExportPreviewRequest {
+  startDate: string;
+  endDate: string;
+  datasets: ExportDataset[];
+}
+
+export interface ExportPreviewCommandRequest extends Record<string, unknown> {
+  request: ExportPreviewRequest;
+}
+
+export interface ConfirmedExportRequest {
+  request: ExportPreviewRequest;
+  previewToken: string;
+}
+
+export interface ConfirmedExportCommandRequest extends Record<string, unknown> {
+  request: ConfirmedExportRequest;
+}
+
+export interface ExportPreviewResponse {
+  startDate: string;
+  endDate: string;
+  format: "csv";
+  datasets: { dataset: ExportDataset; rows: string }[];
+  totalRows: string;
+  estimatedBytes: string;
+  privacyNotes: string[];
+  previewToken: string;
+  canExport: boolean;
+}
+
+export interface ExportResponse {
+  status: "exported" | "cancelled";
+  rows: string;
+  message: string;
+}
+
+export interface DeleteHistoryCounts {
+  dailyUsage: string;
+  dailyModelUsage: string;
+  sessions: string;
+  sessionModelUsage: string;
+  refreshRuns: string;
+  importRuns: string;
+  projects: string;
+  sourceModels: string;
+  notificationRecords: string;
+}
+
+export interface DeleteHistoryPreviewResponse {
+  scope: string;
+  earliestDate: string | null;
+  latestDate: string | null;
+  sourceCount: string;
+  counts: DeleteHistoryCounts;
+  totalRecords: string;
+  preserved: string[];
+  previewToken: string;
+  canDelete: boolean;
+  activeRefresh: boolean;
+  confirmationText: string;
+}
+
+export interface DeleteHistoryRequest {
+  previewToken: string;
+  confirmation: string;
+}
+
+export interface DeleteHistoryCommandRequest extends Record<string, unknown> {
+  request: DeleteHistoryRequest;
+}
+
+export interface DeleteHistoryResponse {
+  deletedRecords: string;
+  message: string;
+}
+
 export interface UpdateSettingsRequest {
+  expectedRevision: number;
   reportingTimezone: string;
   backgroundRefreshEnabled: boolean;
   refreshIntervalMinutes: number;
@@ -110,9 +310,154 @@ export interface UpdateSettingsRequest {
   storeProjectPaths: boolean;
 }
 
+export interface UpdateSettingsCommandRequest extends Record<string, unknown> {
+  request: UpdateSettingsRequest;
+}
+
+export interface SettingsResponse {
+  reportingTimezone: string;
+  backgroundRefreshEnabled: boolean;
+  refreshIntervalMinutes: number;
+  launchAtLogin: boolean;
+  closeBehavior: "hide" | "quit";
+  notificationsEnabled: boolean;
+  storeProjectPaths: boolean;
+  revision: number;
+}
+
+export interface UpdateProjectPathRetentionRequest {
+  expectedRevision: number;
+  retainPaths: boolean;
+}
+
+export interface UpdateProjectPathRetentionCommandRequest extends Record<
+  string,
+  unknown
+> {
+  request: UpdateProjectPathRetentionRequest;
+}
+
+export interface ProjectPathRetentionResponse {
+  settings: SettingsResponse;
+  clearedPaths: number;
+}
+
+export type BudgetLimit =
+  | {
+      kind: "tokens";
+      value: string;
+    }
+  | {
+      kind: "cost";
+      amountMicros: string;
+      currency: string;
+    };
+
+export type BudgetScope =
+  | {
+      kind: "global";
+    }
+  | {
+      kind: "source";
+      sourceId: string;
+    };
+
+export interface BudgetThreshold {
+  basisPoints: number;
+  enabled: boolean;
+}
+
+export interface BudgetDefinition {
+  name: string;
+  limit: BudgetLimit;
+  period: "daily" | "weekly" | "monthly";
+  scope: BudgetScope;
+  enabled: boolean;
+  thresholds: BudgetThreshold[];
+}
+
+export interface BudgetResponse extends BudgetDefinition {
+  id: string;
+  revision: string;
+}
+
+export interface BudgetListResponse {
+  items: BudgetResponse[];
+}
+
+export interface BudgetIdRequest {
+  budgetId: string;
+}
+
+export interface BudgetIdCommandRequest extends Record<string, unknown> {
+  request: BudgetIdRequest;
+}
+
+export interface CreateBudgetRequest {
+  budget: BudgetDefinition;
+}
+
+export interface CreateBudgetCommandRequest extends Record<string, unknown> {
+  request: CreateBudgetRequest;
+}
+
+export interface UpdateBudgetRequest {
+  budgetId: string;
+  expectedRevision: string;
+  budget: BudgetDefinition;
+}
+
+export interface UpdateBudgetCommandRequest extends Record<string, unknown> {
+  request: UpdateBudgetRequest;
+}
+
+export interface MutateBudgetRequest {
+  budgetId: string;
+  expectedRevision: string;
+}
+
+export interface MutateBudgetCommandRequest extends Record<string, unknown> {
+  request: MutateBudgetRequest;
+}
+
+export interface DeleteBudgetResponse {
+  budgetId: string;
+}
+
+export interface CurrentBudgetProgressResponse {
+  status: "no_budgets" | "all_disabled" | "available";
+  reportingTimezone: string;
+  asOf: string;
+  configuredBudgetCount: number;
+  enabledBudgetCount: number;
+  traySummary: string | null;
+  items: CurrentBudgetProgressItemResponse[];
+}
+
+export interface CurrentBudgetProgressItemResponse {
+  budgetId: string;
+  budgetName: string;
+  period: "daily" | "weekly" | "monthly";
+  periodStartDate: string;
+  periodEndDate: string;
+  metric: "tokens" | "cost";
+  state: "available" | "cost_unavailable";
+  current: string | null;
+  limit: string;
+  currency: string | null;
+  basisPoints: string | null;
+  exceeded: boolean;
+  completeness: "complete" | "partial" | "unavailable";
+  unavailableDays: number;
+}
+
 export interface DesktopCapability {
   supported: boolean;
-  status: "not_implemented";
+  status: "available" | "not_implemented" | "unavailable";
+}
+
+export interface NativeNotificationCapability extends DesktopCapability {
+  permission: "granted" | "denied" | "prompt" | "unknown";
 }
 
 export interface RefreshStatusResponse {
@@ -277,7 +622,29 @@ export const COMMAND_NAMES = {
   contractProbe: "__burnly_contract_probe",
   appGetBootstrap: "app_get_bootstrap",
   appGetCapabilities: "app_get_capabilities",
-  appUpdateSettings: "app_update_settings",
+  diagnosticsGetStatus: "diagnostics_get_status",
+  diagnosticsGetHistory: "diagnostics_get_history",
+  diagnosticsRevealLogs: "diagnostics_reveal_logs",
+  databaseGetMaintenanceStatus: "database_get_maintenance_status",
+  databaseIntegrityCheck: "database_integrity_check",
+  databaseCheckpoint: "database_checkpoint",
+  databaseVacuum: "database_vacuum",
+  databaseRestoreMigrationBackup: "database_restore_migration_backup",
+  historyGetExportPreview: "history_get_export_preview",
+  historyExport: "history_export",
+  historyGetDeletePreview: "history_get_delete_preview",
+  historyDelete: "history_delete",
+  settingsGet: "settings_get",
+  settingsUpdate: "settings_update",
+  settingsUpdateProjectPathRetention: "settings_update_project_path_retention",
+  budgetsList: "budgets_list",
+  budgetsGet: "budgets_get",
+  budgetsCreate: "budgets_create",
+  budgetsUpdate: "budgets_update",
+  budgetsEnable: "budgets_enable",
+  budgetsDisable: "budgets_disable",
+  budgetsDelete: "budgets_delete",
+  budgetsGetProgress: "budgets_get_progress",
   refreshGetState: "refresh_get_state",
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
@@ -294,7 +661,29 @@ export interface CommandRequests {
   [COMMAND_NAMES.contractProbe]: Record<string, never>;
   [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
-  [COMMAND_NAMES.appUpdateSettings]: UpdateSettingsRequest;
+  [COMMAND_NAMES.diagnosticsGetStatus]: Record<string, never>;
+  [COMMAND_NAMES.diagnosticsGetHistory]: HistoryCommandRequest;
+  [COMMAND_NAMES.diagnosticsRevealLogs]: Record<string, never>;
+  [COMMAND_NAMES.databaseGetMaintenanceStatus]: Record<string, never>;
+  [COMMAND_NAMES.databaseIntegrityCheck]: Record<string, never>;
+  [COMMAND_NAMES.databaseCheckpoint]: Record<string, never>;
+  [COMMAND_NAMES.databaseVacuum]: Record<string, never>;
+  [COMMAND_NAMES.databaseRestoreMigrationBackup]: Record<string, never>;
+  [COMMAND_NAMES.historyGetExportPreview]: ExportPreviewCommandRequest;
+  [COMMAND_NAMES.historyExport]: ConfirmedExportCommandRequest;
+  [COMMAND_NAMES.historyGetDeletePreview]: Record<string, never>;
+  [COMMAND_NAMES.historyDelete]: DeleteHistoryCommandRequest;
+  [COMMAND_NAMES.settingsGet]: Record<string, never>;
+  [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
+  [COMMAND_NAMES.settingsUpdateProjectPathRetention]: UpdateProjectPathRetentionCommandRequest;
+  [COMMAND_NAMES.budgetsList]: Record<string, never>;
+  [COMMAND_NAMES.budgetsGet]: BudgetIdCommandRequest;
+  [COMMAND_NAMES.budgetsCreate]: CreateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsUpdate]: UpdateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsEnable]: MutateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsDisable]: MutateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsDelete]: MutateBudgetCommandRequest;
+  [COMMAND_NAMES.budgetsGetProgress]: Record<string, never>;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
@@ -309,7 +698,29 @@ export interface CommandResponses {
   [COMMAND_NAMES.contractProbe]: IpcResponse<ContractProbeResponse>;
   [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
-  [COMMAND_NAMES.appUpdateSettings]: IpcResponse<Record<string, never>>;
+  [COMMAND_NAMES.diagnosticsGetStatus]: IpcResponse<DiagnosticsStatusResponse>;
+  [COMMAND_NAMES.diagnosticsGetHistory]: IpcResponse<HistoryResponse>;
+  [COMMAND_NAMES.diagnosticsRevealLogs]: IpcResponse<RevealLogsResponse>;
+  [COMMAND_NAMES.databaseGetMaintenanceStatus]: IpcResponse<DatabaseMaintenanceStatusResponse>;
+  [COMMAND_NAMES.databaseIntegrityCheck]: IpcResponse<DatabaseMaintenanceActionResponse>;
+  [COMMAND_NAMES.databaseCheckpoint]: IpcResponse<DatabaseMaintenanceActionResponse>;
+  [COMMAND_NAMES.databaseVacuum]: IpcResponse<DatabaseMaintenanceActionResponse>;
+  [COMMAND_NAMES.databaseRestoreMigrationBackup]: IpcResponse<DatabaseMaintenanceActionResponse>;
+  [COMMAND_NAMES.historyGetExportPreview]: IpcResponse<ExportPreviewResponse>;
+  [COMMAND_NAMES.historyExport]: IpcResponse<ExportResponse>;
+  [COMMAND_NAMES.historyGetDeletePreview]: IpcResponse<DeleteHistoryPreviewResponse>;
+  [COMMAND_NAMES.historyDelete]: IpcResponse<DeleteHistoryResponse>;
+  [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
+  [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
+  [COMMAND_NAMES.settingsUpdateProjectPathRetention]: IpcResponse<ProjectPathRetentionResponse>;
+  [COMMAND_NAMES.budgetsList]: IpcResponse<BudgetListResponse>;
+  [COMMAND_NAMES.budgetsGet]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsCreate]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsUpdate]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsEnable]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsDisable]: IpcResponse<BudgetResponse>;
+  [COMMAND_NAMES.budgetsDelete]: IpcResponse<DeleteBudgetResponse>;
+  [COMMAND_NAMES.budgetsGetProgress]: IpcResponse<CurrentBudgetProgressResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
@@ -341,11 +752,148 @@ export function invokeAppGetCapabilities(
   return invoke(COMMAND_NAMES.appGetCapabilities, {});
 }
 
-export function invokeAppUpdateSettings(
+export function invokeDiagnosticsGetStatus(
   invoke: CommandInvoker,
-  request: UpdateSettingsRequest,
 ): Promise<unknown> {
-  return invoke(COMMAND_NAMES.appUpdateSettings, request);
+  return invoke(COMMAND_NAMES.diagnosticsGetStatus, {});
+}
+
+export function invokeDiagnosticsGetHistory(
+  invoke: CommandInvoker,
+  request: HistoryCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.diagnosticsGetHistory, request);
+}
+
+export function invokeDiagnosticsRevealLogs(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.diagnosticsRevealLogs, {});
+}
+
+export function invokeDatabaseGetMaintenanceStatus(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseGetMaintenanceStatus, {});
+}
+
+export function invokeDatabaseIntegrityCheck(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseIntegrityCheck, {});
+}
+
+export function invokeDatabaseCheckpoint(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseCheckpoint, {});
+}
+
+export function invokeDatabaseVacuum(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseVacuum, {});
+}
+
+export function invokeDatabaseRestoreMigrationBackup(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.databaseRestoreMigrationBackup, {});
+}
+
+export function invokeHistoryGetExportPreview(
+  invoke: CommandInvoker,
+  request: ExportPreviewCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.historyGetExportPreview, request);
+}
+
+export function invokeHistoryExport(
+  invoke: CommandInvoker,
+  request: ConfirmedExportCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.historyExport, request);
+}
+
+export function invokeHistoryGetDeletePreview(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.historyGetDeletePreview, {});
+}
+
+export function invokeHistoryDelete(
+  invoke: CommandInvoker,
+  request: DeleteHistoryCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.historyDelete, request);
+}
+
+export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.settingsGet, {});
+}
+
+export function invokeSettingsUpdate(
+  invoke: CommandInvoker,
+  request: UpdateSettingsCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.settingsUpdate, request);
+}
+
+export function invokeSettingsUpdateProjectPathRetention(
+  invoke: CommandInvoker,
+  request: UpdateProjectPathRetentionCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.settingsUpdateProjectPathRetention, request);
+}
+
+export function invokeBudgetsList(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsList, {});
+}
+
+export function invokeBudgetsGet(
+  invoke: CommandInvoker,
+  request: BudgetIdCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsGet, request);
+}
+
+export function invokeBudgetsCreate(
+  invoke: CommandInvoker,
+  request: CreateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsCreate, request);
+}
+
+export function invokeBudgetsUpdate(
+  invoke: CommandInvoker,
+  request: UpdateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsUpdate, request);
+}
+
+export function invokeBudgetsEnable(
+  invoke: CommandInvoker,
+  request: MutateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsEnable, request);
+}
+
+export function invokeBudgetsDisable(
+  invoke: CommandInvoker,
+  request: MutateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsDisable, request);
+}
+
+export function invokeBudgetsDelete(
+  invoke: CommandInvoker,
+  request: MutateBudgetCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsDelete, request);
+}
+
+export function invokeBudgetsGetProgress(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.budgetsGetProgress, {});
 }
 
 export function invokeRefreshGetState(

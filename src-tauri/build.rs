@@ -1,3 +1,41 @@
 fn main() {
-    tauri_build::build()
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&[
+            "__burnly_contract_probe",
+            "app_get_bootstrap",
+            "app_get_capabilities",
+            "diagnostics_get_status",
+            "diagnostics_get_history",
+            "diagnostics_reveal_logs",
+            "database_get_maintenance_status",
+            "database_integrity_check",
+            "database_checkpoint",
+            "database_vacuum",
+            "database_restore_migration_backup",
+            "history_get_export_preview",
+            "history_export",
+            "history_get_delete_preview",
+            "history_delete",
+            "settings_get",
+            "settings_update",
+            "settings_update_project_path_retention",
+            "budgets_list",
+            "budgets_get",
+            "budgets_create",
+            "budgets_update",
+            "budgets_enable",
+            "budgets_disable",
+            "budgets_delete",
+            "budgets_get_progress",
+            "refresh_get_state",
+            "refresh_request",
+            "refresh_cancel",
+            "usage_get_overview",
+            "usage_get_calendar",
+            "usage_get_day_detail",
+            "usage_get_sessions",
+            "usage_get_session_detail",
+        ]),
+    ))
+    .expect("failed to build Tauri application manifest")
 }

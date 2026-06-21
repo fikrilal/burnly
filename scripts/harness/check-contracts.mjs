@@ -241,6 +241,7 @@ export interface AppBootstrapResponse {
     closeBehavior: "hide" | "quit";
     notificationsEnabled: boolean;
     storeProjectPaths: boolean;
+    revision: number;
   };
   features: {
     usageOverview: boolean;
@@ -265,7 +266,7 @@ export interface AppBootstrapResponse {
 export interface AppCapabilitiesResponse {
   tray: DesktopCapability;
   launchAtLogin: DesktopCapability;
-  nativeNotifications: DesktopCapability;
+  nativeNotifications: NativeNotificationCapability;
   updates: DesktopCapability;
   exportFormats: string[];
   diagnostics: {
@@ -273,7 +274,189 @@ export interface AppCapabilitiesResponse {
   };
 }
 
+export type DiagnosticHealthStatus =
+  | "healthy"
+  | "degraded"
+  | "unavailable"
+  | "unknown";
+
+export interface DiagnosticComponentResponse {
+  component: "database" | "settings" | "sources" | "collector" | "runtime";
+  status: DiagnosticHealthStatus;
+  summary: string;
+  details: string[];
+}
+
+export interface DiagnosticsStatusResponse {
+  status: DiagnosticHealthStatus;
+  contractVersion: number;
+  components: DiagnosticComponentResponse[];
+  logs: {
+    status: "available" | "missing" | "unsupported";
+    label: string;
+  };
+}
+
+export interface RevealLogsResponse {
+  status: "revealed" | "missing" | "unsupported";
+  message: string;
+}
+
+export interface DatabaseMaintenanceStatusResponse {
+  access: "read_write" | "read_only" | "unavailable";
+  schemaVersion: number | null;
+  backupAvailable: boolean;
+  maintenanceAvailable: boolean;
+}
+
+export interface DatabaseCheckpointResponse {
+  busy: number;
+  logFrames: number;
+  checkpointedFrames: number;
+}
+
+export interface DatabaseMaintenanceActionResponse {
+  status: "healthy" | "corrupt" | "checkpointed" | "busy" | "vacuumed" | "restored";
+  message: string;
+  checkpoint: DatabaseCheckpointResponse | null;
+}
+
+export interface HistoryRequest {
+  cursor?: string | undefined;
+  limit?: number | undefined;
+}
+
+export interface HistoryCommandRequest extends Record<string, unknown> {
+  request: HistoryRequest;
+}
+
+export type HistoryStatus =
+  | "queued"
+  | "running"
+  | "stale"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+export interface HistoryFailure {
+  category: "collector" | "reconciliation" | "persistence" | "cancelled" | "unknown";
+  retryable: boolean;
+  summary: string;
+}
+
+export interface ImportHistoryItem {
+  source: string;
+  projection: "daily" | "session";
+  scope: "full" | "incremental";
+  status: HistoryStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  recordsSeen: string;
+  recordsRejected: string;
+  failure: HistoryFailure | null;
+}
+
+export interface RefreshHistoryItem {
+  trigger: "launch" | "manual" | "scheduled" | "file_change" | "resume" | "reconcile";
+  status: HistoryStatus;
+  summary: string;
+  startedAt: string;
+  finishedAt: string | null;
+  importCount: number;
+  recordsSeen: string;
+  recordsRejected: string;
+  failure: HistoryFailure | null;
+  imports: ImportHistoryItem[];
+}
+
+export interface HistoryResponse {
+  items: RefreshHistoryItem[];
+  nextCursor: string | null;
+  limit: number;
+}
+
+export type ExportDataset = "daily_usage" | "sessions";
+
+export interface ExportPreviewRequest {
+  startDate: string;
+  endDate: string;
+  datasets: ExportDataset[];
+}
+
+export interface ExportPreviewCommandRequest extends Record<string, unknown> {
+  request: ExportPreviewRequest;
+}
+
+export interface ConfirmedExportRequest {
+  request: ExportPreviewRequest;
+  previewToken: string;
+}
+
+export interface ConfirmedExportCommandRequest extends Record<string, unknown> {
+  request: ConfirmedExportRequest;
+}
+
+export interface ExportPreviewResponse {
+  startDate: string;
+  endDate: string;
+  format: "csv";
+  datasets: { dataset: ExportDataset; rows: string }[];
+  totalRows: string;
+  estimatedBytes: string;
+  privacyNotes: string[];
+  previewToken: string;
+  canExport: boolean;
+}
+
+export interface ExportResponse {
+  status: "exported" | "cancelled";
+  rows: string;
+  message: string;
+}
+
+export interface DeleteHistoryCounts {
+  dailyUsage: string;
+  dailyModelUsage: string;
+  sessions: string;
+  sessionModelUsage: string;
+  refreshRuns: string;
+  importRuns: string;
+  projects: string;
+  sourceModels: string;
+  notificationRecords: string;
+}
+
+export interface DeleteHistoryPreviewResponse {
+  scope: string;
+  earliestDate: string | null;
+  latestDate: string | null;
+  sourceCount: string;
+  counts: DeleteHistoryCounts;
+  totalRecords: string;
+  preserved: string[];
+  previewToken: string;
+  canDelete: boolean;
+  activeRefresh: boolean;
+  confirmationText: string;
+}
+
+export interface DeleteHistoryRequest {
+  previewToken: string;
+  confirmation: string;
+}
+
+export interface DeleteHistoryCommandRequest extends Record<string, unknown> {
+  request: DeleteHistoryRequest;
+}
+
+export interface DeleteHistoryResponse {
+  deletedRecords: string;
+  message: string;
+}
+
 export interface UpdateSettingsRequest {
+  expectedRevision: number;
   reportingTimezone: string;
   backgroundRefreshEnabled: boolean;
   refreshIntervalMinutes: number;
@@ -283,9 +466,152 @@ export interface UpdateSettingsRequest {
   storeProjectPaths: boolean;
 }
 
+export interface UpdateSettingsCommandRequest extends Record<string, unknown> {
+  request: UpdateSettingsRequest;
+}
+
+export interface SettingsResponse {
+  reportingTimezone: string;
+  backgroundRefreshEnabled: boolean;
+  refreshIntervalMinutes: number;
+  launchAtLogin: boolean;
+  closeBehavior: "hide" | "quit";
+  notificationsEnabled: boolean;
+  storeProjectPaths: boolean;
+  revision: number;
+}
+
+export interface UpdateProjectPathRetentionRequest {
+  expectedRevision: number;
+  retainPaths: boolean;
+}
+
+export interface UpdateProjectPathRetentionCommandRequest
+  extends Record<string, unknown> {
+  request: UpdateProjectPathRetentionRequest;
+}
+
+export interface ProjectPathRetentionResponse {
+  settings: SettingsResponse;
+  clearedPaths: number;
+}
+
+export type BudgetLimit =
+  | {
+      kind: "tokens";
+      value: string;
+    }
+  | {
+      kind: "cost";
+      amountMicros: string;
+      currency: string;
+    };
+
+export type BudgetScope =
+  | {
+      kind: "global";
+    }
+  | {
+      kind: "source";
+      sourceId: string;
+    };
+
+export interface BudgetThreshold {
+  basisPoints: number;
+  enabled: boolean;
+}
+
+export interface BudgetDefinition {
+  name: string;
+  limit: BudgetLimit;
+  period: "daily" | "weekly" | "monthly";
+  scope: BudgetScope;
+  enabled: boolean;
+  thresholds: BudgetThreshold[];
+}
+
+export interface BudgetResponse extends BudgetDefinition {
+  id: string;
+  revision: string;
+}
+
+export interface BudgetListResponse {
+  items: BudgetResponse[];
+}
+
+export interface BudgetIdRequest {
+  budgetId: string;
+}
+
+export interface BudgetIdCommandRequest extends Record<string, unknown> {
+  request: BudgetIdRequest;
+}
+
+export interface CreateBudgetRequest {
+  budget: BudgetDefinition;
+}
+
+export interface CreateBudgetCommandRequest extends Record<string, unknown> {
+  request: CreateBudgetRequest;
+}
+
+export interface UpdateBudgetRequest {
+  budgetId: string;
+  expectedRevision: string;
+  budget: BudgetDefinition;
+}
+
+export interface UpdateBudgetCommandRequest extends Record<string, unknown> {
+  request: UpdateBudgetRequest;
+}
+
+export interface MutateBudgetRequest {
+  budgetId: string;
+  expectedRevision: string;
+}
+
+export interface MutateBudgetCommandRequest extends Record<string, unknown> {
+  request: MutateBudgetRequest;
+}
+
+export interface DeleteBudgetResponse {
+  budgetId: string;
+}
+
+export interface CurrentBudgetProgressResponse {
+  status: "no_budgets" | "all_disabled" | "available";
+  reportingTimezone: string;
+  asOf: string;
+  configuredBudgetCount: number;
+  enabledBudgetCount: number;
+  traySummary: string | null;
+  items: CurrentBudgetProgressItemResponse[];
+}
+
+export interface CurrentBudgetProgressItemResponse {
+  budgetId: string;
+  budgetName: string;
+  period: "daily" | "weekly" | "monthly";
+  periodStartDate: string;
+  periodEndDate: string;
+  metric: "tokens" | "cost";
+  state: "available" | "cost_unavailable";
+  current: string | null;
+  limit: string;
+  currency: string | null;
+  basisPoints: string | null;
+  exceeded: boolean;
+  completeness: "complete" | "partial" | "unavailable";
+  unavailableDays: number;
+}
+
 export interface DesktopCapability {
   supported: boolean;
-  status: "not_implemented";
+  status: "available" | "not_implemented" | "unavailable";
+}
+
+export interface NativeNotificationCapability extends DesktopCapability {
+  permission: "granted" | "denied" | "prompt" | "unknown";
 }
 
 export interface RefreshStatusResponse {
