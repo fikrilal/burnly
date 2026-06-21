@@ -1,11 +1,18 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  readdir,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 
-const [targetTriple, ...inputPaths] = process.argv.slice(2);
-if (!targetTriple || inputPaths.length === 0) {
+const [targetTriple, ...providedInputPaths] = process.argv.slice(2);
+if (!targetTriple) {
   console.error(
-    "Usage: pnpm release:stage <rust-target-triple> <bundle-path...>",
+    "Usage: pnpm release:stage <rust-target-triple> [bundle-path...]",
   );
   process.exit(1);
 }
@@ -21,6 +28,30 @@ if (!target) {
   console.error(`Unsupported release target: ${targetTriple}`);
   process.exit(1);
 }
+async function filesBelow(directory) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(
+    () => [],
+  );
+  const files = [];
+  for (const entry of entries) {
+    const candidate = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await filesBelow(candidate)));
+    else if (entry.isFile()) files.push(candidate);
+  }
+  return files;
+}
+
+const inputPaths =
+  providedInputPaths.length > 0
+    ? providedInputPaths
+    : (
+        await filesBelow(
+          path.join("src-tauri", "target", targetTriple, "release", "bundle"),
+        )
+      ).filter((candidate) =>
+        target.bundles.some((bundle) => bundleForPath(candidate, bundle)),
+      );
+
 if (inputPaths.length !== target.bundles.length) {
   console.error(
     `${targetTriple} requires ${target.bundles.length} bundle path(s), received ${inputPaths.length}.`,
@@ -28,12 +59,14 @@ if (inputPaths.length !== target.bundles.length) {
   process.exit(1);
 }
 
-function bundleForPath(inputPath) {
+function bundleForPath(inputPath, expectedBundle) {
   const normalized = inputPath.toLowerCase();
-  return target.bundles.find((bundle) => {
+  const matches = (bundle) => {
     if (bundle.kind === "appimage") return normalized.endsWith(".appimage");
     return normalized.endsWith(`.${bundle.extension.toLowerCase()}`);
-  });
+  };
+  if (expectedBundle) return matches(expectedBundle);
+  return target.bundles.find(matches);
 }
 
 function artifactName(bundle) {

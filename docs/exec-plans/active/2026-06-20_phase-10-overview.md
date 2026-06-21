@@ -30,16 +30,16 @@ platform behavior, distribution automation, and upgrade paths.
 
 ## Chunk Plan
 
-| Chunk                                 | Status | Dependency     | Plan                                                                   |
-| ------------------------------------- | ------ | -------------- | ---------------------------------------------------------------------- |
-| Phase 10A: Release security baseline  | Done   | Phase 9        | [Plan](../completed/2026-06-20_phase-10a-release-security-baseline.md) |
-| Phase 10B: Packaged sidecars          | Done   | Phase 10A      | [Plan](../completed/2026-06-20_phase-10b-packaged-sidecars.md)         |
-| Phase 10C: Packaging and metadata     | Active | Phase 10A      | [Plan](2026-06-20_phase-10c-packaging-metadata.md)                     |
-| Phase 10D: Cross-platform behavior    | Queued | Phases 10B-10C | [Plan](../queued/2026-06-20_phase-10d-cross-platform-behavior.md)      |
-| Phase 10E: CI and release workflow    | Queued | Phases 10B-10C | [Plan](../queued/2026-06-20_phase-10e-ci-release-workflow.md)          |
-| Phase 10F: Signing and updates        | Queued | Phases 10C-10E | [Plan](../queued/2026-06-20_phase-10f-signing-updates.md)              |
-| Phase 10G: Performance hardening      | Queued | Phases 10B-10D | [Plan](../queued/2026-06-20_phase-10g-performance-hardening.md)        |
-| Phase 10H: Release-candidate evidence | Queued | Phases 10A-10G | [Plan](../queued/2026-06-20_phase-10h-release-candidate-evidence.md)   |
+| Chunk                                 | Status           | Dependency            | Plan                                                                   |
+| ------------------------------------- | ---------------- | --------------------- | ---------------------------------------------------------------------- |
+| Phase 10A: Release security baseline  | Done             | Phase 9               | [Plan](../completed/2026-06-20_phase-10a-release-security-baseline.md) |
+| Phase 10B: Packaged sidecars          | Done             | Phase 10A             | [Plan](../completed/2026-06-20_phase-10b-packaged-sidecars.md)         |
+| Phase 10C: Packaging and metadata     | Evidence pending | Phase 10A             | [Plan](../queued/2026-06-20_phase-10c-packaging-metadata.md)           |
+| Phase 10D: Cross-platform behavior    | Queued           | Phases 10B-10C        | [Plan](../queued/2026-06-20_phase-10d-cross-platform-behavior.md)      |
+| Phase 10E: CI and release workflow    | Active           | Stable 10B-10C inputs | [Plan](2026-06-20_phase-10e-ci-release-workflow.md)                    |
+| Phase 10F: Signing and updates        | Queued           | Phases 10C-10E        | [Plan](../queued/2026-06-20_phase-10f-signing-updates.md)              |
+| Phase 10G: Performance hardening      | Queued           | Phases 10B-10D        | [Plan](../queued/2026-06-20_phase-10g-performance-hardening.md)        |
+| Phase 10H: Release-candidate evidence | Queued           | Phases 10A-10G        | [Plan](../queued/2026-06-20_phase-10h-release-candidate-evidence.md)   |
 
 ## Dependency Rules
 
@@ -48,7 +48,8 @@ platform behavior, distribution automation, and upgrade paths.
 - 10B and 10C may proceed after 10A and can be implemented independently.
 - 10D validates installed behavior only after packaged sidecars and installers
   exist.
-- 10E automates artifacts only after package inputs and metadata are stable.
+- 10E starts after package inputs and metadata are stable; its native matrix
+  supplies the remaining evidence required to close 10C.
 - 10F depends on stable artifacts and CI release boundaries.
 - 10G measures release-shaped builds and representative packaged behavior.
 - 10H closes the phase only after every preceding chunk is complete.
@@ -114,11 +115,15 @@ platform behavior, distribution automation, and upgrade paths.
   user-data retention policy.
 - AppImage is excluded because current assembly mutates the verified Bun
   sidecar and the extracted executable crashes.
+- Phase 10E now defines read-only cross-platform PR verification and a six-target
+  unsigned release matrix with pinned actions/toolchains, canonical artifacts,
+  checksums, provenance attestations, and all-or-nothing draft publication.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: passed through Phase 10B; Phase 10C local Linux gates pass.
+- Outcome: passed through Phase 10B; Phase 10C local Linux gates and Phase 10E
+  local workflow-policy gates pass.
 
 ## Runtime Evidence
 
