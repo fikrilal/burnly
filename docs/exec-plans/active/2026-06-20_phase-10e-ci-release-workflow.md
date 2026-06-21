@@ -140,6 +140,9 @@ supported platform matrix without exposing release secrets to untrusted jobs.
   the relative-path audit. Migration dependency discovery now normalizes and
   self-checks that path; a follow-up search confirms no other harness suffix
   comparisons use platform-specific separators.
+- Pull request run `27917553122` passed the complete matrix: Ubuntu 24.04 and
+  macOS 15 ran `pnpm verify`, while Windows Server 2022 ran the explicit
+  compile-only Rust variant `pnpm verify:windows`. GitGuardian also passed.
 - A successful rerun of the real GitHub Actions matrix is still required before
   this plan can move to completed.
 
