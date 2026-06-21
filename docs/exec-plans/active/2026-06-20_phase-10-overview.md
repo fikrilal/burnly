@@ -34,7 +34,7 @@ platform behavior, distribution automation, and upgrade paths.
 | ------------------------------------- | ------ | -------------- | ---------------------------------------------------------------------- |
 | Phase 10A: Release security baseline  | Done   | Phase 9        | [Plan](../completed/2026-06-20_phase-10a-release-security-baseline.md) |
 | Phase 10B: Packaged sidecars          | Done   | Phase 10A      | [Plan](../completed/2026-06-20_phase-10b-packaged-sidecars.md)         |
-| Phase 10C: Packaging and metadata     | Queued | Phase 10A      | [Plan](../queued/2026-06-20_phase-10c-packaging-metadata.md)           |
+| Phase 10C: Packaging and metadata     | Active | Phase 10A      | [Plan](2026-06-20_phase-10c-packaging-metadata.md)                     |
 | Phase 10D: Cross-platform behavior    | Queued | Phases 10B-10C | [Plan](../queued/2026-06-20_phase-10d-cross-platform-behavior.md)      |
 | Phase 10E: CI and release workflow    | Queued | Phases 10B-10C | [Plan](../queued/2026-06-20_phase-10e-ci-release-workflow.md)          |
 | Phase 10F: Signing and updates        | Queued | Phases 10C-10E | [Plan](../queued/2026-06-20_phase-10f-signing-updates.md)              |
@@ -108,11 +108,17 @@ platform behavior, distribution automation, and upgrade paths.
 - Phase 10B pinned `ccusage 20.0.14`, recorded reviewed native-package checksums
   for six targets, added deterministic target staging, and packaged only the
   verified selected binary plus its release manifest.
+- Phase 10C keeps the stable application identity, uses `package.json` as the
+  release version source, replaces Tauri placeholder icons, selects DMG/NSIS/deb
+  packages, blocks Windows downgrades, and defines canonical artifact names and
+  user-data retention policy.
+- AppImage is excluded because current assembly mutates the verified Bun
+  sidecar and the extracted executable crashes.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: passed through Phase 10B.
+- Outcome: passed through Phase 10B; Phase 10C local Linux gates pass.
 
 ## Runtime Evidence
 
@@ -122,6 +128,8 @@ platform behavior, distribution automation, and upgrade paths.
   with the enforced CSP and capability policy.
 - Phase 10B built and inspected a Debian package whose installed sidecar had
   mode `0755`, the reviewed checksum, and reported `ccusage 20.0.14`.
+- Phase 10C built, canonically staged, and inspected the Linux x86_64 Debian
+  package with reviewed application metadata and regenerated Burnly icons.
 - Remaining macOS, Windows, and Linux ARM64 evidence is required in Phases 10D,
   10E, and 10H.
 

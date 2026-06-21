@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "artifactNameTemplate": "burnly-v{version}-{platform}-{architecture}.{extension}",
+  "targets": [
+    {
+      "rustTargetTriple": "aarch64-apple-darwin",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "bundles": [{ "kind": "dmg", "extension": "dmg" }]
+    },
+    {
+      "rustTargetTriple": "x86_64-apple-darwin",
+      "platform": "macos",
+      "architecture": "x86_64",
+      "bundles": [{ "kind": "dmg", "extension": "dmg" }]
+    },
+    {
+      "rustTargetTriple": "aarch64-pc-windows-msvc",
+      "platform": "windows",
+      "architecture": "aarch64",
+      "bundles": [{ "kind": "nsis", "extension": "exe" }]
+    },
+    {
+      "rustTargetTriple": "x86_64-pc-windows-msvc",
+      "platform": "windows",
+      "architecture": "x86_64",
+      "bundles": [{ "kind": "nsis", "extension": "exe" }]
+    },
+    {
+      "rustTargetTriple": "aarch64-unknown-linux-gnu",
+      "platform": "linux",
+      "architecture": "aarch64",
+      "bundles": [{ "kind": "deb", "extension": "deb" }]
+    },
+    {
+      "rustTargetTriple": "x86_64-unknown-linux-gnu",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "bundles": [{ "kind": "deb", "extension": "deb" }]
+    }
+  ]
+}

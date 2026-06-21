@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Burnly",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "app.burnly.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -43,6 +43,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Burnly",
+    "copyright": "Copyright © 2026 Burnly contributors",
+    "category": "DeveloperTool",
+    "shortDescription": "Local AI coding-tool usage tracker.",
+    "longDescription": "Burnly is a private, local-first desktop application for understanding AI coding-tool token usage, estimated cost, sessions, and budgets.",
     "resources": {
       "sidecars/ccusage/runtime/*": "sidecars/ccusage/"
     },
