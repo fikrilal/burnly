@@ -4,12 +4,14 @@ import {
   chmod,
   copyFile,
   mkdir,
+  mkdtemp,
   readFile,
   realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 
 const root = process.cwd();
@@ -78,12 +80,27 @@ if (!checkOnly) {
 }
 
 if (rustTargetTriple === hostTargetTriple()) {
-  const version = execFileSync(verifiedBinary, ["--version"], {
-    encoding: "utf8",
-    timeout: 5_000,
-  }).trim();
-  if (version !== `ccusage ${manifest.expectedVersion}`) {
-    throw new Error(`staged ccusage returned unexpected version: ${version}`);
+  let temporaryDirectory;
+  if (checkOnly && process.platform !== "win32") {
+    temporaryDirectory = await mkdtemp(
+      path.join(tmpdir(), "burnly-ccusage-check-"),
+    );
+    verifiedBinary = path.join(temporaryDirectory, entry.executableName);
+    await copyFile(sourceBinary, verifiedBinary);
+    await chmod(verifiedBinary, 0o755);
+  }
+  try {
+    const version = execFileSync(verifiedBinary, ["--version"], {
+      encoding: "utf8",
+      timeout: 5_000,
+    }).trim();
+    if (version !== `ccusage ${manifest.expectedVersion}`) {
+      throw new Error(`staged ccusage returned unexpected version: ${version}`);
+    }
+  } finally {
+    if (temporaryDirectory) {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
   }
 }
 

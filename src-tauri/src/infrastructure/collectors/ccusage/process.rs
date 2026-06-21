@@ -1,7 +1,7 @@
 use std::{
     ffi::OsString,
     io::{self, Read},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -306,22 +306,28 @@ fn context(
 }
 
 fn redaction_values(request: &ProcessRequest) -> Vec<String> {
-    let mut values = vec![
-        request.program.to_string_lossy().into_owned(),
-        request.working_directory.to_string_lossy().into_owned(),
-    ];
+    let mut values = Vec::new();
+    push_path_redactions(&mut values, &request.program);
+    push_path_redactions(&mut values, &request.working_directory);
     for (key, value) in &request.environment {
         if matches!(
             key.to_str(),
             Some("HOME" | "USERPROFILE" | "APPDATA" | "LOCALAPPDATA")
         ) {
-            values.push(value.to_string_lossy().into_owned());
+            push_path_redactions(&mut values, Path::new(value));
         }
     }
     values.retain(|value| !value.is_empty());
     values.sort_by_key(|value| std::cmp::Reverse(value.len()));
     values.dedup();
     values
+}
+
+fn push_path_redactions(values: &mut Vec<String>, path: &Path) {
+    values.push(path.to_string_lossy().into_owned());
+    if let Ok(canonical) = path.canonicalize() {
+        values.push(canonical.to_string_lossy().into_owned());
+    }
 }
 
 fn summarize_stderr(stderr: &str, redactions: &[String]) -> Option<String> {
@@ -382,7 +388,7 @@ fn force_termination(child: &mut Child) {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use std::{fs, sync::atomic::AtomicBool};
+    use std::{fs, os::unix::fs::symlink, sync::atomic::AtomicBool};
 
     use super::*;
 
@@ -419,6 +425,22 @@ mod tests {
         assert_eq!(output.stdout, "stdin-closed env-filtered\n");
         assert_eq!(output.stderr_summary.as_deref(), Some("path=<redacted>"));
         assert_eq!(output.context.exit_code, Some(0));
+    }
+
+    #[test]
+    fn redacts_canonical_path_aliases_reported_by_child_processes() {
+        let fixture = Fixture::new();
+        let real_directory = fixture.directory.path().join("real");
+        let alias = fixture.directory.path().join("alias");
+        fs::create_dir(&real_directory).expect("create real directory");
+        symlink(&real_directory, &alias).expect("create directory alias");
+        let request = ProcessRequest::new(PathBuf::from("/bin/sh"), Vec::new(), alias, Vec::new());
+
+        let stderr = format!("path={}", real_directory.display());
+        assert_eq!(
+            summarize_stderr(&stderr, &redaction_values(&request)).as_deref(),
+            Some("path=<redacted>"),
+        );
     }
 
     #[test]

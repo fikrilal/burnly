@@ -105,9 +105,16 @@ supported platform matrix without exposing release secrets to untrusted jobs.
   verify the host sidecar before compiling Rust. `.gitattributes` enforces LF
   checkouts for repository text while preserving CRLF for Windows command
   files.
+- The replacement matrix reached deeper platform checks and exposed three more
+  portability assumptions: macOS canonical path aliases were not fully
+  redacted, pnpm-restored Unix sidecars lacked executable bits during the
+  check-only path, and Windows compiled out Unix integration tests without
+  compiling out their private helpers. Canonical path aliases are now included
+  in redaction, check-only sidecar execution uses an executable temporary copy,
+  and Unix-only test helpers carry matching conditional compilation.
 - Command: `pnpm verify`
 - Outcome: passed locally after the clean-runner corrections; 73 frontend tests
-  and 248 Rust tests passed, with 2 opt-in desktop tests ignored.
+  and 249 Rust tests passed, with 2 opt-in desktop tests ignored.
 - A successful rerun of the real GitHub Actions matrix is still required before
   this plan can move to completed.
 

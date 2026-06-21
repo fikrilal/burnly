@@ -641,8 +641,10 @@ mod tests {
 
     struct FixedBootstrapStore;
 
+    #[cfg(unix)]
     struct TestNotificationPort;
 
+    #[cfg(unix)]
     impl NotificationPort for TestNotificationPort {
         fn capability(&self) -> NotificationCapability {
             NotificationCapability {
@@ -1315,6 +1317,7 @@ mod tests {
             .expect("count settings")
     }
 
+    #[cfg(unix)]
     fn import_statuses(connection: &Connection) -> String {
         let mut statement = connection
             .prepare(
