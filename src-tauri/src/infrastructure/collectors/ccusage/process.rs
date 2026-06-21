@@ -436,7 +436,10 @@ mod tests {
         symlink(&real_directory, &alias).expect("create directory alias");
         let request = ProcessRequest::new(PathBuf::from("/bin/sh"), Vec::new(), alias, Vec::new());
 
-        let stderr = format!("path={}", real_directory.display());
+        let canonical_directory = real_directory
+            .canonicalize()
+            .expect("canonicalize real directory");
+        let stderr = format!("path={}", canonical_directory.display());
         assert_eq!(
             summarize_stderr(&stderr, &redaction_values(&request)).as_deref(),
             Some("path=<redacted>"),
