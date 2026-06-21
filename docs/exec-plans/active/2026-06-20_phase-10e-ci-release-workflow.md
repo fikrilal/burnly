@@ -136,6 +136,10 @@ supported platform matrix without exposing release secrets to untrusted jobs.
   separator assumption. The repository-wide harness audit found no other raw
   relative-path comparisons; the public API checker now normalizes and
   self-checks Windows paths too.
+- Cargo metadata returned one absolute Windows manifest path that was outside
+  the relative-path audit. Migration dependency discovery now normalizes and
+  self-checks that path; a follow-up search confirms no other harness suffix
+  comparisons use platform-specific separators.
 - A successful rerun of the real GitHub Actions matrix is still required before
   this plan can move to completed.
 

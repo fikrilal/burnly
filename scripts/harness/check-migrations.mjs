@@ -4,6 +4,19 @@ import path from "node:path";
 
 const root = process.cwd();
 const manifestPath = path.join(root, "src-tauri", "Cargo.toml");
+
+function repositoryPath(filePath) {
+  return filePath.replaceAll("\\", "/");
+}
+
+if (
+  !repositoryPath("C:\\workspace\\src-tauri\\Cargo.toml").endsWith(
+    "/src-tauri/Cargo.toml",
+  )
+) {
+  throw new Error("migration metadata path normalization failed");
+}
+
 const metadataResult = spawnSync(
   "cargo",
   [
@@ -24,7 +37,9 @@ if (metadataResult.status !== 0) {
 
 const metadata = JSON.parse(metadataResult.stdout);
 const burnly = metadata.packages.find((packageMetadata) =>
-  packageMetadata.manifest_path.endsWith("/src-tauri/Cargo.toml"),
+  repositoryPath(packageMetadata.manifest_path).endsWith(
+    "/src-tauri/Cargo.toml",
+  ),
 );
 
 if (burnly === undefined) {
