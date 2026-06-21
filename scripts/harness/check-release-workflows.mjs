@@ -16,7 +16,7 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   if (!verifyWorkflow.includes("pull_request:")) {
     failures.push("verify workflow must run for pull requests.");
   }
-  for (const runner of ["ubuntu-24.04", "macos-15", "windows-2025"]) {
+  for (const runner of ["ubuntu-24.04", "macos-15", "windows-2022"]) {
     if (!verifyWorkflow.includes(`- ${runner}`)) {
       failures.push(`verify workflow is missing ${runner}.`);
     }

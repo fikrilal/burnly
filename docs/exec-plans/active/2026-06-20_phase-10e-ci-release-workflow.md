@@ -61,6 +61,8 @@ supported platform matrix without exposing release secrets to untrusted jobs.
 
 - Pull-request jobs must never receive signing or publication credentials.
 - Run the full gate on pinned Ubuntu, macOS ARM64, and Windows x86_64 runners.
+  Pin Windows x86_64 to `windows-2022`; the June 2026 `windows-2025` migration
+  to Visual Studio 2026 rejects the Tauri test binary at loader startup.
 - Build all six release targets on native runners; do not cross-compile release
   candidates across operating systems.
 - Pin action commits, Node `22.22.0`, pnpm `10.33.1`, and Rust `1.95.0`.
@@ -115,6 +117,10 @@ supported platform matrix without exposing release secrets to untrusted jobs.
 - Command: `pnpm verify`
 - Outcome: passed locally after the clean-runner corrections; 73 frontend tests
   and 249 Rust tests passed, with 2 opt-in desktop tests ignored.
+- The next matrix passed on Ubuntu and macOS. Windows Server 2025 compiled the
+  test target but rejected it before the harness started with
+  `STATUS_ENTRYPOINT_NOT_FOUND`; verification and x86_64 release builds now use
+  the stable Visual Studio 2022 runner image.
 - A successful rerun of the real GitHub Actions matrix is still required before
   this plan can move to completed.
 

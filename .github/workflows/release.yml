@@ -83,7 +83,7 @@ jobs:
             target: aarch64-pc-windows-msvc
             bundle: nsis
             artifact: release-windows-aarch64
-          - os: windows-2025
+          - os: windows-2022
             target: x86_64-pc-windows-msvc
             bundle: nsis
             artifact: release-windows-x86_64
