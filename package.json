@@ -47,8 +47,8 @@
     "harness:check": "pnpm architecture:test && pnpm architecture:check && pnpm security:test && pnpm security:check && pnpm packaging:test && pnpm packaging:check && pnpm release-workflow:test && pnpm release-workflow:check && pnpm release-artifacts:test && pnpm public-api:check && pnpm contracts:check && pnpm migrations:check && pnpm sidecar:check && pnpm collectors:fixtures && pnpm duplication:report",
     "evidence:desktop": "node scripts/harness/desktop-evidence.mjs",
     "verify:runtime": "pnpm evidence:desktop",
-    "verify:fast": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm rust:check && pnpm harness:check",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm rust:fmt && pnpm rust:clippy && pnpm rust:test && pnpm harness:check",
+    "verify:fast": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm sidecar:prepare && pnpm rust:check && pnpm harness:check",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm sidecar:prepare && pnpm rust:fmt && pnpm rust:clippy && pnpm rust:test && pnpm harness:check",
     "verify:ci-local": "pnpm deps:check && pnpm verify"
   },
   "dependencies": {

@@ -97,11 +97,22 @@ supported platform matrix without exposing release secrets to untrusted jobs.
 ## Runtime Evidence
 
 - Local workflow and artifact-policy evidence passes.
-- A real GitHub Actions dry run is still required before this plan can move to
-  completed. This turn did not push or trigger external workflows.
+- Pull request run `27916036688` exercised the verification matrix on Ubuntu,
+  macOS, and Windows. The first run exposed two clean-runner defects: generated
+  sidecar runtime files were absent before Rust compilation, and Windows line
+  endings caused the formatting gate to reject the checkout.
+- The canonical `pnpm verify` and `pnpm verify:fast` commands now prepare and
+  verify the host sidecar before compiling Rust. `.gitattributes` enforces LF
+  checkouts for repository text while preserving CRLF for Windows command
+  files.
+- Command: `pnpm verify`
+- Outcome: passed locally after the clean-runner corrections; 73 frontend tests
+  and 248 Rust tests passed, with 2 opt-in desktop tests ignored.
+- A successful rerun of the real GitHub Actions matrix is still required before
+  this plan can move to completed.
 
 ## Follow-Up Debt
 
-- After commit and push, run `workflow_dispatch` with publication disabled,
-  inspect all six runner outputs, and feed DMG/NSIS evidence back into Phase
-  10C.
+- After the pull-request verification matrix passes, run `workflow_dispatch`
+  with publication disabled, inspect all six runner outputs, and feed DMG/NSIS
+  evidence back into Phase 10C.
