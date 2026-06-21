@@ -21,6 +21,7 @@
     "rust:fmt:write": "cargo fmt --manifest-path src-tauri/Cargo.toml",
     "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "rust:test:compile": "cargo test --manifest-path src-tauri/Cargo.toml --no-run",
     "rust:check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "deps:check": "pnpm install --frozen-lockfile --ignore-scripts",
     "contracts:generate": "node scripts/harness/check-contracts.mjs --generate",
@@ -49,6 +50,7 @@
     "verify:runtime": "pnpm evidence:desktop",
     "verify:fast": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm sidecar:prepare && pnpm rust:check && pnpm harness:check",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm sidecar:prepare && pnpm rust:fmt && pnpm rust:clippy && pnpm rust:test && pnpm harness:check",
+    "verify:windows": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm sidecar:prepare && pnpm rust:fmt && pnpm rust:clippy && pnpm rust:test:compile && pnpm harness:check",
     "verify:ci-local": "pnpm deps:check && pnpm verify"
   },
   "dependencies": {

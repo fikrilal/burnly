@@ -26,6 +26,11 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
       "verify workflow must have read-only repository permissions.",
     );
   }
+  if (!verifyWorkflow.includes("pnpm verify:windows")) {
+    failures.push(
+      "verify workflow must compile Rust tests on the Windows runner.",
+    );
+  }
 
   const actionReferences = [...combined.matchAll(/uses:\s+[^@\s]+@([^\s]+)/g)];
   for (const [, reference] of actionReferences) {
@@ -75,7 +80,12 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   }
 
   const scripts = packageDocument.scripts ?? {};
-  for (const script of ["release:version", "release:stage", "release:verify"]) {
+  for (const script of [
+    "release:version",
+    "release:stage",
+    "release:verify",
+    "verify:windows",
+  ]) {
     if (!scripts[script]) failures.push(`package.json is missing ${script}.`);
   }
 
