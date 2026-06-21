@@ -129,6 +129,9 @@ supported platform matrix without exposing release secrets to untrusted jobs.
   typechecking, sidecar verification, Rust formatting, strict all-target Clippy,
   Rust test compilation, and every architecture harness check while leaving
   Rust test execution to the passing Ubuntu and macOS jobs.
+- The first compile-only Windows run reached the architecture harness and
+  exposed path-separator assumptions. Harness paths are now normalized to
+  repository-style separators, with a self-test covering Windows input.
 - A successful rerun of the real GitHub Actions matrix is still required before
   this plan can move to completed.
 
