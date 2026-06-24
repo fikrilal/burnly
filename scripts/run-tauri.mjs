@@ -17,6 +17,7 @@ if (args[0] === "dev" && environment.BURNLY_CCUSAGE_DEV_BINARY === undefined) {
 
 const child = spawn(executable, args, {
   env: environment,
+  shell: process.platform === "win32",
   stdio: "inherit",
 });
 
