@@ -254,6 +254,11 @@ function validateTauriRunner(tauriRunner, failures) {
       "scripts/run-tauri.mjs: Tauri development must retain the explicit fake collector boundary.",
     );
   }
+  if (!tauriRunner.includes('shell: process.platform === "win32"')) {
+    failures.push(
+      "scripts/run-tauri.mjs: Windows must launch the Tauri .cmd shim through a shell.",
+    );
+  }
 }
 
 function validate(inputs) {
@@ -318,6 +323,7 @@ if (process.argv.includes("--self-test")) {
   mutated.windowsConfig.bundle.windows.allowDowngrades = true;
   mutated.releaseTargets.targets.pop();
   mutated.iconSha256 = placeholderIconSha256;
+  mutated.tauriRunner = 'spawn(executable, args, { stdio: "inherit" });';
   if (validate(mutated).length < 4) {
     console.error("Release packaging harness self-test did not catch drift.");
     process.exit(1);
