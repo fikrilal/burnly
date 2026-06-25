@@ -27,6 +27,7 @@ use crate::application::history_deletion::HistoryDeletionService;
 use crate::application::ports::database_maintenance::{MaintenanceActivity, MaintenanceGuard};
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::ports::window_actions::WindowActions;
+use crate::application::ports::settings_store::SettingsStore;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshCoordinatorHooks, RefreshEventSink, RefreshPolicy, RefreshScheduler,
@@ -186,10 +187,15 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let budget_progress_query = build_budget_progress_query(&database_path)?;
     let notification_port: Arc<dyn NotificationPort> =
         Arc::new(NativeNotificationAdapter::new(app.handle().clone()));
+    let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
+    let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
+    let tray_summary_query = build_tray_summary_query(&database_path)?;
     let refresh_event_sink = runtime_refresh_event_sink(
         app.handle().clone(),
         tray_state.clone(),
         budget_progress_query.clone(),
+        tray_summary_query.clone(),
+        settings_store.clone(),
     );
     let refresh_coordinator = build_refresh_coordinator(
         app,
@@ -208,7 +214,12 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         })?);
     let tray_controller = tray::TrayController::install(
         app.handle(),
-        &tray_snapshot(&refresh_coordinator.snapshot(), &budget_progress_query),
+        &tray_snapshot(
+            &refresh_coordinator.snapshot(),
+            &budget_progress_query,
+            &tray_summary_query,
+            &reporting_timezone,
+        ),
     )
     .ok();
     if let Some(controller) = tray_controller.clone() {
@@ -216,10 +227,17 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         controller.update(&tray_snapshot(
             &refresh_coordinator.snapshot(),
             &budget_progress_query,
+            &tray_summary_query,
+            &reporting_timezone,
         ));
         app.manage(controller);
     }
-    install_tray_invalidation_listener(app.handle().clone(), budget_progress_query.clone());
+    install_tray_invalidation_listener(
+        app.handle().clone(),
+        budget_progress_query.clone(),
+        tray_summary_query.clone(),
+        settings_store.clone(),
+    );
     let tray_capability = match tray_controller {
         Some(_) => RuntimeCapabilities::tray_available(),
         None => RuntimeCapabilities::tray_unavailable(),
@@ -252,7 +270,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(refresh_scheduler);
     app.manage(runtime_settings.clone());
     app.manage(build_overview_query(&database_path)?);
-    let tray_summary_query = build_tray_summary_query(&database_path)?;
     let tray_open_refresh = TrayOpenRefreshController::new(
         reporting_timezone.clone(),
         tray_summary_query.clone(),
@@ -260,7 +277,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         Arc::new(SystemClock),
     );
     tray_open_refresh.request_startup_refresh_if_stale();
-    app.manage(tray_summary_query);
+    app.manage(tray_summary_query.clone());
     app.manage(tray_open_refresh);
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
@@ -277,8 +294,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         SqliteBootstrapStore::new(database),
         runtime_capabilities,
     ));
-    let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
-    let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
     settings_store
         .enforce_current_project_path_policy()
         .map_err(|_| StartupError::PrivacyPolicy)?;
@@ -560,6 +575,8 @@ struct RuntimeRefreshEventSink<R: Runtime> {
     frontend: Arc<dyn RefreshEventSink>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
     budget_progress: Arc<BudgetProgressQuery>,
+    tray_summary: TraySummaryQuery,
+    settings_store: Arc<SqliteSettingsStore>,
 }
 
 impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
@@ -571,7 +588,15 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
             .expect("tray state lock is poisoned")
             .as_ref()
         {
-            tray.update(&tray_snapshot(&snapshot, &self.budget_progress));
+            let timezone = self.settings_store.get()
+                .map(|doc| doc.settings().reporting_timezone().to_owned())
+                .unwrap_or_else(|_| "UTC".to_owned());
+            tray.update(&tray_snapshot(
+                &snapshot,
+                &self.budget_progress,
+                &self.tray_summary,
+                &timezone,
+            ));
         }
     }
 }
@@ -580,17 +605,23 @@ fn runtime_refresh_event_sink<R: Runtime>(
     app: tauri::AppHandle<R>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
     budget_progress: Arc<BudgetProgressQuery>,
+    tray_summary: TraySummaryQuery,
+    settings_store: Arc<SqliteSettingsStore>,
 ) -> Arc<dyn RefreshEventSink> {
     Arc::new(RuntimeRefreshEventSink {
         frontend: refresh_event_sink(app),
         tray,
         budget_progress,
+        tray_summary,
+        settings_store,
     })
 }
 
 fn install_tray_invalidation_listener<R: Runtime>(
     app: tauri::AppHandle<R>,
     budget_progress: Arc<BudgetProgressQuery>,
+    tray_summary: TraySummaryQuery,
+    settings_store: Arc<SqliteSettingsStore>,
 ) {
     let listener_app = app.clone();
     app.listen("burnly://v1/data-invalidated", move |_| {
@@ -598,7 +629,15 @@ fn install_tray_invalidation_listener<R: Runtime>(
             listener_app.try_state::<tray::TrayController<R>>(),
             listener_app.try_state::<RefreshCoordinator>(),
         ) {
-            controller.update(&tray_snapshot(&coordinator.snapshot(), &budget_progress));
+            let timezone = settings_store.get()
+                .map(|doc| doc.settings().reporting_timezone().to_owned())
+                .unwrap_or_else(|_| "UTC".to_owned());
+            controller.update(&tray_snapshot(
+                &coordinator.snapshot(),
+                &budget_progress,
+                &tray_summary,
+                &timezone,
+            ));
         }
     });
 }
@@ -606,7 +645,14 @@ fn install_tray_invalidation_listener<R: Runtime>(
 pub(crate) fn tray_snapshot(
     snapshot: &RefreshSnapshot,
     budget_progress: &BudgetProgressQuery,
+    tray_summary: &TraySummaryQuery,
+    reporting_timezone: &str,
 ) -> tray::TraySnapshot {
+    let summary = tray_summary.get(reporting_timezone).ok();
+    let today_tokens = summary.as_ref().map(|s| s.today.total_tokens);
+    let week_tokens = summary.as_ref().map(|s| s.week.total_tokens);
+    let month_tokens = summary.as_ref().map(|s| s.month.total_tokens);
+
     tray::TraySnapshot {
         status: tray_refresh_status(snapshot.status),
         last_successful_refresh_at_ms: snapshot.last_successful_refresh_at_ms,
@@ -614,6 +660,9 @@ pub(crate) fn tray_snapshot(
             .current()
             .ok()
             .and_then(|progress| progress.tray_summary),
+        today_tokens,
+        week_tokens,
+        month_tokens,
     }
 }
 

@@ -11,6 +11,9 @@ const OPEN_DETAILS_ID: &str = "burnly.tray.open_details";
 const REFRESH_ID: &str = "burnly.tray.refresh";
 const STATUS_ID: &str = "burnly.tray.status";
 const QUIT_ID: &str = "burnly.tray.quit";
+const TODAY_ID: &str = "burnly.tray.today";
+const WEEK_ID: &str = "burnly.tray.week";
+const MONTH_ID: &str = "burnly.tray.month";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TrayAction {
@@ -58,12 +61,18 @@ pub(crate) struct TraySnapshot {
     pub(crate) status: TrayRefreshStatus,
     pub(crate) last_successful_refresh_at_ms: Option<i64>,
     pub(crate) budget_summary: Option<String>,
+    pub(crate) today_tokens: Option<u64>,
+    pub(crate) week_tokens: Option<u64>,
+    pub(crate) month_tokens: Option<u64>,
 }
 
 pub(crate) struct TrayController<R: Runtime> {
     _tray_icon: TrayIcon<R>,
     status_item: MenuItem<R>,
     refresh_item: MenuItem<R>,
+    today_item: MenuItem<R>,
+    week_item: MenuItem<R>,
+    month_item: MenuItem<R>,
 }
 
 impl<R: Runtime> Clone for TrayController<R> {
@@ -72,12 +81,24 @@ impl<R: Runtime> Clone for TrayController<R> {
             _tray_icon: self._tray_icon.clone(),
             status_item: self.status_item.clone(),
             refresh_item: self.refresh_item.clone(),
+            today_item: self.today_item.clone(),
+            week_item: self.week_item.clone(),
+            month_item: self.month_item.clone(),
         }
     }
 }
 
 impl<R: Runtime> TrayController<R> {
     pub(crate) fn install(manager: &AppHandle<R>, snapshot: &TraySnapshot) -> tauri::Result<Self> {
+        let today_item = MenuItemBuilder::with_id(TODAY_ID, today_label(snapshot))
+            .enabled(false)
+            .build(manager)?;
+        let week_item = MenuItemBuilder::with_id(WEEK_ID, week_label(snapshot))
+            .enabled(false)
+            .build(manager)?;
+        let month_item = MenuItemBuilder::with_id(MONTH_ID, month_label(snapshot))
+            .enabled(false)
+            .build(manager)?;
         let status_item = MenuItemBuilder::with_id(STATUS_ID, status_label(snapshot))
             .enabled(false)
             .build(manager)?;
@@ -89,13 +110,17 @@ impl<R: Runtime> TrayController<R> {
         let open_details_item =
             MenuItemBuilder::with_id(OPEN_DETAILS_ID, "Open Details").build(manager)?;
         let quit_item = MenuItemBuilder::with_id(QUIT_ID, "Quit Burnly").build(manager)?;
+        
         let menu = MenuBuilder::new(manager)
+            .items(&[&today_item, &week_item, &month_item])
+            .separator()
             .items(&[&open_panel_item, &open_details_item, &status_item])
             .separator()
             .item(&refresh_item)
             .separator()
             .item(&quit_item)
             .build()?;
+            
         let icon = manager.default_window_icon().cloned();
         let mut builder = TrayIconBuilder::with_id(TRAY_ID)
             .menu(&menu)
@@ -110,10 +135,16 @@ impl<R: Runtime> TrayController<R> {
             _tray_icon: tray_icon,
             status_item,
             refresh_item,
+            today_item,
+            week_item,
+            month_item,
         })
     }
 
     pub(crate) fn update(&self, snapshot: &TraySnapshot) {
+        let _ = self.today_item.set_text(today_label(snapshot));
+        let _ = self.week_item.set_text(week_label(snapshot));
+        let _ = self.month_item.set_text(month_label(snapshot));
         let _ = self.status_item.set_text(status_label(snapshot));
         let _ = self.refresh_item.set_text(refresh_label(snapshot.status));
         let _ = self.refresh_item.set_enabled(!snapshot.status.is_active());
@@ -160,6 +191,27 @@ fn status_label(snapshot: &TraySnapshot) -> String {
     }
 }
 
+fn today_label(snapshot: &TraySnapshot) -> String {
+    format!(
+        "Today: {} tokens",
+        snapshot.today_tokens.map(format_number).unwrap_or_else(|| "---".to_owned())
+    )
+}
+
+fn week_label(snapshot: &TraySnapshot) -> String {
+    format!(
+        "This week: {} tokens",
+        snapshot.week_tokens.map(format_number).unwrap_or_else(|| "---".to_owned())
+    )
+}
+
+fn month_label(snapshot: &TraySnapshot) -> String {
+    format!(
+        "This month: {} tokens",
+        snapshot.month_tokens.map(format_number).unwrap_or_else(|| "---".to_owned())
+    )
+}
+
 fn tooltip_label(snapshot: &TraySnapshot) -> String {
     format!("Burnly - {}", status_label(snapshot))
 }
@@ -168,6 +220,20 @@ fn format_time(epoch_ms: i64) -> String {
     DateTime::from_timestamp_millis(epoch_ms)
         .map(|timestamp| timestamp.format("%Y-%m-%d %H:%M UTC").to_string())
         .unwrap_or_else(|| "unknown".to_owned())
+}
+
+fn format_number(val: u64) -> String {
+    let s = val.to_string();
+    let mut result = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    for (i, c) in chars.into_iter().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -200,6 +266,9 @@ mod tests {
             status: TrayRefreshStatus::Succeeded,
             last_successful_refresh_at_ms: Some(1_765_000_000_000),
             budget_summary: None,
+            today_tokens: None,
+            week_tokens: None,
+            month_tokens: None,
         };
 
         assert_eq!(
@@ -214,6 +283,9 @@ mod tests {
             status: TrayRefreshStatus::Idle,
             last_successful_refresh_at_ms: None,
             budget_summary: Some("Budget: Monthly 82%".to_owned()),
+            today_tokens: None,
+            week_tokens: None,
+            month_tokens: None,
         };
 
         assert_eq!(status_label(&snapshot), "Idle - Budget: Monthly 82%");
@@ -221,5 +293,13 @@ mod tests {
             tooltip_label(&snapshot),
             "Burnly - Idle - Budget: Monthly 82%"
         );
+    }
+
+    #[test]
+    fn test_number_formatting() {
+        assert_eq!(format_number(0), "0");
+        assert_eq!(format_number(123), "123");
+        assert_eq!(format_number(1000), "1,000");
+        assert_eq!(format_number(1234567), "1,234,567");
     }
 }
