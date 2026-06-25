@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 use super::codex_daily::{CodexModelBreakdown, CodexTokenTotals};
@@ -16,15 +17,18 @@ pub(crate) struct CodexSessionReport {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CodexSessionRow {
     pub session_id: String,
-    pub first_activity_at: String,
-    pub last_activity_at: String,
-    pub last_activity: u64,
+    pub first_activity_at: Option<String>,
+    pub last_activity_at: Option<String>,
+    pub last_activity: Option<Value>,
     pub session_file: String,
     pub directory: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
     pub reasoning_output_tokens: u64,
     pub total_tokens: u64,
+    #[serde(alias = "costUSD")]
     pub total_cost: f64,
     pub models: HashMap<String, CodexModelBreakdown>,
 }
@@ -55,8 +59,8 @@ fn validate(report: &CodexSessionReport) -> Result<(), CollectorFailure> {
     let mut session_ids = HashSet::with_capacity(report.sessions.len());
     for row in &report.sessions {
         if !session_ids.insert(row.session_id.as_str())
-            || DateTime::parse_from_rfc3339(&row.first_activity_at).is_err()
-            || DateTime::parse_from_rfc3339(&row.last_activity_at).is_err()
+            || !valid_optional_timestamp(row.first_activity_at.as_deref())
+            || !valid_optional_timestamp(last_activity_timestamp(row).as_deref())
             || !valid_nonnegative(row.total_cost)
             || !valid_row_tokens(row)
             || row
@@ -78,26 +82,49 @@ fn valid_totals(totals: &CodexTokenTotals) -> bool {
         && categorized(
             totals.input_tokens,
             totals.output_tokens,
-            totals.reasoning_output_tokens,
+            totals.cache_creation_tokens,
+            totals.cache_read_tokens,
         )
         .is_some_and(|tokens| totals.total_tokens >= tokens)
 }
 
 fn valid_model(name: &str, model: &CodexModelBreakdown) -> bool {
-    !name.trim().is_empty() && valid_nonnegative(model.cost)
+    if name.trim().is_empty() || model.cost.is_some_and(|cost| !valid_nonnegative(cost)) {
+        return false;
+    }
+    let Some(classified) = categorized(
+        model.input_tokens,
+        model.output_tokens,
+        model.cache_creation_tokens,
+        model.cache_read_tokens,
+    ) else {
+        return false;
+    };
+    model
+        .total_tokens
+        .is_none_or(|total_tokens| total_tokens >= classified)
 }
 
 fn valid_row_tokens(row: &CodexSessionRow) -> bool {
     categorized(
         row.input_tokens,
         row.output_tokens,
-        row.reasoning_output_tokens,
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
     )
     .is_some_and(|tokens| row.total_tokens >= tokens)
 }
 
-fn categorized(input: u64, output: u64, reasoning: u64) -> Option<u64> {
-    input.checked_add(output)?.checked_add(reasoning)
+fn categorized(
+    input: u64,
+    output: u64,
+    cache_creation: Option<u64>,
+    cache_read: Option<u64>,
+) -> Option<u64> {
+    input
+        .checked_add(output)?
+        .checked_add(cache_creation.unwrap_or(0))?
+        .checked_add(cache_read.unwrap_or(0))
 }
 
 fn totals_match_rows(report: &CodexSessionReport) -> bool {
@@ -115,6 +142,23 @@ fn sum_rows(rows: &[CodexSessionRow], value: impl Fn(&CodexSessionRow) -> u64) -
 
 fn valid_nonnegative(value: f64) -> bool {
     value.is_finite() && value >= 0.0
+}
+
+pub(crate) fn first_activity_timestamp(row: &CodexSessionRow) -> Option<&str> {
+    row.first_activity_at.as_deref()
+}
+
+pub(crate) fn last_activity_timestamp(row: &CodexSessionRow) -> Option<String> {
+    row.last_activity_at.clone().or_else(|| {
+        row.last_activity
+            .as_ref()
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn valid_optional_timestamp(value: Option<&str>) -> bool {
+    value.is_none_or(|timestamp| DateTime::parse_from_rfc3339(timestamp).is_ok())
 }
 
 fn incompatible() -> CollectorFailure {
@@ -148,6 +192,22 @@ mod tests {
         let empty = decode(fixture("empty.json")).expect("empty report");
         assert!(empty.sessions.is_empty());
         assert_eq!(empty.totals.total_tokens, 0);
+    }
+
+    #[test]
+    fn accepts_real_cost_aliases_missing_first_activity_and_last_activity_alias() {
+        let report = decode(fixture("real-shape.json")).expect("real-shape report");
+
+        assert_eq!(report.sessions.len(), 1);
+        let row = &report.sessions[0];
+        assert_eq!(row.total_cost, 12.34);
+        assert_eq!(row.first_activity_at, None);
+        assert_eq!(
+            last_activity_timestamp(row).as_deref(),
+            Some("2026-06-24T08:33:53.771Z")
+        );
+        let model = row.models.get("gpt-5.5").expect("model");
+        assert_eq!(model.cost, None);
     }
 
     #[test]
@@ -185,6 +245,10 @@ mod tests {
             "incompatible-envelope.json" => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../tests/fixtures/collectors/ccusage/codex-session/incompatible-envelope.json"
+            )),
+            "real-shape.json" => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tests/fixtures/collectors/ccusage/codex-session/real-shape.json"
             )),
             _ => panic!("unknown fixture under {FIXTURES}"),
         }

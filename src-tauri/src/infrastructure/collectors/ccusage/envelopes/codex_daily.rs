@@ -17,8 +17,11 @@ pub(crate) struct CodexDailyRow {
     pub date: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
     pub reasoning_output_tokens: u64,
     pub total_tokens: u64,
+    #[serde(alias = "costUSD")]
     pub total_cost: f64,
     pub models: HashMap<String, CodexModelBreakdown>,
 }
@@ -28,8 +31,12 @@ pub(crate) struct CodexDailyRow {
 pub(crate) struct CodexModelBreakdown {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
     pub reasoning_output_tokens: u64,
-    pub cost: f64,
+    pub total_tokens: Option<u64>,
+    #[serde(default)]
+    pub cost: Option<f64>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -37,8 +44,11 @@ pub(crate) struct CodexModelBreakdown {
 pub(crate) struct CodexTokenTotals {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
     pub reasoning_output_tokens: u64,
     pub total_tokens: u64,
+    #[serde(alias = "costUSD")]
     pub total_cost: f64,
 }
 
@@ -88,26 +98,49 @@ fn valid_totals(totals: &CodexTokenTotals) -> bool {
         && categorized(
             totals.input_tokens,
             totals.output_tokens,
-            totals.reasoning_output_tokens,
+            totals.cache_creation_tokens,
+            totals.cache_read_tokens,
         )
         .is_some_and(|tokens| totals.total_tokens >= tokens)
 }
 
 fn valid_model(name: &str, model: &CodexModelBreakdown) -> bool {
-    !name.trim().is_empty() && valid_nonnegative(model.cost)
+    if name.trim().is_empty() || model.cost.is_some_and(|cost| !valid_nonnegative(cost)) {
+        return false;
+    }
+    let Some(classified) = categorized(
+        model.input_tokens,
+        model.output_tokens,
+        model.cache_creation_tokens,
+        model.cache_read_tokens,
+    ) else {
+        return false;
+    };
+    model
+        .total_tokens
+        .is_none_or(|total_tokens| total_tokens >= classified)
 }
 
 fn valid_row_tokens(row: &CodexDailyRow) -> bool {
     categorized(
         row.input_tokens,
         row.output_tokens,
-        row.reasoning_output_tokens,
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
     )
     .is_some_and(|tokens| row.total_tokens >= tokens)
 }
 
-fn categorized(input: u64, output: u64, reasoning: u64) -> Option<u64> {
-    input.checked_add(output)?.checked_add(reasoning)
+fn categorized(
+    input: u64,
+    output: u64,
+    cache_creation: Option<u64>,
+    cache_read: Option<u64>,
+) -> Option<u64> {
+    input
+        .checked_add(output)?
+        .checked_add(cache_creation.unwrap_or(0))?
+        .checked_add(cache_read.unwrap_or(0))
 }
 
 fn totals_match_rows(report: &CodexDailyReport) -> bool {
@@ -159,6 +192,18 @@ mod tests {
     }
 
     #[test]
+    fn accepts_real_cost_aliases_and_missing_model_costs() {
+        let report = decode(fixture("real-shape.json")).expect("real-shape report");
+
+        assert_eq!(report.daily.len(), 1);
+        assert_eq!(report.daily[0].total_cost, 12.34);
+        assert_eq!(report.daily[0].cache_read_tokens, Some(400));
+        let model = report.daily[0].models.get("gpt-5.5").expect("model");
+        assert_eq!(model.cost, None);
+        assert_eq!(model.total_tokens, Some(1_200));
+    }
+
+    #[test]
     fn distinguishes_malformed_json_from_incompatible_envelopes() {
         assert_eq!(
             decode(fixture("invalid-json.json"))
@@ -193,6 +238,10 @@ mod tests {
             "incompatible-envelope.json" => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../tests/fixtures/collectors/ccusage/codex-daily/incompatible-envelope.json"
+            )),
+            "real-shape.json" => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tests/fixtures/collectors/ccusage/codex-daily/real-shape.json"
             )),
             _ => panic!("unknown fixture under {FIXTURES}"),
         }
