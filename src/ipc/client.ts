@@ -34,6 +34,7 @@ import {
   invokeRefreshGetState,
   invokeRefreshRequest,
   invokeUsageGetOverview,
+  invokeUsageGetTraySummary,
   invokeUsageGetCalendar,
   invokeUsageGetDayDetail,
   invokeUsageGetSessions,
@@ -62,6 +63,8 @@ import {
   type UsageOverviewCostResponse,
   type UsageOverviewRequest,
   type UsageOverviewResponse,
+  type TraySummaryRequest,
+  type TraySummaryResponse,
   type ActivityCalendarRequest,
   type ActivityCalendarResponse,
   type DayDetailRequest,
@@ -579,6 +582,38 @@ const usageOverviewDataSchema: z.ZodType<UsageOverviewResponse> = z.object({
   dataStatus: z.enum(["current", "stale", "partial", "empty"]),
 });
 
+const traySummaryRequestSchema: z.ZodType<TraySummaryRequest> = z.object({
+  reportingTimezone: z.string().trim().min(1),
+});
+
+const traySummaryPeriodMetricSchema = z.object({
+  startDate: z.iso.date(),
+  endDate: z.iso.date(),
+  totalTokens: uint64StringSchema,
+});
+
+const traySummaryTrendSchema = z.object({
+  direction: z.enum(["increased", "decreased", "flat"]),
+  basisPoints: z.number().int().nonnegative(),
+});
+
+const traySummaryDataSchema: z.ZodType<TraySummaryResponse> = z.object({
+  today: traySummaryPeriodMetricSchema,
+  week: traySummaryPeriodMetricSchema,
+  month: traySummaryPeriodMetricSchema,
+  models: z.array(
+    z.object({
+      modelName: z.string().min(1),
+      agentLabel: z.string().min(1),
+      totalTokens: uint64StringSchema,
+      trend: traySummaryTrendSchema.nullable(),
+    }),
+  ),
+  asOf: z.iso.datetime({ offset: true }),
+  lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
+  dataStatus: z.enum(["current", "stale", "partial", "empty"]),
+});
+
 const activityCalendarRequestSchema: z.ZodType<ActivityCalendarRequest> =
   z.object({
     startDate: z.iso.date(),
@@ -1003,6 +1038,17 @@ export async function getUsageOverview(
     request: parsedRequest,
   });
   return unwrapResponse(validateResponse(response, usageOverviewDataSchema));
+}
+
+export async function getTraySummary(
+  request: TraySummaryRequest,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<TraySummaryResponse>> {
+  const parsedRequest = traySummaryRequestSchema.parse(request);
+  const response = await invokeUsageGetTraySummary(invoker, {
+    request: parsedRequest,
+  });
+  return unwrapResponse(validateResponse(response, traySummaryDataSchema));
 }
 
 export async function getActivityCalendar(

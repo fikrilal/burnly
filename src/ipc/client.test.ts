@@ -21,6 +21,7 @@ import {
   getContractProbe,
   getRefreshState,
   getSettings,
+  getTraySummary,
   getUsageOverview,
   invokeCommand,
   validateInt64String,
@@ -35,6 +36,7 @@ import {
   type BudgetDefinition,
   type CommandInvoker,
   type IpcResponse,
+  type TraySummaryResponse,
   type UsageOverviewResponse,
 } from "./generated/contracts";
 
@@ -558,6 +560,33 @@ describe("usage overview IPC", () => {
   });
 });
 
+describe("tray summary IPC", () => {
+  it("invokes and validates the tray summary contract", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.usageGetTraySummary);
+      expect(request).toEqual({
+        request: {
+          reportingTimezone: "Asia/Jakarta",
+        },
+      });
+      return Promise.resolve(traySummary());
+    };
+
+    const result = await getTraySummary(
+      {
+        reportingTimezone: "Asia/Jakarta",
+      },
+      invoker,
+    );
+
+    expect(result.data.today.totalTokens).toBe("42180");
+    expect(result.data.models[0]?.agentLabel).toBe("Codex");
+    expect(result.data.models[0]?.trend?.direction).toBe("increased");
+    expect(result.data.models[0]?.trend?.basisPoints).toBe(850);
+    expect(result.data.dataStatus).toBe("current");
+  });
+});
+
 function contractProbe(): IpcResponse<{
   status: "ok";
   contractVersion: typeof CONTRACT_VERSION;
@@ -805,6 +834,50 @@ function usageOverview(): IpcResponse<UsageOverviewResponse> {
       asOf: "2026-06-15T07:30:00.000Z",
       lastSuccessfulRefreshAt: "2026-06-15T07:00:00.000Z",
       dataStatus: "partial",
+    },
+    meta,
+  };
+}
+
+function traySummary(): IpcResponse<TraySummaryResponse> {
+  return {
+    ok: true,
+    data: {
+      today: {
+        startDate: "2026-06-25",
+        endDate: "2026-06-25",
+        totalTokens: "42180",
+      },
+      week: {
+        startDate: "2026-06-22",
+        endDate: "2026-06-28",
+        totalTokens: "183240",
+      },
+      month: {
+        startDate: "2026-06-01",
+        endDate: "2026-06-30",
+        totalTokens: "612900",
+      },
+      models: [
+        {
+          modelName: "GPT-5.1",
+          agentLabel: "Codex",
+          totalTokens: "25000",
+          trend: {
+            direction: "increased",
+            basisPoints: 850,
+          },
+        },
+        {
+          modelName: "Claude Sonnet",
+          agentLabel: "Claude Code",
+          totalTokens: "12000",
+          trend: null,
+        },
+      ],
+      asOf: "2026-06-25T07:30:00.000Z",
+      lastSuccessfulRefreshAt: "2026-06-25T07:25:00.000Z",
+      dataStatus: "current",
     },
     meta,
   };

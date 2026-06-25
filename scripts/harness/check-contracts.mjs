@@ -675,6 +675,42 @@ export interface UsageOverviewResponse {
   dataStatus: "current" | "stale" | "partial" | "empty";
 }
 
+export interface TraySummaryRequest {
+  reportingTimezone: string;
+}
+
+export interface TraySummaryCommandRequest extends Record<string, unknown> {
+  request: TraySummaryRequest;
+}
+
+export interface TraySummaryPeriodMetricResponse {
+  startDate: string;
+  endDate: string;
+  totalTokens: string;
+}
+
+export interface TraySummaryTrendResponse {
+  direction: "increased" | "decreased" | "flat";
+  basisPoints: number;
+}
+
+export interface TraySummaryModelResponse {
+  modelName: string;
+  agentLabel: string;
+  totalTokens: string;
+  trend: TraySummaryTrendResponse | null;
+}
+
+export interface TraySummaryResponse {
+  today: TraySummaryPeriodMetricResponse;
+  week: TraySummaryPeriodMetricResponse;
+  month: TraySummaryPeriodMetricResponse;
+  models: TraySummaryModelResponse[];
+  asOf: string;
+  lastSuccessfulRefreshAt: string | null;
+  dataStatus: "current" | "stale" | "partial" | "empty";
+}
+
 export interface ActivityCalendarRequest {
   startDate: string;
   endDate: string;

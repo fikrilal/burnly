@@ -190,6 +190,12 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "UsageOverviewResponse",
     },
     CommandSpec {
+        name: "usage_get_tray_summary",
+        export_name: "invokeUsageGetTraySummary",
+        request_type: "TraySummaryCommandRequest",
+        response_type: "TraySummaryResponse",
+    },
+    CommandSpec {
         name: "usage_get_calendar",
         export_name: "invokeUsageGetCalendar",
         request_type: "ActivityCalendarCommandRequest",

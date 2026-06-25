@@ -4,6 +4,7 @@ mod calendar;
 mod day_detail;
 mod overview;
 mod session;
+mod tray_summary;
 
 pub(crate) use calendar::{
     CalendarDayInfo, CalendarPeriod, CalendarQuery, CalendarQueryError, CalendarReadModel,
@@ -20,3 +21,9 @@ pub(crate) use overview::{
 };
 
 pub(crate) use session::SessionQuery;
+
+pub(crate) use tray_summary::{
+    TraySummaryModelRow, TraySummaryPeriodMetric, TraySummaryQuery, TraySummaryQueryError,
+    TraySummaryReadModel, TraySummaryScope, TraySummaryStoreModelUsage, TraySummaryStoreResult,
+    TraySummaryTrend, TraySummaryTrendDirection,
+};

@@ -54,15 +54,34 @@ aggregation would undermine trust in the primary tray surface.
 
 ## Checklist
 
-- [ ] Define Rust compact tray summary read model.
-- [ ] Add storage/query support for today/week/month totals.
-- [ ] Add model allocation query for today.
-- [ ] Add yesterday comparison for model rows.
-- [ ] Add source/coding-agent label derivation.
-- [ ] Add IPC command and DTOs.
-- [ ] Regenerate frontend contract bindings.
-- [ ] Add frontend client schema validation.
-- [ ] Add Rust tests and IPC/client tests.
+- [x] Contract shape
+  - [x] Define Rust compact tray summary read model.
+  - [x] Define period metric, model row, trend, and freshness/status enums.
+  - [x] Confirm the read model contains no cost or source-split fields.
+- [x] Application query
+  - [x] Add tray summary query under `application::usage`.
+  - [x] Calculate reporting-timezone-aware today, week, month, and yesterday
+        windows.
+  - [x] Apply top-three model rows plus `Other` aggregation.
+  - [x] Calculate trend versus yesterday safely.
+  - [x] Derive coding-agent/source labels.
+- [x] Store port and SQLite implementation
+  - [x] Add tray summary store port methods or a dedicated store port.
+  - [x] Add period total token queries.
+  - [x] Add today model allocation query.
+  - [x] Add yesterday model comparison query.
+  - [x] Include refresh/freshness metadata.
+- [x] IPC and frontend contract
+  - [x] Add IPC command and DTOs.
+  - [x] Register the command in the IPC contract registry.
+  - [x] Regenerate frontend contract bindings.
+  - [x] Add frontend client schema validation.
+- [x] Tests and checks
+  - [x] Add Rust application query tests.
+  - [x] Add SQLite store tests.
+  - [x] Add IPC DTO/contract tests.
+  - [x] Add TypeScript IPC client validation tests.
+  - [x] Run relevant verification commands and record outcomes.
 
 ## Test Plan
 
@@ -103,8 +122,31 @@ aggregation would undermine trust in the primary tray surface.
 
 ## Verification
 
+- Command: `pnpm contracts:generate`
+  - Outcome: passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml tray_summary --lib`
+  - Outcome: passed.
+- Command: `pnpm vitest run src/ipc/client.test.ts`
+  - Outcome: passed.
+- Command: `pnpm contracts:check`
+  - Outcome: passed.
+- Command: `pnpm typecheck`
+  - Outcome: passed.
+- Command: `pnpm rust:test`
+  - Outcome: passed; 264 passed, 2 ignored.
+- Command: `pnpm architecture:check`
+  - Outcome: passed.
+- Command: `pnpm format:check`
+  - Outcome: passed.
+- Command: `pnpm public-api:check`
+  - Outcome: passed.
+- Command: `pnpm verify:fast`
+  - Outcome: passed after adding the new tray summary command to the Tauri
+    build manifest and main-window capability. ESLint reported warning-only
+    existing complexity/size issues.
 - Command: `pnpm verify`
-- Outcome: not run yet.
+  - Outcome: not run; `verify:fast` plus targeted Rust tests covered this
+    read-model chunk.
 
 ## Runtime Evidence
 

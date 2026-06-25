@@ -31,6 +31,7 @@ fn main() {
             "refresh_request",
             "refresh_cancel",
             "usage_get_overview",
+            "usage_get_tray_summary",
             "usage_get_calendar",
             "usage_get_day_detail",
             "usage_get_sessions",

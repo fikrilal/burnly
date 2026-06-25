@@ -16,6 +16,7 @@ mod reconciliation_store;
 mod session_store;
 #[cfg(test)]
 mod test_database;
+mod tray_summary_store;
 
 use std::fs;
 use std::path::Path;
@@ -36,6 +37,7 @@ pub(crate) use maintenance_store::SqliteDatabaseMaintenanceStore;
 pub(crate) use overview_store::SqliteOverviewStore;
 pub(crate) use reconciliation_store::SqliteReconciliationStore;
 pub(crate) use session_store::SqliteSessionStore;
+pub(crate) use tray_summary_store::SqliteTraySummaryStore;
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const BUSY_TIMEOUT_MS: i64 = 5_000;

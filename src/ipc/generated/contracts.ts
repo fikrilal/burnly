@@ -521,6 +521,42 @@ export interface UsageOverviewResponse {
   dataStatus: "current" | "stale" | "partial" | "empty";
 }
 
+export interface TraySummaryRequest {
+  reportingTimezone: string;
+}
+
+export interface TraySummaryCommandRequest extends Record<string, unknown> {
+  request: TraySummaryRequest;
+}
+
+export interface TraySummaryPeriodMetricResponse {
+  startDate: string;
+  endDate: string;
+  totalTokens: string;
+}
+
+export interface TraySummaryTrendResponse {
+  direction: "increased" | "decreased" | "flat";
+  basisPoints: number;
+}
+
+export interface TraySummaryModelResponse {
+  modelName: string;
+  agentLabel: string;
+  totalTokens: string;
+  trend: TraySummaryTrendResponse | null;
+}
+
+export interface TraySummaryResponse {
+  today: TraySummaryPeriodMetricResponse;
+  week: TraySummaryPeriodMetricResponse;
+  month: TraySummaryPeriodMetricResponse;
+  models: TraySummaryModelResponse[];
+  asOf: string;
+  lastSuccessfulRefreshAt: string | null;
+  dataStatus: "current" | "stale" | "partial" | "empty";
+}
+
 export interface ActivityCalendarRequest {
   startDate: string;
   endDate: string;
@@ -649,6 +685,7 @@ export const COMMAND_NAMES = {
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
   usageGetOverview: "usage_get_overview",
+  usageGetTraySummary: "usage_get_tray_summary",
   usageGetCalendar: "usage_get_calendar",
   usageGetDayDetail: "usage_get_day_detail",
   usageGetSessions: "usage_get_sessions",
@@ -688,6 +725,7 @@ export interface CommandRequests {
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
   [COMMAND_NAMES.usageGetOverview]: UsageOverviewCommandRequest;
+  [COMMAND_NAMES.usageGetTraySummary]: TraySummaryCommandRequest;
   [COMMAND_NAMES.usageGetCalendar]: ActivityCalendarCommandRequest;
   [COMMAND_NAMES.usageGetDayDetail]: DayDetailCommandRequest;
   [COMMAND_NAMES.usageGetSessions]: SessionListCommandRequest;
@@ -725,6 +763,7 @@ export interface CommandResponses {
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.usageGetOverview]: IpcResponse<UsageOverviewResponse>;
+  [COMMAND_NAMES.usageGetTraySummary]: IpcResponse<TraySummaryResponse>;
   [COMMAND_NAMES.usageGetCalendar]: IpcResponse<ActivityCalendarResponse>;
   [COMMAND_NAMES.usageGetDayDetail]: IpcResponse<DayDetailResponse>;
   [COMMAND_NAMES.usageGetSessions]: IpcResponse<SessionListResponse>;
@@ -915,6 +954,13 @@ export function invokeUsageGetOverview(
   request: UsageOverviewCommandRequest,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.usageGetOverview, request);
+}
+
+export function invokeUsageGetTraySummary(
+  invoke: CommandInvoker,
+  request: TraySummaryCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.usageGetTraySummary, request);
 }
 
 export function invokeUsageGetCalendar(

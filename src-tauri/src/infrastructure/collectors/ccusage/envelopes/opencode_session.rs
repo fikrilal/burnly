@@ -77,7 +77,7 @@ fn valid_totals(totals: &TokenTotals) -> bool {
             totals.cache_creation_tokens,
             totals.cache_read_tokens,
         )
-            .is_some_and(|tokens| totals.total_tokens >= tokens)
+        .is_some_and(|tokens| totals.total_tokens >= tokens)
 }
 
 fn valid_model(model: &ModelBreakdown) -> bool {

@@ -706,10 +706,7 @@ mod tests {
 
         assert_eq!(candidates.len(), 1);
         let first = &candidates[0];
-        assert_eq!(
-            first.source_key,
-            "codex:daily:v1:Asia/Jakarta:2026-06-24"
-        );
+        assert_eq!(first.source_key, "codex:daily:v1:Asia/Jakarta:2026-06-24");
         assert_eq!(first.tokens.cache_read_tokens(), Some(400));
         assert_eq!(first.tokens.unclassified_tokens(), Some(0));
         assert_eq!(first.model_breakdowns.len(), 1);

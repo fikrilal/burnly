@@ -32,7 +32,9 @@ use crate::application::refresh::{
     RefreshSchedulerError, RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
-use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery};
+use crate::application::usage::{
+    CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery, TraySummaryQuery,
+};
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
@@ -40,7 +42,7 @@ use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
     SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDatabaseMaintenanceStore,
     SqliteDiagnosticsStore, SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore,
-    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
+    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore, SqliteTraySummaryStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -242,6 +244,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(refresh_scheduler);
     app.manage(runtime_settings.clone());
     app.manage(build_overview_query(&database_path)?);
+    app.manage(build_tray_summary_query(&database_path)?);
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
     app.manage(build_session_query(&database_path)?);
@@ -417,6 +420,14 @@ fn build_overview_query(database_path: &Path) -> Result<OverviewQuery, StartupEr
     let database = Database::open(database_path).map_err(StartupError::Persistence)?;
     Ok(OverviewQuery::new(
         Arc::new(SqliteOverviewStore::new(database)),
+        Arc::new(SystemClock),
+    ))
+}
+
+fn build_tray_summary_query(database_path: &Path) -> Result<TraySummaryQuery, StartupError> {
+    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    Ok(TraySummaryQuery::new(
+        Arc::new(SqliteTraySummaryStore::new(database)),
         Arc::new(SystemClock),
     ))
 }

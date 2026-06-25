@@ -414,11 +414,7 @@ mod tests {
         assert_eq!(descriptor.collector.as_str(), "ccusage");
         assert_eq!(descriptor.runtime_version, "20.0.14");
 
-        for source in [
-            SourceKey::ClaudeCode,
-            SourceKey::Codex,
-            SourceKey::OpenCode,
-        ] {
+        for source in [SourceKey::ClaudeCode, SourceKey::Codex, SourceKey::OpenCode] {
             collector
                 .collect(
                     daily_request_with_timezone(source, "Asia/Jakarta"),

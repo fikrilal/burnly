@@ -37,6 +37,7 @@
     "allow-refresh-request",
     "allow-refresh-cancel",
     "allow-usage-get-overview",
+    "allow-usage-get-tray-summary",
     "allow-usage-get-calendar",
     "allow-usage-get-day-detail",
     "allow-usage-get-sessions",
