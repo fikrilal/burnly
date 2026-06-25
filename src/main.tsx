@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./app/App";
 import { QueryProvider } from "./lib/query";
+import { ThemeProvider } from "./lib/theme";
 import "./styles/global.css";
 const rootElement = document.getElementById("root");
 
@@ -11,8 +12,10 @@ if (rootElement === null) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <QueryProvider>
-      <App />
-    </QueryProvider>
+    <ThemeProvider>
+      <QueryProvider>
+        <App />
+      </QueryProvider>
+    </ThemeProvider>
   </React.StrictMode>,
 );
