@@ -2,9 +2,8 @@
 
 ## Status
 
-In progress. Phase 0 complete. **Phase 1 complete** (1a/1b/1c/1d): full
-token-based primitive layer, styleguide scaffold (5a), and beUI + Motion adopted
-surgically. Next: Phase 2 (Burnly compact components).
+In progress. Phase 0 complete. Phase 1 complete. Phase 2a (compact metric
+components) complete and verified. Next: Phase 2b (allocation & trend).
 
 Progress log:
 
@@ -43,6 +42,12 @@ Progress log:
   (reduced-motion-safe, animate-on-change). Demoed in the styleguide. Verified
   via `pnpm verify:fast` (exit 0) and `pnpm test` (112 passing). Execution plan:
   `docs/exec-plans/completed/2026-06-26_design-system-phase-1d-beui-motion.md`.
+- **2026-06-26 — Phase 2a complete.** Burnly compact metric components
+  `CompactMetric` (primary; value is a `ReactNode`, e.g. `AnimatedNumber`) and
+  `MetricRow` (secondary pair) in `src/components/burnly/metric.tsx`, exported via
+  the burnly barrel and demoed in the styleguide. Verified via `pnpm verify:fast`
+  (exit 0) and `pnpm test` (115 passing). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-2a-metrics.md`.
 
 This is the master plan for building Burnly's **UI design system** (visual/component
 system), not software architecture. It operationalizes the draft at
@@ -182,8 +187,9 @@ keyboard-accessible, and is registered in the styleguide (Phase 5a scaffold ✅)
 Goal: promote the tray's inline patterns into named, prop-driven domain
 components built on Phase 1 primitives.
 
-- **2a — Metrics:** `CompactMetric` (primary), `MetricRow` (secondary pair),
-  extracted from `TrayMetric.tsx`.
+- **2a — Metrics. ✅ Done (2026-06-26).** `CompactMetric` (primary; `ReactNode`
+  value so callers can pass `AnimatedNumber`) and `MetricRow` (secondary pair),
+  in `src/components/burnly/metric.tsx`, demoed in the styleguide.
 - **2b — Allocation & trend:** `ModelUsageRow` / `AllocationList` and
   `TrendIndicator`, extracted from `ModelUsageAllocation.tsx`.
 - **2c — Status & states:** `FreshnessStatus` (built on `StatusPill`),
@@ -286,7 +292,7 @@ evidence; docs index points to the living design-system doc.
 ```text
 Phase 0  Tokens + theming        (foundation, blocks everything)  [✅ complete]
 Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold   [✅ complete]
-Phase 2  Burnly components       (extract from tray)
+Phase 2  Burnly components       (extract from tray)              [2a ✅ · 2b/2c ⏳]
 Phase 3  Tray refactor           (prove the system)
 Phase 4  Full window reskin      (apply broadly)
 Phase 5  Styleguide/evidence/docs (finalize)

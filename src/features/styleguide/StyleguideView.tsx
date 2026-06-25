@@ -45,7 +45,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { CompactCard, StatusPill } from "@/components/burnly";
+import {
+  CompactCard,
+  CompactMetric,
+  MetricRow,
+  StatusPill,
+} from "@/components/burnly";
 
 const SURFACE_TOKENS = [
   { name: "background", className: "bg-background" },
@@ -78,6 +83,7 @@ export function StyleguideView() {
         <div className="flex flex-col gap-10">
           <SurfaceTokens />
           <Typography />
+          <MetricsSample />
           <Buttons />
           <Badges />
           <StatusPills />
@@ -232,6 +238,26 @@ function Overlays() {
             <DropdownMenuItem>Export</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
+    </Section>
+  );
+}
+
+function MetricsSample() {
+  return (
+    <Section title="Metrics">
+      <div className="max-w-sm space-y-5">
+        <CompactMetric
+          label="Today token usage"
+          value={<AnimatedNumber value={42180} />}
+          caption="tokens today"
+        />
+        <MetricRow
+          items={[
+            { label: "This week", value: "183,240" },
+            { label: "This month", value: "612,900" },
+          ]}
+        />
       </div>
     </Section>
   );
