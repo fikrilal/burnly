@@ -765,7 +765,7 @@ Likely future candidates include a canonical model crate or sync protocol crate,
 
 ### Extract a frontend package when
 
-- The future web dashboard actually reuses it.
+- A future web product actually reuses it.
 - The package has no Tauri dependency.
 - It has a stable API and independent versioning value.
 - Duplication is proven, not anticipated.
@@ -836,7 +836,8 @@ The following remain open:
 4. Final path-alias configuration
 5. Exact end-to-end test harness for packaged Tauri behavior
 6. Whether architecture linting requires a dedicated dependency-check tool
-7. Future monorepo structure when the web dashboard becomes an active project
+7. Future monorepo structure when optional web/sync/leaderboard work becomes an
+   active project
 
 ## Locked Foundation
 

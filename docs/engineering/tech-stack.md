@@ -28,7 +28,9 @@ It was selected because it supports Burnly's target operating systems, system-tr
 
 React will be used to build the desktop user interface.
 
-It provides a mature component ecosystem and can support a future web dashboard without requiring the product to adopt a separate UI paradigm.
+It provides a mature component ecosystem and can support future optional web
+surfaces, such as sync or leaderboard views, without requiring the product to
+adopt a separate UI paradigm prematurely.
 
 ### TypeScript
 
@@ -66,7 +68,8 @@ It offers a consistent icon set suitable for desktop tools and common applicatio
 
 Apache ECharts will provide interactive charts and data visualizations.
 
-It supports the time-series, comparison, tooltip, and filtering needs expected in Burnly's usage dashboard.
+It supports the small trends, comparisons, and tooltips needed by Burnly's tray
+tracker and secondary detail views.
 
 The activity calendar may use a dedicated React component or a custom implementation if that produces a clearer and more accessible result than a general-purpose chart.
 
@@ -186,7 +189,8 @@ Electron is not selected because Burnly is intended to run continuously as a lig
 
 Next.js is not selected for the desktop application because Burnly does not need server rendering or a server-oriented application framework.
 
-The future web dashboard can choose its own framework when its requirements are defined.
+The future web product can choose its own framework when its requirements are
+defined.
 
 ### Flutter
 
@@ -194,7 +198,9 @@ Flutter is not selected because React and TypeScript better align with the plann
 
 ### A Remote Database
 
-A hosted database is not part of the local desktop stack. Remote storage will be evaluated separately when account synchronization and the web dashboard are designed.
+A hosted database is not part of the local desktop stack. Remote storage will be
+evaluated separately when optional account synchronization and web/social
+features are designed.
 
 ## Decision Status
 

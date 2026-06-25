@@ -36,4 +36,5 @@ This directory is the source of truth for Burnly product and engineering decisio
 ## Planning
 
 - [Implementation plan](./planning/implementation-plan.md)
+- [Product drift analysis](./planning/product-drift-analysis.md)
 - [Execution plans](./exec-plans/README.md)
