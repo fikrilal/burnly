@@ -2,9 +2,11 @@
 
 ## Status
 
-In progress. Phase 0 complete. Phase 1b (static primitives) and the Phase 5a
-styleguide scaffold are complete and verified. Next: Phase 1c (interactive Radix
-primitives) and Phase 1a/1d (beUI + Motion).
+In progress. Phase 0 complete. Phase 1b (static primitives), 5a (styleguide
+scaffold), 1c-1 (Card, Tabs, Switch), and 1c-2 (Tooltip, Popover, Dialog,
+DropdownMenu) are complete and verified. The hand-written primitive layer is now
+complete. Next: Phase 1a/1d (beUI + Motion) or proceed to Phase 2 (Burnly compact
+components).
 
 Progress log:
 
@@ -27,6 +29,16 @@ Progress log:
   extended for `#/styleguide`. Verified via `pnpm verify:fast` (exit 0) and
   `pnpm test` (103 passing). Execution plan:
   `docs/exec-plans/completed/2026-06-26_design-system-phase-1b-5a-primitives-styleguide.md`.
+- **2026-06-26 — Phase 1c-1 complete.** Token-based inline primitives `Card`
+  (composable), `Tabs` (pill style), and `Switch` over already-installed
+  `radix-ui`, rendered in the styleguide. Verified via `pnpm verify:fast`
+  (exit 0) and `pnpm test` (106 passing). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-1c-1-inline-primitives.md`.
+- **2026-06-26 — Phase 1c-2 complete.** Token-based overlay primitives `Tooltip`,
+  `Popover`, `Dialog`, and `DropdownMenu` over `radix-ui`, rendered in the
+  styleguide with open/dismiss tests. Verified via `pnpm verify:fast` (exit 0)
+  and `pnpm test` (110 passing). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-1c-2-overlay-primitives.md`.
 
 This is the master plan for building Burnly's **UI design system** (visual/component
 system), not software architecture. It operationalizes the draft at
@@ -145,10 +157,13 @@ Goal: a complete, monochrome, token-backed primitive set.
 - **1b — Static primitives (hand-written). ✅ Done (2026-06-26).** `Badge`,
   `Skeleton`, `Separator` added on the monochrome tokens; `Button` already on
   tokens. Rendered in the styleguide.
-- **1c — Interactive primitives (Radix-backed). ⏳ Next.** `Card`, `Tooltip`,
-  `Popover`, `Dialog`, `DropdownMenu`, `Switch`, `Tabs`. All required `radix-ui`
-  packages are already installed, so these can be hand-written thin wrappers on
+- **1c — Interactive primitives (Radix-backed).** All required `radix-ui`
+  packages are already installed, so these are hand-written thin wrappers on
   tokens without the shadcn CLI/network.
+  - **1c-1 — Inline primitives. ✅ Done (2026-06-26).** `Card` (composable),
+    `Tabs` (pill style), `Switch`. Rendered in the styleguide.
+  - **1c-2 — Overlay primitives. ✅ Done (2026-06-26).** `Tooltip`, `Popover`,
+    `Dialog`, `DropdownMenu` (portal-based), rendered in the styleguide.
 - **1d — Motion primitives (beUI, selective). ⏳ Pending.** only what the app needs now —
   likely `Tabs` (pill/segment/underline), `ThemeToggle`, `NumberAnimation` for
   metric changes. Each adapted into a Burnly-owned wrapper. Defer dock, dynamic
@@ -265,7 +280,7 @@ evidence; docs index points to the living design-system doc.
 
 ```text
 Phase 0  Tokens + theming        (foundation, blocks everything)  [✅ complete]
-Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold   [1b ✅ 5a ✅ · 1a/1c/1d ⏳]
+Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold   [1b ✅ 5a ✅ 1c ✅ · 1a/1d ⏳]
 Phase 2  Burnly components       (extract from tray)
 Phase 3  Tray refactor           (prove the system)
 Phase 4  Full window reskin      (apply broadly)
