@@ -8,7 +8,7 @@ interface CompactCardProps {
 export function CompactCard({ children, className = "" }: CompactCardProps) {
   return (
     <section
-      className={`rounded-2xl border border-zinc-800 bg-zinc-900/80 shadow-xl shadow-black/20 ${className}`}
+      className={`rounded-2xl border border-border bg-card text-card-foreground shadow-xl shadow-black/20 ${className}`}
     >
       {children}
     </section>
@@ -32,13 +32,14 @@ export function StatusPill({ children, tone = "neutral" }: StatusPillProps) {
 
 function toneClass(tone: NonNullable<StatusPillProps["tone"]>): string {
   switch (tone) {
+    // Monochrome design: success/warning share a subtle emphasis treatment;
+    // color is reserved for the destructive (error) state.
     case "success":
-      return "bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20";
     case "warning":
-      return "bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20";
+      return "bg-foreground/10 text-foreground ring-1 ring-border";
     case "danger":
-      return "bg-red-500/10 text-red-300 ring-1 ring-red-500/20";
+      return "bg-destructive/10 text-destructive ring-1 ring-destructive/20";
     case "neutral":
-      return "bg-zinc-800 text-zinc-300 ring-1 ring-zinc-700";
+      return "bg-muted text-muted-foreground ring-1 ring-border";
   }
 }

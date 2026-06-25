@@ -83,7 +83,7 @@ describe("TrayPanel", () => {
     expect(screen.getByText("612,900")).toBeInTheDocument();
     expect(screen.getByText("GPT-5.1")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
-    expect(screen.getByText("↗ 8.5%")).toBeInTheDocument();
+    expect(screen.getByText("8.5%")).toBeInTheDocument();
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByText("new today")).toBeInTheDocument();
     expect(screen.queryByText(/cost/i)).not.toBeInTheDocument();
@@ -107,7 +107,9 @@ describe("TrayPanel", () => {
       wrapper: createTestQueryWrapper(),
     });
 
-    expect(await screen.findByText("No data collected")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No usage collected today"),
+    ).toBeInTheDocument();
     expect(screen.getByText("No model usage today")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /refresh/i }),

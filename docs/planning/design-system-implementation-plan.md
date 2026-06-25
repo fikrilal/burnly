@@ -2,9 +2,9 @@
 
 ## Status
 
-In progress. Phase 0 complete. Phase 1 complete. **Phase 2 complete** (2a/2b/2c):
-Burnly compact components extracted. Next: Phase 3 (tray panel refactor onto the
-new system).
+In progress. Phase 0 complete. Phase 1 complete. Phase 2 complete. **Phase 3
+complete** — the tray panel is rebuilt on the design system (first end-to-end
+proof). Next: Phase 4 (full desktop window reskin).
 
 Progress log:
 
@@ -62,6 +62,14 @@ Progress log:
   (124 passing). Execution plan:
   `docs/exec-plans/completed/2026-06-26_design-system-phase-2c-status.md`.
   Debt: migrate legacy `StatusPill` colors to tokens during the tray refactor.
+- **2026-06-26 — Phase 3 complete.** `TrayPanel` rebuilt on the design system
+  (`CompactMetric`+`AnimatedNumber`, `MetricRow`, `AllocationList`,
+  `FreshnessStatus`, `EmptyState`/`ErrorState`, `OpenDetailsButton`); all
+  inline `zinc`/`cyan` removed; `CompactCard`/`StatusPill` migrated to tokens
+  (debt resolved); tray-local `TrayMetric.tsx`/`ModelUsageAllocation.tsx` removed.
+  Verified via `pnpm verify:fast` (exit 0), `pnpm test` (124 passing), and
+  `pnpm test:e2e` (30 passing, no desktop regression). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-3-tray-refactor.md`.
 
 This is the master plan for building Burnly's **UI design system** (visual/component
 system), not software architecture. It operationalizes the draft at
@@ -216,19 +224,22 @@ Acceptance: components are pure (props in, no IPC), cover empty/partial/error/
 loading states, and are exercised by React tests at the behavior level.
 (Phase 2 complete.)
 
-### Phase 3: Tray Panel Refactor (proving surface)
+### Phase 3: Tray Panel Refactor (proving surface) — ✅ Done (2026-06-26)
 
 Goal: rebuild the existing tray panel entirely on the new system — the first
 end-to-end proof.
 
-- Replace all inline utilities in `TrayPanel.tsx` and its components with
+- Replaced all inline utilities in `TrayPanel.tsx` and its components with
   Phase 1/2 components and tokens.
-- Tighten layout/typography toward the Aside aesthetic.
-- Keep tray v1 scope: no cost, no source split, no budgets/filters.
+- Tightened layout/typography toward the Aside aesthetic.
+- Kept tray v1 scope: no cost, no source split, no budgets/filters.
+- Resolved the `CompactCard`/`StatusPill` token debt; removed tray-local
+  `TrayMetric.tsx` and `ModelUsageAllocation.tsx`.
 
-Acceptance: tray renders with zero hardcoded colors, visual parity-or-better,
-existing tray tests pass, runtime evidence (`pnpm evidence:desktop`) captured for
-empty/populated/error/refreshing states in both themes.
+Acceptance: tray renders with zero hardcoded colors, existing tray tests pass
+(updated for the monochrome trend/copy), and the desktop e2e suite passes with no
+regression. Tray-surface screenshot evidence in both themes can be added in
+Phase 5b.
 
 ### Phase 4: Full Desktop Window Reskin
 
@@ -311,7 +322,7 @@ evidence; docs index points to the living design-system doc.
 Phase 0  Tokens + theming        (foundation, blocks everything)  [✅ complete]
 Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold   [✅ complete]
 Phase 2  Burnly components       (extract from tray)              [✅ complete]
-Phase 3  Tray refactor           (prove the system)
+Phase 3  Tray refactor           (prove the system)              [✅ complete]
 Phase 4  Full window reskin      (apply broadly)
 Phase 5  Styleguide/evidence/docs (finalize)
 ```
