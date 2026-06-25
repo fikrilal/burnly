@@ -20,6 +20,7 @@ import {
   listBudgets,
   getContractProbe,
   openDetails,
+  hideTrayPanel,
   getRefreshState,
   getSettings,
   getTraySummary,
@@ -91,6 +92,22 @@ describe("IPC command responses", () => {
     const result = await openDetails(invoker);
 
     expect(result.data.status).toBe("opened");
+  });
+
+  it("hides the tray panel through the dedicated app command", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.appHideTrayPanel);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        data: { status: "hidden" },
+        meta,
+      });
+    };
+
+    const result = await hideTrayPanel(invoker);
+
+    expect(result.data.status).toBe("hidden");
   });
 
   it("validates diagnostics status data from the desktop runtime", async () => {

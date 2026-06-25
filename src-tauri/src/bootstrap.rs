@@ -128,6 +128,9 @@ pub(crate) fn run() {
                     lifecycle::handle_close_request(window, api, settings.close_behavior());
                 }
             }
+            if let WindowEvent::Focused(false) = event {
+                lifecycle::handle_tray_panel_blur(window);
+            }
         })
         .setup(|app| {
             setup_runtime(app).map_err(|error| {

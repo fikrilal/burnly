@@ -5,6 +5,7 @@ fn main() {
             "app_get_bootstrap",
             "app_get_capabilities",
             "app_open_details",
+            "app_hide_tray_panel",
             "diagnostics_get_status",
             "diagnostics_get_history",
             "diagnostics_reveal_logs",

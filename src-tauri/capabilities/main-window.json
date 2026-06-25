@@ -11,6 +11,7 @@
     "allow-app-get-bootstrap",
     "allow-app-get-capabilities",
     "allow-app-open-details",
+    "allow-app-hide-tray-panel",
     "allow-diagnostics-get-status",
     "allow-diagnostics-get-history",
     "allow-diagnostics-reveal-logs",

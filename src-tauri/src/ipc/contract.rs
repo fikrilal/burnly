@@ -34,6 +34,12 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "OpenDetailsResponse",
     },
     CommandSpec {
+        name: "app_hide_tray_panel",
+        export_name: "invokeAppHideTrayPanel",
+        request_type: "Record<string, never>",
+        response_type: "HideTrayPanelResponse",
+    },
+    CommandSpec {
         name: "diagnostics_get_status",
         export_name: "invokeDiagnosticsGetStatus",
         request_type: "Record<string, never>",

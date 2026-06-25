@@ -230,6 +230,10 @@ export interface OpenDetailsResponse {
   status: "opened";
 }
 
+export interface HideTrayPanelResponse {
+  status: "hidden";
+}
+
 export interface AppBootstrapResponse {
   appVersion: string;
   contractVersion: number;

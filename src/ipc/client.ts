@@ -8,6 +8,7 @@ import {
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
   invokeAppOpenDetails,
+  invokeAppHideTrayPanel,
   invokeDiagnosticsGetStatus,
   invokeDiagnosticsGetHistory,
   invokeDiagnosticsRevealLogs,
@@ -47,6 +48,7 @@ import {
   type CommandRequests,
   type ContractProbeResponse,
   type OpenDetailsResponse,
+  type HideTrayPanelResponse,
   type DiagnosticsStatusResponse,
   type DatabaseMaintenanceStatusResponse,
   type DatabaseMaintenanceActionResponse,
@@ -196,6 +198,10 @@ const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
 
 const openDetailsDataSchema: z.ZodType<OpenDetailsResponse> = z.object({
   status: z.literal("opened"),
+});
+
+const hideTrayPanelDataSchema: z.ZodType<HideTrayPanelResponse> = z.object({
+  status: z.literal("hidden"),
 });
 
 const diagnosticHealthStatusSchema = z.enum([
@@ -760,6 +766,13 @@ export async function openDetails(
 ): Promise<CommandResult<OpenDetailsResponse>> {
   const response = await invokeAppOpenDetails(invoker);
   return unwrapResponse(validateResponse(response, openDetailsDataSchema));
+}
+
+export async function hideTrayPanel(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<HideTrayPanelResponse>> {
+  const response = await invokeAppHideTrayPanel(invoker);
+  return unwrapResponse(validateResponse(response, hideTrayPanelDataSchema));
 }
 
 export async function getDiagnosticsStatus(

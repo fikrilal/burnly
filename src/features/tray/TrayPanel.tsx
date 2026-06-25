@@ -1,8 +1,10 @@
-import { openDetails } from "../../ipc/client";
+import { useEffect } from "react";
+import { X } from "lucide-react";
+
+import { hideTrayPanel, openDetails } from "../../ipc/client";
 import type { TraySummaryResponse } from "../../ipc/generated/contracts";
 import {
   AllocationList,
-  CompactCard,
   CompactMetric,
   EmptyState,
   ErrorState,
@@ -14,7 +16,11 @@ import {
 } from "../../components/burnly";
 import { AnimatedNumber } from "../../components/ui/animated-number";
 import { cn } from "../../lib/cn";
-import { formatDateTime, formatNumber } from "../../lib/format";
+import {
+  formatCompactNumber,
+  formatDateTime,
+  formatNumber,
+} from "../../lib/format";
 import { useTraySummary } from "./use-tray-summary";
 
 interface TrayPanelProps {
@@ -23,6 +29,18 @@ interface TrayPanelProps {
 
 export function TrayPanel({ reportingTimezone }: TrayPanelProps) {
   const summary = useTraySummary(reportingTimezone);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        void hideTrayPanel();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   if (summary.isPending) {
     return <TrayShell status="Loading" detail="Reading local usage data" />;
@@ -72,66 +90,71 @@ function TrayPanelContent({
   const isEmpty = summary.dataStatus === "empty";
 
   return (
-    <main className="min-h-screen bg-background px-4 py-4 text-foreground">
-      <CompactCard className="p-5">
-        <header className="flex items-start justify-between gap-4">
+    <main className="min-h-screen overflow-hidden rounded-2xl border border-border bg-background text-foreground">
+      <div className="flex flex-col gap-6 p-5">
+        <header
+          data-tauri-drag-region
+          className="flex items-start justify-between gap-3"
+        >
           <div>
-            <p className="text-xs font-semibold tracking-wide text-foreground uppercase">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
               Burnly
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Updated {formatDateTime(summary.lastSuccessfulRefreshAt)}
             </p>
           </div>
-          <FreshnessStatus
-            state={freshnessState(summary.dataStatus, isRefreshing, isError)}
-          />
+          <div className="flex items-center gap-1.5">
+            <FreshnessStatus
+              state={freshnessState(summary.dataStatus, isRefreshing, isError)}
+            />
+            <PanelCloseButton />
+          </div>
         </header>
 
         {isError ? (
           <ErrorState
-            className="mt-4"
             title="Update failed"
             description={userSafeErrorMessage(error)}
           />
         ) : null}
 
-        <div className="mt-7 space-y-5">
-          <CompactMetric
-            label="Today token usage"
-            value={
-              <AnimatedNumber value={tokenNumber(summary.today.totalTokens)} />
-            }
-            caption="tokens today"
+        <CompactMetric
+          label="Today token usage"
+          value={
+            <AnimatedNumber value={tokenNumber(summary.today.totalTokens)} />
+          }
+          caption="tokens today"
+        />
+
+        <MetricRow
+          items={[
+            {
+              label: "This week",
+              value: formatCompactNumber(summary.week.totalTokens),
+            },
+            {
+              label: "This month",
+              value: formatCompactNumber(summary.month.totalTokens),
+            },
+          ]}
+        />
+
+        {isEmpty ? (
+          <EmptyState
+            title="No usage collected today"
+            description="Burnly updates automatically when data becomes stale."
           />
-          <MetricRow
-            items={[
-              {
-                label: "This week",
-                value: formatNumber(summary.week.totalTokens),
-              },
-              {
-                label: "This month",
-                value: formatNumber(summary.month.totalTokens),
-              },
-            ]}
-          />
-          {isEmpty ? (
-            <EmptyState
-              title="No usage collected today"
-              description="Burnly updates automatically when data becomes stale."
-            />
-          ) : null}
-          <AllocationList models={toModelUsage(summary.models)} />
-        </div>
+        ) : null}
+
+        <AllocationList models={toModelUsage(summary.models)} />
 
         <OpenDetailsButton
-          className="mt-6"
           onClick={() => {
             void openDetails();
           }}
         />
-      </CompactCard>
+      </div>
     </main>
   );
 }
@@ -146,22 +169,45 @@ function TrayShell({
   tone?: "neutral" | "danger";
 }) {
   return (
-    <main className="min-h-screen bg-background px-4 py-4 text-foreground">
-      <CompactCard className="p-5">
-        <span
-          className={cn(
-            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-            tone === "danger"
-              ? "bg-destructive/10 text-destructive"
-              : "bg-muted text-muted-foreground",
-          )}
+    <main className="min-h-screen overflow-hidden rounded-2xl border border-border bg-background text-foreground">
+      <div className="flex flex-col gap-4 p-5">
+        <div
+          data-tauri-drag-region
+          className="flex items-start justify-between gap-2"
         >
-          {status}
-        </span>
-        <h1 className="mt-5 text-2xl font-semibold">Burnly</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{detail}</p>
-      </CompactCard>
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+              tone === "danger"
+                ? "bg-destructive/10 text-destructive"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            {status}
+          </span>
+          <PanelCloseButton />
+        </div>
+        <div>
+          <h1 className="text-2xl font-semibold">Burnly</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
+        </div>
+      </div>
     </main>
+  );
+}
+
+function PanelCloseButton() {
+  return (
+    <button
+      type="button"
+      aria-label="Close"
+      onClick={() => {
+        void hideTrayPanel();
+      }}
+      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    >
+      <X className="size-4" aria-hidden />
+    </button>
   );
 }
 

@@ -166,6 +166,27 @@ pub(super) fn app_open_details(
     }
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct HideTrayPanelResponse {
+    status: &'static str,
+}
+
+#[tauri::command]
+pub(super) fn app_hide_tray_panel(
+    window_actions: State<'_, Arc<dyn WindowActions>>,
+) -> IpcResponse<HideTrayPanelResponse> {
+    match window_actions.hide_tray_panel() {
+        Ok(()) => IpcResponse::success(HideTrayPanelResponse { status: "hidden" }),
+        Err(_) => IpcResponse::failure(IpcError::new(
+            "app.hide_tray_panel_failed",
+            "Burnly could not hide the tray panel.",
+            ErrorCategory::Platform,
+            true,
+        )),
+    }
+}
+
 impl From<AppBootstrap> for AppBootstrapResponse {
     fn from(value: AppBootstrap) -> Self {
         Self {

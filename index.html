@@ -27,6 +27,9 @@
         } catch (error) {
           document.documentElement.classList.add("dark");
         }
+        if (window.location.hash === "#/tray") {
+          document.documentElement.classList.add("tray-window");
+        }
       })();
     </script>
   </head>

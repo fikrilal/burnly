@@ -79,8 +79,8 @@ describe("TrayPanel", () => {
     });
 
     expect(await screen.findByText("42,180")).toBeInTheDocument();
-    expect(screen.getByText("183,240")).toBeInTheDocument();
-    expect(screen.getByText("612,900")).toBeInTheDocument();
+    expect(screen.getByText("183.2K")).toBeInTheDocument();
+    expect(screen.getByText("612.9K")).toBeInTheDocument();
     expect(screen.getByText("GPT-5.1")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
     expect(screen.getByText("8.5%")).toBeInTheDocument();

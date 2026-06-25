@@ -30,6 +30,7 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::app_get_bootstrap,
         commands::app_get_capabilities,
         commands::app_open_details,
+        commands::app_hide_tray_panel,
         database_maintenance::database_get_maintenance_status,
         database_maintenance::database_integrity_check,
         database_maintenance::database_checkpoint,

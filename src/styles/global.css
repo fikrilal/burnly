@@ -8,7 +8,7 @@
 :root {
   color-scheme: light;
   font-family:
-    Inter,
+    "Geist Variable",
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -154,4 +154,11 @@ select {
   html {
     @apply font-sans;
   }
+}
+
+/* The tray panel is a transparent, frameless popover window; the panel itself
+   paints a rounded surface, so the window background must be transparent. */
+.tray-window,
+.tray-window body {
+  background-color: transparent;
 }

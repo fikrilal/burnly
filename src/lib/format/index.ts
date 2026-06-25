@@ -9,6 +9,16 @@ export function formatNumber(value: number | string | bigint): string {
   return groupDigits(digits);
 }
 
+export function formatCompactNumber(value: number | string): string {
+  const parsed = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(parsed) || parsed < 0) return "0";
+
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(parsed);
+}
+
 export function formatCurrency(
   micros: string | null,
   currencyCode: string | null,
