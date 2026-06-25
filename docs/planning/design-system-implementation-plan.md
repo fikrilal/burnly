@@ -2,8 +2,9 @@
 
 ## Status
 
-In progress. Phase 0 complete. Phase 1 complete. Phase 2a (compact metric
-components) complete and verified. Next: Phase 2b (allocation & trend).
+In progress. Phase 0 complete. Phase 1 complete. **Phase 2 complete** (2a/2b/2c):
+Burnly compact components extracted. Next: Phase 3 (tray panel refactor onto the
+new system).
 
 Progress log:
 
@@ -48,6 +49,19 @@ Progress log:
   the burnly barrel and demoed in the styleguide. Verified via `pnpm verify:fast`
   (exit 0) and `pnpm test` (115 passing). Execution plan:
   `docs/exec-plans/completed/2026-06-26_design-system-phase-2a-metrics.md`.
+- **2026-06-26 — Phase 2b complete.** Monochrome `AllocationList` and
+  `TrendIndicator` (direction by icon, not color) in
+  `src/components/burnly/allocation.tsx` with design-system-local prop types
+  (`Trend`, `ModelUsage`); burnly barrel budget bumped 2 -> 3. Verified via
+  `pnpm verify:fast` (exit 0) and `pnpm test` (120 passing). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-2b-allocation.md`.
+- **2026-06-26 — Phase 2c complete.** Monochrome status/state components
+  `FreshnessStatus`, `EmptyState`, `ErrorState`, `OpenDetailsButton` in
+  `src/components/burnly/status.tsx` (red reserved for failures); burnly barrel
+  budget bumped 3 -> 4. Verified via `pnpm verify:fast` (exit 0) and `pnpm test`
+  (124 passing). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-2c-status.md`.
+  Debt: migrate legacy `StatusPill` colors to tokens during the tray refactor.
 
 This is the master plan for building Burnly's **UI design system** (visual/component
 system), not software architecture. It operationalizes the draft at
@@ -190,13 +204,17 @@ components built on Phase 1 primitives.
 - **2a — Metrics. ✅ Done (2026-06-26).** `CompactMetric` (primary; `ReactNode`
   value so callers can pass `AnimatedNumber`) and `MetricRow` (secondary pair),
   in `src/components/burnly/metric.tsx`, demoed in the styleguide.
-- **2b — Allocation & trend:** `ModelUsageRow` / `AllocationList` and
-  `TrendIndicator`, extracted from `ModelUsageAllocation.tsx`.
-- **2c — Status & states:** `FreshnessStatus` (built on `StatusPill`),
-  `EmptyState`, `ErrorState`, `OpenDetailsButton`.
+- **2b — Allocation & trend. ✅ Done (2026-06-26).** `AllocationList` and
+  `TrendIndicator` (monochrome, icon-based direction) in
+  `src/components/burnly/allocation.tsx`, with local prop types, demoed in the
+  styleguide.
+- **2c — Status & states. ✅ Done (2026-06-26).** `FreshnessStatus`,
+  `EmptyState`, `ErrorState`, `OpenDetailsButton` in
+  `src/components/burnly/status.tsx` (monochrome; red reserved for failures).
 
 Acceptance: components are pure (props in, no IPC), cover empty/partial/error/
 loading states, and are exercised by React tests at the behavior level.
+(Phase 2 complete.)
 
 ### Phase 3: Tray Panel Refactor (proving surface)
 
@@ -292,7 +310,7 @@ evidence; docs index points to the living design-system doc.
 ```text
 Phase 0  Tokens + theming        (foundation, blocks everything)  [✅ complete]
 Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold   [✅ complete]
-Phase 2  Burnly components       (extract from tray)              [2a ✅ · 2b/2c ⏳]
+Phase 2  Burnly components       (extract from tray)              [✅ complete]
 Phase 3  Tray refactor           (prove the system)
 Phase 4  Full window reskin      (apply broadly)
 Phase 5  Styleguide/evidence/docs (finalize)

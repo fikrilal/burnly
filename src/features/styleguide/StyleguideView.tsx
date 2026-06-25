@@ -46,9 +46,14 @@ import {
 } from "@/components/ui/tooltip";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import {
+  AllocationList,
   CompactCard,
   CompactMetric,
+  EmptyState,
+  ErrorState,
+  FreshnessStatus,
   MetricRow,
+  OpenDetailsButton,
   StatusPill,
 } from "@/components/burnly";
 
@@ -90,6 +95,8 @@ export function StyleguideView() {
           <TabsSample />
           <SwitchSample />
           <NumbersSample />
+          <AllocationSample />
+          <StatesSample />
           <Overlays />
           <SkeletonSample />
           <CardSample />
@@ -256,6 +263,73 @@ function MetricsSample() {
           items={[
             { label: "This week", value: "183,240" },
             { label: "This month", value: "612,900" },
+          ]}
+        />
+      </div>
+    </Section>
+  );
+}
+
+function StatesSample() {
+  return (
+    <Section title="Status & states">
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <FreshnessStatus state="current" />
+          <FreshnessStatus state="stale" />
+          <FreshnessStatus state="partial" />
+          <FreshnessStatus state="refreshing" />
+          <FreshnessStatus state="failed" />
+          <FreshnessStatus state="empty" />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <EmptyState
+            title="No usage collected today"
+            description="Burnly will update automatically."
+          />
+          <ErrorState
+            title="Refresh failed"
+            description="Last successful update: 10:42"
+          />
+        </div>
+        <div className="max-w-xs">
+          <OpenDetailsButton />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function AllocationSample() {
+  return (
+    <Section title="Model usage allocation">
+      <div className="max-w-sm">
+        <AllocationList
+          models={[
+            {
+              modelName: "GPT-5.1",
+              agentLabel: "Codex",
+              tokens: "25,000",
+              trend: { direction: "increased", basisPoints: 850 },
+            },
+            {
+              modelName: "Claude Sonnet",
+              agentLabel: "Claude Code",
+              tokens: "12,000",
+              trend: { direction: "decreased", basisPoints: 320 },
+            },
+            {
+              modelName: "GPT-5",
+              agentLabel: "Codex",
+              tokens: "5,678",
+              trend: null,
+            },
+            {
+              modelName: "Other",
+              agentLabel: "Multiple agents",
+              tokens: "3,000",
+              trend: { direction: "flat", basisPoints: 0 },
+            },
           ]}
         />
       </div>
