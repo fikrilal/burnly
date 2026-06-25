@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "phase": "10D",
+  "artifactBaselineRun": "28090081218",
+  "requiredEvidence": [
+    "first_launch",
+    "packaged_sidecar_version",
+    "refresh",
+    "tray",
+    "close_reopen",
+    "export_dialog",
+    "reveal_logs",
+    "notifications",
+    "recovery"
+  ],
+  "environments": [
+    {
+      "id": "windows-x86_64",
+      "chunk": "10D-Windows",
+      "label": "Windows x64",
+      "os": "windows",
+      "desktop": "shell",
+      "architecture": "x86_64",
+      "artifact": "release-windows-x86_64",
+      "runner": "windows-2022",
+      "evidenceMode": "native_installed_smoke",
+      "expectedCapabilities": {
+        "tray": "available",
+        "nativeNotifications": "permission_dependent",
+        "launchAtLogin": "not_implemented",
+        "updates": "unavailable"
+      }
+    },
+    {
+      "id": "windows-aarch64",
+      "chunk": "10D-Windows",
+      "label": "Windows ARM64",
+      "os": "windows",
+      "desktop": "shell",
+      "architecture": "aarch64",
+      "artifact": "release-windows-aarch64",
+      "runner": "windows-11-arm",
+      "evidenceMode": "native_installed_smoke",
+      "expectedCapabilities": {
+        "tray": "available",
+        "nativeNotifications": "permission_dependent",
+        "launchAtLogin": "not_implemented",
+        "updates": "unavailable"
+      }
+    },
+    {
+      "id": "macos-aarch64",
+      "chunk": "10D-macOS",
+      "label": "macOS Apple Silicon",
+      "os": "macos",
+      "desktop": "menu_bar",
+      "architecture": "aarch64",
+      "artifact": "release-macos-aarch64",
+      "runner": "macos-15",
+      "evidenceMode": "native_installed_smoke",
+      "expectedCapabilities": {
+        "tray": "available",
+        "nativeNotifications": "permission_dependent",
+        "launchAtLogin": "not_implemented",
+        "updates": "unavailable"
+      }
+    },
+    {
+      "id": "macos-x86_64",
+      "chunk": "10D-macOS",
+      "label": "macOS Intel",
+      "os": "macos",
+      "desktop": "menu_bar",
+      "architecture": "x86_64",
+      "artifact": "release-macos-x86_64",
+      "runner": "macos-15-intel",
+      "evidenceMode": "native_installed_smoke",
+      "expectedCapabilities": {
+        "tray": "available",
+        "nativeNotifications": "permission_dependent",
+        "launchAtLogin": "not_implemented",
+        "updates": "unavailable"
+      }
+    },
+    {
+      "id": "linux-gnome-x86_64",
+      "chunk": "10D-Linux",
+      "label": "Linux GNOME x64",
+      "os": "linux",
+      "desktop": "gnome",
+      "architecture": "x86_64",
+      "artifact": "release-linux-x86_64",
+      "runner": "ubuntu-24.04",
+      "evidenceMode": "native_installed_smoke",
+      "expectedCapabilities": {
+        "tray": "host_dependent",
+        "nativeNotifications": "permission_dependent",
+        "launchAtLogin": "not_implemented",
+        "updates": "unavailable"
+      }
+    },
+    {
+      "id": "linux-gnome-aarch64",
+      "chunk": "10D-Linux",
+      "label": "Linux GNOME ARM64",
+      "os": "linux",
+      "desktop": "gnome",
+      "architecture": "aarch64",
+      "artifact": "release-linux-aarch64",
+      "runner": "ubuntu-24.04-arm",
+      "evidenceMode": "native_installed_smoke",
+      "expectedCapabilities": {
+        "tray": "host_dependent",
+        "nativeNotifications": "permission_dependent",
+        "launchAtLogin": "not_implemented",
+        "updates": "unavailable"
+      }
+    },
+    {
+      "id": "linux-kde-x86_64",
+      "chunk": "10D-Linux",
+      "label": "Linux KDE x64",
+      "os": "linux",
+      "desktop": "kde",
+      "architecture": "x86_64",
+      "artifact": "release-linux-x86_64",
+      "runner": "manual-kde-24.04",
+      "evidenceMode": "manual_installed_smoke",
+      "expectedCapabilities": {
+        "tray": "host_dependent",
+        "nativeNotifications": "permission_dependent",
+        "launchAtLogin": "not_implemented",
+        "updates": "unavailable"
+      }
+    }
+  ],
+  "unsupportedClaims": [
+    {
+      "capability": "auto_updates",
+      "status": "unavailable_until_phase_10f"
+    },
+    {
+      "capability": "launch_at_login",
+      "status": "not_implemented"
+    },
+    {
+      "capability": "linux_tray_without_status_notifier_host",
+      "status": "unavailable"
+    }
+  ]
+}

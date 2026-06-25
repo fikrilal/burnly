@@ -30,16 +30,18 @@ platform behavior, distribution automation, and upgrade paths.
 
 ## Chunk Plan
 
-| Chunk                                 | Status           | Dependency            | Plan                                                                   |
-| ------------------------------------- | ---------------- | --------------------- | ---------------------------------------------------------------------- |
-| Phase 10A: Release security baseline  | Done             | Phase 9               | [Plan](../completed/2026-06-20_phase-10a-release-security-baseline.md) |
-| Phase 10B: Packaged sidecars          | Done             | Phase 10A             | [Plan](../completed/2026-06-20_phase-10b-packaged-sidecars.md)         |
-| Phase 10C: Packaging and metadata     | Evidence pending | Phase 10A             | [Plan](../queued/2026-06-20_phase-10c-packaging-metadata.md)           |
-| Phase 10D: Cross-platform behavior    | Queued           | Phases 10B-10C        | [Plan](../queued/2026-06-20_phase-10d-cross-platform-behavior.md)      |
-| Phase 10E: CI and release workflow    | Active           | Stable 10B-10C inputs | [Plan](2026-06-20_phase-10e-ci-release-workflow.md)                    |
-| Phase 10F: Signing and updates        | Queued           | Phases 10C-10E        | [Plan](../queued/2026-06-20_phase-10f-signing-updates.md)              |
-| Phase 10G: Performance hardening      | Queued           | Phases 10B-10D        | [Plan](../queued/2026-06-20_phase-10g-performance-hardening.md)        |
-| Phase 10H: Release-candidate evidence | Queued           | Phases 10A-10G        | [Plan](../queued/2026-06-20_phase-10h-release-candidate-evidence.md)   |
+| Chunk                                 | Status | Dependency            | Plan                                                                   |
+| ------------------------------------- | ------ | --------------------- | ---------------------------------------------------------------------- |
+| Phase 10A: Release security baseline  | Done   | Phase 9               | [Plan](../completed/2026-06-20_phase-10a-release-security-baseline.md) |
+| Phase 10B: Packaged sidecars          | Done   | Phase 10A             | [Plan](../completed/2026-06-20_phase-10b-packaged-sidecars.md)         |
+| Phase 10C: Packaging and metadata     | Done   | Phase 10A             | [Plan](../completed/2026-06-20_phase-10c-packaging-metadata.md)        |
+| Phase 10D-Linux: Linux behavior       | Active | Phases 10B-10C        | [Plan](2026-06-20_phase-10d-linux-behavior.md)                         |
+| Phase 10D-Windows: Windows behavior   | Queued | Phase 10D-Linux       | [Plan](../queued/2026-06-20_phase-10d-windows-behavior.md)             |
+| Phase 10D-macOS: macOS behavior       | Queued | Phase 10D-Linux       | [Plan](../queued/2026-06-20_phase-10d-macos-behavior.md)               |
+| Phase 10E: CI and release workflow    | Done   | Stable 10B-10C inputs | [Plan](../completed/2026-06-20_phase-10e-ci-release-workflow.md)       |
+| Phase 10F: Signing and updates        | Queued | Phases 10C-10E        | [Plan](../queued/2026-06-20_phase-10f-signing-updates.md)              |
+| Phase 10G: Performance hardening      | Queued | Phases 10B-10D        | [Plan](../queued/2026-06-20_phase-10g-performance-hardening.md)        |
+| Phase 10H: Release-candidate evidence | Queued | Phases 10A-10G        | [Plan](../queued/2026-06-20_phase-10h-release-candidate-evidence.md)   |
 
 ## Dependency Rules
 
@@ -47,7 +49,8 @@ platform behavior, distribution automation, and upgrade paths.
   capabilities.
 - 10B and 10C may proceed after 10A and can be implemented independently.
 - 10D validates installed behavior only after packaged sidecars and installers
-  exist.
+  exist. It is split by platform family so Linux behavior is proven before
+  Windows and macOS.
 - 10E starts after package inputs and metadata are stable; its native matrix
   supplies the remaining evidence required to close 10C.
 - 10F depends on stable artifacts and CI release boundaries.
@@ -86,9 +89,11 @@ platform behavior, distribution automation, and upgrade paths.
 
 - [x] Phase 10A completed and verified.
 - [x] Phase 10B completed and verified.
-- [ ] Phase 10C completed and verified.
-- [ ] Phase 10D completed and verified.
-- [ ] Phase 10E completed and verified.
+- [x] Phase 10C completed and verified.
+- [ ] Phase 10D-Linux completed and verified.
+- [ ] Phase 10D-Windows completed and verified.
+- [ ] Phase 10D-macOS completed and verified.
+- [x] Phase 10E completed and verified.
 - [ ] Phase 10F completed and verified.
 - [ ] Phase 10G completed and verified.
 - [ ] Phase 10H completed and phase exit criteria verified.
@@ -118,12 +123,18 @@ platform behavior, distribution automation, and upgrade paths.
 - Phase 10E now defines read-only cross-platform PR verification and a six-target
   unsigned release matrix with pinned actions/toolchains, canonical artifacts,
   checksums, provenance attestations, and all-or-nothing draft publication.
+- Phase 10E dry-run run `28090081218` passed on `main` with publication
+  disabled after PR #4 fixed Windows `.cmd` shim launch through the Node runner.
 
 ## Verification
 
 - Command: `pnpm verify`
 - Outcome: passed through Phase 10B; Phase 10C local Linux gates and Phase 10E
   local workflow-policy gates pass.
+- Command: GitHub Actions release workflow dry-run `28090081218` on `main` with
+  `publish=false`
+- Outcome: passed; validation, six native build targets, artifact upload, and
+  provenance attestation succeeded. The publish job was skipped.
 
 ## Runtime Evidence
 
@@ -135,8 +146,12 @@ platform behavior, distribution automation, and upgrade paths.
   mode `0755`, the reviewed checksum, and reported `ccusage 20.0.14`.
 - Phase 10C built, canonically staged, and inspected the Linux x86_64 Debian
   package with reviewed application metadata and regenerated Burnly icons.
-- Remaining macOS, Windows, and Linux ARM64 evidence is required in Phases 10D,
-  10E, and 10H.
+- Phase 10E dry-run run `28090081218` produced retained artifacts for macOS
+  x86_64/aarch64 DMG, Windows x86_64/aarch64 NSIS, and Linux x86_64/aarch64
+  Debian targets. Each build ran `pnpm packaging:check`, staged canonical
+  artifacts and checksum manifests, uploaded artifacts, and emitted build
+  provenance attestations.
+- Installed behavior evidence remains required in Phases 10D and 10H.
 
 ## Follow-Up Debt
 

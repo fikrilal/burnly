@@ -143,11 +143,20 @@ supported platform matrix without exposing release secrets to untrusted jobs.
 - Pull request run `27917553122` passed the complete matrix: Ubuntu 24.04 and
   macOS 15 ran `pnpm verify`, while Windows Server 2022 ran the explicit
   compile-only Rust variant `pnpm verify:windows`. GitGuardian also passed.
-- A successful rerun of the real GitHub Actions matrix is still required before
-  this plan can move to completed.
+- Main run `27917928662` passed the complete verification matrix after PR #3
+  merged to `main`.
+- Release workflow dry-run `28088776829` validated successfully and built
+  macOS ARM, macOS Intel, Linux ARM, and Linux x86_64 artifacts, but both
+  Windows targets failed before Tauri started because Node rejected spawning the
+  Windows `.cmd` shim directly.
+- PR #4 fixed the Tauri runner by launching the Windows `.cmd` shim through a
+  shell and added a packaging harness guard. PR run `28089592388` passed Ubuntu
+  24.04, macOS 15, and Windows Server 2022 verification.
+- Release workflow dry-run `28090081218` passed on `main` with
+  `publish=false`: validation passed, all six native build targets passed,
+  artifact upload and provenance attestation passed, and the publish job was
+  skipped.
 
 ## Follow-Up Debt
 
-- After the pull-request verification matrix passes, run `workflow_dispatch`
-  with publication disabled, inspect all six runner outputs, and feed DMG/NSIS
-  evidence back into Phase 10C.
+- None.

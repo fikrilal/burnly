@@ -43,9 +43,7 @@ Linux with stable identity, icons, versioning, and upgrade behavior.
 - [x] Select and configure release installer formats.
 - [x] Define install, upgrade, downgrade, and uninstall data policy.
 - [x] Standardize artifact names and metadata.
-- [ ] Build and inspect unsigned packages on each target; Linux x86_64 is
-      complete, while native macOS and Windows evidence requires the Phase 10E
-      runner matrix.
+- [x] Build and inspect unsigned packages on each target.
 
 ## Test Plan
 
@@ -86,6 +84,11 @@ Linux with stable identity, icons, versioning, and upgrade behavior.
 - Command: `pnpm release:stage x86_64-unknown-linux-gnu <deb-path>`
 - Outcome: produced canonical
   `burnly-v0.1.0-linux-x86_64.deb` without changing its SHA-256.
+- Command: GitHub Actions release workflow dry-run `28090081218` on `main` with
+  `publish=false`
+- Outcome: passed; native macOS DMG, Windows NSIS, and Linux Debian artifact
+  builds all ran `pnpm packaging:check`, staged canonical artifacts, uploaded
+  retained workflow artifacts, and emitted provenance attestations.
 
 ## Runtime Evidence
 
@@ -97,12 +100,13 @@ Linux with stable identity, icons, versioning, and upgrade behavior.
   `dfcd0ea98fc56d71cff77db000d307b011fe218333ac93f7697d242e1f587e35`.
 - The Debian control archive contains no uninstall script that removes
   application data.
-- Native DMG and NSIS package inspection remains required before this plan can
-  move to completed.
+- Release dry-run run `28090081218` retained all six canonical release
+  artifacts:
+  `release-macos-x86_64`, `release-macos-aarch64`,
+  `release-windows-x86_64`, `release-windows-aarch64`,
+  `release-linux-x86_64`, and `release-linux-aarch64`.
 
 ## Follow-Up Debt
 
-- Phase 10E must build and stage unsigned DMG and NSIS artifacts on native
-  runners, then feed their inspection evidence back into this plan.
 - AppImage remains unsupported until its bundler preserves the verified sidecar
   bytes and execution succeeds after extraction.
