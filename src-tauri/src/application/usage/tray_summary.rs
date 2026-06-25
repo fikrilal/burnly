@@ -124,6 +124,7 @@ pub(crate) struct TraySummaryStoreModelUsage {
     pub total_tokens: u64,
 }
 
+#[derive(Clone)]
 pub(crate) struct TraySummaryQuery {
     store: Arc<dyn TraySummaryStore>,
     clock: Arc<dyn Clock>,

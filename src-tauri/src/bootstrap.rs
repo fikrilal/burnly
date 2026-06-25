@@ -56,6 +56,9 @@ use crate::platform::{
     system_timezone, tray,
 };
 
+const TRAY_OPEN_STALE_AFTER_MS: i64 = 5 * 60 * 1_000;
+const TRAY_OPEN_REFRESH_THROTTLE_MS: i64 = 60 * 1_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupErrorKind {
     DatabasePath,
@@ -240,11 +243,20 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
             coordinator: refresh_coordinator.clone(),
         }),
     ));
-    app.manage(refresh_coordinator);
+    app.manage(refresh_coordinator.clone());
     app.manage(refresh_scheduler);
     app.manage(runtime_settings.clone());
     app.manage(build_overview_query(&database_path)?);
-    app.manage(build_tray_summary_query(&database_path)?);
+    let tray_summary_query = build_tray_summary_query(&database_path)?;
+    let tray_open_refresh = TrayOpenRefreshController::new(
+        reporting_timezone.clone(),
+        tray_summary_query.clone(),
+        refresh_coordinator.clone(),
+        Arc::new(SystemClock),
+    );
+    tray_open_refresh.request_startup_refresh_if_stale();
+    app.manage(tray_summary_query);
+    app.manage(tray_open_refresh);
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
     app.manage(build_session_query(&database_path)?);
@@ -392,8 +404,14 @@ fn ensure_notification_permission(
 
 fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuEvent) {
     match tray::TrayAction::from_menu_event(event) {
-        Some(tray::TrayAction::Open) => {
-            let _ = lifecycle::activate_main_window(app);
+        Some(tray::TrayAction::OpenPanel) => {
+            if let Some(controller) = app.try_state::<TrayOpenRefreshController>() {
+                controller.request_tray_open_refresh_if_stale();
+            }
+            let _ = lifecycle::open_tray_panel(app);
+        }
+        Some(tray::TrayAction::OpenDetails) => {
+            let _ = lifecycle::open_details_window(app);
         }
         Some(tray::TrayAction::Refresh) => {
             if let Some(coordinator) = app.try_state::<RefreshCoordinator>() {
@@ -606,6 +624,108 @@ const fn tray_refresh_status(status: RefreshStatus) -> tray::TrayRefreshStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrayOpenRefreshDecision {
+    Request,
+    SkipActive,
+    SkipFresh,
+    SkipThrottled,
+    SkipClock,
+    SkipReadFailure,
+}
+
+trait TrayOpenClock: Send + Sync {
+    fn now_epoch_ms(&self) -> Option<i64>;
+}
+
+impl TrayOpenClock for SystemClock {
+    fn now_epoch_ms(&self) -> Option<i64> {
+        system_clock::now_epoch_ms().ok()
+    }
+}
+
+struct TrayOpenRefreshController {
+    reporting_timezone: String,
+    summary_query: TraySummaryQuery,
+    coordinator: RefreshCoordinator,
+    clock: Arc<dyn TrayOpenClock>,
+    last_request_at_ms: Mutex<Option<i64>>,
+}
+
+impl TrayOpenRefreshController {
+    fn new(
+        reporting_timezone: String,
+        summary_query: TraySummaryQuery,
+        coordinator: RefreshCoordinator,
+        clock: Arc<dyn TrayOpenClock>,
+    ) -> Self {
+        Self {
+            reporting_timezone,
+            summary_query,
+            coordinator,
+            clock,
+            last_request_at_ms: Mutex::new(None),
+        }
+    }
+
+    fn request_startup_refresh_if_stale(&self) -> TrayOpenRefreshDecision {
+        self.request_if_stale(RefreshTrigger::Launch)
+    }
+
+    fn request_tray_open_refresh_if_stale(&self) -> TrayOpenRefreshDecision {
+        self.request_if_stale(RefreshTrigger::Manual)
+    }
+
+    fn request_if_stale(&self, trigger: RefreshTrigger) -> TrayOpenRefreshDecision {
+        let now_ms = match self.clock.now_epoch_ms() {
+            Some(value) => value,
+            None => return TrayOpenRefreshDecision::SkipClock,
+        };
+        let last_successful_refresh_at_ms = match self.summary_query.get(&self.reporting_timezone) {
+            Ok(summary) => summary.last_successful_refresh_at_ms,
+            Err(_) => return TrayOpenRefreshDecision::SkipReadFailure,
+        };
+        let snapshot = self.coordinator.snapshot();
+        let mut last_request = self
+            .last_request_at_ms
+            .lock()
+            .expect("tray open refresh lock is poisoned");
+        let decision = tray_open_refresh_decision(
+            now_ms,
+            last_successful_refresh_at_ms,
+            *last_request,
+            snapshot.status.is_active(),
+        );
+        if decision == TrayOpenRefreshDecision::Request {
+            *last_request = Some(now_ms);
+            self.coordinator.request_refresh(trigger);
+        }
+        decision
+    }
+}
+
+fn tray_open_refresh_decision(
+    now_ms: i64,
+    last_successful_refresh_at_ms: Option<i64>,
+    last_request_at_ms: Option<i64>,
+    refresh_active: bool,
+) -> TrayOpenRefreshDecision {
+    if refresh_active {
+        return TrayOpenRefreshDecision::SkipActive;
+    }
+    if let Some(last_request_at_ms) = last_request_at_ms {
+        if now_ms.saturating_sub(last_request_at_ms) < TRAY_OPEN_REFRESH_THROTTLE_MS {
+            return TrayOpenRefreshDecision::SkipThrottled;
+        }
+    }
+    if let Some(last_successful_refresh_at_ms) = last_successful_refresh_at_ms {
+        if now_ms.saturating_sub(last_successful_refresh_at_ms) < TRAY_OPEN_STALE_AFTER_MS {
+            return TrayOpenRefreshDecision::SkipFresh;
+        }
+    }
+    TrayOpenRefreshDecision::Request
+}
+
 fn initialize(
     database_path: &Path,
     reporting_timezone: &str,
@@ -813,6 +933,30 @@ mod tests {
             Err(RuntimeSettingError::NotificationsUnavailable)
         );
         assert_eq!(*denied.requests.lock().expect("requests"), 0);
+    }
+
+    #[test]
+    fn tray_open_refresh_requests_only_when_stale_and_not_throttled() {
+        assert_eq!(
+            tray_open_refresh_decision(600_000, None, None, false),
+            TrayOpenRefreshDecision::Request
+        );
+        assert_eq!(
+            tray_open_refresh_decision(600_000, Some(550_001), None, false),
+            TrayOpenRefreshDecision::SkipFresh
+        );
+        assert_eq!(
+            tray_open_refresh_decision(600_000, Some(200_000), Some(590_001), false),
+            TrayOpenRefreshDecision::SkipThrottled
+        );
+        assert_eq!(
+            tray_open_refresh_decision(600_000, Some(200_000), Some(500_000), false),
+            TrayOpenRefreshDecision::Request
+        );
+        assert_eq!(
+            tray_open_refresh_decision(600_000, Some(200_000), None, true),
+            TrayOpenRefreshDecision::SkipActive
+        );
     }
 
     #[test]

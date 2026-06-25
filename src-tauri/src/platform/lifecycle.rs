@@ -1,11 +1,14 @@
 //! Desktop window lifecycle policy and Tauri window actions.
 
-use tauri::{Manager, Runtime};
+use serde::Serialize;
+use tauri::{Emitter, Manager, Runtime, WebviewUrl};
 use thiserror::Error;
 
 use crate::domain::settings::CloseBehavior;
 
 pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
+pub(crate) const TRAY_PANEL_WINDOW_LABEL: &str = "tray-panel";
+const OPEN_DETAILS_EVENT: &str = "burnly://v1/open-details";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CloseDecision {
@@ -47,6 +50,52 @@ pub(crate) fn activate_main_window<R: Runtime, M: Manager<R>>(
         .get_webview_window(MAIN_WINDOW_LABEL)
         .ok_or_else(|| WindowActivationError::new(WindowActivationErrorKind::MissingMainWindow))?;
 
+    activate_webview_window(&window)
+}
+
+pub(crate) fn open_details_window<R: Runtime, M: Manager<R>>(
+    manager: &M,
+) -> Result<(), WindowActivationError> {
+    activate_main_window(manager)?;
+    if let Some(window) = manager.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.emit(OPEN_DETAILS_EVENT, OpenDetailsEvent { view: "overview" });
+    }
+    Ok(())
+}
+
+pub(crate) fn open_tray_panel<R: Runtime, M: Manager<R>>(
+    manager: &M,
+) -> Result<(), WindowActivationError> {
+    if let Some(window) = manager.get_webview_window(TRAY_PANEL_WINDOW_LABEL) {
+        return activate_webview_window(&window);
+    }
+
+    let window = tauri::WebviewWindowBuilder::new(
+        manager,
+        TRAY_PANEL_WINDOW_LABEL,
+        WebviewUrl::App("index.html#/tray".into()),
+    )
+    .title("Burnly")
+    .inner_size(360.0, 520.0)
+    .resizable(false)
+    .decorations(false)
+    .skip_taskbar(true)
+    .always_on_top(true)
+    .focused(true)
+    .center()
+    .build()
+    .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Show))?;
+
+    window
+        .set_focus()
+        .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Focus))?;
+
+    Ok(())
+}
+
+fn activate_webview_window<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+) -> Result<(), WindowActivationError> {
     window
         .show()
         .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Show))?;
@@ -75,6 +124,11 @@ pub(crate) fn handle_close_request<R: Runtime>(
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct OpenDetailsEvent {
+    view: &'static str,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +143,12 @@ mod tests {
             close_decision(CloseBehavior::Hide),
             CloseDecision::HideWindow
         );
+    }
+
+    #[test]
+    fn window_labels_are_stable_contracts() {
+        assert_eq!(MAIN_WINDOW_LABEL, "main");
+        assert_eq!(TRAY_PANEL_WINDOW_LABEL, "tray-panel");
+        assert_eq!(OPEN_DETAILS_EVENT, "burnly://v1/open-details");
     }
 }

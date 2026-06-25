@@ -233,6 +233,11 @@ pub(super) const EVENTS: &[EventSpec] = &[
         payload_type: "UnknownEventPayload",
     },
     EventSpec {
+        name: "burnly://v1/open-details",
+        export_name: "openDetails",
+        payload_type: "UnknownEventPayload",
+    },
+    EventSpec {
         name: "burnly://v1/settings-changed",
         export_name: "settingsChanged",
         payload_type: "UnknownEventPayload",

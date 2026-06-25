@@ -50,15 +50,15 @@ behavior can make the primary product surface inaccessible.
 
 ## Checklist
 
-- [ ] Decide compact panel implementation as dedicated Tauri window vs route in
+- [x] Decide compact panel implementation as dedicated Tauri window vs route in
       existing main window.
-- [ ] Add platform lifecycle for compact tray panel.
-- [ ] Add stale-data threshold policy for tray-open refresh.
-- [ ] Trigger refresh on app start if needed.
-- [ ] Preserve scheduled background refresh.
-- [ ] Remove/de-emphasize native tray menu refresh as primary action.
-- [ ] Add `Open details` behavior landing on Summary.
-- [ ] Add platform/unit tests for tray actions and refresh throttling.
+- [x] Add platform lifecycle for compact tray panel.
+- [x] Add stale-data threshold policy for tray-open refresh.
+- [x] Trigger refresh on app start if needed.
+- [x] Preserve scheduled background refresh.
+- [x] Remove/de-emphasize native tray menu refresh as primary action.
+- [x] Add `Open details` behavior landing on Summary.
+- [x] Add platform/unit tests for tray actions and refresh throttling.
 
 ## Test Plan
 
@@ -94,11 +94,38 @@ behavior can make the primary product surface inaccessible.
 - Auto-refresh is primary.
 - Manual refresh is secondary recovery/debug behavior.
 - The compact panel should not be blocked by full desktop redesign.
+- Use a dedicated `tray-panel` Tauri window that loads `index.html#/tray`.
+- Keep detailed tray UI for the next chunk; this chunk only adds a minimal
+  placeholder shell to validate window routing.
+- Use the existing refresh trigger enum for now. The current SQLite schema
+  constrains trigger values, so exact `tray_open` telemetry requires a later
+  migration.
 
 ## Verification
 
+- Command: `pnpm contracts:generate`
+  - Outcome: passed.
+- Command: `cargo fmt --manifest-path src-tauri/Cargo.toml --check`
+  - Outcome: passed.
+- Command: `pnpm vitest run src/app/App.test.tsx`
+  - Outcome: passed; 6 tests passed.
+- Command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Outcome: passed after fixing event payload clone and coordinator ownership.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml tray_open --lib`
+  - Outcome: passed; 1 test passed.
+- Command: `pnpm contracts:check`
+  - Outcome: passed.
+- Command: `pnpm typecheck`
+  - Outcome: passed.
+- Command: `pnpm security:check`
+  - Outcome: passed.
+- Command: `pnpm platform-behavior:check`
+  - Outcome: passed.
+- Command: `pnpm verify:fast`
+  - Outcome: passed. ESLint reported warning-only existing/new App size and
+    complexity warnings; no errors.
 - Command: `pnpm verify`
-- Outcome: not run yet.
+  - Outcome: not run yet.
 
 ## Runtime Evidence
 

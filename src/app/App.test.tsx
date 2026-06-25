@@ -25,6 +25,7 @@ vi.mock("../features/diagnostics/DatabaseMaintenanceCard", () => ({
 
 vi.mock("../ipc/events", () => ({
   EVENT_NAMES: {
+    openDetails: "burnly://v1/open-details",
     settingsChanged: "burnly://v1/settings-changed",
   },
   subscribeToEvent: vi.fn().mockResolvedValue(() => {

@@ -64,8 +64,34 @@ export function App({
   loadCapabilities = getAppCapabilities,
 }: AppProps) {
   const state = useStartupState(loadBootstrap, loadCapabilities);
-
   const [viewMode, setViewMode] = useState<ViewMode>("overview");
+  const surface = appSurface();
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+
+    void subscribeToEvent(EVENT_NAMES.openDetails, () => {
+      setViewMode("overview");
+    }).then((fn) => {
+      if (active) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
+    });
+
+    return () => {
+      active = false;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+
+  if (surface === "tray") {
+    return <TrayPanelShell state={state} />;
+  }
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-50">
@@ -189,6 +215,36 @@ export function App({
       </div>
     </main>
   );
+}
+
+function TrayPanelShell({ state }: { state: AppState }) {
+  const detail =
+    state.status === "ready"
+      ? `Reporting timezone: ${state.bootstrap.settings.reportingTimezone}`
+      : state.status === "loading"
+        ? "Reading local usage"
+        : state.status === "incompatible"
+          ? "Runtime contract mismatch"
+          : state.message;
+
+  return (
+    <main className="min-h-screen bg-zinc-950 px-5 py-5 text-zinc-50">
+      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-xl">
+        <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">
+          Burnly
+        </p>
+        <h1 className="mt-3 text-2xl font-semibold">Tray Summary</h1>
+        <p className="mt-2 text-sm text-zinc-400">{detail}</p>
+        <p className="mt-5 text-xs text-zinc-500">
+          Compact token usage UI is implemented in the next chunk.
+        </p>
+      </section>
+    </main>
+  );
+}
+
+function appSurface(): "desktop" | "tray" {
+  return window.location.hash === "#/tray" ? "tray" : "desktop";
 }
 
 function useStartupState(

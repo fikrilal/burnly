@@ -6,22 +6,26 @@ use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Runtime};
 
 const TRAY_ID: &str = "burnly-tray";
-const OPEN_ID: &str = "burnly.tray.open";
+const OPEN_PANEL_ID: &str = "burnly.tray.open_panel";
+const OPEN_DETAILS_ID: &str = "burnly.tray.open_details";
 const REFRESH_ID: &str = "burnly.tray.refresh";
 const STATUS_ID: &str = "burnly.tray.status";
 const QUIT_ID: &str = "burnly.tray.quit";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TrayAction {
-    Open,
+    OpenPanel,
+    OpenDetails,
     Refresh,
     Quit,
 }
 
 impl TrayAction {
     pub(crate) fn from_menu_event(event: &MenuEvent) -> Option<Self> {
-        if event.id() == OPEN_ID {
-            Some(Self::Open)
+        if event.id() == OPEN_PANEL_ID {
+            Some(Self::OpenPanel)
+        } else if event.id() == OPEN_DETAILS_ID {
+            Some(Self::OpenDetails)
         } else if event.id() == REFRESH_ID {
             Some(Self::Refresh)
         } else if event.id() == QUIT_ID {
@@ -80,10 +84,13 @@ impl<R: Runtime> TrayController<R> {
         let refresh_item = MenuItemBuilder::with_id(REFRESH_ID, refresh_label(snapshot.status))
             .enabled(!snapshot.status.is_active())
             .build(manager)?;
-        let open_item = MenuItemBuilder::with_id(OPEN_ID, "Open Burnly").build(manager)?;
+        let open_panel_item =
+            MenuItemBuilder::with_id(OPEN_PANEL_ID, "Open Summary").build(manager)?;
+        let open_details_item =
+            MenuItemBuilder::with_id(OPEN_DETAILS_ID, "Open Details").build(manager)?;
         let quit_item = MenuItemBuilder::with_id(QUIT_ID, "Quit Burnly").build(manager)?;
         let menu = MenuBuilder::new(manager)
-            .items(&[&open_item, &status_item])
+            .items(&[&open_panel_item, &open_details_item, &status_item])
             .separator()
             .item(&refresh_item)
             .separator()
@@ -117,7 +124,8 @@ impl<R: Runtime> TrayController<R> {
 #[cfg(test)]
 fn action_from_id(id: &str) -> Option<TrayAction> {
     match id {
-        OPEN_ID => Some(TrayAction::Open),
+        OPEN_PANEL_ID => Some(TrayAction::OpenPanel),
+        OPEN_DETAILS_ID => Some(TrayAction::OpenDetails),
         REFRESH_ID => Some(TrayAction::Refresh),
         QUIT_ID => Some(TrayAction::Quit),
         _ => None,
@@ -168,7 +176,11 @@ mod tests {
 
     #[test]
     fn action_ids_map_to_tray_actions() {
-        assert_eq!(action_from_id(OPEN_ID), Some(TrayAction::Open));
+        assert_eq!(action_from_id(OPEN_PANEL_ID), Some(TrayAction::OpenPanel));
+        assert_eq!(
+            action_from_id(OPEN_DETAILS_ID),
+            Some(TrayAction::OpenDetails)
+        );
         assert_eq!(action_from_id(REFRESH_ID), Some(TrayAction::Refresh));
         assert_eq!(action_from_id(QUIT_ID), Some(TrayAction::Quit));
         assert_eq!(action_from_id(STATUS_ID), None);

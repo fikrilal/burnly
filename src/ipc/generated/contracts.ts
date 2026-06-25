@@ -994,6 +994,7 @@ export function invokeUsageGetSessionDetail(
 export const EVENT_NAMES = {
   refreshProgress: "burnly://v1/refresh-progress",
   dataInvalidated: "burnly://v1/data-invalidated",
+  openDetails: "burnly://v1/open-details",
   settingsChanged: "burnly://v1/settings-changed",
   platformStateChanged: "burnly://v1/platform-state-changed",
   updateProgress: "burnly://v1/update-progress",
@@ -1004,6 +1005,7 @@ export type EventName = (typeof EVENT_NAMES)[keyof typeof EVENT_NAMES];
 export interface EventPayloads {
   [EVENT_NAMES.refreshProgress]: UnknownEventPayload;
   [EVENT_NAMES.dataInvalidated]: UnknownEventPayload;
+  [EVENT_NAMES.openDetails]: UnknownEventPayload;
   [EVENT_NAMES.settingsChanged]: UnknownEventPayload;
   [EVENT_NAMES.platformStateChanged]: UnknownEventPayload;
   [EVENT_NAMES.updateProgress]: UnknownEventPayload;
