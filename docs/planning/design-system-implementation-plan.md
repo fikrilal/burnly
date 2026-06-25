@@ -2,8 +2,9 @@
 
 ## Status
 
-In progress. Phase 0a (token reset) and Phase 0b (theme provider & persistence)
-are complete and verified; remaining work continues from Phase 0c.
+In progress. Phase 0 (token reset, theme provider/persistence, theme toggle) is
+complete and verified. Next: Phase 1 (primitive layer) with the Phase 5a
+styleguide scaffold.
 
 Progress log:
 
@@ -13,6 +14,12 @@ Progress log:
   added. Verified via `pnpm verify:fast` (exit 0) and `pnpm test` (93 passing).
   Execution plan:
   `docs/exec-plans/completed/2026-06-26_design-system-phase-0a-theme-foundation.md`.
+- **2026-06-26 — Phase 0c complete.** Accessible monochrome `ThemeToggle`
+  (Light/Dark/System) in `src/components/ui/theme-toggle.tsx`, token-based, with
+  a shared `installMatchMedia` test helper and a `@` alias added to
+  `vitest.config.ts`. Verified via `pnpm verify:fast` (exit 0) and `pnpm test`
+  (96 passing). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-0c-theme-toggle.md`.
 
 This is the master plan for building Burnly's **UI design system** (visual/component
 system), not software architecture. It operationalizes the draft at
@@ -110,13 +117,15 @@ real. Nothing visual ships until this is correct.
   `matchMedia`, persists to `localStorage`, applies `.dark` at the document root,
   and a pre-paint script prevents flash. Default choice is `dark` until component
   token migration completes (then switch default to `system`).
-- **0c — Theme toggle control. ⏳ Next.** A switch/segmented control for theme
-  selection (candidate: beUI Theme Toggle, restyled to monochrome). Lives in
-  Settings and is reusable. Depends on the Motion decision (#2) if beUI is used.
+- **0c — Theme toggle control. ✅ Done (2026-06-26).** Accessible monochrome
+  `ThemeToggle` (Light/Dark/System) at `src/components/ui/theme-toggle.tsx`,
+  built on `useTheme` and semantic tokens. Hand-written for now; beUI's animated
+  version can replace the internals in Phase 1d. Wiring into Settings is Phase 4d;
+  showing it in the styleguide is Phase 5a.
 
 Acceptance: app renders identically in dark mode after the reset (no regressions),
 light mode renders correctly, switching themes is instant and persists across
-restart, `system` follows OS changes live. (0a/0b satisfied; 0c remaining.)
+restart, `system` follows OS changes live. (Phase 0 complete.)
 
 ### Phase 1: Primitive Layer (`components/ui`)
 
@@ -244,7 +253,7 @@ evidence; docs index points to the living design-system doc.
 ## Sequencing Summary
 
 ```text
-Phase 0  Tokens + theming        (foundation, blocks everything)  [0a ✅ 0b ✅ 0c ⏳]
+Phase 0  Tokens + theming        (foundation, blocks everything)  [✅ complete]
 Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold
 Phase 2  Burnly components       (extract from tray)
 Phase 3  Tray refactor           (prove the system)
