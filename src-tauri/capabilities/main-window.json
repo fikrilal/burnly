@@ -10,6 +10,7 @@
     "allow---burnly-contract-probe",
     "allow-app-get-bootstrap",
     "allow-app-get-capabilities",
+    "allow-app-open-details",
     "allow-diagnostics-get-status",
     "allow-diagnostics-get-history",
     "allow-diagnostics-reveal-logs",

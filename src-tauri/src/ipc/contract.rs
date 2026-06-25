@@ -28,6 +28,12 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "AppCapabilitiesResponse",
     },
     CommandSpec {
+        name: "app_open_details",
+        export_name: "invokeAppOpenDetails",
+        request_type: "Record<string, never>",
+        response_type: "OpenDetailsResponse",
+    },
+    CommandSpec {
         name: "diagnostics_get_status",
         export_name: "invokeDiagnosticsGetStatus",
         request_type: "Record<string, never>",

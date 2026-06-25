@@ -19,6 +19,7 @@ import {
   getCurrentBudgetProgress,
   listBudgets,
   getContractProbe,
+  openDetails,
   getRefreshState,
   getSettings,
   getTraySummary,
@@ -74,6 +75,22 @@ describe("IPC command responses", () => {
     expect(result.data.tray.status).toBe("not_implemented");
     expect(result.data.exportFormats).toEqual([]);
     expect(result.data.diagnostics.desktopEvidence).toBe(true);
+  });
+
+  it("opens details through the dedicated app command", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.appOpenDetails);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        data: { status: "opened" },
+        meta,
+      });
+    };
+
+    const result = await openDetails(invoker);
+
+    expect(result.data.status).toBe("opened");
   });
 
   it("validates diagnostics status data from the desktop runtime", async () => {

@@ -19,3 +19,4 @@ pub(crate) mod session_store;
 pub(crate) mod settings_store;
 pub(crate) mod tray_summary_store;
 pub(crate) mod usage_store;
+pub(crate) mod window_actions;

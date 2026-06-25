@@ -50,6 +50,7 @@ import { DiagnosticsView } from "../features/diagnostics";
 import { DatabaseMaintenanceCard } from "../features/diagnostics/DatabaseMaintenanceCard";
 import { SessionsView } from "../features/sessions/SessionsView";
 import { SettingsView } from "../features/settings/SettingsView";
+import { TrayPanel, TrayStartupState } from "../features/tray";
 
 type ViewMode =
   | "overview"
@@ -90,7 +91,7 @@ export function App({
   }, []);
 
   if (surface === "tray") {
-    return <TrayPanelShell state={state} />;
+    return <TraySurface state={state} />;
   }
 
   return (
@@ -217,30 +218,31 @@ export function App({
   );
 }
 
-function TrayPanelShell({ state }: { state: AppState }) {
-  const detail =
-    state.status === "ready"
-      ? `Reporting timezone: ${state.bootstrap.settings.reportingTimezone}`
-      : state.status === "loading"
-        ? "Reading local usage"
-        : state.status === "incompatible"
-          ? "Runtime contract mismatch"
-          : state.message;
+function TraySurface({ state }: { state: AppState }) {
+  if (state.status === "ready") {
+    return (
+      <TrayPanel
+        reportingTimezone={state.bootstrap.settings.reportingTimezone}
+      />
+    );
+  }
 
-  return (
-    <main className="min-h-screen bg-zinc-950 px-5 py-5 text-zinc-50">
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 shadow-xl">
-        <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">
-          Burnly
-        </p>
-        <h1 className="mt-3 text-2xl font-semibold">Tray Summary</h1>
-        <p className="mt-2 text-sm text-zinc-400">{detail}</p>
-        <p className="mt-5 text-xs text-zinc-500">
-          Compact token usage UI is implemented in the next chunk.
-        </p>
-      </section>
-    </main>
-  );
+  if (state.status === "loading") {
+    return (
+      <TrayStartupState status="Loading" detail="Reading local runtime state" />
+    );
+  }
+
+  if (state.status === "incompatible") {
+    return (
+      <TrayStartupState
+        status="Incompatible"
+        detail={`Frontend v${state.frontendContractVersion}, runtime v${state.runtimeContractVersion}`}
+      />
+    );
+  }
+
+  return <TrayStartupState status={state.title} detail={state.message} />;
 }
 
 function appSurface(): "desktop" | "tray" {

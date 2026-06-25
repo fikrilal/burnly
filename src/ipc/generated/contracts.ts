@@ -53,6 +53,10 @@ export interface ContractProbeResponse {
   contractVersion: number;
 }
 
+export interface OpenDetailsResponse {
+  status: "opened";
+}
+
 export interface AppBootstrapResponse {
   appVersion: string;
   contractVersion: number;
@@ -658,6 +662,7 @@ export const COMMAND_NAMES = {
   contractProbe: "__burnly_contract_probe",
   appGetBootstrap: "app_get_bootstrap",
   appGetCapabilities: "app_get_capabilities",
+  appOpenDetails: "app_open_details",
   diagnosticsGetStatus: "diagnostics_get_status",
   diagnosticsGetHistory: "diagnostics_get_history",
   diagnosticsRevealLogs: "diagnostics_reveal_logs",
@@ -698,6 +703,7 @@ export interface CommandRequests {
   [COMMAND_NAMES.contractProbe]: Record<string, never>;
   [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
+  [COMMAND_NAMES.appOpenDetails]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsGetStatus]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsGetHistory]: HistoryCommandRequest;
   [COMMAND_NAMES.diagnosticsRevealLogs]: Record<string, never>;
@@ -736,6 +742,7 @@ export interface CommandResponses {
   [COMMAND_NAMES.contractProbe]: IpcResponse<ContractProbeResponse>;
   [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
+  [COMMAND_NAMES.appOpenDetails]: IpcResponse<OpenDetailsResponse>;
   [COMMAND_NAMES.diagnosticsGetStatus]: IpcResponse<DiagnosticsStatusResponse>;
   [COMMAND_NAMES.diagnosticsGetHistory]: IpcResponse<HistoryResponse>;
   [COMMAND_NAMES.diagnosticsRevealLogs]: IpcResponse<RevealLogsResponse>;
@@ -789,6 +796,10 @@ export function invokeAppGetCapabilities(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.appGetCapabilities, {});
+}
+
+export function invokeAppOpenDetails(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.appOpenDetails, {});
 }
 
 export function invokeDiagnosticsGetStatus(

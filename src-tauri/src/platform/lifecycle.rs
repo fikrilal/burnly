@@ -4,6 +4,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager, Runtime, WebviewUrl};
 use thiserror::Error;
 
+use crate::application::ports::window_actions::{WindowActionError, WindowActions};
 use crate::domain::settings::CloseBehavior;
 
 pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
@@ -127,6 +128,22 @@ pub(crate) fn handle_close_request<R: Runtime>(
 #[derive(Clone, Debug, Serialize)]
 struct OpenDetailsEvent {
     view: &'static str,
+}
+
+pub(crate) struct DesktopWindowActions<R: Runtime> {
+    app: tauri::AppHandle<R>,
+}
+
+impl<R: Runtime> DesktopWindowActions<R> {
+    pub(crate) fn new(app: tauri::AppHandle<R>) -> Self {
+        Self { app }
+    }
+}
+
+impl<R: Runtime> WindowActions for DesktopWindowActions<R> {
+    fn open_details(&self) -> Result<(), WindowActionError> {
+        open_details_window(&self.app).map_err(|_| WindowActionError::OpenDetails)
+    }
 }
 
 #[cfg(test)]

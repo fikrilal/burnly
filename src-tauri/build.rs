@@ -4,6 +4,7 @@ fn main() {
             "__burnly_contract_probe",
             "app_get_bootstrap",
             "app_get_capabilities",
+            "app_open_details",
             "diagnostics_get_status",
             "diagnostics_get_history",
             "diagnostics_reveal_logs",

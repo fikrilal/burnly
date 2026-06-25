@@ -226,6 +226,10 @@ export interface ContractProbeResponse {
   contractVersion: number;
 }
 
+export interface OpenDetailsResponse {
+  status: "opened";
+}
+
 export interface AppBootstrapResponse {
   appVersion: string;
   contractVersion: number;

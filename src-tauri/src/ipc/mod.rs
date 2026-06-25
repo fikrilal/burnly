@@ -29,6 +29,7 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::__burnly_contract_probe,
         commands::app_get_bootstrap,
         commands::app_get_capabilities,
+        commands::app_open_details,
         database_maintenance::database_get_maintenance_status,
         database_maintenance::database_integrity_check,
         database_maintenance::database_checkpoint,

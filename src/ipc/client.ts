@@ -7,6 +7,7 @@ import {
   CONTRACT_VERSION,
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
+  invokeAppOpenDetails,
   invokeDiagnosticsGetStatus,
   invokeDiagnosticsGetHistory,
   invokeDiagnosticsRevealLogs,
@@ -45,6 +46,7 @@ import {
   type CommandName,
   type CommandRequests,
   type ContractProbeResponse,
+  type OpenDetailsResponse,
   type DiagnosticsStatusResponse,
   type DatabaseMaintenanceStatusResponse,
   type DatabaseMaintenanceActionResponse,
@@ -190,6 +192,10 @@ const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
   diagnostics: z.object({
     desktopEvidence: z.boolean(),
   }),
+});
+
+const openDetailsDataSchema: z.ZodType<OpenDetailsResponse> = z.object({
+  status: z.literal("opened"),
 });
 
 const diagnosticHealthStatusSchema = z.enum([
@@ -747,6 +753,13 @@ export async function getAppCapabilities(
   const response = await invokeAppGetCapabilities(invoker);
   const parsed = validateCapabilitiesResponse(response);
   return unwrapResponse(parsed);
+}
+
+export async function openDetails(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<OpenDetailsResponse>> {
+  const response = await invokeAppOpenDetails(invoker);
+  return unwrapResponse(validateResponse(response, openDetailsDataSchema));
 }
 
 export async function getDiagnosticsStatus(

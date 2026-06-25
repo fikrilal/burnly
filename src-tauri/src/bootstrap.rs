@@ -26,6 +26,7 @@ use crate::application::history::HistoryService;
 use crate::application::history_deletion::HistoryDeletionService;
 use crate::application::ports::database_maintenance::{MaintenanceActivity, MaintenanceGuard};
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
+use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshCoordinatorHooks, RefreshEventSink, RefreshPolicy, RefreshScheduler,
@@ -243,6 +244,10 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
             coordinator: refresh_coordinator.clone(),
         }),
     ));
+    app.manage(
+        Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
+            as Arc<dyn WindowActions>,
+    );
     app.manage(refresh_coordinator.clone());
     app.manage(refresh_scheduler);
     app.manage(runtime_settings.clone());
