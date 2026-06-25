@@ -30,6 +30,7 @@ pub(crate) enum WindowActivationErrorKind {
     Show,
     Unminimize,
     Focus,
+    Create,
 }
 
 #[derive(Debug, Error)]
@@ -57,10 +58,37 @@ pub(crate) fn activate_main_window<R: Runtime, M: Manager<R>>(
 pub(crate) fn open_details_window<R: Runtime, M: Manager<R>>(
     manager: &M,
 ) -> Result<(), WindowActivationError> {
-    activate_main_window(manager)?;
+    let _ = hide_tray_panel(manager);
+    let window = ensure_main_window(manager)?;
+    activate_webview_window(&window)?;
+    let _ = window.emit(OPEN_DETAILS_EVENT, OpenDetailsEvent { view: "overview" });
+    Ok(())
+}
+
+fn ensure_main_window<R: Runtime, M: Manager<R>>(
+    manager: &M,
+) -> Result<tauri::WebviewWindow<R>, WindowActivationError> {
     if let Some(window) = manager.get_webview_window(MAIN_WINDOW_LABEL) {
-        let _ = window.emit(OPEN_DETAILS_EVENT, OpenDetailsEvent { view: "overview" });
+        return Ok(window);
     }
+
+    tauri::WebviewWindowBuilder::new(
+        manager,
+        MAIN_WINDOW_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Burnly")
+    .inner_size(1180.0, 760.0)
+    .min_inner_size(920.0, 640.0)
+    .build()
+    .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Create))
+}
+
+fn hide_tray_panel<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<()> {
+    if let Some(window) = manager.get_webview_window(TRAY_PANEL_WINDOW_LABEL) {
+        window.hide()?;
+    }
+
     Ok(())
 }
 
@@ -167,5 +195,31 @@ mod tests {
         assert_eq!(MAIN_WINDOW_LABEL, "main");
         assert_eq!(TRAY_PANEL_WINDOW_LABEL, "tray-panel");
         assert_eq!(OPEN_DETAILS_EVENT, "burnly://v1/open-details");
+    }
+
+    #[test]
+    fn open_details_creates_main_window_when_missing() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build mock tauri app");
+
+        open_details_window(app.handle()).expect("open details");
+
+        assert!(app.get_webview_window(MAIN_WINDOW_LABEL).is_some());
+    }
+
+    #[test]
+    fn open_details_hides_tray_panel() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build mock tauri app");
+        tauri::WebviewWindowBuilder::new(&app, TRAY_PANEL_WINDOW_LABEL, Default::default())
+            .visible(true)
+            .build()
+            .expect("build tray panel");
+
+        open_details_window(app.handle()).expect("open details");
+
+        assert!(app.get_webview_window(MAIN_WINDOW_LABEL).is_some());
     }
 }

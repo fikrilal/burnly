@@ -2,11 +2,11 @@
 
 ## Status
 
-Proposed end-to-end engineering plan.
+Linux tray-first MVP completed.
 
-This document describes the full tray-first implementation direction. It is not
-an active execution plan. Implementation work should still be split into focused
-execution plans under `docs/exec-plans/` when coding begins.
+This document records the tray-first implementation direction and completed
+Linux execution sequence. Future platform expansion should still be split into
+focused execution plans under `docs/exec-plans/`.
 
 ## Product Contract
 
@@ -165,7 +165,7 @@ behavior.
 
 Expected execution plan:
 
-- [Tray compact summary read model](../exec-plans/queued/2026-06-25_tray-compact-summary-read-model.md)
+- [Tray compact summary read model](../exec-plans/completed/2026-06-25_tray-compact-summary-read-model.md)
 
 ### Step 2: Tray Auto-Refresh And Compact Window
 
@@ -176,7 +176,7 @@ correctly.
 
 Expected execution plan:
 
-- [Tray auto-refresh and compact window](../exec-plans/queued/2026-06-25_tray-auto-refresh-window.md)
+- [Tray auto-refresh and compact window](../exec-plans/completed/2026-06-25_tray-auto-refresh-window.md)
 
 ### Step 3: Compact Tray UI
 
@@ -187,7 +187,7 @@ components.
 
 Expected execution plan:
 
-- [Tray compact UI](../exec-plans/queued/2026-06-25_tray-compact-ui.md)
+- [Tray compact UI](../exec-plans/completed/2026-06-25_tray-compact-ui.md)
 
 ### Step 4: Linux Runtime Evidence
 
@@ -198,7 +198,7 @@ data.
 
 Expected execution plan:
 
-- [Tray Linux runtime evidence](../exec-plans/queued/2026-06-25_tray-linux-runtime-evidence.md)
+- [Tray Linux runtime evidence](../exec-plans/completed/2026-06-25_tray-linux-runtime-evidence.md)
 
 ## Testing Strategy
 
