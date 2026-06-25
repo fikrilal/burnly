@@ -2,9 +2,9 @@
 
 ## Status
 
-In progress. Phase 0 (token reset, theme provider/persistence, theme toggle) is
-complete and verified. Next: Phase 1 (primitive layer) with the Phase 5a
-styleguide scaffold.
+In progress. Phase 0 complete. Phase 1b (static primitives) and the Phase 5a
+styleguide scaffold are complete and verified. Next: Phase 1c (interactive Radix
+primitives) and Phase 1a/1d (beUI + Motion).
 
 Progress log:
 
@@ -20,6 +20,13 @@ Progress log:
   `vitest.config.ts`. Verified via `pnpm verify:fast` (exit 0) and `pnpm test`
   (96 passing). Execution plan:
   `docs/exec-plans/completed/2026-06-26_design-system-phase-0c-theme-toggle.md`.
+- **2026-06-26 — Phase 1b + 5a complete.** Token-based `Badge`, `Skeleton`,
+  `Separator` in `src/components/ui/`; a `#/styleguide` reference surface
+  (`src/features/styleguide/StyleguideView.tsx`) rendering tokens, typography,
+  and all current primitives with a live theme toggle; `App.tsx` surface routing
+  extended for `#/styleguide`. Verified via `pnpm verify:fast` (exit 0) and
+  `pnpm test` (103 passing). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-1b-5a-primitives-styleguide.md`.
 
 This is the master plan for building Burnly's **UI design system** (visual/component
 system), not software architecture. It operationalizes the draft at
@@ -131,20 +138,24 @@ restart, `system` follows OS changes live. (Phase 0 complete.)
 
 Goal: a complete, monochrome, token-backed primitive set.
 
-- **1a — Tooling setup.** Add beUI's shadcn registry to `components.json`; add
-  the Motion dependency (pinned). Establish the convention for vendoring +
-  customizing CLI-pulled components.
-- **1b — Static primitives (hand-written):** `Badge`, `Skeleton`, `Separator`,
-  and re-confirm `Button` on the monochrome tokens.
-- **1c — Interactive primitives (shadcn CLI, Radix-backed):** `Card`, `Tooltip`,
-  `Popover`, `Dialog`, `DropdownMenu`, `Switch`, `Tabs`. Restyle to tokens.
-- **1d — Motion primitives (beUI, selective):** only what the app needs now —
+- **1a — Tooling setup. ⏳ Pending.** Add beUI's shadcn registry to
+  `components.json`; add the Motion dependency (pinned). Establish the convention
+  for vendoring + customizing CLI-pulled components. (npm registry confirmed
+  reachable; deferred until a motion component is actually wired in 1d.)
+- **1b — Static primitives (hand-written). ✅ Done (2026-06-26).** `Badge`,
+  `Skeleton`, `Separator` added on the monochrome tokens; `Button` already on
+  tokens. Rendered in the styleguide.
+- **1c — Interactive primitives (Radix-backed). ⏳ Next.** `Card`, `Tooltip`,
+  `Popover`, `Dialog`, `DropdownMenu`, `Switch`, `Tabs`. All required `radix-ui`
+  packages are already installed, so these can be hand-written thin wrappers on
+  tokens without the shadcn CLI/network.
+- **1d — Motion primitives (beUI, selective). ⏳ Pending.** only what the app needs now —
   likely `Tabs` (pill/segment/underline), `ThemeToggle`, `NumberAnimation` for
   metric changes. Each adapted into a Burnly-owned wrapper. Defer dock, dynamic
   island, tilt, marquee, magnetic, morphing modal.
 
 Acceptance: every primitive exists, is monochrome, respects reduced motion, is
-keyboard-accessible, and is registered in the styleguide (Phase 5 scaffold).
+keyboard-accessible, and is registered in the styleguide (Phase 5a scaffold ✅).
 
 ### Phase 2: Burnly Compact Components (`components/burnly`)
 
@@ -254,7 +265,7 @@ evidence; docs index points to the living design-system doc.
 
 ```text
 Phase 0  Tokens + theming        (foundation, blocks everything)  [✅ complete]
-Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold
+Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold   [1b ✅ 5a ✅ · 1a/1c/1d ⏳]
 Phase 2  Burnly components       (extract from tray)
 Phase 3  Tray refactor           (prove the system)
 Phase 4  Full window reskin      (apply broadly)

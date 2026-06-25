@@ -50,6 +50,7 @@ import { DiagnosticsView } from "../features/diagnostics";
 import { DatabaseMaintenanceCard } from "../features/diagnostics/DatabaseMaintenanceCard";
 import { SessionsView } from "../features/sessions/SessionsView";
 import { SettingsView } from "../features/settings/SettingsView";
+import { StyleguideView } from "../features/styleguide/StyleguideView";
 import { TrayPanel, TrayStartupState } from "../features/tray";
 
 type ViewMode =
@@ -89,6 +90,10 @@ export function App({
       }
     };
   }, []);
+
+  if (surface === "styleguide") {
+    return <StyleguideView />;
+  }
 
   if (surface === "tray") {
     return <TraySurface state={state} />;
@@ -245,8 +250,14 @@ function TraySurface({ state }: { state: AppState }) {
   return <TrayStartupState status={state.title} detail={state.message} />;
 }
 
-function appSurface(): "desktop" | "tray" {
-  return window.location.hash === "#/tray" ? "tray" : "desktop";
+function appSurface(): "desktop" | "tray" | "styleguide" {
+  if (window.location.hash === "#/tray") {
+    return "tray";
+  }
+  if (window.location.hash === "#/styleguide") {
+    return "styleguide";
+  }
+  return "desktop";
 }
 
 function useStartupState(
