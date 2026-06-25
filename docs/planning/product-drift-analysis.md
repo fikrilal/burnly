@@ -91,8 +91,9 @@ Burnly should center on:
 
 - tray/menu-bar access,
 - compact daily token usage,
-- source split,
-- quick refresh,
+- today/week/month token summaries,
+- model usage allocation with coding-agent labels,
+- automatic refresh with visible freshness state,
 - visible freshness/error state,
 - optional full details.
 
@@ -128,11 +129,9 @@ Actions taken or required:
 
 ## Product Questions To Resolve Before More Code
 
-- What exactly appears in the compact tray panel?
-- How much detail should fit in the tray panel before opening full details?
-- Should estimated cost be shown in the compact panel?
-- Should budget UI be hidden, disabled, or left as an advanced feature?
-- Should full details keep the current tab structure?
+- Should the full details window use top tabs, sidebar, or another reduced
+  support layout?
+- Should the current budget UI be hidden entirely or moved to an advanced area?
 - What future leaderboard metrics should local tracking preserve?
 - What data must never sync?
 

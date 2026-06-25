@@ -256,26 +256,33 @@ Candidate compact layout:
 Burnly                         refreshed 2m ago
 
 Today
-42.1k tokens                   +12% vs yesterday
-$1.84 estimated                cost partial
+42.1k tokens
 
-Sources
-Codex       31.4k
-OpenCode     9.2k
-Claude       1.5k
+This week              This month
+183.2k tokens          612.9k tokens
 
-[Refresh]                    [Open details]
+Model usage
+GPT-5.1                25.0k tokens
+Codex                  ↗ 8.5% vs yesterday
+
+Claude Sonnet          12.0k tokens
+Claude Code            ↘ 3.2% vs yesterday
+
+Other                   3.0k tokens
+Multiple agents         → 0.0% vs yesterday
+
+[Open details]
 ```
 
 Optional additions:
 
-- 7-day sparkline.
 - warning when source import failed.
-- cost unavailable indicator.
 
 Do not add:
 
 - large charts,
+- cost,
+- source split,
 - complex filters,
 - budget setup,
 - multi-tab navigation inside the tray panel.
@@ -284,7 +291,7 @@ Do not add:
 
 The full window can keep detailed views, but the layout should feel secondary.
 
-Candidate navigation:
+Target navigation:
 
 - Summary.
 - Sessions.
@@ -292,8 +299,13 @@ Candidate navigation:
 - Settings.
 - Diagnostics.
 
-Budgets should either be hidden, moved to advanced settings, or explicitly
-revalidated before remaining top-level.
+`Open details` from the tray panel lands on `Summary`.
+
+Calendar-style history belongs inside `History`, not as a separate primary
+destination.
+
+Budgets should be hidden, moved to an advanced area, or explicitly revalidated
+before returning to primary navigation.
 
 ## Motion Policy
 
@@ -354,6 +366,7 @@ Deliver:
 - `CompactMetric`.
 - `SourceUsageRow`.
 - `RefreshStatus`.
+- auto-refresh freshness state.
 - `DataFreshness`.
 - `DataQualityNote`.
 
@@ -386,9 +399,6 @@ Do not claim visual quality from automated tests alone.
 
 - Should the tray panel be implemented as a Tauri window or another platform
   surface?
-- What exact metrics belong in the tray panel?
-- Should cost be visible in the panel by default?
-- Should the panel show comparison against yesterday or 7-day average?
 - Should budgets be hidden from top-level navigation?
 - Should future leaderboard metrics influence compact panel labels now?
 

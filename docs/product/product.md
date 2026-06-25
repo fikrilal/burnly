@@ -115,11 +115,11 @@ The tray/menu-bar panel is Burnly's main product surface.
 It should show:
 
 - today's total token usage,
-- optional estimated cost when available,
-- usage split by source,
-- small recent trend,
-- last refresh state,
-- refresh action,
+- this week's token usage,
+- this month's token usage,
+- today's model usage with coding-agent labels,
+- model usage trend compared with yesterday,
+- freshness state,
 - entry point to full details.
 
 The panel should be compact enough to open frequently during normal work.
@@ -130,14 +130,20 @@ The full desktop window exists for tasks that do not fit in the tray panel.
 
 Appropriate full-window surfaces:
 
-- usage history,
-- sessions detail,
-- source/model/project drill-down,
-- diagnostics,
-- settings,
-- export,
-- privacy controls,
-- future account and sync setup.
+- `Summary`
+- `Sessions`
+- `History`
+- `Settings`
+- `Diagnostics`
+
+`Summary` is the default landing view when the user selects `Open details` from
+the tray panel.
+
+`History` owns calendar-style history. Calendar should not remain a separate
+primary top-level destination unless it is revalidated later.
+
+Diagnostics can contain support actions such as export, maintenance, and
+detailed import/refresh evidence.
 
 The full window should support detail, but it should not define the product's
 primary identity.
@@ -174,13 +180,15 @@ source code, local file paths, or sensitive project names.
 - Local app install.
 - Tray/menu-bar availability.
 - Compact tray panel.
-- Manual refresh.
-- Automatic/background refresh when stable.
+- Automatic/background refresh.
+- Manual refresh only as a secondary recovery/debug action.
 - Local usage collection for supported sources.
 - Today's usage summary.
+- This week and this month token summaries.
+- Today's model usage allocation.
 - Recent usage trend.
-- Source split.
 - Full details window.
+- Full details default landing on Summary.
 - Basic history.
 - Basic sessions view.
 - Settings.
@@ -194,6 +202,7 @@ These may exist internally or in secondary screens, but they should not dominate
 the product:
 
 - budgets,
+- standalone Calendar top-level navigation,
 - heavy dashboards,
 - complex custom views,
 - advanced exports,
@@ -216,14 +225,17 @@ the product:
 ### Quick Check
 
 1. The user opens Burnly from the tray/menu bar.
-2. The tray panel shows today's tokens, source split, and refresh state.
+2. The tray panel shows today's tokens, week/month tokens, model usage, and
+   freshness state.
 3. The user closes the panel and continues working.
 
-### Refresh Usage
+### Automatic Refresh
 
-1. The user opens the tray panel.
-2. The user triggers refresh.
-3. Burnly updates the summary or explains which source failed.
+1. Burnly refreshes automatically on startup, on a background interval, and when
+   the tray panel opens if data is stale.
+2. The tray panel shows freshness state.
+3. If a source fails, Burnly shows a compact warning and offers diagnostics from
+   the full window.
 
 ### Inspect Details
 

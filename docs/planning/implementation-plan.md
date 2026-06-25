@@ -110,10 +110,12 @@ Make the tray/menu-bar panel the main Burnly experience.
 Deliverables:
 
 - Compact daily usage summary.
-- Source split.
+- This week and this month token summaries.
+- Today's model usage allocation with coding-agent labels.
+- Model trend compared with yesterday.
 - Refresh status.
-- Refresh action.
-- Mini trend.
+- Automatic refresh on startup, interval, and stale tray-panel open.
+- Secondary manual retry only outside the primary tray layout.
 - Open full details action.
 - Clear empty/error states.
 
@@ -128,11 +130,14 @@ Keep the full window useful without letting it dominate the product.
 
 Deliverables:
 
-- Simplified navigation.
+- Simplified navigation with `Summary`, `Sessions`, `History`, `Settings`, and
+  `Diagnostics`.
 - Detail views for sessions/history.
 - Diagnostics and settings placed as support tools.
-- Budgets de-emphasized or hidden from primary navigation until explicitly
+- Budgets hidden or de-emphasized from primary navigation until explicitly
   revalidated.
+- Calendar-style history folded into `History` rather than kept as a separate
+  primary destination.
 
 ### 5. Future Sync And Leaderboard Preparation
 
@@ -154,10 +159,8 @@ Before code work resumes:
 
 1. Finish product drift analysis.
 2. Rewrite design-system proposal for tray-first UI.
-3. Decide the primary tray panel contents.
-4. Decide what happens to the current Budgets tab.
-5. Decide whether the full window uses top tabs, sidebar, or a reduced support
-   layout.
+3. Decide whether the full window uses top tabs, sidebar, or a reduced support
+   layout for the locked screen set.
 
 ## Suggested Next Implementation Shape
 
@@ -227,10 +230,8 @@ For future implementation:
 
 ## Open Decisions
 
-- What exact metrics belong in the tray panel?
-- Should estimated cost appear in the compact panel or only in details?
-- Should budgets remain visible by default?
-- Should the full details window keep current top tabs?
+- Should the full details window use top tabs, sidebar, or another reduced
+  support layout?
 - Should the product support a small always-on floating window later?
 - Which aggregate metrics are safe candidates for future leaderboard sync?
 
