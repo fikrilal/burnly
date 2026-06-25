@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
 
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +83,7 @@ export function StyleguideView() {
           <StatusPills />
           <TabsSample />
           <SwitchSample />
+          <NumbersSample />
           <Overlays />
           <SkeletonSample />
           <CardSample />
@@ -229,6 +232,28 @@ function Overlays() {
             <DropdownMenuItem>Export</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
+    </Section>
+  );
+}
+
+function NumbersSample() {
+  const [value, setValue] = useState(42180);
+  return (
+    <Section title="Animated number">
+      <div className="flex items-center gap-4">
+        <AnimatedNumber
+          value={value}
+          className="text-3xl font-semibold tracking-tight"
+        />
+        <Button
+          variant="outline"
+          onClick={() => {
+            setValue((current) => current + 5234);
+          }}
+        >
+          Add usage
+        </Button>
       </div>
     </Section>
   );

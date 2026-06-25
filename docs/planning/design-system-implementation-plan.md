@@ -2,11 +2,9 @@
 
 ## Status
 
-In progress. Phase 0 complete. Phase 1b (static primitives), 5a (styleguide
-scaffold), 1c-1 (Card, Tabs, Switch), and 1c-2 (Tooltip, Popover, Dialog,
-DropdownMenu) are complete and verified. The hand-written primitive layer is now
-complete. Next: Phase 1a/1d (beUI + Motion) or proceed to Phase 2 (Burnly compact
-components).
+In progress. Phase 0 complete. **Phase 1 complete** (1a/1b/1c/1d): full
+token-based primitive layer, styleguide scaffold (5a), and beUI + Motion adopted
+surgically. Next: Phase 2 (Burnly compact components).
 
 Progress log:
 
@@ -39,6 +37,12 @@ Progress log:
   styleguide with open/dismiss tests. Verified via `pnpm verify:fast` (exit 0)
   and `pnpm test` (110 passing). Execution plan:
   `docs/exec-plans/completed/2026-06-26_design-system-phase-1c-2-overlay-primitives.md`.
+- **2026-06-26 — Phase 1d complete.** Installed `motion@12.42.0` (pinned),
+  registered the beUI shadcn registry (`@beui`) in `components.json`, and adopted
+  beUI's `AnimatedNumber` adapted into `src/components/ui/animated-number.tsx`
+  (reduced-motion-safe, animate-on-change). Demoed in the styleguide. Verified
+  via `pnpm verify:fast` (exit 0) and `pnpm test` (112 passing). Execution plan:
+  `docs/exec-plans/completed/2026-06-26_design-system-phase-1d-beui-motion.md`.
 
 This is the master plan for building Burnly's **UI design system** (visual/component
 system), not software architecture. It operationalizes the draft at
@@ -97,7 +101,8 @@ inside execution plans:
   `burnly/StatusPill`. Tray feature has ad-hoc `PrimaryMetric`,
   `SecondaryMetricRow`, `ModelUsageAllocation`.
 - React 19.1, Tailwind 4.3, Radix, cva, tailwind-merge, Geist, tw-animate-css
-  present. Motion (framer-motion) is **not** yet installed.
+  present. Motion **installed** (`motion@12.42.0`, Phase 1d) and the beUI registry
+  configured.
 
 ## Guiding Principles
 
@@ -150,10 +155,9 @@ restart, `system` follows OS changes live. (Phase 0 complete.)
 
 Goal: a complete, monochrome, token-backed primitive set.
 
-- **1a — Tooling setup. ⏳ Pending.** Add beUI's shadcn registry to
-  `components.json`; add the Motion dependency (pinned). Establish the convention
-  for vendoring + customizing CLI-pulled components. (npm registry confirmed
-  reachable; deferred until a motion component is actually wired in 1d.)
+- **1a — Tooling setup. ✅ Done (2026-06-26).** beUI registry (`@beui`) added to
+  `components.json`; `motion@12.42.0` installed (pinned). Convention: adapt beUI
+  source into Burnly-owned components under `src/components/ui/`.
 - **1b — Static primitives (hand-written). ✅ Done (2026-06-26).** `Badge`,
   `Skeleton`, `Separator` added on the monochrome tokens; `Button` already on
   tokens. Rendered in the styleguide.
@@ -164,13 +168,14 @@ Goal: a complete, monochrome, token-backed primitive set.
     `Tabs` (pill style), `Switch`. Rendered in the styleguide.
   - **1c-2 — Overlay primitives. ✅ Done (2026-06-26).** `Tooltip`, `Popover`,
     `Dialog`, `DropdownMenu` (portal-based), rendered in the styleguide.
-- **1d — Motion primitives (beUI, selective). ⏳ Pending.** only what the app needs now —
-  likely `Tabs` (pill/segment/underline), `ThemeToggle`, `NumberAnimation` for
-  metric changes. Each adapted into a Burnly-owned wrapper. Defer dock, dynamic
-  island, tilt, marquee, magnetic, morphing modal.
+- **1d — Motion primitives (beUI, selective). ✅ Done (2026-06-26).** Adopted
+  beUI's `AnimatedNumber` (adapted, reduced-motion-safe) for animated metric
+  values. `Tabs`/`ThemeToggle` kept hand-written; decorative beUI components
+  (dock, dynamic island, tilt, marquee, magnetic, morphing modal) deferred.
 
 Acceptance: every primitive exists, is monochrome, respects reduced motion, is
 keyboard-accessible, and is registered in the styleguide (Phase 5a scaffold ✅).
+(Phase 1 complete.)
 
 ### Phase 2: Burnly Compact Components (`components/burnly`)
 
@@ -262,9 +267,9 @@ evidence; docs index points to the living design-system doc.
 
 1. **Theme persistence location. ✅ Resolved — webview `localStorage`** (UI-only,
    implemented in Phase 0b). Revisit only if the backend needs the preference.
-2. **Motion dependency. ⏳ Tentatively locked: yes, surgical.** Accept
-   Motion/framer-motion for beUI components, adopting only Tabs, ThemeToggle, and
-   NumberAnimation; defer the decorative set. Confirm before Phase 0c/1a.
+2. **Motion dependency. ✅ Resolved — yes, surgical.** `motion@12.42.0` installed
+   (Phase 1d); only `AnimatedNumber` adopted so far. Decorative beUI components
+   stay deferred.
 3. **Status color in a monochrome system. ⏳ Tentatively locked: monochrome +
    icon/text, red reserved strictly for errors.** Confirm before Phase 2c.
 
@@ -280,7 +285,7 @@ evidence; docs index points to the living design-system doc.
 
 ```text
 Phase 0  Tokens + theming        (foundation, blocks everything)  [✅ complete]
-Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold   [1b ✅ 5a ✅ 1c ✅ · 1a/1d ⏳]
+Phase 1  Primitives (ui/)        + Phase 5a styleguide scaffold   [✅ complete]
 Phase 2  Burnly components       (extract from tray)
 Phase 3  Tray refactor           (prove the system)
 Phase 4  Full window reskin      (apply broadly)
