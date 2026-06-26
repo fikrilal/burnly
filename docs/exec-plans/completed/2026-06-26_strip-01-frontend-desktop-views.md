@@ -42,12 +42,12 @@ features, which is acceptable until chunk 2.
 
 ## Checklist
 
-- [ ] Delete the five feature folders and `SettingsView.tsx` (+ test).
-- [ ] Reduce `App.tsx`: drop desktop imports, `ViewMode`, the desktop render
+- [x] Delete the five feature folders and `SettingsView.tsx` (+ test).
+- [x] Reduce `App.tsx`: drop desktop imports, `ViewMode`, the desktop render
       branch, the `StatusCard` desktop scaffolding, and the `open-details`
       effect. Keep tray + styleguide + startup state.
-- [ ] Update `App.test.tsx` to cover only tray/styleguide/startup states.
-- [ ] Confirm no dangling imports (`pnpm verify:fast`).
+- [x] Update `App.test.tsx` to cover only tray/styleguide/startup states.
+- [x] Confirm no dangling imports (`pnpm verify:fast`).
 
 ## Test Plan
 
@@ -67,9 +67,9 @@ features, which is acceptable until chunk 2.
 ## Verification
 
 - Command: `pnpm test`
-- Outcome: not run yet
+- Outcome: passed (91 tests passed).
 - Command: `pnpm verify:fast`
-- Outcome: not run yet
+- Outcome: passed cleanly.
 
 ## Runtime Evidence
 

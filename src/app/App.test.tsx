@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -11,16 +10,20 @@ import type {
   AppCapabilitiesResponse,
 } from "../ipc/generated/contracts";
 
-vi.mock("../features/overview", () => ({
-  Overview: () => <div data-testid="overview-feature" />,
-}));
-
-vi.mock("../features/diagnostics", () => ({
-  DiagnosticsView: () => <div data-testid="diagnostics-feature" />,
-}));
-
-vi.mock("../features/diagnostics/DatabaseMaintenanceCard", () => ({
-  DatabaseMaintenanceCard: () => <div data-testid="database-recovery" />,
+vi.mock("../features/tray", () => ({
+  TrayPanel: () => <div data-testid="tray-panel" />,
+  TrayStartupState: ({
+    status,
+    detail,
+  }: {
+    status: string;
+    detail: string;
+  }) => (
+    <div data-testid="tray-startup-state">
+      <span>{status}</span>
+      <span>{detail}</span>
+    </div>
+  ),
 }));
 
 vi.mock("../ipc/events", () => ({
@@ -40,7 +43,7 @@ const meta = {
 } as const;
 
 describe("App", () => {
-  it("renders the Overview feature when the runtime is ready", async () => {
+  it("renders the TrayPanel when the runtime is ready", async () => {
     render(
       <App
         loadBootstrap={() => Promise.resolve(bootstrapResult())}
@@ -48,24 +51,7 @@ describe("App", () => {
       />,
     );
 
-    expect(await screen.findByTestId("overview-feature")).toBeInTheDocument();
-  });
-
-  it("opens diagnostics from the main navigation", async () => {
-    const user = userEvent.setup();
-
-    render(
-      <App
-        loadBootstrap={() => Promise.resolve(bootstrapResult())}
-        loadCapabilities={() => Promise.resolve(capabilitiesResult())}
-      />,
-    );
-
-    await user.click(
-      await screen.findByRole("button", { name: "Diagnostics" }),
-    );
-
-    expect(screen.getByTestId("diagnostics-feature")).toBeInTheDocument();
+    expect(await screen.findByTestId("tray-panel")).toBeInTheDocument();
   });
 
   it("stops startup before capability loading when contract versions differ", async () => {
@@ -79,7 +65,9 @@ describe("App", () => {
       />,
     );
 
-    expect(await screen.findByText("Incompatible")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Contract Incompatible"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Frontend v1, runtime v2")).toBeInTheDocument();
     expect(loadCapabilities).not.toHaveBeenCalled();
   });
@@ -127,7 +115,7 @@ describe("App startup failures", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders database recovery controls when startup requires recovery", async () => {
+  it("renders failure message when startup requires recovery", async () => {
     render(
       <App
         loadBootstrap={() =>
@@ -153,7 +141,9 @@ describe("App startup failures", () => {
     expect(
       await screen.findByText("Database recovery required"),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("database-recovery")).toBeInTheDocument();
+    expect(
+      screen.getByText("Database recovery is required."),
+    ).toBeInTheDocument();
   });
 });
 

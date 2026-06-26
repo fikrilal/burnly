@@ -56,7 +56,7 @@ merge conflicts.
 
 ## Progress
 
-- [ ] 1 — frontend desktop views removed
+- [x] 1 — frontend desktop views removed
 - [ ] 2 — IPC contract pruned + TS regenerated
 - [ ] 3 — budgets backend removed
 - [ ] 4 — diagnostics + recovery removed
