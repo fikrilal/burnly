@@ -14,10 +14,7 @@ use crate::application::bootstrap::{
     BootstrapService, CapabilityStatus, NativeNotificationCapability, RuntimeCapabilities,
     RuntimeSettings, StartupRecoveryState,
 };
-use crate::application::budget_evaluation::BudgetEvaluationService;
-use crate::application::budget_notifications::BudgetNotificationService;
-use crate::application::budget_progress::BudgetProgressQuery;
-use crate::application::budgets::BudgetService;
+
 use crate::application::collection::CollectorFailure;
 use crate::application::database_maintenance::DatabaseMaintenanceService;
 use crate::application::diagnostics::{DiagnosticsService, RuntimeDiagnosticRecord};
@@ -41,8 +38,7 @@ use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
-    SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDatabaseMaintenanceStore,
+    Database, PersistenceError, PersistenceErrorKind,  SqliteCalendarStore, SqliteDatabaseMaintenanceStore,
     SqliteDiagnosticsStore, SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore,
     SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore, SqliteTraySummaryStore,
 };
@@ -187,7 +183,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         .map_err(StartupError::Persistence)?;
     let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
     let tray_state = Arc::new(Mutex::new(None));
-    let budget_progress_query = build_budget_progress_query(&database_path)?;
     let notification_port: Arc<dyn NotificationPort> =
         Arc::new(NativeNotificationAdapter::new(app.handle().clone()));
     let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
@@ -196,7 +191,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let refresh_event_sink = runtime_refresh_event_sink(
         app.handle().clone(),
         tray_state.clone(),
-        budget_progress_query.clone(),
+        
         tray_summary_query.clone(),
         settings_store.clone(),
     );
@@ -204,7 +199,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         app,
         &database_path,
         refresh_event_sink,
-        notification_port.clone(),
     )?;
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
@@ -219,7 +213,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         app.handle(),
         &tray_snapshot(
             &refresh_coordinator.snapshot(),
-            &budget_progress_query,
+            
             &tray_summary_query,
             &reporting_timezone,
         ),
@@ -229,7 +223,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         *tray_state.lock().expect("tray state lock is poisoned") = Some(controller.clone());
         controller.update(&tray_snapshot(
             &refresh_coordinator.snapshot(),
-            &budget_progress_query,
+            
             &tray_summary_query,
             &reporting_timezone,
         ));
@@ -237,7 +231,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     }
     install_tray_invalidation_listener(
         app.handle().clone(),
-        budget_progress_query.clone(),
+        
         tray_summary_query.clone(),
         settings_store.clone(),
     );
@@ -285,12 +279,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(build_calendar_query(&database_path)?);
     app.manage(build_day_detail_query(&database_path)?);
     app.manage(build_session_query(&database_path)?);
-    app.manage(budget_progress_query);
-    let budget_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
-    app.manage(BudgetService::new(
-        Arc::new(SqliteBudgetStore::new(budget_database)),
-        Arc::new(SystemClock),
-    ));
+
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
         CONTRACT_VERSION,
@@ -495,28 +484,12 @@ fn build_session_query(database_path: &Path) -> Result<SessionQuery, StartupErro
     ))))
 }
 
-fn build_budget_progress_query(
-    database_path: &Path,
-) -> Result<Arc<BudgetProgressQuery>, StartupError> {
-    Ok(Arc::new(BudgetProgressQuery::new(
-        Arc::new(SqliteBudgetStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SqliteBudgetUsageStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SqliteSettingsStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SystemClock),
-    )))
-}
+
 
 fn build_refresh_coordinator<R: Runtime>(
     app: &tauri::App<R>,
     database_path: &Path,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
-    notifications: Arc<dyn NotificationPort>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let resource_directory = app
         .path()
@@ -530,45 +503,27 @@ fn build_refresh_coordinator<R: Runtime>(
         .map_err(StartupError::Collector)?,
     );
 
-    compose_refresh_coordinator(database_path, collector, refresh_event_sink, notifications)
+    compose_refresh_coordinator(database_path, collector, refresh_event_sink)
 }
 
 fn compose_refresh_coordinator(
     database_path: &Path,
     collector: Arc<CcusageCollector>,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
-    notifications: Arc<dyn NotificationPort>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let (aggregation_timezone, ..) = write_database
         .read_settings()
         .map_err(StartupError::Persistence)?;
     let store = Arc::new(SqliteReconciliationStore::new(write_database));
-    let budget_store = Arc::new(SqliteBudgetStore::new(
-        Database::open(database_path).map_err(StartupError::Persistence)?,
-    ));
-    let budget_usage_store = Arc::new(SqliteBudgetUsageStore::new(
-        Database::open(database_path).map_err(StartupError::Persistence)?,
-    ));
-    let budget_evaluator = BudgetEvaluationService::new(budget_store, budget_usage_store);
-    let budget_notifications = Arc::new(BudgetNotificationService::new(
-        budget_evaluator,
-        Arc::new(SqliteSettingsStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SqliteBudgetNotificationStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        notifications,
-    ));
     let clock = Arc::new(SystemClock);
 
-    Ok(RefreshCoordinator::with_event_sink_and_budget_evaluator(
+    Ok(RefreshCoordinator::with_event_sink(
         collector,
         store.clone(),
         store,
         clock,
-        RefreshCoordinatorHooks::new(refresh_event_sink, budget_notifications),
+        refresh_event_sink,
         env!("CARGO_PKG_VERSION"),
         aggregation_timezone,
     ))
@@ -577,7 +532,6 @@ fn compose_refresh_coordinator(
 struct RuntimeRefreshEventSink<R: Runtime> {
     frontend: Arc<dyn RefreshEventSink>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
-    budget_progress: Arc<BudgetProgressQuery>,
     tray_summary: TraySummaryQuery,
     settings_store: Arc<SqliteSettingsStore>,
 }
@@ -596,7 +550,6 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
                 .unwrap_or_else(|_| "UTC".to_owned());
             tray.update(&tray_snapshot(
                 &snapshot,
-                &self.budget_progress,
                 &self.tray_summary,
                 &timezone,
             ));
@@ -607,14 +560,12 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
 fn runtime_refresh_event_sink<R: Runtime>(
     app: tauri::AppHandle<R>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
-    budget_progress: Arc<BudgetProgressQuery>,
     tray_summary: TraySummaryQuery,
     settings_store: Arc<SqliteSettingsStore>,
 ) -> Arc<dyn RefreshEventSink> {
     Arc::new(RuntimeRefreshEventSink {
         frontend: refresh_event_sink(app),
         tray,
-        budget_progress,
         tray_summary,
         settings_store,
     })
@@ -622,7 +573,6 @@ fn runtime_refresh_event_sink<R: Runtime>(
 
 fn install_tray_invalidation_listener<R: Runtime>(
     app: tauri::AppHandle<R>,
-    budget_progress: Arc<BudgetProgressQuery>,
     tray_summary: TraySummaryQuery,
     settings_store: Arc<SqliteSettingsStore>,
 ) {
@@ -637,7 +587,6 @@ fn install_tray_invalidation_listener<R: Runtime>(
                 .unwrap_or_else(|_| "UTC".to_owned());
             controller.update(&tray_snapshot(
                 &coordinator.snapshot(),
-                &budget_progress,
                 &tray_summary,
                 &timezone,
             ));
@@ -647,7 +596,6 @@ fn install_tray_invalidation_listener<R: Runtime>(
 
 pub(crate) fn tray_snapshot(
     snapshot: &RefreshSnapshot,
-    budget_progress: &BudgetProgressQuery,
     tray_summary: &TraySummaryQuery,
     reporting_timezone: &str,
 ) -> tray::TraySnapshot {
@@ -659,10 +607,7 @@ pub(crate) fn tray_snapshot(
     tray::TraySnapshot {
         status: tray_refresh_status(snapshot.status),
         last_successful_refresh_at_ms: snapshot.last_successful_refresh_at_ms,
-        budget_summary: budget_progress
-            .current()
-            .ok()
-            .and_then(|progress| progress.tray_summary),
+        budget_summary: None,
         today_tokens,
         week_tokens,
         month_tokens,
@@ -1320,7 +1265,6 @@ mod tests {
             &database_path,
             collector,
             refresh_event_sink(app.handle().clone()),
-            Arc::new(TestNotificationPort),
         )
         .expect("coordinator");
         assert!(app.manage(coordinator));

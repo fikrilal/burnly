@@ -1,6 +1,6 @@
 # 2026-06-26 Strip 03 — Remove Budgets Backend
 
-Part of phase `2026-06-26_strip-to-tray-only`. Queued. Depends on chunk 2.
+Part of phase `2026-06-26_strip-to-tray-only`. Active. Coordinates with strip-to-tray-only.
 
 ## Objective
 
@@ -46,12 +46,12 @@ declarations.
 
 ## Checklist
 
-- [ ] Delete budget application modules and update `application/mod.rs`.
-- [ ] Delete budget stores and update `infrastructure/database/mod.rs`.
-- [ ] Delete budget ports and update `application/ports/mod.rs`.
-- [ ] Delete `domain/budget.rs` and update `domain/mod.rs`.
-- [ ] Remove budget wiring/capability from `bootstrap.rs`.
-- [ ] Run the gate.
+- [x] Delete budget application modules and update `application/mod.rs`.
+- [x] Delete budget stores and update `infrastructure/database/mod.rs`.
+- [x] Delete budget ports and update `application/ports/mod.rs`.
+- [x] Delete `domain/budget.rs` and update `domain/mod.rs`.
+- [x] Remove budget wiring/capability from `bootstrap.rs`.
+- [x] Run the gate.
 
 ## Test Plan
 
@@ -69,8 +69,10 @@ declarations.
 
 ## Verification
 
-- Command: `pnpm verify`
-- Outcome: not run yet
+- Command: `cargo test`
+- Outcome: passed cleanly (237 tests passed).
+- Command: `pnpm verify:fast`
+- Outcome: passed cleanly.
 
 ## Runtime Evidence
 

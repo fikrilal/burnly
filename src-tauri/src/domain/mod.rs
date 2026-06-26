@@ -2,7 +2,6 @@
 //!
 //! Domain modules are added only when implemented behavior requires them.
 
-pub(crate) mod budget;
 pub(crate) mod identity;
 pub(crate) mod settings;
 pub(crate) mod source;
