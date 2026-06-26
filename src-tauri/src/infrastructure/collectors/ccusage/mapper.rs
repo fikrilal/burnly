@@ -30,6 +30,15 @@ use super::envelopes::opencode_session::{OpenCodeSessionReport, OpenCodeSessionR
 
 const COST_MICROS_PER_UNIT: f64 = 1_000_000.0;
 
+/// Stable model identity for OpenCode days/sessions that used several models with
+/// no per-model token split available from the collector. Keeping it stable lets
+/// the usage stay visible and reconcile with the daily total across every view.
+///
+/// This is a temporary workaround for a `ccusage` gap (OpenCode `daily` omits
+/// `modelBreakdowns`). See `docs/engineering/known-limitations.md` and
+/// https://github.com/ccusage/ccusage/issues/1380.
+const OPENCODE_MULTIPLE_MODELS: &str = "Multiple models";
+
 pub(crate) fn map_daily(
     report: ClaudeDailyReport,
     context: MappingContext,
@@ -265,11 +274,8 @@ fn map_opencode_row(
         row.total_tokens,
     )?;
     let cost = map_cost(row.total_cost, row.total_tokens)?;
-    let model_breakdowns = row
-        .model_breakdowns
-        .into_iter()
-        .map(map_opencode_model)
-        .collect::<Result<Vec<_>, _>>()?;
+    let model_breakdowns =
+        opencode_model_breakdowns(row.model_breakdowns, row.models_used, &tokens, &cost)?;
     Ok(DailyUsageCandidate {
         provenance: context.provenance(),
         source_key: daily_source_key(context.source, usage_date, &context.aggregation_timezone)?,
@@ -302,6 +308,36 @@ fn map_opencode_model(model: OpenCodeModelBreakdown) -> Result<ModelUsageCandida
     })
 }
 
+/// OpenCode's ccusage adapter reports each day's/session's totals plus the set of
+/// model names used, but never a per-model token split (even with `--breakdown`),
+/// and its sessions carry no timestamps to reconstruct a daily split from. Because
+/// OpenCode aggregates the whole period, the split is either fully recoverable or
+/// not at all:
+/// - one model used: the whole total provably belongs to it, attributed exactly;
+/// - several models used: the tokens cannot be divided, so they are kept together
+///   under a single stable "Multiple models" entry rather than fabricating a split
+///   or dropping the usage (which would desync the per-model view from the total).
+fn opencode_model_breakdowns(
+    explicit: Vec<OpenCodeModelBreakdown>,
+    models_used: Vec<String>,
+    row_tokens: &TokenUsage,
+    row_cost: &UsageCost,
+) -> Result<Vec<ModelUsageCandidate>, MappingError> {
+    if !explicit.is_empty() {
+        return explicit.into_iter().map(map_opencode_model).collect();
+    }
+    let raw_model_id = match models_used.as_slice() {
+        [] => return Ok(Vec::new()),
+        [model_name] => model_name.clone(),
+        _ => OPENCODE_MULTIPLE_MODELS.to_owned(),
+    };
+    Ok(vec![ModelUsageCandidate {
+        raw_model_id,
+        tokens: row_tokens.clone(),
+        cost: row_cost.clone(),
+    }])
+}
+
 pub(crate) fn map_opencode_session(
     report: OpenCodeSessionReport,
     context: MappingContext,
@@ -325,11 +361,8 @@ fn map_opencode_session_row(
         row.total_tokens,
     )?;
     let cost = map_cost(row.total_cost, row.total_tokens)?;
-    let model_breakdowns = row
-        .model_breakdowns
-        .into_iter()
-        .map(map_opencode_model)
-        .collect::<Result<Vec<_>, _>>()?;
+    let model_breakdowns =
+        opencode_model_breakdowns(row.model_breakdowns, row.models_used, &tokens, &cost)?;
 
     let first_activity_at = row
         .first_activity_at
@@ -810,7 +843,7 @@ mod tests {
     }
 
     #[test]
-    fn maps_real_opencode_daily_shape_without_model_breakdowns() {
+    fn synthesizes_single_model_breakdown_for_real_opencode_daily_shape() {
         let context =
             build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
         let candidates = map_opencode_daily(
@@ -827,7 +860,59 @@ mod tests {
         );
         assert_eq!(first.tokens.cache_read_tokens(), Some(400));
         assert_eq!(first.tokens.unclassified_tokens(), Some(0));
-        assert!(first.model_breakdowns.is_empty());
+        // OpenCode reports `modelsUsed` without a per-model split. With a single
+        // model the whole daily total provably belongs to it, so it is attributed
+        // there and the per-model view reconciles with the daily total.
+        assert_eq!(first.model_breakdowns.len(), 1);
+        assert_eq!(first.model_breakdowns[0].raw_model_id, "mimo-v2.5-pro");
+        assert_eq!(first.model_breakdowns[0].tokens.total_tokens(), 1_200);
+        assert_eq!(
+            first.model_breakdowns[0].tokens.cache_read_tokens(),
+            Some(400)
+        );
+    }
+
+    #[test]
+    fn aggregates_multi_model_opencode_day_when_no_split_is_available() {
+        let report = decode_opencode_daily(
+            r#"{
+                "daily": [
+                    {
+                        "date": "2026-06-24",
+                        "inputTokens": 600,
+                        "outputTokens": 400,
+                        "totalTokens": 1000,
+                        "totalCost": 0.0,
+                        "modelsUsed": ["model-a", "model-b"]
+                    }
+                ],
+                "totals": {
+                    "inputTokens": 600,
+                    "outputTokens": 400,
+                    "totalTokens": 1000,
+                    "totalCost": 0.0
+                }
+            }"#,
+        )
+        .expect("decoded fixture");
+        let context =
+            build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
+
+        let candidates = map_opencode_daily(report, context).expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        // Two models with no split: the tokens cannot be divided, so they stay
+        // together under a single stable entry instead of vanishing from the
+        // per-model view (which would desync it from the daily total).
+        assert_eq!(candidates[0].model_breakdowns.len(), 1);
+        assert_eq!(
+            candidates[0].model_breakdowns[0].raw_model_id,
+            "Multiple models"
+        );
+        assert_eq!(
+            candidates[0].model_breakdowns[0].tokens.total_tokens(),
+            1_000
+        );
     }
 
     #[test]

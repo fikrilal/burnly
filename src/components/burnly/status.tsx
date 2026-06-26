@@ -132,6 +132,7 @@ export function OpenDetailsButton({
   return (
     <Button
       variant="ghost"
+      size="xs"
       onClick={onClick}
       className={cn("text-muted-foreground hover:text-foreground", className)}
     >

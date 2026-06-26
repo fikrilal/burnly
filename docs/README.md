@@ -25,6 +25,7 @@ This directory is the source of truth for Burnly product and engineering decisio
 - [Harness engineering design](./engineering/harness-engineering-design.md)
 - [Design principles](./engineering/design-principles.md)
 - [Testing strategy](./engineering/testing-strategy.md)
+- [Known limitations](./engineering/known-limitations.md)
 - [Guardrails](./engineering/guardrails.md)
 - [Agent PR loop](./engineering/agent-pr-loop.md)
 - [Architecture boundaries](./engineering/architecture-boundaries.md)
