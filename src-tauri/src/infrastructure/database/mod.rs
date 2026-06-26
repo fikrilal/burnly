@@ -1,11 +1,8 @@
 //! SQLite connection ownership and policy enforcement.
 
-mod calendar_store;
 mod error;
 mod migrations;
-mod overview_store;
 mod reconciliation_store;
-mod session_store;
 #[cfg(test)]
 mod test_database;
 mod tray_summary_store;
@@ -16,11 +13,8 @@ use std::time::Duration;
 
 use rusqlite::{backup::Backup, Connection};
 
-pub(crate) use calendar_store::SqliteCalendarStore;
 pub use error::{PersistenceError, PersistenceErrorKind};
-pub(crate) use overview_store::SqliteOverviewStore;
 pub(crate) use reconciliation_store::SqliteReconciliationStore;
-pub(crate) use session_store::SqliteSessionStore;
 pub(crate) use tray_summary_store::SqliteTraySummaryStore;
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);

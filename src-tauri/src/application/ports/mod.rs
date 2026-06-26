@@ -1,11 +1,7 @@
-pub(crate) mod calendar_store;
 pub(crate) mod clock;
 pub(crate) mod collector;
-pub(crate) mod day_detail_store;
 pub(crate) mod notification;
-pub(crate) mod overview_store;
 pub(crate) mod run_store;
-pub(crate) mod session_store;
 pub(crate) mod settings_store;
 pub(crate) mod tray_summary_store;
 pub(crate) mod usage_store;

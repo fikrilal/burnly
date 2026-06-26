@@ -1,6 +1,6 @@
 # 2026-06-26 Strip 06 — Remove Reporting Queries
 
-Part of phase `2026-06-26_strip-to-tray-only`. Queued. Depends on chunk 2.
+Part of phase `2026-06-26_strip-to-tray-only`. Active. Coordinates with strip-to-tray-only.
 
 ## Objective
 
@@ -45,12 +45,12 @@ summary query is unaffected.
 
 ## Checklist
 
-- [ ] Delete overview/calendar/day_detail/session usage modules; trim
+- [x] Delete overview/calendar/day_detail/session usage modules; trim
       `application/usage/mod.rs`.
-- [ ] Delete the corresponding stores and ports.
-- [ ] Remove their wiring from `bootstrap.rs`.
-- [ ] Confirm the tray summary query still builds and tests pass.
-- [ ] Run the gate.
+- [x] Delete the corresponding stores and ports.
+- [x] Remove their wiring from `bootstrap.rs`.
+- [x] Confirm the tray summary query still builds and tests pass.
+- [x] Run the gate.
 
 ## Test Plan
 
@@ -69,8 +69,10 @@ summary query is unaffected.
 
 ## Verification
 
-- Command: `pnpm verify`
-- Outcome: not run yet
+- Command: `cargo test`
+- Outcome: passed cleanly (202 tests passed).
+- Command: `pnpm verify:fast`
+- Outcome: passed cleanly.
 
 ## Runtime Evidence
 

@@ -2,7 +2,6 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::application::ports::overview_store::OverviewStoreError;
 use crate::application::usage::{
     OverviewDataStatus, TraySummaryModelRow, TraySummaryPeriodMetric, TraySummaryQuery,
     TraySummaryQueryError, TraySummaryReadModel, TraySummaryTrend, TraySummaryTrendDirection,
@@ -60,7 +59,7 @@ pub(super) fn usage_get_tray_summary(
     match query.get(request.reporting_timezone) {
         Ok(summary) => match TraySummaryResponse::try_from(summary) {
             Ok(response) => IpcResponse::success(response),
-            Err(error) => IpcResponse::failure(storage_error(error)),
+            Err(error) => IpcResponse::failure(error),
         },
         Err(error) => IpcResponse::failure(tray_summary_query_error(error)),
     }
@@ -117,25 +116,10 @@ fn tray_summary_query_error(error: TraySummaryQueryError) -> IpcError {
     }
 }
 
-fn storage_error(error: OverviewStoreError) -> IpcError {
-    match error {
-        OverviewStoreError::Backend => IpcError::new(
-            "usage.overview_unavailable",
-            "Burnly could not read local usage data.",
-            ErrorCategory::Persistence,
-            true,
-        ),
-        OverviewStoreError::ValueOutOfRange | OverviewStoreError::MixedCurrencies => IpcError::new(
-            "usage.overview_inconsistent",
-            "Burnly found inconsistent local usage data.",
-            ErrorCategory::Persistence,
-            false,
-        ),
-    }
-}
+
 
 impl TryFrom<TraySummaryReadModel> for TraySummaryResponse {
-    type Error = OverviewStoreError;
+    type Error = IpcError;
 
     fn try_from(value: TraySummaryReadModel) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -200,8 +184,13 @@ const fn data_status(value: OverviewDataStatus) -> &'static str {
     }
 }
 
-fn to_rfc3339(epoch_ms: i64) -> Result<String, OverviewStoreError> {
+fn to_rfc3339(epoch_ms: i64) -> Result<String, IpcError> {
     DateTime::<Utc>::from_timestamp_millis(epoch_ms)
         .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
-        .ok_or(OverviewStoreError::ValueOutOfRange)
+        .ok_or_else(|| IpcError::new(
+            "usage.invalid_timestamp",
+            "Burnly found an invalid timestamp.",
+            ErrorCategory::Internal,
+            true,
+        ))
 }

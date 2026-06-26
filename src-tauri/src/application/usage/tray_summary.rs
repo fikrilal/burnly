@@ -8,8 +8,27 @@ use thiserror::Error;
 
 use crate::application::ports::clock::Clock;
 use crate::application::ports::tray_summary_store::{TraySummaryStore, TraySummaryStoreError};
-use crate::application::usage::{OverviewDataStatus, PersistedRefreshStatus};
 use crate::domain::source::SourceKey;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PersistedRefreshStatus {
+    Idle,
+    Queued,
+    Running,
+    Cancelling,
+    Cancelled,
+    Succeeded,
+    Partial,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OverviewDataStatus {
+    Current,
+    Stale,
+    Partial,
+    Empty,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TraySummaryScope {

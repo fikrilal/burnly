@@ -26,14 +26,14 @@ use crate::application::refresh::{
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
 use crate::application::usage::{
-    CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery, TraySummaryQuery,
+    TraySummaryQuery,
 };
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind,  SqliteCalendarStore,  
-    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore, SqliteTraySummaryStore,
+    Database, PersistenceError, PersistenceErrorKind,   
+    SqliteReconciliationStore, SqliteTraySummaryStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -240,7 +240,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(refresh_coordinator.clone());
     app.manage(refresh_scheduler);
     app.manage(runtime_settings.clone());
-    app.manage(build_overview_query(&database_path)?);
     let tray_open_refresh = TrayOpenRefreshController::new(
         reporting_timezone.clone(),
         tray_summary_query.clone(),
@@ -250,9 +249,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     tray_open_refresh.request_startup_refresh_if_stale();
     app.manage(tray_summary_query.clone());
     app.manage(tray_open_refresh);
-    app.manage(build_calendar_query(&database_path)?);
-    app.manage(build_day_detail_query(&database_path)?);
-    app.manage(build_session_query(&database_path)?);
 
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
@@ -371,13 +367,7 @@ fn refresh_policy(
     }
 }
 
-fn build_overview_query(database_path: &Path) -> Result<OverviewQuery, StartupError> {
-    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(OverviewQuery::new(
-        Arc::new(SqliteOverviewStore::new(database)),
-        Arc::new(SystemClock),
-    ))
-}
+
 
 fn build_tray_summary_query(database_path: &Path) -> Result<TraySummaryQuery, StartupError> {
     let database = Database::open(database_path).map_err(StartupError::Persistence)?;
@@ -387,27 +377,11 @@ fn build_tray_summary_query(database_path: &Path) -> Result<TraySummaryQuery, St
     ))
 }
 
-fn build_calendar_query(database_path: &Path) -> Result<CalendarQuery, StartupError> {
-    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(CalendarQuery::new(Arc::new(SqliteCalendarStore::new(
-        database,
-    ))))
-}
 
-fn build_day_detail_query(database_path: &Path) -> Result<DayDetailQuery, StartupError> {
-    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(DayDetailQuery::new(
-        Arc::new(SqliteCalendarStore::new(database)),
-        Arc::new(SystemClock),
-    ))
-}
 
-fn build_session_query(database_path: &Path) -> Result<SessionQuery, StartupError> {
-    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(SessionQuery::new(Arc::new(SqliteSessionStore::new(
-        Arc::new(Mutex::new(database)),
-    ))))
-}
+
+
+
 
 
 

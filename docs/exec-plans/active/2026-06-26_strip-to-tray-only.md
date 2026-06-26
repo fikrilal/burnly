@@ -61,7 +61,7 @@ merge conflicts.
 - [x] 3 — budgets backend removed
 - [x] 4 — diagnostics + recovery removed
 - [x] 5 — export + history removed
-- [ ] 6 — reporting queries removed
+- [x] 6 — reporting queries removed
 - [ ] 7 — main window removed
 - [ ] 8 — docs synced + full verification
 
