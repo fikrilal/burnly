@@ -63,7 +63,7 @@ merge conflicts.
 - [x] 5 — export + history removed
 - [x] 6 — reporting queries removed
 - [x] 7 — main window removed
-- [ ] 8 — docs synced + full verification
+- [x] 8 — docs synced + full verification
 
 ## Exit Criteria
 
