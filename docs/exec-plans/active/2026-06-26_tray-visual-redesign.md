@@ -39,6 +39,13 @@ Presentational changes to a shipped surface; no behavior/contract changes.
       window, `tray-window` class makes html/body transparent, and the panel root
       is `rounded-2xl border` so corners show through.
 - [x] Widen the panel to 440×540.
+- [x] Simplify the header: drop the "BURNLY" wordmark and the status pill; show a
+      single quiet line (relative "Updated Nm ago"), surfacing status only for
+      notable states (Refreshing / Some sources failed / Update failed), plus the
+      close button.
+- [x] Demote the footer action: `OpenDetailsButton` is now a quiet full-width
+      ghost row ("Open details →") instead of a filled primary button.
+- [x] Use Geist as the actual UI font (was overridden by a stray Inter rule).
 - [ ] Iterate on spacing/typography with the user against the reference.
 
 ## Decisions

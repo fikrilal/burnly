@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 
 import { hideTrayPanel, openDetails } from "../../ipc/client";
 import type { TraySummaryResponse } from "../../ipc/generated/contracts";
@@ -8,7 +8,6 @@ import {
   CompactMetric,
   EmptyState,
   ErrorState,
-  FreshnessStatus,
   MetricRow,
   OpenDetailsButton,
   type FreshnessState,
@@ -16,11 +15,7 @@ import {
 } from "../../components/burnly";
 import { AnimatedNumber } from "../../components/ui/animated-number";
 import { cn } from "../../lib/cn";
-import {
-  formatCompactNumber,
-  formatDateTime,
-  formatNumber,
-} from "../../lib/format";
+import { formatCompactNumber, formatNumber } from "../../lib/format";
 import { useTraySummary } from "./use-tray-summary";
 
 interface TrayPanelProps {
@@ -90,26 +85,28 @@ function TrayPanelContent({
   const isEmpty = summary.dataStatus === "empty";
 
   return (
-    <main className="min-h-screen overflow-hidden rounded-2xl border border-border bg-background text-foreground">
-      <div className="flex flex-col gap-6 p-5">
+    <main className="flex min-h-screen flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground">
+      <div className="flex flex-1 flex-col gap-6 p-5">
         <header
           data-tauri-drag-region
           className="flex items-start justify-between gap-3"
         >
           <div>
-            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            <p className="text-sm font-semibold tracking-tight text-foreground">
               Burnly
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Updated {formatDateTime(summary.lastSuccessfulRefreshAt)}
-            </p>
+            <div className="mt-0.5">
+              <HeaderStatus
+                state={freshnessState(
+                  summary.dataStatus,
+                  isRefreshing,
+                  isError,
+                )}
+                updatedAt={summary.lastSuccessfulRefreshAt}
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <FreshnessStatus
-              state={freshnessState(summary.dataStatus, isRefreshing, isError)}
-            />
-            <PanelCloseButton />
-          </div>
+          <PanelCloseButton />
         </header>
 
         {isError ? (
@@ -149,11 +146,13 @@ function TrayPanelContent({
 
         <AllocationList models={toModelUsage(summary.models)} />
 
-        <OpenDetailsButton
-          onClick={() => {
-            void openDetails();
-          }}
-        />
+        <div className="mt-auto flex justify-end">
+          <OpenDetailsButton
+            onClick={() => {
+              void openDetails();
+            }}
+          />
+        </div>
       </div>
     </main>
   );
@@ -209,6 +208,56 @@ function PanelCloseButton() {
       <X className="size-4" aria-hidden />
     </button>
   );
+}
+
+function HeaderStatus({
+  state,
+  updatedAt,
+}: {
+  state: FreshnessState;
+  updatedAt: string | null;
+}) {
+  if (state === "failed") {
+    return (
+      <span className="text-xs font-medium text-destructive">
+        Update failed
+      </span>
+    );
+  }
+  if (state === "partial") {
+    return (
+      <span className="text-xs text-muted-foreground">Some sources failed</span>
+    );
+  }
+  if (state === "refreshing") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <RefreshCw
+          className="size-3 animate-spin motion-reduce:animate-none"
+          aria-hidden
+        />
+        Refreshing
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs text-muted-foreground">
+      {relativeUpdated(updatedAt)}
+    </span>
+  );
+}
+
+function relativeUpdated(iso: string | null): string {
+  if (!iso) return "Never updated";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "Updated recently";
+  const minutes = Math.floor((Date.now() - then) / 60000);
+  if (minutes < 1) return "Updated just now";
+  if (minutes < 60) return `Updated ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Updated ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `Updated ${days}d ago`;
 }
 
 function freshnessState(

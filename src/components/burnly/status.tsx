@@ -130,7 +130,11 @@ export function OpenDetailsButton({
   className?: string;
 }) {
   return (
-    <Button onClick={onClick} className={cn("w-full", className)}>
+    <Button
+      variant="ghost"
+      onClick={onClick}
+      className={cn("text-muted-foreground hover:text-foreground", className)}
+    >
       {label}
       <ExternalLink aria-hidden />
     </Button>
