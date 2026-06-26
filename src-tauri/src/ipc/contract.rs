@@ -28,88 +28,10 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "AppCapabilitiesResponse",
     },
     CommandSpec {
-        name: "app_open_details",
-        export_name: "invokeAppOpenDetails",
-        request_type: "Record<string, never>",
-        response_type: "OpenDetailsResponse",
-    },
-    CommandSpec {
         name: "app_hide_tray_panel",
         export_name: "invokeAppHideTrayPanel",
         request_type: "Record<string, never>",
         response_type: "HideTrayPanelResponse",
-    },
-    CommandSpec {
-        name: "diagnostics_get_status",
-        export_name: "invokeDiagnosticsGetStatus",
-        request_type: "Record<string, never>",
-        response_type: "DiagnosticsStatusResponse",
-    },
-    CommandSpec {
-        name: "diagnostics_get_history",
-        export_name: "invokeDiagnosticsGetHistory",
-        request_type: "HistoryCommandRequest",
-        response_type: "HistoryResponse",
-    },
-    CommandSpec {
-        name: "diagnostics_reveal_logs",
-        export_name: "invokeDiagnosticsRevealLogs",
-        request_type: "Record<string, never>",
-        response_type: "RevealLogsResponse",
-    },
-    CommandSpec {
-        name: "database_get_maintenance_status",
-        export_name: "invokeDatabaseGetMaintenanceStatus",
-        request_type: "Record<string, never>",
-        response_type: "DatabaseMaintenanceStatusResponse",
-    },
-    CommandSpec {
-        name: "database_integrity_check",
-        export_name: "invokeDatabaseIntegrityCheck",
-        request_type: "Record<string, never>",
-        response_type: "DatabaseMaintenanceActionResponse",
-    },
-    CommandSpec {
-        name: "database_checkpoint",
-        export_name: "invokeDatabaseCheckpoint",
-        request_type: "Record<string, never>",
-        response_type: "DatabaseMaintenanceActionResponse",
-    },
-    CommandSpec {
-        name: "database_vacuum",
-        export_name: "invokeDatabaseVacuum",
-        request_type: "Record<string, never>",
-        response_type: "DatabaseMaintenanceActionResponse",
-    },
-    CommandSpec {
-        name: "database_restore_migration_backup",
-        export_name: "invokeDatabaseRestoreMigrationBackup",
-        request_type: "Record<string, never>",
-        response_type: "DatabaseMaintenanceActionResponse",
-    },
-    CommandSpec {
-        name: "history_get_export_preview",
-        export_name: "invokeHistoryGetExportPreview",
-        request_type: "ExportPreviewCommandRequest",
-        response_type: "ExportPreviewResponse",
-    },
-    CommandSpec {
-        name: "history_export",
-        export_name: "invokeHistoryExport",
-        request_type: "ConfirmedExportCommandRequest",
-        response_type: "ExportResponse",
-    },
-    CommandSpec {
-        name: "history_get_delete_preview",
-        export_name: "invokeHistoryGetDeletePreview",
-        request_type: "Record<string, never>",
-        response_type: "DeleteHistoryPreviewResponse",
-    },
-    CommandSpec {
-        name: "history_delete",
-        export_name: "invokeHistoryDelete",
-        request_type: "DeleteHistoryCommandRequest",
-        response_type: "DeleteHistoryResponse",
     },
     CommandSpec {
         name: "settings_get",
@@ -130,54 +52,6 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "ProjectPathRetentionResponse",
     },
     CommandSpec {
-        name: "budgets_list",
-        export_name: "invokeBudgetsList",
-        request_type: "Record<string, never>",
-        response_type: "BudgetListResponse",
-    },
-    CommandSpec {
-        name: "budgets_get",
-        export_name: "invokeBudgetsGet",
-        request_type: "BudgetIdCommandRequest",
-        response_type: "BudgetResponse",
-    },
-    CommandSpec {
-        name: "budgets_create",
-        export_name: "invokeBudgetsCreate",
-        request_type: "CreateBudgetCommandRequest",
-        response_type: "BudgetResponse",
-    },
-    CommandSpec {
-        name: "budgets_update",
-        export_name: "invokeBudgetsUpdate",
-        request_type: "UpdateBudgetCommandRequest",
-        response_type: "BudgetResponse",
-    },
-    CommandSpec {
-        name: "budgets_enable",
-        export_name: "invokeBudgetsEnable",
-        request_type: "MutateBudgetCommandRequest",
-        response_type: "BudgetResponse",
-    },
-    CommandSpec {
-        name: "budgets_disable",
-        export_name: "invokeBudgetsDisable",
-        request_type: "MutateBudgetCommandRequest",
-        response_type: "BudgetResponse",
-    },
-    CommandSpec {
-        name: "budgets_delete",
-        export_name: "invokeBudgetsDelete",
-        request_type: "MutateBudgetCommandRequest",
-        response_type: "DeleteBudgetResponse",
-    },
-    CommandSpec {
-        name: "budgets_get_progress",
-        export_name: "invokeBudgetsGetProgress",
-        request_type: "Record<string, never>",
-        response_type: "CurrentBudgetProgressResponse",
-    },
-    CommandSpec {
         name: "refresh_get_state",
         export_name: "invokeRefreshGetState",
         request_type: "Record<string, never>",
@@ -196,40 +70,10 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "RefreshStatusResponse",
     },
     CommandSpec {
-        name: "usage_get_overview",
-        export_name: "invokeUsageGetOverview",
-        request_type: "UsageOverviewCommandRequest",
-        response_type: "UsageOverviewResponse",
-    },
-    CommandSpec {
         name: "usage_get_tray_summary",
         export_name: "invokeUsageGetTraySummary",
         request_type: "TraySummaryCommandRequest",
         response_type: "TraySummaryResponse",
-    },
-    CommandSpec {
-        name: "usage_get_calendar",
-        export_name: "invokeUsageGetCalendar",
-        request_type: "ActivityCalendarCommandRequest",
-        response_type: "ActivityCalendarResponse",
-    },
-    CommandSpec {
-        name: "usage_get_day_detail",
-        export_name: "invokeUsageGetDayDetail",
-        request_type: "DayDetailCommandRequest",
-        response_type: "DayDetailResponse",
-    },
-    CommandSpec {
-        name: "usage_get_sessions",
-        export_name: "invokeUsageGetSessions",
-        request_type: "SessionListCommandRequest",
-        response_type: "SessionListResponse",
-    },
-    CommandSpec {
-        name: "usage_get_session_detail",
-        export_name: "invokeUsageGetSessionDetail",
-        request_type: "SessionDetailCommandRequest",
-        response_type: "SessionDetailResponse",
     },
 ];
 
@@ -242,11 +86,6 @@ pub(super) const EVENTS: &[EventSpec] = &[
     EventSpec {
         name: "burnly://v1/data-invalidated",
         export_name: "dataInvalidated",
-        payload_type: "UnknownEventPayload",
-    },
-    EventSpec {
-        name: "burnly://v1/open-details",
-        export_name: "openDetails",
         payload_type: "UnknownEventPayload",
     },
     EventSpec {

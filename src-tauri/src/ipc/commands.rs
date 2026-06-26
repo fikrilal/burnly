@@ -26,11 +26,7 @@ pub(super) struct ContractProbeResponse {
     contract_version: u16,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct OpenDetailsResponse {
-    status: &'static str,
-}
+
 
 #[tauri::command]
 pub(super) fn __burnly_contract_probe() -> IpcResponse<ContractProbeResponse> {
@@ -151,20 +147,7 @@ pub(super) fn app_get_capabilities(
     IpcResponse::success(service.capabilities().into())
 }
 
-#[tauri::command]
-pub(super) fn app_open_details(
-    window_actions: State<'_, Arc<dyn WindowActions>>,
-) -> IpcResponse<OpenDetailsResponse> {
-    match window_actions.open_details() {
-        Ok(()) => IpcResponse::success(OpenDetailsResponse { status: "opened" }),
-        Err(_) => IpcResponse::failure(IpcError::new(
-            "app.open_details_failed",
-            "Burnly could not open the details window.",
-            ErrorCategory::Platform,
-            true,
-        )),
-    }
-}
+
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

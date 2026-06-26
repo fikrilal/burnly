@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { RefreshCw, X } from "lucide-react";
 
-import { hideTrayPanel, openDetails } from "../../ipc/client";
+import { hideTrayPanel } from "../../ipc/client";
 import type { TraySummaryResponse } from "../../ipc/generated/contracts";
 import {
   AllocationList,
@@ -9,7 +9,6 @@ import {
   EmptyState,
   ErrorState,
   MetricRow,
-  OpenDetailsButton,
   type FreshnessState,
   type ModelUsage,
 } from "../../components/burnly";
@@ -145,14 +144,6 @@ function TrayPanelContent({
         ) : null}
 
         <AllocationList models={toModelUsage(summary.models)} />
-
-        <div className="mt-auto flex justify-end">
-          <OpenDetailsButton
-            onClick={() => {
-              void openDetails();
-            }}
-          />
-        </div>
       </div>
     </main>
   );

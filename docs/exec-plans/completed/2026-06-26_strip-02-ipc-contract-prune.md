@@ -1,6 +1,6 @@
 # 2026-06-26 Strip 02 — Prune The IPC Contract Surface
 
-Part of phase `2026-06-26_strip-to-tray-only`. Queued. Depends on chunk 1.
+Part of phase `2026-06-26_strip-to-tray-only`. Active. Coordinates with strip-to-tray-only.
 
 ## Objective
 
@@ -58,15 +58,15 @@ unit for that reason.
 
 ## Checklist
 
-- [ ] Remove deleted commands from `ipc/mod.rs` invoke handler.
-- [ ] Remove deleted entries from `ipc/contract.rs` COMMANDS and the
+- [x] Remove deleted commands from `ipc/mod.rs` invoke handler.
+- [x] Remove deleted entries from `ipc/contract.rs` COMMANDS and the
       `open-details` EVENT.
-- [ ] Delete the dead IPC modules; trim `ipc/usage.rs` to tray summary.
-- [ ] Remove `app_open_details` from `ipc/commands.rs`.
-- [ ] Decide and apply the contract version (see Decisions).
-- [ ] Regenerate `src/ipc/generated/contracts`.
-- [ ] Remove dead wrappers from `client.ts` and cases from `client.test.ts`.
-- [ ] Run the gate.
+- [x] Delete the dead IPC modules; trim `ipc/usage.rs` to tray summary.
+- [x] Remove `app_open_details` from `ipc/commands.rs`.
+- [x] Decide and apply the contract version (see Decisions).
+- [x] Regenerate `src/ipc/generated/contracts`.
+- [x] Remove dead wrappers from `client.ts` and cases from `client.test.ts`.
+- [x] Run the gate.
 
 ## Test Plan
 
@@ -90,8 +90,10 @@ unit for that reason.
 
 ## Verification
 
-- Command: `pnpm verify`
-- Outcome: not run yet
+- Command: `cargo test`
+- Outcome: passed cleanly (262 tests passed).
+- Command: `pnpm verify:fast`
+- Outcome: passed cleanly.
 
 ## Runtime Evidence
 

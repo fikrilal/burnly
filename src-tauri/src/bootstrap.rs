@@ -1231,133 +1231,7 @@ mod tests {
         assert_eq!(privacy_response["data"]["clearedPaths"], 0);
     }
 
-    #[test]
-    fn tauri_bridge_runs_budget_crud_with_exact_string_contracts() {
-        let directory = tempfile::TempDir::new().expect("temporary directory");
-        let database_path = directory.path().join("burnly.sqlite3");
-        let mut database = Database::open(database_path).expect("open database");
-        database.migrate_to_latest().expect("migrate database");
-        let app = tauri::test::mock_builder()
-            .invoke_handler(crate::ipc::invoke_handler())
-            .manage(BudgetService::new(
-                Arc::new(SqliteBudgetStore::new(database)),
-                Arc::new(SystemClock),
-            ))
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .expect("build mock tauri app");
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .expect("build mock webview");
 
-        let created = invoke_webview(
-            &webview,
-            "budgets_create",
-            json!({
-                "request": {
-                    "budget": {
-                        "name": "Monthly tokens",
-                        "limit": { "kind": "tokens", "value": "100000" },
-                        "period": "monthly",
-                        "scope": { "kind": "global" },
-                        "enabled": true,
-                        "thresholds": [
-                            { "basisPoints": 10000, "enabled": true },
-                            { "basisPoints": 8000, "enabled": true }
-                        ]
-                    }
-                }
-            }),
-        );
-        assert_eq!(created["ok"], true);
-        assert_eq!(created["data"]["id"], "1");
-        assert_eq!(created["data"]["revision"], "1");
-        assert_eq!(created["data"]["thresholds"][0]["basisPoints"], 8000);
-
-        let listed = invoke_webview(&webview, "budgets_list", json!({}));
-        assert_eq!(listed["data"]["items"][0]["id"], "1");
-
-        let fetched = invoke_webview(
-            &webview,
-            "budgets_get",
-            json!({ "request": { "budgetId": "1" } }),
-        );
-        assert_eq!(fetched["data"]["name"], "Monthly tokens");
-
-        let updated = invoke_webview(
-            &webview,
-            "budgets_update",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "1",
-                    "budget": {
-                        "name": "Daily tokens",
-                        "limit": { "kind": "tokens", "value": "5000" },
-                        "period": "daily",
-                        "scope": { "kind": "global" },
-                        "enabled": true,
-                        "thresholds": [
-                            { "basisPoints": 9000, "enabled": true }
-                        ]
-                    }
-                }
-            }),
-        );
-        assert_eq!(updated["data"]["revision"], "2");
-        assert_eq!(updated["data"]["period"], "daily");
-
-        let disabled = invoke_webview(
-            &webview,
-            "budgets_disable",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "2"
-                }
-            }),
-        );
-        assert_eq!(disabled["data"]["enabled"], false);
-        assert_eq!(disabled["data"]["revision"], "3");
-
-        let enabled = invoke_webview(
-            &webview,
-            "budgets_enable",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "3"
-                }
-            }),
-        );
-        assert_eq!(enabled["data"]["enabled"], true);
-        assert_eq!(enabled["data"]["revision"], "4");
-
-        let conflict = invoke_webview(
-            &webview,
-            "budgets_delete",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "1"
-                }
-            }),
-        );
-        assert_eq!(conflict["ok"], false);
-        assert_eq!(conflict["error"]["code"], "budgets.revision_conflict");
-
-        let deleted = invoke_webview(
-            &webview,
-            "budgets_delete",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "4"
-                }
-            }),
-        );
-        assert_eq!(deleted["ok"], true);
-        assert_eq!(deleted["data"]["budgetId"], "1");
-    }
 
     #[test]
     fn tauri_bridge_invokes_refresh_state_command() {
@@ -1450,7 +1324,7 @@ mod tests {
         )
         .expect("coordinator");
         assert!(app.manage(coordinator));
-        assert!(app.manage(build_overview_query(&database_path).expect("overview query")));
+        assert!(app.manage(build_tray_summary_query(&database_path).expect("tray summary query")));
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
             .expect("build mock webview");
@@ -1491,33 +1365,24 @@ mod tests {
         assert_eq!(daily_count, 6);
         drop(connection);
 
-        let overview = tauri::test::get_ipc_response(
+        let summary = tauri::test::get_ipc_response(
             &webview,
             request_with_body(
-                "usage_get_overview",
+                "usage_get_tray_summary",
                 json!({
                     "request": {
-                        "startDate": "2026-06-13",
-                        "endDate": "2026-06-14",
                         "reportingTimezone": "UTC"
                     }
                 }),
             ),
         )
-        .expect("invoke usage overview")
+        .expect("invoke usage tray summary")
         .deserialize::<Value>()
-        .expect("deserialize usage overview");
+        .expect("deserialize usage tray summary");
 
-        assert_eq!(overview["ok"], true);
-        assert_eq!(overview["data"]["totalTokens"], "7500");
-        assert_eq!(overview["data"]["activeDays"], 2);
-        assert_eq!(overview["data"]["cost"]["amountMicros"], "1890000");
-        assert_eq!(overview["data"]["cost"]["valuation"], "estimated");
-        assert_eq!(overview["data"]["sources"][0]["source"], "claude-code");
-        assert_eq!(overview["data"]["sources"][1]["source"], "codex");
-        assert_eq!(overview["data"]["sources"][2]["source"], "opencode");
-        assert_eq!(overview["data"]["dataStatus"], "current");
-        assert!(overview["data"]["asOf"]
+        assert_eq!(summary["ok"], true);
+        assert_eq!(summary["data"]["dataStatus"], "empty");
+        assert!(summary["data"]["asOf"]
             .as_str()
             .expect("snapshot timestamp")
             .ends_with('Z'));

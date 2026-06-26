@@ -1,14 +1,8 @@
-/* eslint-disable max-lines-per-function */
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TrayPanel } from "./TrayPanel";
-import {
-  getTraySummary,
-  openDetails,
-  type CommandResult,
-} from "../../ipc/client";
+import { getTraySummary, type CommandResult } from "../../ipc/client";
 import { subscribeToEvent } from "../../ipc/events";
 import type { TraySummaryResponse } from "../../ipc/generated/contracts";
 import { createTestQueryWrapper } from "../../test/query";
@@ -64,10 +58,6 @@ describe("TrayPanel", () => {
   beforeEach(() => {
     vi.mocked(subscribeToEvent).mockResolvedValue(() => {
       /* no-op */
-    });
-    vi.mocked(openDetails).mockResolvedValue({
-      data: { status: "opened" },
-      meta: responseMeta,
     });
   });
 
@@ -125,23 +115,6 @@ describe("TrayPanel", () => {
 
     expect(await screen.findByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("summary offline")).toBeInTheDocument();
-  });
-
-  it("opens details through the IPC boundary", async () => {
-    const user = userEvent.setup();
-    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
-
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
-      wrapper: createTestQueryWrapper(),
-    });
-
-    await user.click(
-      await screen.findByRole("button", { name: /open details/i }),
-    );
-
-    await waitFor(() => {
-      expect(openDetails).toHaveBeenCalledTimes(1);
-    });
   });
 });
 

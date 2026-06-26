@@ -666,40 +666,14 @@ export const COMMAND_NAMES = {
   contractProbe: "__burnly_contract_probe",
   appGetBootstrap: "app_get_bootstrap",
   appGetCapabilities: "app_get_capabilities",
-  appOpenDetails: "app_open_details",
   appHideTrayPanel: "app_hide_tray_panel",
-  diagnosticsGetStatus: "diagnostics_get_status",
-  diagnosticsGetHistory: "diagnostics_get_history",
-  diagnosticsRevealLogs: "diagnostics_reveal_logs",
-  databaseGetMaintenanceStatus: "database_get_maintenance_status",
-  databaseIntegrityCheck: "database_integrity_check",
-  databaseCheckpoint: "database_checkpoint",
-  databaseVacuum: "database_vacuum",
-  databaseRestoreMigrationBackup: "database_restore_migration_backup",
-  historyGetExportPreview: "history_get_export_preview",
-  historyExport: "history_export",
-  historyGetDeletePreview: "history_get_delete_preview",
-  historyDelete: "history_delete",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
   settingsUpdateProjectPathRetention: "settings_update_project_path_retention",
-  budgetsList: "budgets_list",
-  budgetsGet: "budgets_get",
-  budgetsCreate: "budgets_create",
-  budgetsUpdate: "budgets_update",
-  budgetsEnable: "budgets_enable",
-  budgetsDisable: "budgets_disable",
-  budgetsDelete: "budgets_delete",
-  budgetsGetProgress: "budgets_get_progress",
   refreshGetState: "refresh_get_state",
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
-  usageGetOverview: "usage_get_overview",
   usageGetTraySummary: "usage_get_tray_summary",
-  usageGetCalendar: "usage_get_calendar",
-  usageGetDayDetail: "usage_get_day_detail",
-  usageGetSessions: "usage_get_sessions",
-  usageGetSessionDetail: "usage_get_session_detail",
 } as const;
 
 export type CommandName = (typeof COMMAND_NAMES)[keyof typeof COMMAND_NAMES];
@@ -708,80 +682,28 @@ export interface CommandRequests {
   [COMMAND_NAMES.contractProbe]: Record<string, never>;
   [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
-  [COMMAND_NAMES.appOpenDetails]: Record<string, never>;
   [COMMAND_NAMES.appHideTrayPanel]: Record<string, never>;
-  [COMMAND_NAMES.diagnosticsGetStatus]: Record<string, never>;
-  [COMMAND_NAMES.diagnosticsGetHistory]: HistoryCommandRequest;
-  [COMMAND_NAMES.diagnosticsRevealLogs]: Record<string, never>;
-  [COMMAND_NAMES.databaseGetMaintenanceStatus]: Record<string, never>;
-  [COMMAND_NAMES.databaseIntegrityCheck]: Record<string, never>;
-  [COMMAND_NAMES.databaseCheckpoint]: Record<string, never>;
-  [COMMAND_NAMES.databaseVacuum]: Record<string, never>;
-  [COMMAND_NAMES.databaseRestoreMigrationBackup]: Record<string, never>;
-  [COMMAND_NAMES.historyGetExportPreview]: ExportPreviewCommandRequest;
-  [COMMAND_NAMES.historyExport]: ConfirmedExportCommandRequest;
-  [COMMAND_NAMES.historyGetDeletePreview]: Record<string, never>;
-  [COMMAND_NAMES.historyDelete]: DeleteHistoryCommandRequest;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: UpdateProjectPathRetentionCommandRequest;
-  [COMMAND_NAMES.budgetsList]: Record<string, never>;
-  [COMMAND_NAMES.budgetsGet]: BudgetIdCommandRequest;
-  [COMMAND_NAMES.budgetsCreate]: CreateBudgetCommandRequest;
-  [COMMAND_NAMES.budgetsUpdate]: UpdateBudgetCommandRequest;
-  [COMMAND_NAMES.budgetsEnable]: MutateBudgetCommandRequest;
-  [COMMAND_NAMES.budgetsDisable]: MutateBudgetCommandRequest;
-  [COMMAND_NAMES.budgetsDelete]: MutateBudgetCommandRequest;
-  [COMMAND_NAMES.budgetsGetProgress]: Record<string, never>;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
-  [COMMAND_NAMES.usageGetOverview]: UsageOverviewCommandRequest;
   [COMMAND_NAMES.usageGetTraySummary]: TraySummaryCommandRequest;
-  [COMMAND_NAMES.usageGetCalendar]: ActivityCalendarCommandRequest;
-  [COMMAND_NAMES.usageGetDayDetail]: DayDetailCommandRequest;
-  [COMMAND_NAMES.usageGetSessions]: SessionListCommandRequest;
-  [COMMAND_NAMES.usageGetSessionDetail]: SessionDetailCommandRequest;
 }
 
 export interface CommandResponses {
   [COMMAND_NAMES.contractProbe]: IpcResponse<ContractProbeResponse>;
   [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
-  [COMMAND_NAMES.appOpenDetails]: IpcResponse<OpenDetailsResponse>;
   [COMMAND_NAMES.appHideTrayPanel]: IpcResponse<HideTrayPanelResponse>;
-  [COMMAND_NAMES.diagnosticsGetStatus]: IpcResponse<DiagnosticsStatusResponse>;
-  [COMMAND_NAMES.diagnosticsGetHistory]: IpcResponse<HistoryResponse>;
-  [COMMAND_NAMES.diagnosticsRevealLogs]: IpcResponse<RevealLogsResponse>;
-  [COMMAND_NAMES.databaseGetMaintenanceStatus]: IpcResponse<DatabaseMaintenanceStatusResponse>;
-  [COMMAND_NAMES.databaseIntegrityCheck]: IpcResponse<DatabaseMaintenanceActionResponse>;
-  [COMMAND_NAMES.databaseCheckpoint]: IpcResponse<DatabaseMaintenanceActionResponse>;
-  [COMMAND_NAMES.databaseVacuum]: IpcResponse<DatabaseMaintenanceActionResponse>;
-  [COMMAND_NAMES.databaseRestoreMigrationBackup]: IpcResponse<DatabaseMaintenanceActionResponse>;
-  [COMMAND_NAMES.historyGetExportPreview]: IpcResponse<ExportPreviewResponse>;
-  [COMMAND_NAMES.historyExport]: IpcResponse<ExportResponse>;
-  [COMMAND_NAMES.historyGetDeletePreview]: IpcResponse<DeleteHistoryPreviewResponse>;
-  [COMMAND_NAMES.historyDelete]: IpcResponse<DeleteHistoryResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdateProjectPathRetention]: IpcResponse<ProjectPathRetentionResponse>;
-  [COMMAND_NAMES.budgetsList]: IpcResponse<BudgetListResponse>;
-  [COMMAND_NAMES.budgetsGet]: IpcResponse<BudgetResponse>;
-  [COMMAND_NAMES.budgetsCreate]: IpcResponse<BudgetResponse>;
-  [COMMAND_NAMES.budgetsUpdate]: IpcResponse<BudgetResponse>;
-  [COMMAND_NAMES.budgetsEnable]: IpcResponse<BudgetResponse>;
-  [COMMAND_NAMES.budgetsDisable]: IpcResponse<BudgetResponse>;
-  [COMMAND_NAMES.budgetsDelete]: IpcResponse<DeleteBudgetResponse>;
-  [COMMAND_NAMES.budgetsGetProgress]: IpcResponse<CurrentBudgetProgressResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
-  [COMMAND_NAMES.usageGetOverview]: IpcResponse<UsageOverviewResponse>;
   [COMMAND_NAMES.usageGetTraySummary]: IpcResponse<TraySummaryResponse>;
-  [COMMAND_NAMES.usageGetCalendar]: IpcResponse<ActivityCalendarResponse>;
-  [COMMAND_NAMES.usageGetDayDetail]: IpcResponse<DayDetailResponse>;
-  [COMMAND_NAMES.usageGetSessions]: IpcResponse<SessionListResponse>;
-  [COMMAND_NAMES.usageGetSessionDetail]: IpcResponse<SessionDetailResponse>;
 }
 
 export type CommandInvoker = (
@@ -805,88 +727,10 @@ export function invokeAppGetCapabilities(
   return invoke(COMMAND_NAMES.appGetCapabilities, {});
 }
 
-export function invokeAppOpenDetails(invoke: CommandInvoker): Promise<unknown> {
-  return invoke(COMMAND_NAMES.appOpenDetails, {});
-}
-
 export function invokeAppHideTrayPanel(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.appHideTrayPanel, {});
-}
-
-export function invokeDiagnosticsGetStatus(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.diagnosticsGetStatus, {});
-}
-
-export function invokeDiagnosticsGetHistory(
-  invoke: CommandInvoker,
-  request: HistoryCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.diagnosticsGetHistory, request);
-}
-
-export function invokeDiagnosticsRevealLogs(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.diagnosticsRevealLogs, {});
-}
-
-export function invokeDatabaseGetMaintenanceStatus(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.databaseGetMaintenanceStatus, {});
-}
-
-export function invokeDatabaseIntegrityCheck(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.databaseIntegrityCheck, {});
-}
-
-export function invokeDatabaseCheckpoint(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.databaseCheckpoint, {});
-}
-
-export function invokeDatabaseVacuum(invoke: CommandInvoker): Promise<unknown> {
-  return invoke(COMMAND_NAMES.databaseVacuum, {});
-}
-
-export function invokeDatabaseRestoreMigrationBackup(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.databaseRestoreMigrationBackup, {});
-}
-
-export function invokeHistoryGetExportPreview(
-  invoke: CommandInvoker,
-  request: ExportPreviewCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.historyGetExportPreview, request);
-}
-
-export function invokeHistoryExport(
-  invoke: CommandInvoker,
-  request: ConfirmedExportCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.historyExport, request);
-}
-
-export function invokeHistoryGetDeletePreview(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.historyGetDeletePreview, {});
-}
-
-export function invokeHistoryDelete(
-  invoke: CommandInvoker,
-  request: DeleteHistoryCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.historyDelete, request);
 }
 
 export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {
@@ -907,58 +751,6 @@ export function invokeSettingsUpdateProjectPathRetention(
   return invoke(COMMAND_NAMES.settingsUpdateProjectPathRetention, request);
 }
 
-export function invokeBudgetsList(invoke: CommandInvoker): Promise<unknown> {
-  return invoke(COMMAND_NAMES.budgetsList, {});
-}
-
-export function invokeBudgetsGet(
-  invoke: CommandInvoker,
-  request: BudgetIdCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.budgetsGet, request);
-}
-
-export function invokeBudgetsCreate(
-  invoke: CommandInvoker,
-  request: CreateBudgetCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.budgetsCreate, request);
-}
-
-export function invokeBudgetsUpdate(
-  invoke: CommandInvoker,
-  request: UpdateBudgetCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.budgetsUpdate, request);
-}
-
-export function invokeBudgetsEnable(
-  invoke: CommandInvoker,
-  request: MutateBudgetCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.budgetsEnable, request);
-}
-
-export function invokeBudgetsDisable(
-  invoke: CommandInvoker,
-  request: MutateBudgetCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.budgetsDisable, request);
-}
-
-export function invokeBudgetsDelete(
-  invoke: CommandInvoker,
-  request: MutateBudgetCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.budgetsDelete, request);
-}
-
-export function invokeBudgetsGetProgress(
-  invoke: CommandInvoker,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.budgetsGetProgress, {});
-}
-
 export function invokeRefreshGetState(
   invoke: CommandInvoker,
 ): Promise<unknown> {
@@ -973,13 +765,6 @@ export function invokeRefreshCancel(invoke: CommandInvoker): Promise<unknown> {
   return invoke(COMMAND_NAMES.refreshCancel, {});
 }
 
-export function invokeUsageGetOverview(
-  invoke: CommandInvoker,
-  request: UsageOverviewCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.usageGetOverview, request);
-}
-
 export function invokeUsageGetTraySummary(
   invoke: CommandInvoker,
   request: TraySummaryCommandRequest,
@@ -987,38 +772,9 @@ export function invokeUsageGetTraySummary(
   return invoke(COMMAND_NAMES.usageGetTraySummary, request);
 }
 
-export function invokeUsageGetCalendar(
-  invoke: CommandInvoker,
-  request: ActivityCalendarCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.usageGetCalendar, request);
-}
-
-export function invokeUsageGetDayDetail(
-  invoke: CommandInvoker,
-  request: DayDetailCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.usageGetDayDetail, request);
-}
-
-export function invokeUsageGetSessions(
-  invoke: CommandInvoker,
-  request: SessionListCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.usageGetSessions, request);
-}
-
-export function invokeUsageGetSessionDetail(
-  invoke: CommandInvoker,
-  request: SessionDetailCommandRequest,
-): Promise<unknown> {
-  return invoke(COMMAND_NAMES.usageGetSessionDetail, request);
-}
-
 export const EVENT_NAMES = {
   refreshProgress: "burnly://v1/refresh-progress",
   dataInvalidated: "burnly://v1/data-invalidated",
-  openDetails: "burnly://v1/open-details",
   settingsChanged: "burnly://v1/settings-changed",
   platformStateChanged: "burnly://v1/platform-state-changed",
   updateProgress: "burnly://v1/update-progress",
@@ -1029,7 +785,6 @@ export type EventName = (typeof EVENT_NAMES)[keyof typeof EVENT_NAMES];
 export interface EventPayloads {
   [EVENT_NAMES.refreshProgress]: UnknownEventPayload;
   [EVENT_NAMES.dataInvalidated]: UnknownEventPayload;
-  [EVENT_NAMES.openDetails]: UnknownEventPayload;
   [EVENT_NAMES.settingsChanged]: UnknownEventPayload;
   [EVENT_NAMES.platformStateChanged]: UnknownEventPayload;
   [EVENT_NAMES.updateProgress]: UnknownEventPayload;
