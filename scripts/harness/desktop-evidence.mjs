@@ -33,7 +33,6 @@ run(
   "Phase 7 background refresh scheduler evidence",
 );
 
-
 console.log("Desktop runtime evidence passed.");
 
 function printPlatformEvidence() {
