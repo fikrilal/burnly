@@ -62,7 +62,7 @@ merge conflicts.
 - [x] 4 — diagnostics + recovery removed
 - [x] 5 — export + history removed
 - [x] 6 — reporting queries removed
-- [ ] 7 — main window removed
+- [x] 7 — main window removed
 - [ ] 8 — docs synced + full verification
 
 ## Exit Criteria

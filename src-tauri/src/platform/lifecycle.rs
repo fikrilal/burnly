@@ -1,15 +1,12 @@
 //! Desktop window lifecycle policy and Tauri window actions.
 
-use serde::Serialize;
-use tauri::{Emitter, Manager, Runtime, WebviewUrl};
+use tauri::{Manager, Runtime, WebviewUrl};
 use thiserror::Error;
 
 use crate::application::ports::window_actions::{WindowActionError, WindowActions};
 use crate::domain::settings::CloseBehavior;
 
-pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 pub(crate) const TRAY_PANEL_WINDOW_LABEL: &str = "tray-panel";
-const OPEN_DETAILS_EVENT: &str = "burnly://v1/open-details";
 
 const TRAY_PANEL_WIDTH: f64 = 440.0;
 const TRAY_PANEL_HEIGHT: f64 = 540.0;
@@ -30,15 +27,13 @@ pub(crate) const fn close_decision(close_behavior: CloseBehavior) -> CloseDecisi
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WindowActivationErrorKind {
-    MissingMainWindow,
     Show,
     Unminimize,
     Focus,
-    Create,
 }
 
 #[derive(Debug, Error)]
-#[error("failed to activate the main window")]
+#[error("failed to activate the window")]
 pub(crate) struct WindowActivationError {
     kind: WindowActivationErrorKind,
 }
@@ -47,45 +42,6 @@ impl WindowActivationError {
     fn new(kind: WindowActivationErrorKind) -> Self {
         Self { kind }
     }
-}
-
-pub(crate) fn activate_main_window<R: Runtime, M: Manager<R>>(
-    manager: &M,
-) -> Result<(), WindowActivationError> {
-    let window = manager
-        .get_webview_window(MAIN_WINDOW_LABEL)
-        .ok_or_else(|| WindowActivationError::new(WindowActivationErrorKind::MissingMainWindow))?;
-
-    activate_webview_window(&window)
-}
-
-pub(crate) fn open_details_window<R: Runtime, M: Manager<R>>(
-    manager: &M,
-) -> Result<(), WindowActivationError> {
-    let _ = hide_tray_panel(manager);
-    let window = ensure_main_window(manager)?;
-    activate_webview_window(&window)?;
-    let _ = window.emit(OPEN_DETAILS_EVENT, OpenDetailsEvent { view: "overview" });
-    Ok(())
-}
-
-fn ensure_main_window<R: Runtime, M: Manager<R>>(
-    manager: &M,
-) -> Result<tauri::WebviewWindow<R>, WindowActivationError> {
-    if let Some(window) = manager.get_webview_window(MAIN_WINDOW_LABEL) {
-        return Ok(window);
-    }
-
-    tauri::WebviewWindowBuilder::new(
-        manager,
-        MAIN_WINDOW_LABEL,
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("Burnly")
-    .inner_size(1180.0, 760.0)
-    .min_inner_size(920.0, 640.0)
-    .build()
-    .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Create))
 }
 
 fn hide_tray_panel<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<()> {
@@ -179,26 +135,6 @@ fn activate_webview_window<R: Runtime>(
     Ok(())
 }
 
-pub(crate) fn handle_close_request<R: Runtime>(
-    window: &tauri::Window<R>,
-    api: &tauri::CloseRequestApi,
-    close_behavior: CloseBehavior,
-) {
-    if window.label() != MAIN_WINDOW_LABEL {
-        return;
-    }
-
-    if close_decision(close_behavior) == CloseDecision::HideWindow {
-        api.prevent_close();
-        let _ = window.hide();
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct OpenDetailsEvent {
-    view: &'static str,
-}
-
 pub(crate) struct DesktopWindowActions<R: Runtime> {
     app: tauri::AppHandle<R>,
 }
@@ -210,10 +146,6 @@ impl<R: Runtime> DesktopWindowActions<R> {
 }
 
 impl<R: Runtime> WindowActions for DesktopWindowActions<R> {
-    fn open_details(&self) -> Result<(), WindowActionError> {
-        open_details_window(&self.app).map_err(|_| WindowActionError::OpenDetails)
-    }
-
     fn hide_tray_panel(&self) -> Result<(), WindowActionError> {
         hide_tray_panel(&self.app).map_err(|_| WindowActionError::HideTrayPanel)
     }
@@ -237,35 +169,7 @@ mod tests {
 
     #[test]
     fn window_labels_are_stable_contracts() {
-        assert_eq!(MAIN_WINDOW_LABEL, "main");
         assert_eq!(TRAY_PANEL_WINDOW_LABEL, "tray-panel");
-        assert_eq!(OPEN_DETAILS_EVENT, "burnly://v1/open-details");
-    }
-
-    #[test]
-    fn open_details_creates_main_window_when_missing() {
-        let app = tauri::test::mock_builder()
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .expect("build mock tauri app");
-
-        open_details_window(app.handle()).expect("open details");
-
-        assert!(app.get_webview_window(MAIN_WINDOW_LABEL).is_some());
-    }
-
-    #[test]
-    fn open_details_hides_tray_panel() {
-        let app = tauri::test::mock_builder()
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .expect("build mock tauri app");
-        tauri::WebviewWindowBuilder::new(&app, TRAY_PANEL_WINDOW_LABEL, Default::default())
-            .visible(true)
-            .build()
-            .expect("build tray panel");
-
-        open_details_window(app.handle()).expect("open details");
-
-        assert!(app.get_webview_window(MAIN_WINDOW_LABEL).is_some());
     }
 
     #[test]

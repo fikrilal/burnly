@@ -110,11 +110,6 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(crate::ipc::invoke_handler())
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if let Some(settings) = window.app_handle().try_state::<RuntimeSettings>() {
-                    lifecycle::handle_close_request(window, api, settings.close_behavior());
-                }
-            }
             if let WindowEvent::Focused(false) = event {
                 lifecycle::handle_tray_panel_blur(window);
             }
@@ -343,9 +338,7 @@ fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu:
             }
             let _ = lifecycle::open_tray_panel(app);
         }
-        Some(tray::TrayAction::OpenDetails) => {
-            let _ = lifecycle::open_details_window(app);
-        }
+
         Some(tray::TrayAction::Refresh) => {
             if let Some(coordinator) = app.try_state::<RefreshCoordinator>() {
                 coordinator.request_refresh(RefreshTrigger::Manual);

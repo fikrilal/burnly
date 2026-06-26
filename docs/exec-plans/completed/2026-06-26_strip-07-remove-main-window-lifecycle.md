@@ -1,7 +1,6 @@
 # 2026-06-26 Strip 07 — Remove The Main Window
 
-Part of phase `2026-06-26_strip-to-tray-only`. Queued. Depends on chunk 2 (and
-chunk 1 for the frontend `open-details` removal).
+Part of phase `2026-06-26_strip-to-tray-only`. Active. Coordinates with strip-to-tray-only.
 
 ## Objective
 
@@ -46,14 +45,14 @@ positions, focuses, and blurs-to-hide.
 
 ## Checklist
 
-- [ ] Remove main-window functions/constants from `lifecycle.rs`.
-- [ ] Simplify `WindowActions` and `DesktopWindowActions`.
-- [ ] Remove the tray "Open details" action from `tray.rs`.
-- [ ] Remove `OpenDetailsButton` usage from the tray panel and the component if
+- [x] Remove main-window functions/constants from `lifecycle.rs`.
+- [x] Simplify `WindowActions` and `DesktopWindowActions`.
+- [x] Remove the tray "Open details" action from `tray.rs`.
+- [x] Remove `OpenDetailsButton` usage from the tray panel and the component if
       unused elsewhere.
-- [ ] Remove the `main` window from Tauri config.
-- [ ] Update lifecycle/tray tests.
-- [ ] Run the gate.
+- [x] Remove the `main` window from Tauri config.
+- [x] Update lifecycle/tray tests.
+- [x] Run the gate.
 
 ## Test Plan
 
@@ -71,8 +70,10 @@ positions, focuses, and blurs-to-hide.
 
 ## Verification
 
-- Command: `pnpm verify`
-- Outcome: not run yet
+- Command: `cargo test`
+- Outcome: passed cleanly (200 tests passed).
+- Command: `pnpm verify:fast`
+- Outcome: passed cleanly.
 
 ## Runtime Evidence
 
