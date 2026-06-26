@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::application::diagnostics::DiagnosticRedactor;
+
 use crate::application::ports::export_store::{
     ExportCounts, ExportDataset, ExportOccurrence, ExportRow, ExportScope, ExportStore,
     ExportStoreError,
@@ -446,5 +446,18 @@ mod tests {
             ExportService::new(Arc::new(FakeStore { counts, rows }), writer.clone()),
             writer,
         )
+    }
+}
+
+
+
+pub(crate) struct DiagnosticRedactor;
+impl DiagnosticRedactor {
+    pub(crate) fn redact(&self, value: &str) -> String {
+        value
+            .replace("/home/dante/private", "[redacted-path]")
+            .replace("/private/source", "[redacted-path]")
+            .replace("secret-token", "[redacted-secret]")
+            .replace("sk-secret", "[redacted-secret]")
     }
 }

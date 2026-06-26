@@ -1,14 +1,11 @@
 pub(crate) mod calendar_store;
 pub(crate) mod clock;
 pub(crate) mod collector;
-pub(crate) mod database_maintenance;
 pub(crate) mod day_detail_store;
-pub(crate) mod diagnostics_store;
 pub(crate) mod export_store;
 pub(crate) mod export_writer;
 pub(crate) mod history_deletion_store;
 pub(crate) mod history_store;
-pub(crate) mod log_reveal;
 pub(crate) mod notification;
 pub(crate) mod overview_store;
 pub(crate) mod run_store;

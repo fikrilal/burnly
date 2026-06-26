@@ -7,7 +7,7 @@ use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
     Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary,
     NativeNotificationCapability, Readiness, RefreshState, RefreshStatus, SourceStatus,
-    SourceSummary, StartupRecoveryState,
+    SourceSummary,
 };
 use crate::application::ports::notification::NotificationPermission;
 use crate::application::ports::window_actions::WindowActions;
@@ -118,14 +118,6 @@ struct DiagnosticCapabilitiesResponse {
 pub(super) fn app_get_bootstrap<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
 ) -> IpcResponse<AppBootstrapResponse> {
-    if app.try_state::<StartupRecoveryState>().is_some() {
-        return IpcResponse::failure(IpcError::new(
-            "bootstrap.recovery_required",
-            "Burnly could not initialize the database. Review the recovery status and restore a verified backup when available.",
-            ErrorCategory::Persistence,
-            false,
-        ));
-    }
     let Some(service) = app.try_state::<BootstrapService>() else {
         return IpcResponse::failure(IpcError::new(
             "bootstrap.storage_unavailable",

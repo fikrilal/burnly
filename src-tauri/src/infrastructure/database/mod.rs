@@ -1,12 +1,10 @@
 //! SQLite connection ownership and policy enforcement.
 
 mod calendar_store;
-mod diagnostics_store;
 mod error;
 mod export_store;
 mod history_deletion_store;
 mod history_store;
-mod maintenance_store;
 mod migrations;
 mod overview_store;
 mod reconciliation_store;
@@ -22,12 +20,10 @@ use std::time::Duration;
 use rusqlite::{backup::Backup, Connection};
 
 pub(crate) use calendar_store::SqliteCalendarStore;
-pub(crate) use diagnostics_store::SqliteDiagnosticsStore;
 pub use error::{PersistenceError, PersistenceErrorKind};
 pub(crate) use export_store::SqliteExportStore;
 pub(crate) use history_deletion_store::SqliteHistoryDeletionStore;
 pub(crate) use history_store::SqliteHistoryStore;
-pub(crate) use maintenance_store::SqliteDatabaseMaintenanceStore;
 pub(crate) use overview_store::SqliteOverviewStore;
 pub(crate) use reconciliation_store::SqliteReconciliationStore;
 pub(crate) use session_store::SqliteSessionStore;

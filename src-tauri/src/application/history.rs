@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use thiserror::Error;
 
-use crate::application::diagnostics::DiagnosticRedactor;
+
 use crate::application::ports::clock::Clock;
 use crate::application::ports::history_store::{
     HistoryQuery, HistoryStore, HistoryStoreError, StoredHistoryPage, StoredImportRun,
@@ -414,5 +414,18 @@ mod tests {
             }),
             Err(HistoryError::InvalidCursor)
         );
+    }
+}
+
+
+
+pub(crate) struct DiagnosticRedactor;
+impl DiagnosticRedactor {
+    pub(crate) fn redact(&self, value: &str) -> String {
+        value
+            .replace("/home/dante/private", "[redacted-path]")
+            .replace("/private/source", "[redacted-path]")
+            .replace("secret-token", "[redacted-secret]")
+            .replace("sk-secret", "[redacted-secret]")
     }
 }

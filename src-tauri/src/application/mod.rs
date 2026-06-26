@@ -5,8 +5,6 @@
 
 pub(crate) mod bootstrap;
 pub(crate) mod collection;
-pub(crate) mod database_maintenance;
-pub(crate) mod diagnostics;
 pub(crate) mod export;
 pub(crate) mod history;
 pub(crate) mod history_deletion;

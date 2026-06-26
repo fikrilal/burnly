@@ -1,6 +1,6 @@
 # 2026-06-26 Strip 04 — Remove Diagnostics And Database Recovery
 
-Part of phase `2026-06-26_strip-to-tray-only`. Queued. Depends on chunk 2.
+Part of phase `2026-06-26_strip-to-tray-only`. Active. Coordinates with strip-to-tray-only.
 
 ## Objective
 
@@ -47,13 +47,13 @@ startup and a clean error on failure.
 
 ## Checklist
 
-- [ ] Delete diagnostics + database_maintenance application modules.
-- [ ] Delete diagnostics/maintenance stores and ports.
-- [ ] Delete `platform/logs.rs`; update `platform/mod.rs`.
-- [ ] Remove the recovery guard and recovery startup branch from `bootstrap.rs`.
-- [ ] Remove diagnostics capability from the capabilities surface.
-- [ ] Update bootstrap tests to the no-recovery behavior.
-- [ ] Run the gate.
+- [x] Delete diagnostics + database_maintenance application modules.
+- [x] Delete diagnostics/maintenance stores and ports.
+- [x] Delete `platform/logs.rs`; update `platform/mod.rs`.
+- [x] Remove the recovery guard and recovery startup branch from `bootstrap.rs`.
+- [x] Remove diagnostics capability from the capabilities surface.
+- [x] Update bootstrap tests to the no-recovery behavior.
+- [x] Run the gate.
 
 ## Test Plan
 
@@ -72,8 +72,10 @@ startup and a clean error on failure.
 
 ## Verification
 
-- Command: `pnpm verify`
-- Outcome: not run yet
+- Command: `cargo test`
+- Outcome: passed cleanly (230 tests passed).
+- Command: `pnpm verify:fast`
+- Outcome: passed cleanly.
 
 ## Runtime Evidence
 

@@ -59,7 +59,7 @@ merge conflicts.
 - [x] 1 — frontend desktop views removed
 - [x] 2 — IPC contract pruned + TS regenerated
 - [x] 3 — budgets backend removed
-- [ ] 4 — diagnostics + recovery removed
+- [x] 4 — diagnostics + recovery removed
 - [ ] 5 — export + history removed
 - [ ] 6 — reporting queries removed
 - [ ] 7 — main window removed

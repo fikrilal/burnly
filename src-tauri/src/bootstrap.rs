@@ -12,16 +12,13 @@ use thiserror::Error;
 
 use crate::application::bootstrap::{
     BootstrapService, CapabilityStatus, NativeNotificationCapability, RuntimeCapabilities,
-    RuntimeSettings, StartupRecoveryState,
+    RuntimeSettings,
 };
 
 use crate::application::collection::CollectorFailure;
-use crate::application::database_maintenance::DatabaseMaintenanceService;
-use crate::application::diagnostics::{DiagnosticsService, RuntimeDiagnosticRecord};
 use crate::application::export::ExportService;
 use crate::application::history::HistoryService;
 use crate::application::history_deletion::HistoryDeletionService;
-use crate::application::ports::database_maintenance::{MaintenanceActivity, MaintenanceGuard};
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::ports::settings_store::SettingsStore;
@@ -38,8 +35,7 @@ use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind,  SqliteCalendarStore, SqliteDatabaseMaintenanceStore,
-    SqliteDiagnosticsStore, SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore,
+    Database, PersistenceError, PersistenceErrorKind,  SqliteCalendarStore,  SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore,
     SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore, SqliteTraySummaryStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
@@ -47,7 +43,6 @@ use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::export::DesktopExportWriter;
 use crate::platform::lifecycle;
-use crate::platform::logs::DesktopLogReveal;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{
     database_path, notifications::NativeNotificationAdapter, single_instance, system_clock,
@@ -164,18 +159,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = match initialize(&database_path, &reporting_timezone, created_at_ms) {
         Ok(database) => database,
-        Err(StartupError::Persistence(error)) => {
-            eprintln!(
-                "Burnly persistence startup entered recovery mode ({:?})",
-                error.kind()
-            );
-            app.manage(StartupRecoveryState);
-            app.manage(DatabaseMaintenanceService::new(
-                Arc::new(SqliteDatabaseMaintenanceStore::new(database_path)),
-                Arc::new(RecoveryMaintenanceGuard),
-            ));
-            return Ok(());
-        }
         Err(error) => return Err(error),
     };
     let (_, background_refresh_enabled, refresh_interval_minutes, _, close_behavior, ..) = database
@@ -253,12 +236,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         },
     );
 
-    app.manage(DatabaseMaintenanceService::new(
-        Arc::new(SqliteDatabaseMaintenanceStore::new(database_path.clone())),
-        Arc::new(RuntimeMaintenanceGuard {
-            coordinator: refresh_coordinator.clone(),
-        }),
-    ));
+
     app.manage(
         Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
             as Arc<dyn WindowActions>,
@@ -300,18 +278,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         runtime,
         Arc::new(SystemClock),
     ));
-    app.manage(DiagnosticsService::new(
-        Arc::new(SqliteDiagnosticsStore::new(
-            Database::open(&database_path).map_err(StartupError::Persistence)?,
-        )),
-        settings_store,
-        Arc::new(DesktopLogReveal::new(app.handle().clone())),
-        RuntimeDiagnosticRecord {
-            app_version: env!("CARGO_PKG_VERSION").to_owned(),
-            contract_version: CONTRACT_VERSION,
-            collector_initialized: true,
-        },
-    ));
+    
     app.manage(HistoryService::new(
         Arc::new(SqliteHistoryStore::new(
             Database::open(&database_path).map_err(StartupError::Persistence)?,
@@ -332,31 +299,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     Ok(())
 }
 
-struct RecoveryMaintenanceGuard;
 
-impl MaintenanceGuard for RecoveryMaintenanceGuard {
-    fn activity(&self) -> MaintenanceActivity {
-        MaintenanceActivity::Idle
-    }
-}
-
-struct RuntimeMaintenanceGuard {
-    coordinator: RefreshCoordinator,
-}
-
-impl MaintenanceGuard for RuntimeMaintenanceGuard {
-    fn activity(&self) -> MaintenanceActivity {
-        match self.coordinator.snapshot().status {
-            RefreshStatus::Queued | RefreshStatus::Running | RefreshStatus::Cancelling => {
-                MaintenanceActivity::Busy
-            }
-            RefreshStatus::Idle
-            | RefreshStatus::Succeeded
-            | RefreshStatus::Partial
-            | RefreshStatus::Failed => MaintenanceActivity::Idle,
-        }
-    }
-}
 
 struct DesktopSettingsRuntime<R: Runtime> {
     app: tauri::AppHandle<R>,
