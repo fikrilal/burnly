@@ -7,11 +7,13 @@ Proposed corrected roadmap.
 This document replaces the previous dashboard-first phase roadmap. It aligns
 implementation with the current product source of truth:
 
-- Burnly is tray-first.
-- The compact tracker is the primary experience.
-- The full desktop window is secondary.
-- Budgets and heavy analytics are not the immediate product center.
-- Future sync and leaderboard features are opt-in and later.
+- Burnly is tray-only; the tray panel is the entire local experience.
+- There is no full desktop window (see `tray-only-decision.md`).
+- Local detail (settings now, sessions later) lives as tray tabs.
+- Budgets, export, history, and diagnostics are removed from local.
+- Calendar, usage reports, and history exploration are deferred to a future web
+  product.
+- Future sync and leaderboard features are opt-in, web-only, and later.
 
 ## Current Baseline
 
@@ -38,7 +40,7 @@ The first cohesive product should feel like:
 ```text
 tray/menu bar icon
   -> compact token tracker panel
-  -> optional full details window
+  -> local detail tabs (settings now, sessions later)
 ```
 
 The user should not need to open a full dashboard to answer the basic question:
@@ -122,22 +124,25 @@ Deliverables:
 Linux should be proven first because it is the current tested install target.
 Windows and macOS should follow later with platform-specific validation.
 
-### 4. Full Details As Secondary Experience
+### 4. Strip To Tray-Only And Local Detail Tabs
 
 Goal:
 
-Keep the full window useful without letting it dominate the product.
+Remove the full desktop window and all dashboard surfaces, then provide local
+detail as tray tabs.
 
 Deliverables:
 
-- Simplified navigation with `Summary`, `Sessions`, `History`, `Settings`, and
-  `Diagnostics`.
-- Detail views for sessions/history.
-- Diagnostics and settings placed as support tools.
-- Budgets hidden or de-emphasized from primary navigation until explicitly
-  revalidated.
-- Calendar-style history folded into `History` rather than kept as a separate
-  primary destination.
+- Delete the full desktop window and its navigation.
+- Delete Overview, Calendar, Budgets, Sessions, and Diagnostics surfaces and
+  their IPC/application/storage code.
+- Delete export, history, and database maintenance/recovery.
+- Keep settings backend/IPC for a future tray Settings tab.
+- Add local detail as tray tabs (settings now, sessions later).
+
+Reporting (calendar, usage reports, history, trends) is deferred to the future
+web product and is not rebuilt locally. Tracked by the tray-only strip execution
+plans under `docs/exec-plans/`.
 
 ### 5. Future Sync And Leaderboard Preparation
 
@@ -230,14 +235,15 @@ For future implementation:
 
 ## Open Decisions
 
-- Should the full details window use top tabs, sidebar, or another reduced
-  support layout?
-- Should the product support a small always-on floating window later?
-- Which aggregate metrics are safe candidates for future leaderboard sync?
+- Tray tab navigation pattern (tabs vs switcher) for settings/sessions.
+- Whether the tray panel grows or scrolls when a detail tab is open.
+- Which aggregate metrics are safe candidates for future web sync and
+  leaderboard.
 
 ## Current Recommendation
 
-Do not continue phase-based implementation yet.
-
-First finish the documentation reset and product correction. Then define one
-small execution plan for the tray-first compact tracker experience.
+The product correction is settled: Burnly is tray-only (see
+`tray-only-decision.md`). The active work is the tray-only strip — removing the
+full desktop window and dashboard surfaces — tracked by the strip execution
+plans under `docs/exec-plans/active/`. After the strip, local detail tabs
+(settings, then sessions) and the future web product are the next directions.

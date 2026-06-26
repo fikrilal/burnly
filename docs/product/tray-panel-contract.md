@@ -17,8 +17,9 @@ It should answer, at a glance:
 How many AI coding-tool tokens have I used today?
 ```
 
-The full desktop window remains available for details, settings, diagnostics,
-and deeper history.
+Detail that does not fit the default summary is added as tabs inside the tray
+panel (settings now, sessions later). Reporting and history are deferred to a
+future web product. There is no full desktop window.
 
 ## Layout Summary
 
@@ -40,7 +41,7 @@ Model usage allocation:
   Other                tokens / agent / change
 
 Actions:
-  Open details
+  Settings / Sessions tabs (sessions later)
 ```
 
 ## Visual Reference
@@ -173,9 +174,9 @@ because it affects trust in the displayed token data.
 
 ## Actions
 
-Required visible action:
-
-- `Open details`
+The default summary is one tab of the tray panel. Navigation to other local tabs
+(`Settings` now, `Sessions` later) is the primary action surface. There is no
+`Open details` action and no full desktop window.
 
 Refresh should not be a primary tray-panel button.
 
@@ -190,16 +191,10 @@ Auto-refresh behavior:
 
 Manual refresh behavior:
 
-- available from full details, diagnostics, settings, or a small overflow menu
-  if needed,
+- available from a settings tab or a small overflow menu if needed,
 - not part of the primary tray layout.
 
-Open details behavior:
-
-- opens/focuses the full desktop window,
-- lands on `Summary`.
-- `Summary` is the full-window version of the tray state and can link deeper
-  into Sessions or History.
+Reporting and history are not tray actions; they live on the future web product.
 
 ## Empty State
 
@@ -226,8 +221,6 @@ If refresh fails:
 ```text
 Refresh failed
 Last successful update: 10:42
-
-[Open diagnostics]
 ```
 
 If only some sources fail:
@@ -235,12 +228,10 @@ If only some sources fail:
 ```text
 Some sources failed
 Codex updated. Claude failed.
-
-[Open diagnostics]
 ```
 
-The tray panel should use safe, short messages. Detailed error codes belong in
-Diagnostics.
+The tray panel should use safe, short messages. There is no diagnostics surface;
+keep error copy compact and human-readable.
 
 ## Cost Position
 
@@ -257,7 +248,7 @@ Cost can later appear as:
 
 - a small secondary line under today's tokens,
 - a tooltip/detail,
-- a full-window detail metric.
+- a metric on the future web product.
 
 ## Source Split Position
 
@@ -300,8 +291,8 @@ The design system should include compact components for:
 - empty state,
 - partial/error state.
 
-These should be designed for the tray panel first, then reused in the full
-desktop window when appropriate.
+These should be designed for the tray panel first, then reused in tray tabs when
+appropriate.
 
 ## Open Decisions
 

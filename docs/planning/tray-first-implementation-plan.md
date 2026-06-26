@@ -2,11 +2,15 @@
 
 ## Status
 
-Linux tray-first MVP completed.
+Linux tray-first MVP completed. Partially superseded by the tray-only decision.
 
 This document records the tray-first implementation direction and completed
-Linux execution sequence. Future platform expansion should still be split into
-focused execution plans under `docs/exec-plans/`.
+Linux execution sequence. As of 2026-06-26, Burnly is **tray-only**: the full
+desktop window and the `Open details` action are being removed (see
+`docs/planning/tray-only-decision.md`). References below to a full desktop window
+or `Open details` are historical; local detail now lives as tray tabs. Future
+platform expansion should still be split into focused execution plans under
+`docs/exec-plans/`.
 
 ## Product Contract
 
@@ -19,11 +23,11 @@ The target product shape is:
 ```text
 tray/menu bar icon
   -> compact token tracker panel
-  -> optional full details window
+  -> local detail tabs (settings now, sessions later)
 ```
 
-The tray panel is Burnly's primary product surface. The full desktop window is
-secondary.
+The tray panel is Burnly's entire local surface. There is no full desktop
+window.
 
 ## Current Baseline
 

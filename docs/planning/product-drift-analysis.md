@@ -7,6 +7,16 @@ functional with real local data.
 
 It exists to prevent future work from continuing in the wrong direction.
 
+## Resolution (2026-06-26)
+
+This analysis is resolved by the tray-only decision
+(`docs/planning/tray-only-decision.md`). Where this document proposed reframing
+the full dashboard as a secondary detail surface, the final decision goes
+further: the full desktop window is removed entirely. Burnly is tray-only, and
+calendar/overview/history reporting is deferred to a future web product. Read the
+Keep/Hide/Stop matrix below as historical context — "Full dashboard: Reframe"
+became "remove", and "Calendar: Reframe" became "deferred to web".
+
 ## Original Product Intent
 
 Burnly was originally intended to be a compact AI coding-tool token tracker.

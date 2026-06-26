@@ -8,9 +8,13 @@ It runs locally, watches usage from supported tools such as Claude Code, Codex,
 and OpenCode, and gives developers a compact view of their current token usage
 without requiring them to open a full desktop window.
 
-The primary experience is a small tray/menu-bar panel. A full desktop window is
-available only for details, settings, diagnostics, and future account/sync
-features.
+The entire local experience is a small tray/menu-bar panel. There is no full
+desktop window. Local detail surfaces such as settings live as tabs inside the
+tray panel. Reporting, history, and leaderboards are deferred to a future web
+product that derives them from synced usage data.
+
+See `docs/planning/tray-only-decision.md` for the decision that removed the full
+desktop window.
 
 ## Product Positioning
 
@@ -120,33 +124,33 @@ It should show:
 - today's model usage with coding-agent labels,
 - model usage trend compared with yesterday,
 - freshness state,
-- entry point to full details.
+- entry point to local detail tabs (settings now; sessions later).
 
 The panel should be compact enough to open frequently during normal work.
 
-## Secondary Experience: Full Desktop Window
+## Local Detail: Tray Tabs
 
-The full desktop window exists for tasks that do not fit in the tray panel.
+Burnly has no full desktop window. Detail that does not fit the default tray
+summary is added as tabs inside the tray panel.
 
-Appropriate full-window surfaces:
+Planned local tabs:
 
-- `Summary`
-- `Sessions`
-- `History`
 - `Settings`
-- `Diagnostics`
+- `Sessions` (later)
 
-`Summary` is the default landing view when the user selects `Open details` from
-the tray panel.
+Local tabs exist for what must stay on-device — settings, and session detail that
+carries sensitive local metadata such as project paths. They should remain
+compact and consistent with the tray panel; they must not recreate a dashboard.
 
-`History` owns calendar-style history. Calendar should not remain a separate
-primary top-level destination unless it is revalidated later.
+## Reporting Lives On The Web
 
-Diagnostics can contain support actions such as export, maintenance, and
-detailed import/refresh evidence.
+Calendar, usage reports, history exploration, trends, and comparison surfaces are
+deferred to a future web product. The web derives them from synced aggregate
+daily usage facts, so they are not built into the local app.
 
-The full window should support detail, but it should not define the product's
-primary identity.
+The local app answers "how much have I used today, this week, this month?" The
+web app answers "show me my history and how I compare." Local tracking remains
+useful on its own and never requires an account.
 
 ## Future Web And Leaderboard Direction
 
@@ -187,27 +191,22 @@ source code, local file paths, or sensitive project names.
 - This week and this month token summaries.
 - Today's model usage allocation.
 - Recent usage trend.
-- Full details window.
-- Full details default landing on Summary.
-- Basic history.
-- Basic sessions view.
-- Settings.
-- Diagnostics sufficient to explain missing data.
+- Local tray tabs for settings now and sessions later.
 - Local data storage.
 - Privacy controls for project/path handling.
 
-### De-emphasized
+### Removed From Local Or Deferred To Web
 
-These may exist internally or in secondary screens, but they should not dominate
-the product:
+These are not part of the local app. Reporting-style surfaces are deferred to the
+future web product; the rest are removed:
 
-- budgets,
-- standalone Calendar top-level navigation,
-- heavy dashboards,
-- complex custom views,
-- advanced exports,
-- maintenance tools,
-- enterprise reporting.
+- budgets (removed),
+- calendar and usage reports (deferred to web),
+- history exploration (deferred to web),
+- heavy dashboards and custom views (deferred to web),
+- advanced exports (removed),
+- database maintenance and recovery tools (removed),
+- enterprise reporting (not planned).
 
 ### Not Included In Immediate MVP
 
@@ -240,8 +239,8 @@ the product:
 ### Inspect Details
 
 1. The user notices high usage in the tray panel.
-2. The user opens full details.
-3. Burnly shows sessions, sources, models, and recent history.
+2. The user opens the tray model allocation and, later, a local Sessions tab.
+3. For history and deeper reporting, the user opens the future web product.
 4. The user identifies what caused the usage.
 
 ### Future Opt-In Sync
@@ -314,14 +313,18 @@ profiles are proven.
 
 ## Current Product Correction
 
-The current implementation has accumulated full-window dashboard, budget,
-diagnostic, export, and release-preparation work. Some of that code can remain
-useful, but the product direction is corrected here:
+The initial implementation accumulated a full-window dashboard, budgets,
+diagnostics, export, history, and database-recovery work. As of 2026-06-26 the
+local product is corrected to **tray-only** (see
+`docs/planning/tray-only-decision.md`):
 
-- tray-first tracker is primary,
-- full desktop app is secondary,
-- budgets are not core,
-- dashboard exploration is not the immediate center,
-- future leaderboard affects metric design but remains opt-in and later.
+- the tray panel is the entire local experience,
+- there is no full desktop window,
+- local detail (settings now, sessions later) lives as tray tabs,
+- budgets, export, history, diagnostics, and recovery are removed from local,
+- calendar, usage reports, and history exploration are deferred to a future web
+  product that derives them from synced daily usage facts,
+- future leaderboard affects metric design but remains opt-in, web-only, and
+  later.
 
 Future plans should be evaluated against this document before implementation.

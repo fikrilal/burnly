@@ -4,7 +4,9 @@
 
 In progress. Phase 0 complete. Phase 1 complete. Phase 2 complete. **Phase 3
 complete** — the tray panel is rebuilt on the design system (first end-to-end
-proof). Next: Phase 4 (full desktop window reskin).
+proof). There is no full desktop window to reskin (see
+`docs/planning/tray-only-decision.md`); remaining design-system work targets tray
+tabs (settings now, sessions later).
 
 Progress log:
 
