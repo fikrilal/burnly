@@ -12,10 +12,6 @@ use crate::domain::source::SourceKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PersistedRefreshStatus {
-    Idle,
-    Queued,
-    Running,
-    Cancelling,
     Cancelled,
     Succeeded,
     Partial,

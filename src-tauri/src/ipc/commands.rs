@@ -26,8 +26,6 @@ pub(super) struct ContractProbeResponse {
     contract_version: u16,
 }
 
-
-
 #[tauri::command]
 pub(super) fn __burnly_contract_probe() -> IpcResponse<ContractProbeResponse> {
     IpcResponse::success(ContractProbeResponse {
@@ -138,8 +136,6 @@ pub(super) fn app_get_capabilities(
 ) -> IpcResponse<AppCapabilitiesResponse> {
     IpcResponse::success(service.capabilities().into())
 }
-
-
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

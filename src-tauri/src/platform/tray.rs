@@ -104,7 +104,7 @@ impl<R: Runtime> TrayController<R> {
         let open_panel_item =
             MenuItemBuilder::with_id(OPEN_PANEL_ID, "Open Summary").build(manager)?;
         let quit_item = MenuItemBuilder::with_id(QUIT_ID, "Quit Burnly").build(manager)?;
-        
+
         let menu = MenuBuilder::new(manager)
             .items(&[&today_item, &week_item, &month_item])
             .separator()
@@ -114,7 +114,7 @@ impl<R: Runtime> TrayController<R> {
             .separator()
             .item(&quit_item)
             .build()?;
-            
+
         let icon = manager.default_window_icon().cloned();
         let mut builder = TrayIconBuilder::with_id(TRAY_ID)
             .menu(&menu)
@@ -187,21 +187,30 @@ fn status_label(snapshot: &TraySnapshot) -> String {
 fn today_label(snapshot: &TraySnapshot) -> String {
     format!(
         "Today: {} tokens",
-        snapshot.today_tokens.map(format_number).unwrap_or_else(|| "---".to_owned())
+        snapshot
+            .today_tokens
+            .map(format_number)
+            .unwrap_or_else(|| "---".to_owned())
     )
 }
 
 fn week_label(snapshot: &TraySnapshot) -> String {
     format!(
         "This week: {} tokens",
-        snapshot.week_tokens.map(format_number).unwrap_or_else(|| "---".to_owned())
+        snapshot
+            .week_tokens
+            .map(format_number)
+            .unwrap_or_else(|| "---".to_owned())
     )
 }
 
 fn month_label(snapshot: &TraySnapshot) -> String {
     format!(
         "This month: {} tokens",
-        snapshot.month_tokens.map(format_number).unwrap_or_else(|| "---".to_owned())
+        snapshot
+            .month_tokens
+            .map(format_number)
+            .unwrap_or_else(|| "---".to_owned())
     )
 }
 
@@ -221,7 +230,7 @@ fn format_number(val: u64) -> String {
     let chars: Vec<char> = s.chars().collect();
     let len = chars.len();
     for (i, c) in chars.into_iter().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
+        if i > 0 && (len - i).is_multiple_of(3) {
             result.push(',');
         }
         result.push(c);

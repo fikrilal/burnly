@@ -177,40 +177,6 @@ pub(crate) fn migration_backup_path(database_path: &Path) -> std::path::PathBuf 
     database_path.with_file_name("burnly.pre-migration.sqlite3")
 }
 
-pub(crate) fn restore_verified_migration_backup(
-    database_path: &Path,
-) -> Result<(), PersistenceError> {
-    let backup_path = migration_backup_path(database_path);
-    let backup = Database::open(&backup_path)?;
-    backup.verify_health()?;
-    let restored_path = database_path.with_file_name("burnly.restored.sqlite3.tmp");
-    let _ = fs::remove_file(&restored_path);
-    let mut restored_connection =
-        Connection::open(&restored_path).map_err(PersistenceError::backup)?;
-    {
-        let restore = Backup::new(&backup.connection, &mut restored_connection)
-            .map_err(PersistenceError::backup)?;
-        restore
-            .run_to_completion(128, Duration::from_millis(5), None)
-            .map_err(PersistenceError::backup)?;
-    }
-    drop(restored_connection);
-    let restored = Database::open(&restored_path)?;
-    restored.verify_health()?;
-    drop(restored);
-
-    let failed_path = database_path.with_file_name("burnly.failed.sqlite3");
-    let _ = fs::remove_file(&failed_path);
-    fs::rename(database_path, &failed_path).map_err(PersistenceError::backup_publish)?;
-    if let Err(error) = fs::rename(&restored_path, database_path) {
-        let _ = fs::rename(&failed_path, database_path);
-        return Err(PersistenceError::backup_publish(error));
-    }
-    let restored = Database::open(database_path)?;
-    restored.verify_health()?;
-    Ok(())
-}
-
 fn ensure_parent_directory(path: &Path) -> Result<(), PersistenceError> {
     let parent = path
         .parent()
@@ -378,44 +344,6 @@ mod tests {
             .database()
             .needs_migration()
             .expect("read migration requirement"));
-    }
-
-    #[test]
-    fn verified_migration_backup_can_restore_without_consuming_backup() {
-        let directory = tempfile::TempDir::new().expect("temporary directory");
-        let path = directory.path().join("burnly.sqlite3");
-        let database = Database::open(&path).expect("open database");
-        database
-            .connection()
-            .execute_batch(
-                "CREATE TABLE recovery_marker (value TEXT NOT NULL);
-                 INSERT INTO recovery_marker VALUES ('before');
-                 PRAGMA user_version = 1;",
-            )
-            .expect("create old schema marker");
-        assert!(database.needs_migration().expect("migration required"));
-        database
-            .create_verified_migration_backup(&path)
-            .expect("create backup");
-        drop(database);
-
-        let changed = Database::open(&path).expect("reopen database");
-        changed
-            .connection()
-            .execute("UPDATE recovery_marker SET value = 'after'", [])
-            .expect("change current database");
-        drop(changed);
-
-        restore_verified_migration_backup(&path).expect("restore backup");
-
-        let restored = Database::open(&path).expect("open restored database");
-        let value: String = restored
-            .connection()
-            .query_row("SELECT value FROM recovery_marker", [], |row| row.get(0))
-            .expect("read restored marker");
-        assert_eq!(value, "before");
-        assert!(migration_backup_path(&path).is_file());
-        assert!(path.with_file_name("burnly.failed.sqlite3").is_file());
     }
 
     fn pragma_i64(connection: &Connection, name: &str) -> i64 {

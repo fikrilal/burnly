@@ -4,26 +4,12 @@ use tauri::{Manager, Runtime, WebviewUrl};
 use thiserror::Error;
 
 use crate::application::ports::window_actions::{WindowActionError, WindowActions};
-use crate::domain::settings::CloseBehavior;
 
 pub(crate) const TRAY_PANEL_WINDOW_LABEL: &str = "tray-panel";
 
 const TRAY_PANEL_WIDTH: f64 = 440.0;
 const TRAY_PANEL_HEIGHT: f64 = 540.0;
 const TRAY_PANEL_TOP_OFFSET: f64 = 48.0;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CloseDecision {
-    HideWindow,
-    QuitApplication,
-}
-
-pub(crate) const fn close_decision(close_behavior: CloseBehavior) -> CloseDecision {
-    match close_behavior {
-        CloseBehavior::Hide => CloseDecision::HideWindow,
-        CloseBehavior::Quit => CloseDecision::QuitApplication,
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WindowActivationErrorKind {
@@ -154,18 +140,6 @@ impl<R: Runtime> WindowActions for DesktopWindowActions<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn close_decision_follows_current_policy() {
-        assert_eq!(
-            close_decision(CloseBehavior::Quit),
-            CloseDecision::QuitApplication
-        );
-        assert_eq!(
-            close_decision(CloseBehavior::Hide),
-            CloseDecision::HideWindow
-        );
-    }
 
     #[test]
     fn window_labels_are_stable_contracts() {

@@ -17,23 +17,21 @@ use crate::application::bootstrap::{
 
 use crate::application::collection::CollectorFailure;
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
-use crate::application::ports::window_actions::WindowActions;
 use crate::application::ports::settings_store::SettingsStore;
+use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
-    RefreshCoordinator, RefreshCoordinatorHooks, RefreshEventSink, RefreshPolicy, RefreshScheduler,
-    RefreshSchedulerError, RefreshSnapshot, RefreshStatus,
+    RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
+    RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
-use crate::application::usage::{
-    TraySummaryQuery,
-};
+use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind,   
-    SqliteReconciliationStore, SqliteTraySummaryStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
+    SqliteTraySummaryStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
@@ -148,10 +146,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let database_path = database_path::resolve(app.handle()).map_err(StartupError::DatabasePath)?;
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
-    let database = match initialize(&database_path, &reporting_timezone, created_at_ms) {
-        Ok(database) => database,
-        Err(error) => return Err(error),
-    };
+    let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
     let (_, background_refresh_enabled, refresh_interval_minutes, _, close_behavior, ..) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
@@ -165,15 +160,10 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let refresh_event_sink = runtime_refresh_event_sink(
         app.handle().clone(),
         tray_state.clone(),
-        
         tray_summary_query.clone(),
         settings_store.clone(),
     );
-    let refresh_coordinator = build_refresh_coordinator(
-        app,
-        &database_path,
-        refresh_event_sink,
-    )?;
+    let refresh_coordinator = build_refresh_coordinator(app, &database_path, refresh_event_sink)?;
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
             .map_err(StartupError::RefreshScheduler)?;
@@ -187,7 +177,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         app.handle(),
         &tray_snapshot(
             &refresh_coordinator.snapshot(),
-            
             &tray_summary_query,
             &reporting_timezone,
         ),
@@ -197,7 +186,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         *tray_state.lock().expect("tray state lock is poisoned") = Some(controller.clone());
         controller.update(&tray_snapshot(
             &refresh_coordinator.snapshot(),
-            
             &tray_summary_query,
             &reporting_timezone,
         ));
@@ -205,7 +193,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     }
     install_tray_invalidation_listener(
         app.handle().clone(),
-        
         tray_summary_query.clone(),
         settings_store.clone(),
     );
@@ -226,7 +213,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
             permission: notification_capability.permission,
         },
     );
-
 
     app.manage(
         Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
@@ -265,14 +251,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         runtime,
         Arc::new(SystemClock),
     ));
-    
-    
-    
-    
+
     Ok(())
 }
-
-
 
 struct DesktopSettingsRuntime<R: Runtime> {
     app: tauri::AppHandle<R>,
@@ -360,8 +341,6 @@ fn refresh_policy(
     }
 }
 
-
-
 fn build_tray_summary_query(database_path: &Path) -> Result<TraySummaryQuery, StartupError> {
     let database = Database::open(database_path).map_err(StartupError::Persistence)?;
     Ok(TraySummaryQuery::new(
@@ -369,14 +348,6 @@ fn build_tray_summary_query(database_path: &Path) -> Result<TraySummaryQuery, St
         Arc::new(SystemClock),
     ))
 }
-
-
-
-
-
-
-
-
 
 fn build_refresh_coordinator<R: Runtime>(
     app: &tauri::App<R>,
@@ -437,14 +408,12 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
             .expect("tray state lock is poisoned")
             .as_ref()
         {
-            let timezone = self.settings_store.get()
+            let timezone = self
+                .settings_store
+                .get()
                 .map(|doc| doc.settings().reporting_timezone().to_owned())
                 .unwrap_or_else(|_| "UTC".to_owned());
-            tray.update(&tray_snapshot(
-                &snapshot,
-                &self.tray_summary,
-                &timezone,
-            ));
+            tray.update(&tray_snapshot(&snapshot, &self.tray_summary, &timezone));
         }
     }
 }
@@ -474,7 +443,8 @@ fn install_tray_invalidation_listener<R: Runtime>(
             listener_app.try_state::<tray::TrayController<R>>(),
             listener_app.try_state::<RefreshCoordinator>(),
         ) {
-            let timezone = settings_store.get()
+            let timezone = settings_store
+                .get()
                 .map(|doc| doc.settings().reporting_timezone().to_owned())
                 .unwrap_or_else(|_| "UTC".to_owned());
             controller.update(&tray_snapshot(
@@ -652,9 +622,7 @@ mod tests {
     use crate::application::bootstrap::{
         BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
     };
-    use crate::application::ports::notification::{
-        NotificationCapability, NotificationDeliveryOutcome, NotificationMessage,
-    };
+    use crate::application::ports::notification::{NotificationCapability, NotificationPermission};
     use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
     use crate::domain::settings::{Settings, SettingsDocument};
 
@@ -665,27 +633,6 @@ mod tests {
     use super::*;
 
     struct FixedBootstrapStore;
-
-    #[cfg(unix)]
-    struct TestNotificationPort;
-
-    #[cfg(unix)]
-    impl NotificationPort for TestNotificationPort {
-        fn capability(&self) -> NotificationCapability {
-            NotificationCapability {
-                supported: false,
-                permission: NotificationPermission::Unknown,
-            }
-        }
-
-        fn request_permission(&self) -> NotificationPermission {
-            NotificationPermission::Unknown
-        }
-
-        fn deliver(&self, _message: &NotificationMessage) -> NotificationDeliveryOutcome {
-            NotificationDeliveryOutcome::Failed
-        }
-    }
 
     struct PermissionNotificationPort {
         initial: NotificationPermission,
@@ -704,10 +651,6 @@ mod tests {
         fn request_permission(&self) -> NotificationPermission {
             *self.requests.lock().expect("requests lock") += 1;
             self.requested
-        }
-
-        fn deliver(&self, _message: &NotificationMessage) -> NotificationDeliveryOutcome {
-            NotificationDeliveryOutcome::Failed
         }
     }
 
@@ -1068,8 +1011,6 @@ mod tests {
         assert_eq!(privacy_response["data"]["clearedPaths"], 0);
     }
 
-
-
     #[test]
     fn tauri_bridge_invokes_refresh_state_command() {
         let directory = tempfile::TempDir::new().expect("create app data directory");
@@ -1333,16 +1274,5 @@ mod tests {
             headers: Default::default(),
             invoke_key: tauri::test::INVOKE_KEY.to_owned(),
         }
-    }
-
-    fn invoke_webview(
-        webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
-        command: &str,
-        body: Value,
-    ) -> Value {
-        tauri::test::get_ipc_response(webview, request_with_body(command, body))
-            .expect("invoke command")
-            .deserialize::<Value>()
-            .expect("deserialize command response")
     }
 }

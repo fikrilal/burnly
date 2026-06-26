@@ -116,8 +116,6 @@ fn tray_summary_query_error(error: TraySummaryQueryError) -> IpcError {
     }
 }
 
-
-
 impl TryFrom<TraySummaryReadModel> for TraySummaryResponse {
     type Error = IpcError;
 
@@ -187,10 +185,12 @@ const fn data_status(value: OverviewDataStatus) -> &'static str {
 fn to_rfc3339(epoch_ms: i64) -> Result<String, IpcError> {
     DateTime::<Utc>::from_timestamp_millis(epoch_ms)
         .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
-        .ok_or_else(|| IpcError::new(
-            "usage.invalid_timestamp",
-            "Burnly found an invalid timestamp.",
-            ErrorCategory::Internal,
-            true,
-        ))
+        .ok_or_else(|| {
+            IpcError::new(
+                "usage.invalid_timestamp",
+                "Burnly found an invalid timestamp.",
+                ErrorCategory::Internal,
+                true,
+            )
+        })
 }

@@ -89,8 +89,6 @@ impl BudgetEvaluationRunner for NoopBudgetEvaluationRunner {
     }
 }
 
-
-
 pub(crate) struct RefreshCoordinatorHooks {
     event_sink: Arc<dyn RefreshEventSink>,
     budget_evaluator: Arc<dyn BudgetEvaluationRunner>,

@@ -4,7 +4,6 @@ use thiserror::Error;
 
 use crate::application::ports::notification::NotificationPermission;
 
-pub(crate) struct StartupRecoveryState;
 use crate::domain::settings::{CloseBehavior, Settings, SettingsDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,13 +149,6 @@ impl RuntimeSettings {
             .close_behavior
             .lock()
             .expect("runtime settings lock is poisoned") = settings.close_behavior();
-    }
-
-    pub(crate) fn close_behavior(&self) -> CloseBehavior {
-        *self
-            .close_behavior
-            .lock()
-            .expect("runtime settings lock is poisoned")
     }
 }
 
@@ -372,17 +364,6 @@ mod tests {
         assert!(!bootstrap.onboarding_complete);
         assert!(!bootstrap.features.collector_refresh);
         assert!(bootstrap.features.budgets);
-    }
-
-    #[test]
-    fn runtime_settings_tracks_close_behavior_after_settings_update() {
-        let runtime_settings = RuntimeSettings::new(CloseBehavior::Quit);
-        let settings = Settings::new("UTC".to_owned(), false, 15, false, "hide", false, false)
-            .expect("valid settings");
-
-        runtime_settings.update(&settings);
-
-        assert_eq!(runtime_settings.close_behavior(), CloseBehavior::Hide);
     }
 
     #[test]
