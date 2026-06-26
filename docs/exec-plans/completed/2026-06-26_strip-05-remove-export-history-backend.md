@@ -1,6 +1,6 @@
 # 2026-06-26 Strip 05 — Remove Export And History
 
-Part of phase `2026-06-26_strip-to-tray-only`. Queued. Depends on chunk 2.
+Part of phase `2026-06-26_strip-to-tray-only`. Active. Coordinates with strip-to-tray-only.
 
 ## Objective
 
@@ -44,11 +44,11 @@ reconciliation.
 
 ## Checklist
 
-- [ ] Delete export/history/history_deletion application modules.
-- [ ] Delete the corresponding stores and ports.
-- [ ] Delete `platform/export.rs`; update `platform/mod.rs`.
-- [ ] Remove export/history wiring from `bootstrap.rs`.
-- [ ] Run the gate.
+- [x] Delete export/history/history_deletion application modules.
+- [x] Delete the corresponding stores and ports.
+- [x] Delete `platform/export.rs`; update `platform/mod.rs`.
+- [x] Remove export/history wiring from `bootstrap.rs`.
+- [x] Run the gate.
 
 ## Test Plan
 
@@ -67,8 +67,10 @@ reconciliation.
 
 ## Verification
 
-- Command: `pnpm verify`
-- Outcome: not run yet
+- Command: `cargo test`
+- Outcome: passed cleanly (218 tests passed).
+- Command: `pnpm verify:fast`
+- Outcome: passed cleanly.
 
 ## Runtime Evidence
 

@@ -2,9 +2,6 @@
 
 mod calendar_store;
 mod error;
-mod export_store;
-mod history_deletion_store;
-mod history_store;
 mod migrations;
 mod overview_store;
 mod reconciliation_store;
@@ -21,9 +18,6 @@ use rusqlite::{backup::Backup, Connection};
 
 pub(crate) use calendar_store::SqliteCalendarStore;
 pub use error::{PersistenceError, PersistenceErrorKind};
-pub(crate) use export_store::SqliteExportStore;
-pub(crate) use history_deletion_store::SqliteHistoryDeletionStore;
-pub(crate) use history_store::SqliteHistoryStore;
 pub(crate) use overview_store::SqliteOverviewStore;
 pub(crate) use reconciliation_store::SqliteReconciliationStore;
 pub(crate) use session_store::SqliteSessionStore;

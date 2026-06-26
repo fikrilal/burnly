@@ -16,9 +16,6 @@ use crate::application::bootstrap::{
 };
 
 use crate::application::collection::CollectorFailure;
-use crate::application::export::ExportService;
-use crate::application::history::HistoryService;
-use crate::application::history_deletion::HistoryDeletionService;
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::ports::settings_store::SettingsStore;
@@ -35,13 +32,12 @@ use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind,  SqliteCalendarStore,  SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore,
+    Database, PersistenceError, PersistenceErrorKind,  SqliteCalendarStore,  
     SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore, SqliteTraySummaryStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
-use crate::platform::export::DesktopExportWriter;
 use crate::platform::lifecycle;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{
@@ -279,23 +275,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         Arc::new(SystemClock),
     ));
     
-    app.manage(HistoryService::new(
-        Arc::new(SqliteHistoryStore::new(
-            Database::open(&database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SystemClock),
-    ));
-    app.manage(ExportService::new(
-        Arc::new(SqliteExportStore::new(
-            Database::open(&database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(DesktopExportWriter::new(app.handle().clone())),
-    ));
-    app.manage(HistoryDeletionService::new(Arc::new(
-        SqliteHistoryDeletionStore::new(
-            Database::open(&database_path).map_err(StartupError::Persistence)?,
-        ),
-    )));
+    
+    
+    
     Ok(())
 }
 
