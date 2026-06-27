@@ -11,7 +11,7 @@ use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
 use crate::application::bootstrap::{
-    BootstrapService, CapabilityStatus, RuntimeCapabilities,
+    BootstrapService, RuntimeCapabilities,
     RuntimeSettings,
 };
 
