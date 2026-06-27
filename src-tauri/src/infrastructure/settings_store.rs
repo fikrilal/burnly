@@ -75,14 +75,13 @@ impl SqliteSettingsStore {
             .connection_mut()
             .transaction()
             .map_err(|_| SettingsStoreError::Unavailable)?;
-        let retains_paths: bool = transaction
-            .query_row(
-                "SELECT store_project_paths FROM app_settings WHERE id = 1",
+        let cleared = apply_project_path_policy(&transaction, false)?;
+        transaction
+            .execute(
+                "UPDATE app_settings SET store_project_paths = 0 WHERE id = 1",
                 [],
-                |row| row.get(0),
             )
             .map_err(|_| SettingsStoreError::Unavailable)?;
-        let cleared = apply_project_path_policy(&transaction, retains_paths)?;
         transaction
             .commit()
             .map_err(|_| SettingsStoreError::Unavailable)?;
@@ -237,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_policy_normalizes_legacy_identity_while_retaining_opted_in_path() {
+    fn startup_policy_clears_legacy_retained_project_paths() {
         let store = store();
         insert_legacy_project(&store, "/home/dante/secret-project");
         {
@@ -256,10 +255,20 @@ mod tests {
             .expect("enforce policy");
         let (identity_key, raw_path, fingerprint) = read_project(&store);
 
-        assert_eq!(cleared, 0);
+        assert_eq!(cleared, 1);
         assert!(ProjectPathIdentity::is_key(&identity_key));
-        assert_eq!(raw_path.as_deref(), Some("/home/dante/secret-project"));
+        assert_eq!(raw_path, None);
         assert_eq!(fingerprint.len(), 32);
+        let database = store.database.lock().expect("database lock");
+        let retain_paths: bool = database
+            .connection()
+            .query_row(
+                "SELECT store_project_paths FROM app_settings WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read retention policy");
+        assert!(!retain_paths);
     }
 
     fn insert_legacy_project(store: &SqliteSettingsStore, path: &str) {

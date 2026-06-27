@@ -281,14 +281,6 @@ fn reconcile_session_in_transaction(
     let source_id = request.source_id();
     let import_run_id = request.import_run_id();
     let observed_at_ms = request.observed_at_ms();
-    let retain_project_paths: bool = transaction
-        .query_row(
-            "SELECT store_project_paths FROM app_settings WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|_| UsageStoreError::Backend)?;
-
     let mut observed_source_keys = Vec::with_capacity(request.candidates().len());
 
     for candidate in request.candidates() {
@@ -298,7 +290,7 @@ fn reconcile_session_in_transaction(
                 source_id,
                 observed_at_ms,
                 path,
-                retain_project_paths,
+                false,
             )?),
             None => None,
         };
@@ -1196,19 +1188,12 @@ mod tests {
         }
     }
 
-    fn reconcile_session_with_policy(retain_paths: bool) -> SqliteReconciliationStore {
+    fn reconcile_session() -> SqliteReconciliationStore {
         let directory = tempfile::TempDir::new().expect("create temporary directory");
         let database_path = directory.keep().join("burnly.sqlite3");
         let mut database = Database::open(&database_path).expect("open database");
         database.migrate_to_latest().expect("migrate database");
         database.ensure_app_settings("UTC", 100).expect("settings");
-        database
-            .connection()
-            .execute(
-                "UPDATE app_settings SET store_project_paths = ?1",
-                [retain_paths],
-            )
-            .expect("set privacy policy");
         let store = SqliteReconciliationStore::new(database);
         let source_id = store
             .resolve_source(SourceKey::ClaudeCode, 100)
@@ -1233,8 +1218,8 @@ mod tests {
     }
 
     #[test]
-    fn disabled_retention_persists_only_non_reversible_project_identity() {
-        let store = reconcile_session_with_policy(false);
+    fn session_reconciliation_persists_only_non_reversible_project_identity() {
+        let store = reconcile_session();
         let database = store.database.lock().expect("store lock");
         let (identity_key, raw_path, fingerprint): (String, Option<String>, Vec<u8>) = database
             .connection()
@@ -1249,21 +1234,6 @@ mod tests {
         assert!(!identity_key.contains("secret-project"));
         assert_eq!(raw_path, None);
         assert_eq!(fingerprint.len(), 32);
-    }
-
-    #[test]
-    fn enabled_retention_keeps_raw_path_separate_from_project_identity() {
-        let store = reconcile_session_with_policy(true);
-        let database = store.database.lock().expect("store lock");
-        let (identity_key, raw_path): (String, Option<String>) = database
-            .connection()
-            .query_row("SELECT identity_key, raw_path FROM projects", [], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
-            .expect("read project");
-
-        assert!(ProjectPathIdentity::is_key(&identity_key));
-        assert_eq!(raw_path.as_deref(), Some("/home/dante/secret-project"));
     }
 
     fn request(
