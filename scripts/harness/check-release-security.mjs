@@ -18,6 +18,12 @@ const forbiddenPermissionPrefixes = [
   "notification:",
   "updater:",
 ];
+const allowedRemoteCapabilityUrls = new Set([
+  "http://localhost:1420/*",
+  "http://127.0.0.1:1420/*",
+  "tauri://localhost/*",
+  "http://tauri.localhost/*",
+]);
 
 function commandPermission(command) {
   return `allow-${command.replaceAll("_", "-")}`;
@@ -120,9 +126,13 @@ function validatePolicy({
       "src-tauri/capabilities: capability must target only reviewed local windows.",
     );
   }
-  if ("remote" in (capability ?? {})) {
+  const remoteUrls = capability?.remote?.urls ?? [];
+  const hasUnapprovedRemoteUrl = remoteUrls.some(
+    (url) => !allowedRemoteCapabilityUrls.has(url),
+  );
+  if (hasUnapprovedRemoteUrl) {
     failures.push(
-      "src-tauri/capabilities: remote URLs must not receive local capabilities.",
+      "src-tauri/capabilities: only the reviewed localhost dev URL may receive IPC capabilities.",
     );
   }
 
@@ -215,6 +225,7 @@ function runSelfTest() {
     capabilities: [
       {
         identifier: "main-window",
+        remote: { urls: ["http://localhost:1420/*"] },
         windows: ["main", "tray-panel"],
         permissions: [...allowedCorePermissions, "allow-app-get-bootstrap"],
       },
@@ -240,11 +251,18 @@ function runSelfTest() {
       expected: 2,
     },
     {
-      name: "remote capability",
+      name: "unreviewed remote capability",
       mutate: (input) => {
         input.capabilities[0].remote = { urls: ["https://example.com"] };
       },
       expected: 1,
+    },
+    {
+      name: "reviewed dev remote capability",
+      mutate: (input) => {
+        input.capabilities[0].remote = { urls: ["http://localhost:1420/*"] };
+      },
+      expected: 0,
     },
     {
       name: "manifest drift",

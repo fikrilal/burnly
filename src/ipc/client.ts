@@ -120,12 +120,6 @@ const capabilitySchema = z.object({
 const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
   tray: capabilitySchema,
   launchAtLogin: capabilitySchema,
-  nativeNotifications: z.object({
-    supported: z.boolean(),
-    status: z.enum(["available", "not_implemented", "unavailable"]),
-    permission: z.enum(["granted", "denied", "prompt", "unknown"]),
-  }),
-  updates: capabilitySchema,
   exportFormats: z.array(z.string()),
   diagnostics: z.object({
     desktopEvidence: z.boolean(),

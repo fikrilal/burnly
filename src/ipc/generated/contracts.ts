@@ -92,8 +92,6 @@ export interface AppBootstrapResponse {
 export interface AppCapabilitiesResponse {
   tray: DesktopCapability;
   launchAtLogin: DesktopCapability;
-  nativeNotifications: NativeNotificationCapability;
-  updates: DesktopCapability;
   exportFormats: string[];
   diagnostics: {
     desktopEvidence: boolean;
@@ -426,10 +424,6 @@ export interface CurrentBudgetProgressItemResponse {
 export interface DesktopCapability {
   supported: boolean;
   status: "available" | "not_implemented" | "unavailable";
-}
-
-export interface NativeNotificationCapability extends DesktopCapability {
-  permission: "granted" | "denied" | "prompt" | "unknown";
 }
 
 export interface RefreshStatusResponse {
