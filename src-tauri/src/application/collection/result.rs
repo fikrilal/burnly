@@ -186,6 +186,10 @@ impl CollectionMetadata {
     pub(crate) const fn profile_version(&self) -> u16 {
         self.profile_version
     }
+
+    pub(crate) const fn effective_scope(&self) -> &CollectionScope {
+        &self.effective_scope
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

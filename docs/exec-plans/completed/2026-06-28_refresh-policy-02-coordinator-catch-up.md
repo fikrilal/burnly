@@ -41,14 +41,14 @@ historical correctness if scope handling is wrong.
 
 ## Checklist
 
-- [ ] Activate and complete planner/import-state chunk first.
-- [ ] Thread planned scopes into coordinator collection requests.
-- [ ] Route scheduled, startup-after-gap, resume, and normal manual refresh
+- [x] Activate and complete planner/import-state chunk first.
+- [x] Thread planned scopes into coordinator collection requests.
+- [x] Route scheduled, startup-after-gap, resume, and normal manual refresh
       through catch-up policy.
-- [ ] Preserve full refresh for missing source/projection baseline.
-- [ ] Add tests proving collector request bounds and scoped reconciliation
+- [x] Preserve full refresh for missing source/projection baseline.
+- [x] Add tests proving collector request bounds and scoped reconciliation
       behavior.
-- [ ] Record verification outcomes when this plan becomes active.
+- [x] Record verification outcomes when this plan becomes active.
 
 ## Test Plan
 
@@ -71,12 +71,14 @@ historical correctness if scope handling is wrong.
 
 ## Verification
 
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
+- Outcome: passed; 204 passed, 1 ignored.
 - Command: `pnpm lint`
-- Outcome: not run yet
+- Outcome: passed with 15 existing warnings.
 - Command: `pnpm verify:fast`
-- Outcome: not run yet
+- Outcome: passed.
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed.
 
 ## Runtime Evidence
 

@@ -11,11 +11,13 @@
     reason = "Coordinator entry points are invoked by the Phase 4F IPC commands"
 )]
 
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::Tz;
 
 use thiserror::Error;
 
@@ -39,6 +41,9 @@ use crate::application::reconciliation::{
 };
 use crate::domain::source::SourceKey;
 
+use super::planner::{
+    RefreshPlanMode, RefreshPlanRequest, RefreshPlanTarget, RefreshPolicyPlanner,
+};
 use super::state::{RefreshSnapshot, RefreshStatus};
 
 struct CoordinatorState {
@@ -217,6 +222,18 @@ impl RefreshCoordinator {
     }
 
     pub(crate) fn request_refresh(&self, trigger: RefreshTrigger) -> RefreshSnapshot {
+        self.request_refresh_with_scope_policy(trigger, RefreshScopePolicy::CatchUp)
+    }
+
+    pub(crate) fn request_full_refresh(&self, trigger: RefreshTrigger) -> RefreshSnapshot {
+        self.request_refresh_with_scope_policy(trigger, RefreshScopePolicy::Full)
+    }
+
+    fn request_refresh_with_scope_policy(
+        &self,
+        trigger: RefreshTrigger,
+        scope_policy: RefreshScopePolicy,
+    ) -> RefreshSnapshot {
         let now_ms = self.clock.now_epoch_ms();
         let job_id = self.next_job_id(now_ms);
 
@@ -235,7 +252,7 @@ impl RefreshCoordinator {
         let worker = self.clone();
         if thread::Builder::new()
             .name("burnly-refresh".to_owned())
-            .spawn(move || worker.finish_refresh(trigger, job_id, now_ms))
+            .spawn(move || worker.finish_refresh(trigger, scope_policy, job_id, now_ms))
             .is_err()
         {
             let failed = {
@@ -258,8 +275,14 @@ impl RefreshCoordinator {
         format!("refresh-{now_ms}-{sequence}")
     }
 
-    fn finish_refresh(&self, trigger: RefreshTrigger, job_id: String, started_at_ms: i64) {
-        let result = self.execute(trigger, &job_id, started_at_ms);
+    fn finish_refresh(
+        &self,
+        trigger: RefreshTrigger,
+        scope_policy: RefreshScopePolicy,
+        job_id: String,
+        started_at_ms: i64,
+    ) {
+        let result = self.execute(trigger, scope_policy, &job_id, started_at_ms);
         let snapshot = {
             let mut state = self.lock_state();
             state.status = result.outcome.status();
@@ -274,6 +297,7 @@ impl RefreshCoordinator {
     fn execute(
         &self,
         trigger: RefreshTrigger,
+        scope_policy: RefreshScopePolicy,
         job_id: &str,
         started_at_ms: i64,
     ) -> ExecutionResult {
@@ -290,7 +314,7 @@ impl RefreshCoordinator {
             Err(_) => return self.failed_result(false),
         };
 
-        let result = self.execute_open_refresh(refresh_run_id, job_id, started_at_ms);
+        let result = self.execute_open_refresh(refresh_run_id, scope_policy, job_id, started_at_ms);
         match result {
             Ok(result) => result,
             Err(failure) => {
@@ -326,6 +350,7 @@ impl RefreshCoordinator {
     fn execute_open_refresh(
         &self,
         refresh_run_id: crate::application::reconciliation::RefreshRunId,
+        scope_policy: RefreshScopePolicy,
         job_id: &str,
         started_at_ms: i64,
     ) -> Result<ExecutionResult, ExecutionFailure> {
@@ -344,8 +369,15 @@ impl RefreshCoordinator {
                 .map_err(|_| {
                     self.failure("refresh.source", "Could not resolve the usage source.")
                 })?;
-            let request =
-                self.collection_request(job_id, target, requested_at, &aggregation_timezone)?;
+            let scope =
+                self.planned_scope(target, requested_at, &aggregation_timezone, scope_policy)?;
+            let request = self.collection_request(
+                job_id,
+                target,
+                scope,
+                requested_at,
+                &aggregation_timezone,
+            )?;
             let collection =
                 self.collector
                     .collect(request, &NeverCancelled)
@@ -397,6 +429,7 @@ impl RefreshCoordinator {
         &self,
         job_id: &str,
         target: RefreshTarget,
+        scope: CollectionScope,
         requested_at: DateTime<Utc>,
         aggregation_timezone: &str,
     ) -> Result<CollectionRequest, ExecutionFailure> {
@@ -411,7 +444,7 @@ impl RefreshCoordinator {
             CollectionProjection::Daily => CollectionRequest::daily(
                 collection_id,
                 target.source,
-                CollectionScope::Full,
+                scope,
                 aggregation_timezone.to_owned(),
                 requested_at,
             )
@@ -419,9 +452,45 @@ impl RefreshCoordinator {
             CollectionProjection::Session => Ok(CollectionRequest::session(
                 collection_id,
                 target.source,
-                CollectionScope::Full,
+                scope,
                 requested_at,
             )),
+        }
+    }
+
+    fn planned_scope(
+        &self,
+        target: RefreshTarget,
+        requested_at: DateTime<Utc>,
+        aggregation_timezone: &str,
+        scope_policy: RefreshScopePolicy,
+    ) -> Result<CollectionScope, ExecutionFailure> {
+        match scope_policy {
+            RefreshScopePolicy::Full => Ok(CollectionScope::Full),
+            RefreshScopePolicy::CatchUp => {
+                let today = local_date(requested_at, aggregation_timezone).map_err(|_| {
+                    self.failure("refresh.timezone", "Refresh timezone is invalid.")
+                })?;
+                let lookup = target.import_lookup(aggregation_timezone).map_err(|_| {
+                    self.failure("refresh.import_state", "Refresh import state is invalid.")
+                })?;
+                let previous_import =
+                    self.run_store
+                        .latest_successful_import(lookup)
+                        .map_err(|_| {
+                            self.failure(
+                                "refresh.import_state",
+                                "Could not read the latest successful import state.",
+                            )
+                        })?;
+                let plan = RefreshPolicyPlanner::new().plan(RefreshPlanRequest::new(
+                    target.plan_target(aggregation_timezone),
+                    RefreshPlanMode::CatchUp,
+                    today,
+                    previous_import,
+                ));
+                Ok(plan.scope().clone())
+            }
         }
     }
 
@@ -445,7 +514,7 @@ impl RefreshCoordinator {
             source_id,
             import_collector,
             collection.projection(),
-            CollectionScope::Full,
+            metadata.effective_scope().clone(),
             import_timezone(collection.projection(), aggregation_timezone),
         )
         .map_err(|_| self.failure("refresh.import", "Import metadata is invalid."))?;
@@ -519,7 +588,7 @@ impl RefreshCoordinator {
                 let reconciliation = DailyReconciliationRequest::new(
                     source_id,
                     import_run_id,
-                    CollectionScope::Full,
+                    collection.metadata().effective_scope().clone(),
                     collection.outcome(),
                     now_ms,
                     collection.daily_candidates().to_vec(),
@@ -534,7 +603,7 @@ impl RefreshCoordinator {
                 let reconciliation = SessionReconciliationRequest::new(
                     source_id,
                     import_run_id,
-                    CollectionScope::Full,
+                    collection.metadata().effective_scope().clone(),
                     collection.outcome(),
                     now_ms,
                     collection.session_candidates().to_vec(),
@@ -659,6 +728,12 @@ struct ExecutionFailure {
     summary: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefreshScopePolicy {
+    Full,
+    CatchUp,
+}
+
 fn run_error(code: &'static str, summary: &'static str) -> Option<RunError> {
     RunError::new(code, summary).ok()
 }
@@ -671,6 +746,34 @@ fn clamp_count(value: usize) -> u32 {
 struct RefreshTarget {
     source: SourceKey,
     projection: CollectionProjection,
+}
+
+impl RefreshTarget {
+    fn plan_target(self, aggregation_timezone: &str) -> RefreshPlanTarget {
+        match self.projection {
+            CollectionProjection::Daily => {
+                RefreshPlanTarget::daily(self.source, aggregation_timezone.to_owned())
+            }
+            CollectionProjection::Session => RefreshPlanTarget::session(self.source),
+        }
+    }
+
+    fn import_lookup(
+        self,
+        aggregation_timezone: &str,
+    ) -> Result<
+        crate::application::reconciliation::ImportRunLookup,
+        crate::application::reconciliation::RunValidationError,
+    > {
+        crate::application::reconciliation::ImportRunLookup::new(
+            self.source,
+            self.projection,
+            match self.projection {
+                CollectionProjection::Daily => Some(aggregation_timezone.to_owned()),
+                CollectionProjection::Session => None,
+            },
+        )
+    }
 }
 
 const fn refresh_targets() -> [RefreshTarget; 6] {
@@ -716,6 +819,11 @@ fn import_timezone(projection: CollectionProjection, timezone: &str) -> Option<S
     }
 }
 
+fn local_date(requested_at: DateTime<Utc>, aggregation_timezone: &str) -> Result<NaiveDate, ()> {
+    let timezone = Tz::from_str(aggregation_timezone).map_err(|_| ())?;
+    Ok(requested_at.with_timezone(&timezone).date_naive())
+}
+
 fn records_seen(collection: &CollectionResult) -> u32 {
     let count = match collection.projection() {
         CollectionProjection::Daily => collection.daily_candidates().len(),
@@ -752,6 +860,8 @@ mod tests {
     struct FakeRunStore {
         refresh_outcomes: Mutex<Vec<RefreshOutcome>>,
         import_outcomes: Mutex<Vec<ImportOutcome>>,
+        import_scopes: Mutex<Vec<CollectionScope>>,
+        latest_imports: Mutex<Vec<SuccessfulImportState>>,
         failure: Mutex<Option<RunStoreFailure>>,
         next_id: AtomicUsize,
     }
@@ -769,9 +879,15 @@ mod tests {
             Self {
                 refresh_outcomes: Mutex::new(Vec::new()),
                 import_outcomes: Mutex::new(Vec::new()),
+                import_scopes: Mutex::new(Vec::new()),
+                latest_imports: Mutex::new(Vec::new()),
                 failure: Mutex::new(None),
                 next_id: AtomicUsize::new(1),
             }
+        }
+
+        fn seed_successful_import(&self, state: SuccessfulImportState) {
+            self.latest_imports.lock().expect("lock").push(state);
         }
 
         fn fail_once(&self, failure: RunStoreFailure) {
@@ -798,6 +914,10 @@ mod tests {
 
         fn import_outcomes(&self) -> Vec<ImportOutcome> {
             self.import_outcomes.lock().expect("lock").clone()
+        }
+
+        fn import_scopes(&self) -> Vec<CollectionScope> {
+            self.import_scopes.lock().expect("lock").clone()
         }
     }
 
@@ -838,12 +958,16 @@ mod tests {
 
         fn begin_import_run(
             &self,
-            _spec: ImportRunSpec,
+            spec: ImportRunSpec,
             _now_ms: i64,
         ) -> Result<ImportRunId, RunStoreError> {
             if self.take_failure(RunStoreFailure::BeginImport) {
                 return Err(RunStoreError::Backend);
             }
+            self.import_scopes
+                .lock()
+                .expect("lock")
+                .push(spec.scope().clone());
             Ok(ImportRunId::new(self.next()))
         }
 
@@ -864,14 +988,22 @@ mod tests {
 
         fn latest_successful_import(
             &self,
-            _lookup: ImportRunLookup,
+            lookup: ImportRunLookup,
         ) -> Result<Option<SuccessfulImportState>, RunStoreError> {
-            Ok(None)
+            Ok(self
+                .latest_imports
+                .lock()
+                .expect("lock")
+                .iter()
+                .find(|state| {
+                    state.source() == lookup.source() && state.projection() == lookup.projection()
+                })
+                .cloned())
         }
     }
 
     struct FakeUsageStore {
-        reconciled: Mutex<Vec<(CollectionProjection, CollectionOutcome)>>,
+        reconciled: Mutex<Vec<(CollectionProjection, CollectionOutcome, CollectionScope)>>,
         fail: AtomicBool,
     }
 
@@ -956,7 +1088,7 @@ mod tests {
                 .lock()
                 .expect("lock")
                 .iter()
-                .map(|(_, outcome)| *outcome)
+                .map(|(_, outcome, _)| *outcome)
                 .collect()
         }
 
@@ -965,7 +1097,16 @@ mod tests {
                 .lock()
                 .expect("lock")
                 .iter()
-                .map(|(projection, _)| *projection)
+                .map(|(projection, _, _)| *projection)
+                .collect()
+        }
+
+        fn reconciled_scopes(&self) -> Vec<CollectionScope> {
+            self.reconciled
+                .lock()
+                .expect("lock")
+                .iter()
+                .map(|(_, _, scope)| scope.clone())
                 .collect()
         }
     }
@@ -978,10 +1119,11 @@ mod tests {
             if self.fail.swap(false, Ordering::AcqRel) {
                 return Err(UsageStoreError::Backend);
             }
-            self.reconciled
-                .lock()
-                .expect("lock")
-                .push((CollectionProjection::Daily, request.outcome()));
+            self.reconciled.lock().expect("lock").push((
+                CollectionProjection::Daily,
+                request.outcome(),
+                request.scope().clone(),
+            ));
             let observed = request
                 .candidates()
                 .iter()
@@ -999,10 +1141,11 @@ mod tests {
             if self.fail.swap(false, Ordering::AcqRel) {
                 return Err(UsageStoreError::Backend);
             }
-            self.reconciled
-                .lock()
-                .expect("lock")
-                .push((CollectionProjection::Session, request.outcome()));
+            self.reconciled.lock().expect("lock").push((
+                CollectionProjection::Session,
+                request.outcome(),
+                request.scope().clone(),
+            ));
             let observed = request
                 .candidates()
                 .iter()
@@ -1228,6 +1371,25 @@ mod tests {
         vec![outcome]
     }
 
+    fn repeated_scope(scope: CollectionScope) -> Vec<CollectionScope> {
+        vec![scope; refresh_targets().len()]
+    }
+
+    fn date(year: i32, month: u32, day: u32) -> chrono::NaiveDate {
+        chrono::NaiveDate::from_ymd_opt(year, month, day).expect("date")
+    }
+
+    fn seed_successful_imports(run_store: &FakeRunStore, scope: CollectionScope) {
+        for target in refresh_targets() {
+            run_store.seed_successful_import(SuccessfulImportState::new(
+                target.source,
+                target.projection,
+                scope.clone(),
+                1,
+            ));
+        }
+    }
+
     #[allow(dead_code)]
     fn candidate() -> DailyUsageCandidate {
         let request = CollectionRequest::daily(
@@ -1264,6 +1426,7 @@ mod tests {
         >,
         calls: AtomicUsize,
         requests: Mutex<Vec<(SourceKey, CollectionProjection)>>,
+        scopes: Mutex<Vec<CollectionScope>>,
     }
 
     impl ScriptedCollector {
@@ -1277,6 +1440,7 @@ mod tests {
                 behavior: Box::new(behavior),
                 calls: AtomicUsize::new(0),
                 requests: Mutex::new(Vec::new()),
+                scopes: Mutex::new(Vec::new()),
             }
         }
 
@@ -1286,6 +1450,10 @@ mod tests {
 
         fn requests(&self) -> Vec<(SourceKey, CollectionProjection)> {
             self.requests.lock().expect("lock").clone()
+        }
+
+        fn scopes(&self) -> Vec<CollectionScope> {
+            self.scopes.lock().expect("lock").clone()
         }
     }
 
@@ -1312,6 +1480,10 @@ mod tests {
                 .lock()
                 .expect("lock")
                 .push((request.source(), request.projection()));
+            self.scopes
+                .lock()
+                .expect("lock")
+                .push(request.scope().clone());
             (self.behavior)(request)
         }
     }
@@ -1375,6 +1547,70 @@ mod tests {
         assert_eq!(
             run_store.refresh_outcomes(),
             repeated_refresh_outcomes(RefreshOutcome::Succeeded)
+        );
+    }
+
+    #[test]
+    fn missing_baseline_uses_full_scope_for_collector_import_and_reconciliation() {
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
+        }));
+        let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Succeeded);
+        assert_eq!(collector.scopes(), repeated_scope(CollectionScope::Full));
+        assert_eq!(
+            run_store.import_scopes(),
+            repeated_scope(CollectionScope::Full)
+        );
+        assert_eq!(
+            usage_store.reconciled_scopes(),
+            repeated_scope(CollectionScope::Full)
+        );
+    }
+
+    #[test]
+    fn manual_refresh_uses_incremental_catch_up_after_baseline() {
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
+        }));
+        let run_store = Arc::new(FakeRunStore::new());
+        let usage_store = Arc::new(FakeUsageStore::new());
+        let previous_scope =
+            CollectionScope::incremental(date(2026, 6, 20), date(2026, 6, 20)).expect("scope");
+        seed_successful_imports(&run_store, previous_scope);
+        let expected_scope =
+            CollectionScope::incremental(date(2026, 6, 18), date(2026, 6, 28)).expect("scope");
+        let coordinator = RefreshCoordinator::new(
+            collector.clone(),
+            run_store.clone(),
+            usage_store.clone(),
+            Arc::new(FakeClock {
+                now_ms: Utc
+                    .with_ymd_and_hms(2026, 6, 28, 12, 0, 0)
+                    .single()
+                    .expect("timestamp")
+                    .timestamp_millis(),
+            }),
+            "0.1.0",
+            "UTC",
+        );
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Succeeded);
+        assert_eq!(collector.scopes(), repeated_scope(expected_scope.clone()));
+        assert_eq!(
+            run_store.import_scopes(),
+            repeated_scope(expected_scope.clone())
+        );
+        assert_eq!(
+            usage_store.reconciled_scopes(),
+            repeated_scope(expected_scope)
         );
     }
 
