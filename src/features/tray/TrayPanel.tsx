@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 
 import { hideTrayPanel } from "../../ipc/client";
@@ -13,6 +13,7 @@ import {
   type ModelUsage,
 } from "../../components/burnly";
 import { AnimatedNumber } from "../../components/ui/animated-number";
+import { MotionTabs } from "../../components/ui/motion-tabs";
 import { cn } from "../../lib/cn";
 import { formatCompactNumber, formatNumber } from "../../lib/format";
 import { useTraySummary } from "./use-tray-summary";
@@ -81,7 +82,7 @@ function TrayPanelContent({
   isError: boolean;
   error: Error | null;
 }) {
-  const isEmpty = summary.dataStatus === "empty";
+  const [activeTab, setActiveTab] = useState<string>("overview");
 
   return (
     <main className="flex min-h-screen flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground">
@@ -90,10 +91,15 @@ function TrayPanelContent({
           data-tauri-drag-region
           className="flex items-start justify-between gap-3"
         >
-          <div>
-            <p className="text-sm font-semibold tracking-tight text-foreground">
-              Burnly
-            </p>
+          <div className="flex flex-col gap-2">
+            <MotionTabs
+              tabs={[
+                { id: "overview", label: "Overview" },
+                { id: "settings", label: "Settings" },
+              ]}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+            />
             <div className="mt-0.5">
               <HeaderStatus
                 state={freshnessState(
@@ -108,44 +114,77 @@ function TrayPanelContent({
           <PanelCloseButton />
         </header>
 
-        {isError ? (
-          <ErrorState
-            title="Update failed"
-            description={userSafeErrorMessage(error)}
-          />
-        ) : null}
-
-        <CompactMetric
-          label="Today token usage"
-          value={
-            <AnimatedNumber value={tokenNumber(summary.today.totalTokens)} />
-          }
-          caption="tokens today"
-        />
-
-        <MetricRow
-          items={[
-            {
-              label: "This week",
-              value: formatCompactNumber(summary.week.totalTokens),
-            },
-            {
-              label: "This month",
-              value: formatCompactNumber(summary.month.totalTokens),
-            },
-          ]}
-        />
-
-        {isEmpty ? (
-          <EmptyState
-            title="No usage collected today"
-            description="Burnly updates automatically when data becomes stale."
-          />
-        ) : null}
-
-        <AllocationList models={toModelUsage(summary.models)} />
+        {activeTab === "overview" ? (
+          <OverviewTab summary={summary} isError={isError} error={error} />
+        ) : (
+          <SettingsTab />
+        )}
       </div>
     </main>
+  );
+}
+
+function OverviewTab({
+  summary,
+  isError,
+  error,
+}: {
+  summary: TraySummaryResponse;
+  isError: boolean;
+  error: Error | null;
+}) {
+  const isEmpty = summary.dataStatus === "empty";
+
+  return (
+    <div className="flex flex-col gap-6">
+      {isError ? (
+        <ErrorState
+          title="Update failed"
+          description={userSafeErrorMessage(error)}
+        />
+      ) : null}
+
+      <CompactMetric
+        label="Today token usage"
+        value={
+          <AnimatedNumber value={tokenNumber(summary.today.totalTokens)} />
+        }
+        caption="tokens today"
+      />
+
+      <MetricRow
+        items={[
+          {
+            label: "This week",
+            value: formatCompactNumber(summary.week.totalTokens),
+          },
+          {
+            label: "This month",
+            value: formatCompactNumber(summary.month.totalTokens),
+          },
+        ]}
+      />
+
+      {isEmpty ? (
+        <EmptyState
+          title="No usage collected today"
+          description="Burnly updates automatically when data becomes stale."
+        />
+      ) : null}
+
+      <AllocationList models={toModelUsage(summary.models)} />
+    </div>
+  );
+}
+
+function SettingsTab() {
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="text-sm font-semibold">Settings</h2>
+      <p className="text-sm text-muted-foreground">
+        Settings configuration will go here.
+      </p>
+    </div>
   );
 }
 
@@ -261,6 +300,7 @@ function freshnessState(
   return dataStatus;
 }
 
+// Keep helper functions at end of file.
 function toModelUsage(models: TraySummaryResponse["models"]): ModelUsage[] {
   return models.map((model) => ({
     modelName: model.modelName,
