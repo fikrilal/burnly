@@ -742,7 +742,8 @@ mod tests {
     use crate::application::ports::run_store::RunStoreError;
     use crate::application::ports::usage_store::UsageStoreError;
     use crate::application::reconciliation::{
-        DailyReconciliationSummary, ImportRunId, RefreshRunId, SourceId,
+        DailyReconciliationSummary, ImportRunId, ImportRunLookup, RefreshRunId, SourceId,
+        SuccessfulImportState,
     };
     use crate::domain::usage::{
         CostKind, CurrencyCode, DataQuality, TokenUsage, UsageCost, ValuedCostStatus,
@@ -859,6 +860,13 @@ mod tests {
                 .expect("lock")
                 .push(completion.outcome);
             Ok(())
+        }
+
+        fn latest_successful_import(
+            &self,
+            _lookup: ImportRunLookup,
+        ) -> Result<Option<SuccessfulImportState>, RunStoreError> {
+            Ok(None)
         }
     }
 

@@ -41,13 +41,13 @@ not yet change production refresh triggers.
 
 ## Checklist
 
-- [ ] Inspect existing import-run storage and refresh coordinator dependencies.
-- [ ] Add planner input/output types for refresh target, trigger kind, today,
+- [x] Inspect existing import-run storage and refresh coordinator dependencies.
+- [x] Add planner input/output types for refresh target, trigger kind, today,
       timezone, and last successful import state.
-- [ ] Add import-state query support for successful source/projection runs.
-- [ ] Add unit tests for baseline full, catch-up after a gap, two-day lookback,
+- [x] Add import-state query support for successful source/projection runs.
+- [x] Add unit tests for baseline full, catch-up after a gap, two-day lookback,
       and today-only freshness.
-- [ ] Record verification outcomes when this plan becomes active.
+- [x] Record verification outcomes when this plan becomes active.
 
 ## Test Plan
 
@@ -70,10 +70,12 @@ not yet change production refresh triggers.
 
 ## Verification
 
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
+- Outcome: passed; 202 passed, 1 ignored.
 - Command: `pnpm lint`
-- Outcome: not run yet
+- Outcome: passed with 15 existing warnings.
 - Command: `pnpm verify:fast`
-- Outcome: not run yet
+- Outcome: passed.
 
 ## Runtime Evidence
 

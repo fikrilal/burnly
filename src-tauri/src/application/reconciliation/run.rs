@@ -13,7 +13,10 @@
 
 use thiserror::Error;
 
+use chrono::NaiveDate;
+
 use crate::application::collection::{CollectionProjection, CollectionScope};
+use crate::domain::source::SourceKey;
 
 /// Maximum stored length, in characters, of a redacted run error summary.
 const MAX_SUMMARY_CHARS: usize = 500;
@@ -323,6 +326,98 @@ pub(crate) struct ImportRunCompletion {
     pub error: Option<RunError>,
 }
 
+/// Query identity for finding the latest successful import for a refresh target.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImportRunLookup {
+    source: SourceKey,
+    projection: CollectionProjection,
+    aggregation_timezone: Option<String>,
+}
+
+impl ImportRunLookup {
+    pub(crate) fn new(
+        source: SourceKey,
+        projection: CollectionProjection,
+        aggregation_timezone: Option<String>,
+    ) -> Result<Self, RunValidationError> {
+        let aggregation_timezone = match projection {
+            CollectionProjection::Daily => {
+                let timezone = aggregation_timezone
+                    .filter(|timezone| !timezone.trim().is_empty())
+                    .ok_or(RunValidationError::MissingDailyTimezone)?;
+                Some(timezone)
+            }
+            CollectionProjection::Session => None,
+        };
+
+        Ok(Self {
+            source,
+            projection,
+            aggregation_timezone,
+        })
+    }
+
+    pub(crate) const fn source(&self) -> SourceKey {
+        self.source
+    }
+
+    pub(crate) const fn projection(&self) -> CollectionProjection {
+        self.projection
+    }
+
+    pub(crate) fn aggregation_timezone(&self) -> Option<&str> {
+        self.aggregation_timezone.as_deref()
+    }
+}
+
+/// Successful import state used by refresh policy planning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SuccessfulImportState {
+    source: SourceKey,
+    projection: CollectionProjection,
+    scope: CollectionScope,
+    finished_at_ms: i64,
+}
+
+impl SuccessfulImportState {
+    pub(crate) const fn new(
+        source: SourceKey,
+        projection: CollectionProjection,
+        scope: CollectionScope,
+        finished_at_ms: i64,
+    ) -> Self {
+        Self {
+            source,
+            projection,
+            scope,
+            finished_at_ms,
+        }
+    }
+
+    pub(crate) const fn source(&self) -> SourceKey {
+        self.source
+    }
+
+    pub(crate) const fn projection(&self) -> CollectionProjection {
+        self.projection
+    }
+
+    pub(crate) const fn scope(&self) -> &CollectionScope {
+        &self.scope
+    }
+
+    pub(crate) const fn finished_at_ms(&self) -> i64 {
+        self.finished_at_ms
+    }
+
+    pub(crate) const fn scope_end_date(&self) -> Option<NaiveDate> {
+        match &self.scope {
+            CollectionScope::Full => None,
+            CollectionScope::Incremental(scope) => Some(scope.end_date()),
+        }
+    }
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum RunValidationError {
     #[error("refresh run requires a non-empty job key")]
@@ -399,6 +494,33 @@ mod tests {
             None,
         )
         .expect("session spec");
+        assert_eq!(session.aggregation_timezone(), None);
+    }
+
+    #[test]
+    fn latest_import_lookup_matches_daily_and_session_identity_rules() {
+        assert_eq!(
+            ImportRunLookup::new(SourceKey::ClaudeCode, CollectionProjection::Daily, None)
+                .expect_err("missing daily timezone"),
+            RunValidationError::MissingDailyTimezone
+        );
+
+        let daily = ImportRunLookup::new(
+            SourceKey::ClaudeCode,
+            CollectionProjection::Daily,
+            Some("UTC".to_owned()),
+        )
+        .expect("daily lookup");
+        assert_eq!(daily.source(), SourceKey::ClaudeCode);
+        assert_eq!(daily.projection(), CollectionProjection::Daily);
+        assert_eq!(daily.aggregation_timezone(), Some("UTC"));
+
+        let session = ImportRunLookup::new(
+            SourceKey::ClaudeCode,
+            CollectionProjection::Session,
+            Some("UTC".to_owned()),
+        )
+        .expect("session lookup");
         assert_eq!(session.aggregation_timezone(), None);
     }
 
