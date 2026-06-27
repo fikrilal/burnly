@@ -7,7 +7,6 @@ fn main() {
             "app_hide_tray_panel",
             "settings_get",
             "settings_update",
-            "settings_update_project_path_retention",
             "refresh_get_state",
             "refresh_request",
             "refresh_cancel",

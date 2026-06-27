@@ -27,7 +27,6 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::app_hide_tray_panel,
         settings::settings_get,
         settings::settings_update,
-        settings::settings_update_project_path_retention,
         commands::refresh_get_state,
         commands::refresh_request,
         commands::refresh_cancel,

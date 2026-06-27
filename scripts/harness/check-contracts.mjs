@@ -241,16 +241,7 @@ export interface AppBootstrapResponse {
     status: "ready";
     schemaVersion: number;
   };
-  settings: {
-    reportingTimezone: string;
-    backgroundRefreshEnabled: boolean;
-    refreshIntervalMinutes: number;
-    launchAtLogin: boolean;
-    closeBehavior: "hide" | "quit";
-    notificationsEnabled: boolean;
-    storeProjectPaths: boolean;
-    revision: number;
-  };
+  settings: SettingsResponse;
   features: {
     usageOverview: boolean;
     collectorRefresh: boolean;
@@ -465,13 +456,9 @@ export interface DeleteHistoryResponse {
 
 export interface UpdateSettingsRequest {
   expectedRevision: number;
-  reportingTimezone: string;
   backgroundRefreshEnabled: boolean;
-  refreshIntervalMinutes: number;
   launchAtLogin: boolean;
   closeBehavior: "hide" | "quit";
-  notificationsEnabled: boolean;
-  storeProjectPaths: boolean;
 }
 
 export interface UpdateSettingsCommandRequest extends Record<string, unknown> {
@@ -479,29 +466,10 @@ export interface UpdateSettingsCommandRequest extends Record<string, unknown> {
 }
 
 export interface SettingsResponse {
-  reportingTimezone: string;
   backgroundRefreshEnabled: boolean;
-  refreshIntervalMinutes: number;
   launchAtLogin: boolean;
   closeBehavior: "hide" | "quit";
-  notificationsEnabled: boolean;
-  storeProjectPaths: boolean;
   revision: number;
-}
-
-export interface UpdateProjectPathRetentionRequest {
-  expectedRevision: number;
-  retainPaths: boolean;
-}
-
-export interface UpdateProjectPathRetentionCommandRequest
-  extends Record<string, unknown> {
-  request: UpdateProjectPathRetentionRequest;
-}
-
-export interface ProjectPathRetentionResponse {
-  settings: SettingsResponse;
-  clearedPaths: number;
 }
 
 export type BudgetLimit =

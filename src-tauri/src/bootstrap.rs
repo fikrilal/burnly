@@ -10,13 +10,9 @@ use iana_time_zone::GetTimezoneError;
 use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
-use crate::application::bootstrap::{
-    BootstrapService, RuntimeCapabilities,
-    RuntimeSettings,
-};
+use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
 
 use crate::application::collection::CollectorFailure;
-use crate::application::ports::settings_store::SettingsStore;
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -37,10 +33,7 @@ use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle;
 use crate::platform::system_clock::SystemClock;
-use crate::platform::{
-    database_path, single_instance, system_clock,
-    system_timezone, tray,
-};
+use crate::platform::{database_path, single_instance, system_clock, system_timezone, tray};
 
 const TRAY_OPEN_STALE_AFTER_MS: i64 = 5 * 60 * 1_000;
 const TRAY_OPEN_REFRESH_THROTTLE_MS: i64 = 60 * 1_000;
@@ -145,10 +138,10 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
-    let (_, background_refresh_enabled, refresh_interval_minutes, _, close_behavior, ..) = database
+    let (background_refresh_enabled, _, close_behavior) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
-    let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
+    let refresh_policy = refresh_policy(background_refresh_enabled);
     let tray_state = Arc::new(Mutex::new(None));
     let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
     let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
@@ -157,9 +150,13 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         app.handle().clone(),
         tray_state.clone(),
         tray_summary_query.clone(),
-        settings_store.clone(),
     );
-    let refresh_coordinator = build_refresh_coordinator(app, &database_path, refresh_event_sink)?;
+    let refresh_coordinator = build_refresh_coordinator(
+        app,
+        &database_path,
+        refresh_event_sink,
+        reporting_timezone.clone(),
+    )?;
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
             .map_err(StartupError::RefreshScheduler)?;
@@ -187,11 +184,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         ));
         app.manage(controller);
     }
-    install_tray_invalidation_listener(
-        app.handle().clone(),
-        tray_summary_query.clone(),
-        settings_store.clone(),
-    );
+    install_tray_invalidation_listener(app.handle().clone(), tray_summary_query.clone());
     let tray_capability = match tray_controller {
         Some(_) => RuntimeCapabilities::tray_available(),
         None => RuntimeCapabilities::tray_unavailable(),
@@ -253,22 +246,13 @@ impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
             return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
         }
 
-        if proposed.store_project_paths() != current.store_project_paths() {
-            return Err(RuntimeSettingError::ProjectPathRetentionRequiresPrivacyFlow);
-        }
         Ok(())
     }
 
     fn apply(&self, settings: &Settings) {
         self.runtime_settings.update(settings);
         if let Some(scheduler) = self.app.try_state::<RefreshScheduler>() {
-            scheduler.apply_policy(refresh_policy(
-                settings.background_refresh_enabled(),
-                settings.refresh_interval_minutes(),
-            ));
-        }
-        if let Some(coordinator) = self.app.try_state::<RefreshCoordinator>() {
-            coordinator.set_aggregation_timezone(settings.reporting_timezone());
+            scheduler.apply_policy(refresh_policy(settings.background_refresh_enabled()));
         }
     }
 }
@@ -292,12 +276,9 @@ fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu:
     }
 }
 
-fn refresh_policy(
-    background_refresh_enabled: bool,
-    refresh_interval_minutes: i64,
-) -> RefreshPolicy {
+fn refresh_policy(background_refresh_enabled: bool) -> RefreshPolicy {
     if background_refresh_enabled {
-        RefreshPolicy::enabled_minutes(refresh_interval_minutes)
+        RefreshPolicy::enabled_minutes(15)
     } else {
         RefreshPolicy::disabled()
     }
@@ -315,6 +296,7 @@ fn build_refresh_coordinator<R: Runtime>(
     app: &tauri::App<R>,
     database_path: &Path,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
+    reporting_timezone: String,
 ) -> Result<RefreshCoordinator, StartupError> {
     let resource_directory = app
         .path()
@@ -328,18 +310,21 @@ fn build_refresh_coordinator<R: Runtime>(
         .map_err(StartupError::Collector)?,
     );
 
-    compose_refresh_coordinator(database_path, collector, refresh_event_sink)
+    compose_refresh_coordinator(
+        database_path,
+        collector,
+        refresh_event_sink,
+        reporting_timezone,
+    )
 }
 
 fn compose_refresh_coordinator(
     database_path: &Path,
     collector: Arc<CcusageCollector>,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
+    reporting_timezone: String,
 ) -> Result<RefreshCoordinator, StartupError> {
     let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let (aggregation_timezone, ..) = write_database
-        .read_settings()
-        .map_err(StartupError::Persistence)?;
     let store = Arc::new(SqliteReconciliationStore::new(write_database));
     let clock = Arc::new(SystemClock);
 
@@ -350,7 +335,7 @@ fn compose_refresh_coordinator(
         clock,
         refresh_event_sink,
         env!("CARGO_PKG_VERSION"),
-        aggregation_timezone,
+        reporting_timezone,
     ))
 }
 
@@ -358,7 +343,6 @@ struct RuntimeRefreshEventSink<R: Runtime> {
     frontend: Arc<dyn RefreshEventSink>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
     tray_summary: TraySummaryQuery,
-    settings_store: Arc<SqliteSettingsStore>,
 }
 
 impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
@@ -370,11 +354,7 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
             .expect("tray state lock is poisoned")
             .as_ref()
         {
-            let timezone = self
-                .settings_store
-                .get()
-                .map(|doc| doc.settings().reporting_timezone().to_owned())
-                .unwrap_or_else(|_| "UTC".to_owned());
+            let timezone = system_timezone::resolve().unwrap_or_else(|_| "UTC".to_owned());
             tray.update(&tray_snapshot(&snapshot, &self.tray_summary, &timezone));
         }
     }
@@ -384,20 +364,17 @@ fn runtime_refresh_event_sink<R: Runtime>(
     app: tauri::AppHandle<R>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
     tray_summary: TraySummaryQuery,
-    settings_store: Arc<SqliteSettingsStore>,
 ) -> Arc<dyn RefreshEventSink> {
     Arc::new(RuntimeRefreshEventSink {
         frontend: refresh_event_sink(app),
         tray,
         tray_summary,
-        settings_store,
     })
 }
 
 fn install_tray_invalidation_listener<R: Runtime>(
     app: tauri::AppHandle<R>,
     tray_summary: TraySummaryQuery,
-    settings_store: Arc<SqliteSettingsStore>,
 ) {
     let listener_app = app.clone();
     app.listen("burnly://v1/data-invalidated", move |_| {
@@ -405,10 +382,7 @@ fn install_tray_invalidation_listener<R: Runtime>(
             listener_app.try_state::<tray::TrayController<R>>(),
             listener_app.try_state::<RefreshCoordinator>(),
         ) {
-            let timezone = settings_store
-                .get()
-                .map(|doc| doc.settings().reporting_timezone().to_owned())
-                .unwrap_or_else(|_| "UTC".to_owned());
+            let timezone = system_timezone::resolve().unwrap_or_else(|_| "UTC".to_owned());
             controller.update(&tray_snapshot(
                 &coordinator.snapshot(),
                 &tray_summary,
@@ -595,16 +569,12 @@ mod tests {
 
     struct FixedBootstrapStore;
 
-
     impl BootstrapStore for FixedBootstrapStore {
         fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
             Ok(BootstrapStorage {
-                reporting_timezone: "Asia/Jakarta".to_owned(),
                 background_refresh_enabled: false,
-                refresh_interval_minutes: 15,
                 launch_at_login: false,
                 close_behavior: "quit".to_owned(),
-                store_project_paths: false,
                 settings_revision: 1,
                 schema_version: 2,
             })
@@ -634,39 +604,6 @@ mod tests {
                 .expect("valid document");
             Ok(document.clone())
         }
-
-        fn replace_project_path_retention(
-            &self,
-            expected_revision: i64,
-            retain_paths: bool,
-            _updated_at_ms: i64,
-        ) -> Result<
-            crate::application::ports::settings_store::ProjectPathRetentionResult,
-            SettingsStoreError,
-        > {
-            let mut document = self.document.lock().expect("settings lock");
-            if document.revision() != expected_revision {
-                return Err(SettingsStoreError::Conflict);
-            }
-            let current = document.settings();
-            let settings = Settings::new(
-                current.reporting_timezone().to_owned(),
-                current.background_refresh_enabled(),
-                current.refresh_interval_minutes(),
-                current.launch_at_login(),
-                current.close_behavior().as_str(),
-                retain_paths,
-            )
-            .expect("valid settings");
-            *document =
-                SettingsDocument::new(settings, expected_revision + 1).expect("valid document");
-            Ok(
-                crate::application::ports::settings_store::ProjectPathRetentionResult {
-                    settings: document.clone(),
-                    cleared_paths: 0,
-                },
-            )
-        }
     }
 
     struct TestSettingsRuntime;
@@ -689,7 +626,6 @@ mod tests {
             status: CapabilityStatus::NotImplemented,
         })
     }
-
 
     #[test]
     fn tray_open_refresh_requests_only_when_stale_and_not_throttled() {
@@ -823,10 +759,7 @@ mod tests {
         assert_eq!(response["data"]["appVersion"], env!("CARGO_PKG_VERSION"));
         assert_eq!(response["data"]["contractVersion"], CONTRACT_VERSION);
         assert_eq!(response["data"]["database"]["status"], "ready");
-        assert_eq!(
-            response["data"]["settings"]["reportingTimezone"],
-            "Asia/Jakarta"
-        );
+        assert_eq!(response["data"]["settings"]["closeBehavior"], "quit");
         assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
     }
 
@@ -843,15 +776,7 @@ mod tests {
 
     #[test]
     fn tauri_bridge_updates_settings_when_scheduler_state_is_available() {
-        let initial = Settings::new(
-            "Asia/Jakarta".to_owned(),
-            false,
-            15,
-            false,
-            "quit",
-            false,
-        )
-        .expect("valid settings");
+        let initial = Settings::new(false, false, "quit").expect("valid settings");
         let app = tauri::test::mock_builder()
             .invoke_handler(crate::ipc::invoke_handler())
             .manage(BootstrapService::new(
@@ -882,13 +807,9 @@ mod tests {
                 json!({
                     "request": {
                         "expectedRevision": 1,
-                        "reportingTimezone": "UTC",
                         "backgroundRefreshEnabled": true,
-                        "refreshIntervalMinutes": 30,
                         "launchAtLogin": false,
-                        "closeBehavior": "hide",
-                        "notificationsEnabled": false,
-                        "storeProjectPaths": false
+                        "closeBehavior": "hide"
                     }
                 }),
             ),
@@ -898,35 +819,9 @@ mod tests {
         .expect("deserialize settings response");
 
         assert_eq!(response["ok"], true);
-        assert_eq!(response["data"]["reportingTimezone"], "UTC");
         assert_eq!(response["data"]["backgroundRefreshEnabled"], true);
-        assert_eq!(response["data"]["refreshIntervalMinutes"], 30);
         assert_eq!(response["data"]["closeBehavior"], "hide");
         assert_eq!(response["data"]["revision"], 2);
-
-        let privacy_response = tauri::test::get_ipc_response(
-            &webview,
-            request_with_body(
-                "settings_update_project_path_retention",
-                json!({
-                    "request": {
-                        "expectedRevision": 2,
-                        "retainPaths": true
-                    }
-                }),
-            ),
-        )
-        .expect("invoke privacy update")
-        .deserialize::<Value>()
-        .expect("deserialize privacy response");
-
-        assert_eq!(privacy_response["ok"], true);
-        assert_eq!(
-            privacy_response["data"]["settings"]["storeProjectPaths"],
-            true
-        );
-        assert_eq!(privacy_response["data"]["settings"]["revision"], 3);
-        assert_eq!(privacy_response["data"]["clearedPaths"], 0);
     }
 
     #[test]
@@ -1016,6 +911,7 @@ mod tests {
             &database_path,
             collector,
             refresh_event_sink(app.handle().clone()),
+            "UTC".to_owned(),
         )
         .expect("coordinator");
         assert!(app.manage(coordinator));

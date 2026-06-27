@@ -28,14 +28,7 @@ impl BootstrapStore for SqliteBootstrapStore {
 }
 
 fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceError> {
-    let (
-        reporting_timezone,
-        background_refresh_enabled,
-        refresh_interval_minutes,
-        launch_at_login,
-        close_behavior,
-        store_project_paths,
-    ) = database.read_settings()?;
+    let (background_refresh_enabled, launch_at_login, close_behavior) = database.read_settings()?;
     let settings_revision = database
         .connection()
         .query_row(
@@ -46,12 +39,9 @@ fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceErro
         .map_err(|source| PersistenceError::read("app_settings revision", source))?;
 
     Ok(BootstrapStorage {
-        reporting_timezone,
         background_refresh_enabled,
-        refresh_interval_minutes,
         launch_at_login,
         close_behavior,
-        store_project_paths,
         settings_revision,
         schema_version: database.schema_version()?,
     })
@@ -76,10 +66,8 @@ mod tests {
             .read_bootstrap_storage()
             .expect("read bootstrap storage");
 
-        assert_eq!(storage.reporting_timezone, "Asia/Jakarta");
         assert_eq!(storage.schema_version, 3);
         assert_eq!(storage.settings_revision, 1);
         assert!(!storage.background_refresh_enabled);
-        assert_eq!(storage.refresh_interval_minutes, 15);
     }
 }

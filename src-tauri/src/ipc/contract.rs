@@ -46,12 +46,6 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "SettingsResponse",
     },
     CommandSpec {
-        name: "settings_update_project_path_retention",
-        export_name: "invokeSettingsUpdateProjectPathRetention",
-        request_type: "UpdateProjectPathRetentionCommandRequest",
-        response_type: "ProjectPathRetentionResponse",
-    },
-    CommandSpec {
         name: "refresh_get_state",
         export_name: "invokeRefreshGetState",
         request_type: "Record<string, never>",

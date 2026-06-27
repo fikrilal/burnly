@@ -10,7 +10,6 @@ import {
   invokeAppHideTrayPanel,
   invokeSettingsGet,
   invokeSettingsUpdate,
-  invokeSettingsUpdateProjectPathRetention,
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
@@ -30,8 +29,6 @@ import {
   type TraySummaryRequest,
   type TraySummaryResponse,
   type SettingsResponse,
-  type ProjectPathRetentionResponse,
-  type UpdateProjectPathRetentionRequest,
   type UpdateSettingsRequest,
 } from "./generated/contracts";
 
@@ -91,13 +88,9 @@ const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
     schemaVersion: z.number().int().nonnegative(),
   }),
   settings: z.object({
-    reportingTimezone: z.string().min(1),
     backgroundRefreshEnabled: z.boolean(),
-    refreshIntervalMinutes: z.number().int().positive(),
     launchAtLogin: z.boolean(),
     closeBehavior: z.enum(["hide", "quit"]),
-    notificationsEnabled: z.boolean(),
-    storeProjectPaths: z.boolean(),
     revision: z.number().int().positive(),
   }),
   features: z.object({
@@ -145,21 +138,11 @@ const hideTrayPanelDataSchema = z.object({
 });
 
 const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
-  reportingTimezone: z.string().min(1),
   backgroundRefreshEnabled: z.boolean(),
-  refreshIntervalMinutes: z.number().int().positive(),
   launchAtLogin: z.boolean(),
   closeBehavior: z.enum(["hide", "quit"]),
-  notificationsEnabled: z.boolean(),
-  storeProjectPaths: z.boolean(),
   revision: z.number().int().positive(),
 });
-
-const projectPathRetentionDataSchema: z.ZodType<ProjectPathRetentionResponse> =
-  z.object({
-    settings: settingsDataSchema,
-    clearedPaths: z.number().int().nonnegative(),
-  });
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
   status: z.enum([
@@ -214,18 +197,9 @@ const traySummaryDataSchema: z.ZodType<TraySummaryResponse> = z.object({
 });
 
 const updateSettingsRequestSchema = z.object({
-  reportingTimezone: z.string().min(1),
   backgroundRefreshEnabled: z.boolean(),
-  refreshIntervalMinutes: z.number().int().positive(),
   launchAtLogin: z.boolean(),
   closeBehavior: z.enum(["hide", "quit"]),
-  notificationsEnabled: z.boolean(),
-  storeProjectPaths: z.boolean(),
-  expectedRevision: z.number().int().positive(),
-});
-
-const updateProjectPathRetentionSchema = z.object({
-  retainPaths: z.boolean(),
   expectedRevision: z.number().int().positive(),
 });
 
@@ -315,24 +289,6 @@ export async function updateSettings(
       request: parsedRequest,
     });
     return unwrapResponse(validateResponse(response, settingsDataSchema));
-  } catch (error) {
-    if (error instanceof BurnlyClientError) throw error;
-    throw transportError(error);
-  }
-}
-
-export async function updateProjectPathRetention(
-  request: UpdateProjectPathRetentionRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<ProjectPathRetentionResponse>> {
-  try {
-    const parsedRequest = updateProjectPathRetentionSchema.parse(request);
-    const response = await invokeSettingsUpdateProjectPathRetention(invoker, {
-      request: parsedRequest,
-    });
-    return unwrapResponse(
-      validateResponse(response, projectPathRetentionDataSchema),
-    );
   } catch (error) {
     if (error instanceof BurnlyClientError) throw error;
     throw transportError(error);

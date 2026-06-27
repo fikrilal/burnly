@@ -2,7 +2,6 @@ use std::sync::{Arc, Mutex};
 
 use thiserror::Error;
 
-
 use crate::domain::settings::{CloseBehavior, Settings, SettingsDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,12 +93,9 @@ pub(crate) struct DiagnosticCapabilities {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BootstrapStorage {
-    pub reporting_timezone: String,
     pub background_refresh_enabled: bool,
-    pub refresh_interval_minutes: i64,
     pub launch_at_login: bool,
     pub close_behavior: String,
-    pub store_project_paths: bool,
     pub settings_revision: i64,
     pub schema_version: i64,
 }
@@ -167,12 +163,9 @@ impl BootstrapService {
             },
             settings: SettingsDocument::new(
                 Settings::new(
-                    storage.reporting_timezone,
                     storage.background_refresh_enabled,
-                    storage.refresh_interval_minutes,
                     storage.launch_at_login,
                     &storage.close_behavior,
-                    storage.store_project_paths,
                 )
                 .map_err(|_| BootstrapError::storage_unavailable())?,
                 storage.settings_revision,
@@ -243,7 +236,6 @@ impl RuntimeCapabilities {
             .expect("runtime capabilities lock is poisoned")
             .clone()
     }
-
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,12 +289,9 @@ mod tests {
             1,
             FixedStore {
                 storage: BootstrapStorage {
-                    reporting_timezone: "Asia/Jakarta".to_owned(),
                     background_refresh_enabled: false,
-                    refresh_interval_minutes: 15,
                     launch_at_login: false,
                     close_behavior: "quit".to_owned(),
-                    store_project_paths: false,
                     settings_revision: 1,
                     schema_version: 2,
                 },
@@ -316,10 +305,7 @@ mod tests {
         assert_eq!(bootstrap.contract_version, 1);
         assert_eq!(bootstrap.database.status, Readiness::Ready);
         assert_eq!(bootstrap.database.schema_version, 2);
-        assert_eq!(
-            bootstrap.settings.settings().reporting_timezone(),
-            "Asia/Jakarta"
-        );
+        assert!(!bootstrap.settings.settings().background_refresh_enabled());
         assert_eq!(bootstrap.settings.revision(), 1);
         assert_eq!(bootstrap.sources.status, SourceStatus::NotConfigured);
         assert_eq!(bootstrap.refresh.status, RefreshStatus::Idle);
@@ -335,12 +321,9 @@ mod tests {
             1,
             FixedStore {
                 storage: BootstrapStorage {
-                    reporting_timezone: "UTC".to_owned(),
                     background_refresh_enabled: false,
-                    refresh_interval_minutes: 15,
                     launch_at_login: false,
                     close_behavior: "quit".to_owned(),
-                    store_project_paths: false,
                     settings_revision: 1,
                     schema_version: 2,
                 },

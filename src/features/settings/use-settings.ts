@@ -1,15 +1,10 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  getSettings,
-  updateProjectPathRetention,
-  updateSettings,
-} from "../../ipc/client";
+import { getSettings, updateSettings } from "../../ipc/client";
 import { EVENT_NAMES, subscribeToEvent } from "../../ipc/events";
 import type {
   SettingsResponse,
-  UpdateProjectPathRetentionRequest,
   UpdateSettingsRequest,
 } from "../../ipc/generated/contracts";
 
@@ -38,21 +33,6 @@ export function useSettings() {
   return useQuery({
     queryKey: settingsQueryKey,
     queryFn: async () => (await getSettings()).data,
-  });
-}
-
-export function useUpdateProjectPathRetention() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (request: UpdateProjectPathRetentionRequest) =>
-      (await updateProjectPathRetention(request)).data,
-    onSuccess: (result) => {
-      queryClient.setQueryData(settingsQueryKey, result.settings);
-      void queryClient.invalidateQueries({ queryKey: ["usage", "sessions"] });
-      void queryClient.invalidateQueries({
-        queryKey: ["usage", "session-detail"],
-      });
-    },
   });
 }
 

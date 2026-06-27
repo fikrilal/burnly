@@ -13,7 +13,6 @@
     "allow-app-hide-tray-panel",
     "allow-settings-get",
     "allow-settings-update",
-    "allow-settings-update-project-path-retention",
     "allow-refresh-get-state",
     "allow-refresh-request",
     "allow-refresh-cancel",

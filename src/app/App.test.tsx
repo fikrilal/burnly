@@ -159,13 +159,9 @@ function bootstrapResult(
         schemaVersion: 1,
       },
       settings: {
-        reportingTimezone: "Asia/Jakarta",
         backgroundRefreshEnabled: false,
-        refreshIntervalMinutes: 15,
         launchAtLogin: false,
         closeBehavior: "quit",
-        notificationsEnabled: false,
-        storeProjectPaths: false,
         revision: 1,
       },
       features: {

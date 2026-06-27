@@ -61,11 +61,8 @@ export function App({
 
 function TraySurface({ state }: { state: AppState }) {
   if (state.status === "ready") {
-    return (
-      <TrayPanel
-        reportingTimezone={state.bootstrap.settings.reportingTimezone}
-      />
-    );
+    const reportingTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return <TrayPanel reportingTimezone={reportingTimezone} />;
   }
 
   if (state.status === "incompatible") {

@@ -5,9 +5,8 @@ use tauri::{Emitter, Manager, State};
 
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
-    Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary,
-    Readiness, RefreshState, RefreshStatus, SourceStatus,
-    SourceSummary,
+    Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary, Readiness,
+    RefreshState, RefreshStatus, SourceStatus, SourceSummary,
 };
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;

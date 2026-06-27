@@ -133,22 +133,17 @@ impl Database {
         Ok(())
     }
 
-    #[allow(clippy::type_complexity)]
-    pub fn read_settings(&self) -> Result<(String, bool, i64, bool, String, bool), PersistenceError> {
+    pub fn read_settings(&self) -> Result<(bool, bool, String), PersistenceError> {
         self.connection
             .query_row(
-                "SELECT reporting_timezone, background_refresh_enabled, refresh_interval_minutes,
-                        launch_at_login, close_behavior, store_project_paths
+                "SELECT background_refresh_enabled, launch_at_login, close_behavior
                  FROM app_settings WHERE id = 1",
                 [],
                 |row| {
                     Ok((
-                        row.get(0)?,
+                        row.get::<_, i32>(0)? != 0,
                         row.get::<_, i32>(1)? != 0,
                         row.get(2)?,
-                        row.get::<_, i32>(3)? != 0,
-                        row.get(4)?,
-                        row.get::<_, i32>(5)? != 0,
                     ))
                 },
             )
@@ -313,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_seeded_reporting_timezone_and_schema_version() {
+    fn reads_seeded_settings_and_schema_version() {
         let mut test_database = TestDatabase::open();
         let database = test_database.database_mut();
         database.migrate_to_latest().expect("migrate database");
@@ -322,12 +317,9 @@ mod tests {
             .expect("seed settings");
 
         let settings = database.read_settings().expect("read settings");
-        assert_eq!(settings.0, "Asia/Jakarta");
-        assert!(!settings.1); // background_refresh_enabled
-        assert_eq!(settings.2, 15); // refresh_interval_minutes
-        assert!(!settings.3); // launch_at_login
-        assert_eq!(settings.4, "quit"); // close_behavior
-        assert!(!settings.5); // store_project_paths
+        assert!(!settings.0); // background_refresh_enabled
+        assert!(!settings.1); // launch_at_login
+        assert_eq!(settings.2, "quit"); // close_behavior
 
         assert_eq!(database.schema_version().expect("schema version"), 3);
     }
