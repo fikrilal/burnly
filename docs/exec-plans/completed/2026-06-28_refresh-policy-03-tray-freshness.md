@@ -40,13 +40,13 @@ scope only for a high-intent freshness trigger.
 
 ## Checklist
 
-- [ ] Activate and complete coordinator catch-up chunk first.
-- [ ] Route tray-open stale refresh through today-only freshness policy after
+- [x] Activate and complete coordinator catch-up chunk first.
+- [x] Route tray-open stale refresh through today-only freshness policy after
       baseline.
-- [ ] Preserve baseline/full fallback for first install.
-- [ ] Add tests for today-only tray-open scope and fallback behavior.
-- [ ] Run runtime evidence if tray-visible behavior changes.
-- [ ] Record verification outcomes when this plan becomes active.
+- [x] Preserve baseline/full fallback for first install.
+- [x] Add tests for today-only tray-open scope and fallback behavior.
+- [x] Run runtime evidence if tray-visible behavior changes.
+- [x] Record verification outcomes when this plan becomes active.
 
 ## Test Plan
 
@@ -69,16 +69,19 @@ scope only for a high-intent freshness trigger.
 
 ## Verification
 
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib`
+- Outcome: passed; 206 passed, 1 ignored.
 - Command: `pnpm lint`
-- Outcome: not run yet
+- Outcome: passed with 15 existing warnings.
 - Command: `pnpm verify:fast`
-- Outcome: not run yet
+- Outcome: passed.
 - Command: `pnpm verify:runtime`
-- Outcome: not run yet
+- Outcome: passed; internally ran `pnpm evidence:desktop`.
 
 ## Runtime Evidence
 
-- Required if tray-visible behavior changes when this chunk is active.
+- Command: `pnpm verify:runtime`
+- Outcome: passed; desktop runtime evidence passed.
 
 ## Follow-Up Debt
 

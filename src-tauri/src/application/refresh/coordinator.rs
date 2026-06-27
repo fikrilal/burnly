@@ -229,6 +229,10 @@ impl RefreshCoordinator {
         self.request_refresh_with_scope_policy(trigger, RefreshScopePolicy::Full)
     }
 
+    pub(crate) fn request_freshness_refresh(&self, trigger: RefreshTrigger) -> RefreshSnapshot {
+        self.request_refresh_with_scope_policy(trigger, RefreshScopePolicy::Freshness)
+    }
+
     fn request_refresh_with_scope_policy(
         &self,
         trigger: RefreshTrigger,
@@ -467,7 +471,7 @@ impl RefreshCoordinator {
     ) -> Result<CollectionScope, ExecutionFailure> {
         match scope_policy {
             RefreshScopePolicy::Full => Ok(CollectionScope::Full),
-            RefreshScopePolicy::CatchUp => {
+            RefreshScopePolicy::CatchUp | RefreshScopePolicy::Freshness => {
                 let today = local_date(requested_at, aggregation_timezone).map_err(|_| {
                     self.failure("refresh.timezone", "Refresh timezone is invalid.")
                 })?;
@@ -483,9 +487,14 @@ impl RefreshCoordinator {
                                 "Could not read the latest successful import state.",
                             )
                         })?;
+                let mode = match scope_policy {
+                    RefreshScopePolicy::CatchUp => RefreshPlanMode::CatchUp,
+                    RefreshScopePolicy::Freshness => RefreshPlanMode::Freshness,
+                    RefreshScopePolicy::Full => unreachable!("full scope returned earlier"),
+                };
                 let plan = RefreshPolicyPlanner::new().plan(RefreshPlanRequest::new(
                     target.plan_target(aggregation_timezone),
-                    RefreshPlanMode::CatchUp,
+                    mode,
                     today,
                     previous_import,
                 ));
@@ -732,6 +741,7 @@ struct ExecutionFailure {
 enum RefreshScopePolicy {
     Full,
     CatchUp,
+    Freshness,
 }
 
 fn run_error(code: &'static str, summary: &'static str) -> Option<RunError> {
@@ -1611,6 +1621,70 @@ mod tests {
         assert_eq!(
             usage_store.reconciled_scopes(),
             repeated_scope(expected_scope)
+        );
+    }
+
+    #[test]
+    fn freshness_refresh_uses_today_only_after_baseline() {
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
+        }));
+        let run_store = Arc::new(FakeRunStore::new());
+        let usage_store = Arc::new(FakeUsageStore::new());
+        let previous_scope =
+            CollectionScope::incremental(date(2026, 6, 20), date(2026, 6, 20)).expect("scope");
+        seed_successful_imports(&run_store, previous_scope);
+        let expected_scope =
+            CollectionScope::incremental(date(2026, 6, 28), date(2026, 6, 28)).expect("scope");
+        let coordinator = RefreshCoordinator::new(
+            collector.clone(),
+            run_store.clone(),
+            usage_store.clone(),
+            Arc::new(FakeClock {
+                now_ms: Utc
+                    .with_ymd_and_hms(2026, 6, 28, 12, 0, 0)
+                    .single()
+                    .expect("timestamp")
+                    .timestamp_millis(),
+            }),
+            "0.1.0",
+            "UTC",
+        );
+
+        coordinator.request_freshness_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Succeeded);
+        assert_eq!(collector.scopes(), repeated_scope(expected_scope.clone()));
+        assert_eq!(
+            run_store.import_scopes(),
+            repeated_scope(expected_scope.clone())
+        );
+        assert_eq!(
+            usage_store.reconciled_scopes(),
+            repeated_scope(expected_scope)
+        );
+    }
+
+    #[test]
+    fn freshness_refresh_without_baseline_uses_full_scope() {
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            Ok(collection_for_request(&request, Vec::new()))
+        }));
+        let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
+
+        coordinator.request_freshness_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Succeeded);
+        assert_eq!(collector.scopes(), repeated_scope(CollectionScope::Full));
+        assert_eq!(
+            run_store.import_scopes(),
+            repeated_scope(CollectionScope::Full)
+        );
+        assert_eq!(
+            usage_store.reconciled_scopes(),
+            repeated_scope(CollectionScope::Full)
         );
     }
 

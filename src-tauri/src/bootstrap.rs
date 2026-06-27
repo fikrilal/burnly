@@ -490,7 +490,7 @@ impl TrayOpenRefreshController {
         if decision == TrayOpenRefreshDecision::Request {
             *last_request = Some(now_ms);
             if matches!(trigger, RefreshTrigger::Manual) {
-                self.coordinator.request_full_refresh(trigger);
+                self.coordinator.request_freshness_refresh(trigger);
             } else {
                 self.coordinator.request_refresh(trigger);
             }
