@@ -93,7 +93,6 @@ pub(crate) struct DiagnosticCapabilities {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BootstrapStorage {
-    pub background_refresh_enabled: bool,
     pub launch_at_login: bool,
     pub close_behavior: String,
     pub settings_revision: i64,
@@ -162,12 +161,8 @@ impl BootstrapService {
                 schema_version: storage.schema_version,
             },
             settings: SettingsDocument::new(
-                Settings::new(
-                    storage.background_refresh_enabled,
-                    storage.launch_at_login,
-                    &storage.close_behavior,
-                )
-                .map_err(|_| BootstrapError::storage_unavailable())?,
+                Settings::new(storage.launch_at_login, &storage.close_behavior)
+                    .map_err(|_| BootstrapError::storage_unavailable())?,
                 storage.settings_revision,
             )
             .map_err(|_| BootstrapError::storage_unavailable())?,
@@ -289,7 +284,6 @@ mod tests {
             1,
             FixedStore {
                 storage: BootstrapStorage {
-                    background_refresh_enabled: false,
                     launch_at_login: false,
                     close_behavior: "quit".to_owned(),
                     settings_revision: 1,
@@ -305,7 +299,7 @@ mod tests {
         assert_eq!(bootstrap.contract_version, 1);
         assert_eq!(bootstrap.database.status, Readiness::Ready);
         assert_eq!(bootstrap.database.schema_version, 2);
-        assert!(!bootstrap.settings.settings().background_refresh_enabled());
+        assert!(!bootstrap.settings.settings().launch_at_login());
         assert_eq!(bootstrap.settings.revision(), 1);
         assert_eq!(bootstrap.sources.status, SourceStatus::NotConfigured);
         assert_eq!(bootstrap.refresh.status, RefreshStatus::Idle);
@@ -321,7 +315,6 @@ mod tests {
             1,
             FixedStore {
                 storage: BootstrapStorage {
-                    background_refresh_enabled: false,
                     launch_at_login: false,
                     close_behavior: "quit".to_owned(),
                     settings_revision: 1,

@@ -9,7 +9,6 @@ use super::response::{ErrorCategory, FieldError, IpcError, IpcResponse};
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SettingsResponse {
-    background_refresh_enabled: bool,
     launch_at_login: bool,
     close_behavior: &'static str,
     revision: i64,
@@ -19,7 +18,6 @@ pub(super) struct SettingsResponse {
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpdateSettingsRequest {
     expected_revision: i64,
-    background_refresh_enabled: bool,
     launch_at_login: bool,
     close_behavior: String,
 }
@@ -38,11 +36,7 @@ pub(super) fn settings_update<R: tauri::Runtime>(
     service: State<'_, SettingsService>,
     request: UpdateSettingsRequest,
 ) -> IpcResponse<SettingsResponse> {
-    let settings = match Settings::new(
-        request.background_refresh_enabled,
-        request.launch_at_login,
-        &request.close_behavior,
-    ) {
+    let settings = match Settings::new(request.launch_at_login, &request.close_behavior) {
         Ok(settings) => settings,
         Err(error) => {
             return IpcResponse::failure(validation_error(error));
@@ -67,7 +61,6 @@ impl From<SettingsDocument> for SettingsResponse {
         let revision = value.revision();
         let settings = value.settings();
         Self {
-            background_refresh_enabled: settings.background_refresh_enabled(),
             launch_at_login: settings.launch_at_login(),
             close_behavior: settings.close_behavior().as_str(),
             revision,

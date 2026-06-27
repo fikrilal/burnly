@@ -133,19 +133,13 @@ impl Database {
         Ok(())
     }
 
-    pub fn read_settings(&self) -> Result<(bool, bool, String), PersistenceError> {
+    pub fn read_settings(&self) -> Result<(bool, String), PersistenceError> {
         self.connection
             .query_row(
-                "SELECT background_refresh_enabled, launch_at_login, close_behavior
+                "SELECT launch_at_login, close_behavior
                  FROM app_settings WHERE id = 1",
                 [],
-                |row| {
-                    Ok((
-                        row.get::<_, i32>(0)? != 0,
-                        row.get::<_, i32>(1)? != 0,
-                        row.get(2)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, i32>(0)? != 0, row.get(1)?)),
             )
             .map_err(|source| PersistenceError::read("app_settings", source))
     }
@@ -317,9 +311,8 @@ mod tests {
             .expect("seed settings");
 
         let settings = database.read_settings().expect("read settings");
-        assert!(!settings.0); // background_refresh_enabled
-        assert!(!settings.1); // launch_at_login
-        assert_eq!(settings.2, "quit"); // close_behavior
+        assert!(!settings.0); // launch_at_login
+        assert_eq!(settings.1, "quit"); // close_behavior
 
         assert_eq!(database.schema_version().expect("schema version"), 3);
     }

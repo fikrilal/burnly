@@ -140,8 +140,8 @@ mod tests {
         }
     }
 
-    fn settings(enabled: bool) -> Settings {
-        Settings::new(enabled, false, "quit").expect("valid settings")
+    fn settings(close_behavior: &str) -> Settings {
+        Settings::new(false, close_behavior).expect("valid settings")
     }
 
     #[test]
@@ -149,18 +149,18 @@ mod tests {
         let runtime = Arc::new(RecordingRuntime::default());
         let service = SettingsService::new(
             Arc::new(MemoryStore {
-                document: Mutex::new(SettingsDocument::new(settings(false), 1).expect("document")),
+                document: Mutex::new(SettingsDocument::new(settings("quit"), 1).expect("document")),
             }),
             runtime.clone(),
             Arc::new(FixedClock),
         );
 
-        let updated = service.update(1, settings(true)).expect("update");
+        let updated = service.update(1, settings("hide")).expect("update");
 
         assert_eq!(updated.revision(), 2);
         assert_eq!(
             runtime.applied.lock().expect("runtime lock").as_slice(),
-            &[settings(true)]
+            &[settings("hide")]
         );
     }
 
@@ -169,14 +169,14 @@ mod tests {
         let runtime = Arc::new(RecordingRuntime::default());
         let service = SettingsService::new(
             Arc::new(MemoryStore {
-                document: Mutex::new(SettingsDocument::new(settings(false), 2).expect("document")),
+                document: Mutex::new(SettingsDocument::new(settings("quit"), 2).expect("document")),
             }),
             runtime.clone(),
             Arc::new(FixedClock),
         );
 
         assert_eq!(
-            service.update(1, settings(true)),
+            service.update(1, settings("hide")),
             Err(SettingsError::Conflict)
         );
         assert!(runtime.applied.lock().expect("runtime lock").is_empty());

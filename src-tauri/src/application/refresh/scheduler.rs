@@ -1,4 +1,4 @@
-//! Settings-backed background refresh scheduling.
+//! Background refresh scheduling.
 
 use std::convert::TryFrom;
 use std::sync::{Arc, Condvar, Mutex};
@@ -80,10 +80,6 @@ impl RefreshScheduler {
             worker: Mutex::new(Some(worker)),
         })
     }
-
-    pub(crate) fn apply_policy(&self, policy: RefreshPolicy) {
-        self.control.apply_policy(policy);
-    }
 }
 
 impl Drop for RefreshScheduler {
@@ -114,12 +110,6 @@ impl SchedulerControl {
             }),
             changed: Condvar::new(),
         }
-    }
-
-    fn apply_policy(&self, policy: RefreshPolicy) {
-        let mut state = self.state.lock().expect("scheduler state is poisoned");
-        state.policy = policy;
-        self.changed.notify_all();
     }
 
     fn stop(&self) {
@@ -239,19 +229,6 @@ mod tests {
         let scheduler = RefreshScheduler::start(enabled_for_test(), requester.clone())
             .expect("start scheduler");
 
-        requester.wait_for_request();
-
-        assert!(requester.requests() > 0);
-        drop(scheduler);
-    }
-
-    #[test]
-    fn policy_update_replaces_disabled_scheduler_without_restart() {
-        let requester = Arc::new(RecordingRequester::new());
-        let scheduler = RefreshScheduler::start(RefreshPolicy::disabled(), requester.clone())
-            .expect("start scheduler");
-
-        scheduler.apply_policy(enabled_for_test());
         requester.wait_for_request();
 
         assert!(requester.requests() > 0);

@@ -138,10 +138,10 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
-    let (background_refresh_enabled, _, close_behavior) = database
+    let (_, close_behavior) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
-    let refresh_policy = refresh_policy(background_refresh_enabled);
+    let refresh_policy = automatic_refresh_policy();
     let tray_state = Arc::new(Mutex::new(None));
     let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
     let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
@@ -218,7 +218,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         .enforce_current_project_path_policy()
         .map_err(|_| StartupError::PrivacyPolicy)?;
     let runtime = Arc::new(DesktopSettingsRuntime {
-        app: app.handle().clone(),
         runtime_settings,
         launch_at_login_available: false,
     });
@@ -231,13 +230,12 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     Ok(())
 }
 
-struct DesktopSettingsRuntime<R: Runtime> {
-    app: tauri::AppHandle<R>,
+struct DesktopSettingsRuntime {
     runtime_settings: RuntimeSettings,
     launch_at_login_available: bool,
 }
 
-impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
+impl SettingsRuntime for DesktopSettingsRuntime {
     fn validate(&self, current: &Settings, proposed: &Settings) -> Result<(), RuntimeSettingError> {
         if proposed.launch_at_login()
             && !current.launch_at_login()
@@ -251,9 +249,6 @@ impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
 
     fn apply(&self, settings: &Settings) {
         self.runtime_settings.update(settings);
-        if let Some(scheduler) = self.app.try_state::<RefreshScheduler>() {
-            scheduler.apply_policy(refresh_policy(settings.background_refresh_enabled()));
-        }
     }
 }
 
@@ -276,12 +271,8 @@ fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu:
     }
 }
 
-fn refresh_policy(background_refresh_enabled: bool) -> RefreshPolicy {
-    if background_refresh_enabled {
-        RefreshPolicy::enabled_minutes(15)
-    } else {
-        RefreshPolicy::disabled()
-    }
+fn automatic_refresh_policy() -> RefreshPolicy {
+    RefreshPolicy::enabled_minutes(15)
 }
 
 fn build_tray_summary_query(database_path: &Path) -> Result<TraySummaryQuery, StartupError> {
@@ -572,7 +563,6 @@ mod tests {
     impl BootstrapStore for FixedBootstrapStore {
         fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
             Ok(BootstrapStorage {
-                background_refresh_enabled: false,
                 launch_at_login: false,
                 close_behavior: "quit".to_owned(),
                 settings_revision: 1,
@@ -775,8 +765,8 @@ mod tests {
     }
 
     #[test]
-    fn tauri_bridge_updates_settings_when_scheduler_state_is_available() {
-        let initial = Settings::new(false, false, "quit").expect("valid settings");
+    fn tauri_bridge_updates_settings() {
+        let initial = Settings::new(false, "quit").expect("valid settings");
         let app = tauri::test::mock_builder()
             .invoke_handler(crate::ipc::invoke_handler())
             .manage(BootstrapService::new(
@@ -807,7 +797,6 @@ mod tests {
                 json!({
                     "request": {
                         "expectedRevision": 1,
-                        "backgroundRefreshEnabled": true,
                         "launchAtLogin": false,
                         "closeBehavior": "hide"
                     }
@@ -819,7 +808,6 @@ mod tests {
         .expect("deserialize settings response");
 
         assert_eq!(response["ok"], true);
-        assert_eq!(response["data"]["backgroundRefreshEnabled"], true);
         assert_eq!(response["data"]["closeBehavior"], "hide");
         assert_eq!(response["data"]["revision"], 2);
     }

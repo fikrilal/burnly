@@ -456,7 +456,6 @@ export interface DeleteHistoryResponse {
 
 export interface UpdateSettingsRequest {
   expectedRevision: number;
-  backgroundRefreshEnabled: boolean;
   launchAtLogin: boolean;
   closeBehavior: "hide" | "quit";
 }
@@ -466,7 +465,6 @@ export interface UpdateSettingsCommandRequest extends Record<string, unknown> {
 }
 
 export interface SettingsResponse {
-  backgroundRefreshEnabled: boolean;
   launchAtLogin: boolean;
   closeBehavior: "hide" | "quit";
   revision: number;

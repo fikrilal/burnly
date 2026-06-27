@@ -23,26 +23,19 @@ impl CloseBehavior {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Settings {
-    background_refresh_enabled: bool,
     launch_at_login: bool,
     close_behavior: CloseBehavior,
 }
 
 impl Settings {
     pub(crate) fn new(
-        background_refresh_enabled: bool,
         launch_at_login: bool,
         close_behavior: &str,
     ) -> Result<Self, SettingsValidationError> {
         Ok(Self {
-            background_refresh_enabled,
             launch_at_login,
             close_behavior: CloseBehavior::parse(close_behavior)?,
         })
-    }
-
-    pub(crate) const fn background_refresh_enabled(&self) -> bool {
-        self.background_refresh_enabled
     }
 
     pub(crate) const fn launch_at_login(&self) -> bool {
@@ -88,13 +81,13 @@ mod tests {
     use super::*;
 
     fn valid_settings() -> Settings {
-        Settings::new(true, false, "hide").expect("valid settings")
+        Settings::new(false, "hide").expect("valid settings")
     }
 
     #[test]
-    fn validates_timezone_interval_and_close_behavior() {
+    fn validates_close_behavior() {
         assert_eq!(
-            Settings::new(false, false, "close"),
+            Settings::new(false, "close"),
             Err(SettingsValidationError::CloseBehavior)
         );
     }

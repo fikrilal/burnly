@@ -159,7 +159,6 @@ function bootstrapResult(
         schemaVersion: 1,
       },
       settings: {
-        backgroundRefreshEnabled: false,
         launchAtLogin: false,
         closeBehavior: "quit",
         revision: 1,

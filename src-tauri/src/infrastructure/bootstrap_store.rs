@@ -28,7 +28,7 @@ impl BootstrapStore for SqliteBootstrapStore {
 }
 
 fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceError> {
-    let (background_refresh_enabled, launch_at_login, close_behavior) = database.read_settings()?;
+    let (launch_at_login, close_behavior) = database.read_settings()?;
     let settings_revision = database
         .connection()
         .query_row(
@@ -39,7 +39,6 @@ fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceErro
         .map_err(|source| PersistenceError::read("app_settings revision", source))?;
 
     Ok(BootstrapStorage {
-        background_refresh_enabled,
         launch_at_login,
         close_behavior,
         settings_revision,
@@ -68,6 +67,6 @@ mod tests {
 
         assert_eq!(storage.schema_version, 3);
         assert_eq!(storage.settings_revision, 1);
-        assert!(!storage.background_refresh_enabled);
+        assert!(!storage.launch_at_login);
     }
 }

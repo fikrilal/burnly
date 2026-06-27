@@ -43,14 +43,12 @@ impl SettingsStore for SqliteSettingsStore {
             .connection()
             .execute(
                 "UPDATE app_settings SET
-                    background_refresh_enabled = ?1,
-                    launch_at_login = ?2,
-                    close_behavior = ?3,
-                    updated_at_ms = ?4,
+                    launch_at_login = ?1,
+                    close_behavior = ?2,
+                    updated_at_ms = ?3,
                     revision = revision + 1
-                 WHERE id = 1 AND revision = ?5",
+                 WHERE id = 1 AND revision = ?4",
                 params![
-                    settings.background_refresh_enabled(),
                     settings.launch_at_login(),
                     settings.close_behavior().as_str(),
                     updated_at_ms,
@@ -150,22 +148,21 @@ fn read_document(database: &Database) -> Result<SettingsDocument, SettingsStoreE
     let stored = database
         .connection()
         .query_row(
-            "SELECT background_refresh_enabled, launch_at_login, close_behavior, revision
+            "SELECT launch_at_login, close_behavior, revision
              FROM app_settings WHERE id = 1",
             [],
             |row| {
                 Ok((
                     row.get::<_, bool>(0)?,
-                    row.get::<_, bool>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
                 ))
             },
         )
         .map_err(|_| SettingsStoreError::Unavailable)?;
-    let settings = Settings::new(stored.0, stored.1, &stored.2)
-        .map_err(|_| SettingsStoreError::InvalidStoredValue)?;
-    SettingsDocument::new(settings, stored.3).map_err(|_| SettingsStoreError::InvalidStoredValue)
+    let settings =
+        Settings::new(stored.0, &stored.1).map_err(|_| SettingsStoreError::InvalidStoredValue)?;
+    SettingsDocument::new(settings, stored.2).map_err(|_| SettingsStoreError::InvalidStoredValue)
 }
 
 #[cfg(test)]
@@ -184,7 +181,7 @@ mod tests {
     }
 
     fn updated_settings() -> Settings {
-        Settings::new(true, false, "hide").expect("valid settings")
+        Settings::new(false, "hide").expect("valid settings")
     }
 
     #[test]

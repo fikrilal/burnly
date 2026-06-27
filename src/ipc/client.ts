@@ -88,7 +88,6 @@ const bootstrapDataSchema: z.ZodType<AppBootstrapResponse> = z.object({
     schemaVersion: z.number().int().nonnegative(),
   }),
   settings: z.object({
-    backgroundRefreshEnabled: z.boolean(),
     launchAtLogin: z.boolean(),
     closeBehavior: z.enum(["hide", "quit"]),
     revision: z.number().int().positive(),
@@ -138,7 +137,6 @@ const hideTrayPanelDataSchema = z.object({
 });
 
 const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
-  backgroundRefreshEnabled: z.boolean(),
   launchAtLogin: z.boolean(),
   closeBehavior: z.enum(["hide", "quit"]),
   revision: z.number().int().positive(),
@@ -197,7 +195,6 @@ const traySummaryDataSchema: z.ZodType<TraySummaryResponse> = z.object({
 });
 
 const updateSettingsRequestSchema = z.object({
-  backgroundRefreshEnabled: z.boolean(),
   launchAtLogin: z.boolean(),
   closeBehavior: z.enum(["hide", "quit"]),
   expectedRevision: z.number().int().positive(),

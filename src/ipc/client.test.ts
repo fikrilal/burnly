@@ -39,7 +39,7 @@ describe("IPC command responses", () => {
     const result = await getAppBootstrap(invoker);
 
     expect(result.data.database.status).toBe("ready");
-    expect(result.data.settings.backgroundRefreshEnabled).toBe(false);
+    expect(result.data.settings.closeBehavior).toBe("quit");
     expect(result.data.sources.status).toBe("not_configured");
   });
 
@@ -113,7 +113,6 @@ function bootstrap(): IpcResponse<AppBootstrapResponse> {
         schemaVersion: 1,
       },
       settings: {
-        backgroundRefreshEnabled: false,
         launchAtLogin: false,
         closeBehavior: "quit",
         revision: 1,
