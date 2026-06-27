@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Activity, Database, ShieldCheck } from "lucide-react";
 
 import {
   getAppBootstrap,
@@ -43,152 +42,53 @@ type AppState =
       frontendContractVersion: number;
     };
 
-import { Overview } from "../features/overview";
-import { BudgetsView } from "../features/budgets/BudgetsView";
-import { CalendarView } from "../features/calendar/CalendarView";
-import { DiagnosticsView } from "../features/diagnostics";
-import { DatabaseMaintenanceCard } from "../features/diagnostics/DatabaseMaintenanceCard";
-import { SessionsView } from "../features/sessions/SessionsView";
-import { SettingsView } from "../features/settings/SettingsView";
-
-type ViewMode =
-  | "overview"
-  | "calendar"
-  | "sessions"
-  | "budgets"
-  | "settings"
-  | "diagnostics";
+import { StyleguideView } from "../features/styleguide/StyleguideView";
+import { TrayPanel, TrayStartupState } from "../features/tray";
 
 export function App({
   loadBootstrap = getAppBootstrap,
   loadCapabilities = getAppCapabilities,
 }: AppProps) {
   const state = useStartupState(loadBootstrap, loadCapabilities);
+  const surface = appSurface();
 
-  const [viewMode, setViewMode] = useState<ViewMode>("overview");
+  if (surface === "styleguide") {
+    return <StyleguideView />;
+  }
 
-  return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-50">
-      <div className="mx-auto w-full max-w-6xl px-6 py-10">
-        {state.status === "ready" ? (
-          <div className="flex flex-col gap-6">
-            <div className="flex gap-2 border-b border-zinc-800 pb-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode("overview");
-                }}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  viewMode === "overview"
-                    ? "border-b-2 border-cyan-400 text-cyan-400"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                Overview
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode("calendar");
-                }}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  viewMode === "calendar"
-                    ? "border-b-2 border-cyan-400 text-cyan-400"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                Calendar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode("sessions");
-                }}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  viewMode === "sessions"
-                    ? "border-b-2 border-cyan-400 text-cyan-400"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                Sessions
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode("settings");
-                }}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  viewMode === "settings"
-                    ? "border-b-2 border-cyan-400 text-cyan-400"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                Settings
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode("diagnostics");
-                }}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  viewMode === "diagnostics"
-                    ? "border-b-2 border-cyan-400 text-cyan-400"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                Diagnostics
-              </button>
-              {state.bootstrap.features.budgets ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setViewMode("budgets");
-                  }}
-                  className={`px-4 py-2 text-sm font-medium transition-colors ${
-                    viewMode === "budgets"
-                      ? "border-b-2 border-cyan-400 text-cyan-400"
-                      : "text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  Budgets
-                </button>
-              ) : null}
-            </div>
-            {viewMode === "overview" && (
-              <Overview
-                reportingTimezone={state.bootstrap.settings.reportingTimezone}
-              />
-            )}
-            {viewMode === "calendar" && (
-              <CalendarView
-                reportingTimezone={state.bootstrap.settings.reportingTimezone}
-              />
-            )}
-            {viewMode === "sessions" && <SessionsView />}
-            {viewMode === "budgets" && <BudgetsView />}
-            {viewMode === "settings" && (
-              <SettingsView capabilities={state.capabilities} />
-            )}
-            {viewMode === "diagnostics" && <DiagnosticsView />}
-          </div>
-        ) : state.status === "failed" && state.recovery ? (
-          <div className="mt-12 space-y-4">
-            <StatusCard
-              icon={Database}
-              label="Storage"
-              value={state.title}
-              detail={state.message}
-            />
-            <DatabaseMaintenanceCard errorMessage={startupErrorMessage} />
-          </div>
-        ) : (
-          <div className="mt-12 grid gap-4 md:grid-cols-3">
-            {renderCards(state)}
-          </div>
-        )}
-      </div>
-    </main>
-  );
+  return <TraySurface state={state} />;
+}
+
+function TraySurface({ state }: { state: AppState }) {
+  if (state.status === "ready") {
+    return (
+      <TrayPanel
+        reportingTimezone={state.bootstrap.settings.reportingTimezone}
+      />
+    );
+  }
+
+  if (state.status === "incompatible") {
+    return (
+      <TrayStartupState
+        status="Contract Incompatible"
+        detail={`Frontend v${state.frontendContractVersion}, runtime v${state.runtimeContractVersion}`}
+      />
+    );
+  }
+
+  if (state.status === "failed") {
+    return <TrayStartupState status={state.title} detail={state.message} />;
+  }
+
+  return <TrayStartupState status="Loading" detail="Starting Burnly runtime" />;
+}
+
+function appSurface(): "tray" | "styleguide" {
+  if (window.location.hash === "#/styleguide") {
+    return "styleguide";
+  }
+  return "tray";
 }
 
 function useStartupState(
@@ -260,72 +160,6 @@ function useStartupState(
   return state;
 }
 
-function renderCards(state: AppState) {
-  if (state.status === "loading") {
-    return (
-      <StatusCard
-        icon={Activity}
-        label="Runtime"
-        value="Loading"
-        detail="Reading local state"
-      />
-    );
-  }
-
-  if (state.status === "failed") {
-    return (
-      <StatusCard
-        icon={Activity}
-        label="Runtime"
-        value={state.title}
-        detail={state.message}
-      />
-    );
-  }
-
-  if (state.status === "incompatible") {
-    return (
-      <StatusCard
-        icon={ShieldCheck}
-        label="Contract"
-        value="Incompatible"
-        detail={`Frontend v${state.frontendContractVersion}, runtime v${state.runtimeContractVersion}`}
-      />
-    );
-  }
-
-  return (
-    <>
-      <StatusCard
-        icon={ShieldCheck}
-        label="App"
-        value={`v${state.bootstrap.appVersion}`}
-        detail={`Contract v${state.bootstrap.contractVersion}`}
-      />
-      <StatusCard
-        icon={Database}
-        label="Storage"
-        value={`Schema ${state.bootstrap.database.schemaVersion}`}
-        detail={state.bootstrap.settings.reportingTimezone}
-      />
-      <StatusCard
-        icon={Activity}
-        label="Collectors"
-        value={sourceValue(state.bootstrap)}
-        detail={capabilityDetail(state.capabilities)}
-      />
-    </>
-  );
-}
-
-function sourceValue(bootstrap: AppBootstrapResponse): string {
-  return `${bootstrap.sources.enabledCount} enabled`;
-}
-
-function capabilityDetail(capabilities: AppCapabilitiesResponse): string {
-  return capabilities.tray.status.replace("_", " ");
-}
-
 function isCompatibleContractVersion(runtimeContractVersion: number): boolean {
   return runtimeContractVersion === CONTRACT_VERSION;
 }
@@ -356,28 +190,4 @@ function failureContent(error: unknown): {
         : "Burnly could not load local runtime state.",
     recovery: false,
   };
-}
-
-function startupErrorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : "Database recovery could not be completed.";
-}
-
-interface StatusCardProps {
-  icon: typeof Activity;
-  label: string;
-  value: string;
-  detail: string;
-}
-
-function StatusCard({ icon: Icon, label, value, detail }: StatusCardProps) {
-  return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-5">
-      <Icon className="h-5 w-5 text-cyan-300" aria-hidden />
-      <p className="mt-5 text-sm text-zinc-400">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-white">{value}</p>
-      <p className="mt-2 text-sm text-zinc-500">{detail}</p>
-    </div>
-  );
 }

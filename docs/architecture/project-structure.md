@@ -115,11 +115,7 @@ src/
 │   ├── router.tsx
 │   └── startup.ts
 ├── features/
-│   ├── activity/
-│   ├── budgets/
-│   ├── diagnostics/
-│   ├── overview/
-│   ├── sessions/
+
 │   ├── settings/
 │   └── sources/
 ├── components/
@@ -161,17 +157,14 @@ Each product feature owns its views, components, hooks, schemas, tests, and ephe
 Example:
 
 ```text
-src/features/activity/
+src/features/settings/
 ├── components/
-│   ├── ActivityCalendar.tsx
-│   └── ActivityDayDetails.tsx
+│   ├── GeneralSettings.tsx
+│   └── DataSettings.tsx
 ├── hooks/
-│   └── useActivityCalendar.ts
-├── queries.ts
-├── schemas.ts
-├── types.ts
-├── ActivityPage.tsx
-├── ActivityPage.test.tsx
+│   └── useSettings.ts
+├── SettingsPage.tsx
+├── SettingsPage.test.tsx
 └── index.ts
 ```
 
@@ -367,17 +360,13 @@ Contains use cases, ports, orchestration, and read-model contracts.
 
 ```text
 application/
-├── budgets/
-├── collection/
-├── diagnostics/
-├── exports/
+
 ├── settings/
 ├── usage/
 ├── ports/
 │   ├── collector.rs
 │   ├── clock.rs
-│   ├── diagnostics.rs
-│   ├── notification.rs
+
 │   ├── settings_store.rs
 │   └── usage_store.rs
 ├── refresh/
@@ -391,10 +380,7 @@ Example:
 
 ```text
 application/usage/
-├── get_activity_calendar.rs
-├── get_overview.rs
-├── list_sessions.rs
-├── read_models.rs
+├── tray_summary.rs
 └── mod.rs
 ```
 
@@ -430,8 +416,7 @@ infrastructure/
 │   ├── connection.rs
 │   ├── migrations.rs
 │   └── mod.rs
-├── diagnostics/
-├── export/
+
 ├── filesystem/
 ├── notifications/
 └── mod.rs
@@ -765,7 +750,7 @@ Likely future candidates include a canonical model crate or sync protocol crate,
 
 ### Extract a frontend package when
 
-- The future web dashboard actually reuses it.
+- A future web product actually reuses it.
 - The package has no Tauri dependency.
 - It has a stable API and independent versioning value.
 - Duplication is proven, not anticipated.
@@ -836,7 +821,8 @@ The following remain open:
 4. Final path-alias configuration
 5. Exact end-to-end test harness for packaged Tauri behavior
 6. Whether architecture linting requires a dedicated dependency-check tool
-7. Future monorepo structure when the web dashboard becomes an active project
+7. Future monorepo structure when optional web/sync/leaderboard work becomes an
+   active project
 
 ## Locked Foundation
 

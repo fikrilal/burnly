@@ -414,6 +414,18 @@ mod tests {
         assert_eq!(descriptor.collector.as_str(), "ccusage");
         assert_eq!(descriptor.runtime_version, "20.0.14");
 
+        for source in [SourceKey::ClaudeCode, SourceKey::Codex, SourceKey::OpenCode] {
+            collector
+                .collect(
+                    daily_request_with_timezone(source, "Asia/Jakarta"),
+                    &TestCancellation::active(),
+                )
+                .unwrap_or_else(|error| panic!("{source:?} daily failed: {error:?}"));
+            collector
+                .collect(session_request(source), &TestCancellation::active())
+                .unwrap_or_else(|error| panic!("{source:?} session failed: {error:?}"));
+        }
+
         let detection = collector
             .detect(
                 DetectionRequest {
@@ -550,20 +562,24 @@ mod tests {
     }
 
     fn daily_request(source: SourceKey) -> CollectionRequest {
+        daily_request_with_timezone(source, "UTC")
+    }
+
+    fn daily_request_with_timezone(source: SourceKey, timezone: &str) -> CollectionRequest {
         CollectionRequest::daily(
             CollectionId::new("collection-1").expect("collection id"),
             source,
             CollectionScope::Full,
-            "UTC",
+            timezone,
             timestamp(),
         )
         .expect("daily request")
     }
 
-    fn session_request() -> CollectionRequest {
+    fn session_request(source: SourceKey) -> CollectionRequest {
         CollectionRequest::session(
             CollectionId::new("collection-2").expect("collection id"),
-            SourceKey::ClaudeCode,
+            source,
             CollectionScope::Full,
             timestamp(),
         )

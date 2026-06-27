@@ -2,283 +2,329 @@
 
 ## Product Summary
 
-Burnly is a desktop app that helps developers understand how they use AI coding tools.
-
-It brings usage from tools such as Claude Code, Codex, OpenCode, and others into one clear, consistent experience. Instead of checking separate commands or reports, developers can see their activity, token consumption, estimated cost, and usage patterns in one place.
-
-Burnly is local-first and private by default. A future optional online account will let users sync selected usage data, view a web dashboard, and participate in community features.
-
-## Vision
-
-Make AI coding usage understandable, intentional, and easy to track.
-
-Burnly aims to become the activity tracker for AI-assisted software development: a place where developers can understand their habits across tools, projects, and time.
-
-## Product Principles
-
-### Private by default
-
-Usage stays on the user's device unless they explicitly choose to sync it. Burnly should never collect prompts, responses, source code, or other sensitive content for its core experience.
-
-### One clear view
-
-Different coding tools report usage differently. Burnly should present a consistent experience without requiring users to understand each tool's reporting model.
-
-### Useful at a glance
-
-The most important information should be available quickly from the system tray, without requiring users to open the full app.
-
-### Honest metrics
-
-Token usage and estimated cost do not always mean the same thing across tools and plans. Burnly should clearly distinguish measured usage from estimates and avoid implying false precision.
-
-### Insight over volume
-
-Burnly should help users understand and manage their usage, not encourage unnecessary token consumption.
-
-## Target Users
-
-### Primary audience
-
-- Developers who regularly use more than one AI coding tool
-- Developers who want to monitor token usage or estimated cost
-- Developers who want a history of their AI-assisted coding activity
-- Privacy-conscious users who prefer local tools
-
-### Future audience
-
-- Teams that want visibility into AI tool adoption and spending
-- Engineering managers evaluating usage patterns
-- Developers who want to share selected activity publicly
-- Organizations managing usage across multiple providers
-
-## Core User Problems
-
-- Usage information is spread across different tools and commands.
-- Each tool presents tokens, costs, sessions, and models differently.
-- Developers cannot easily see their total usage across tools.
-- It is difficult to understand usage trends over days, weeks, or months.
-- Developers may exceed a budget before noticing a change in usage.
-- Existing reports are not always convenient to check during the workday.
-- Users lack a private, long-term activity history they control.
-
-## Product Experience
-
-### Overview
-
-The overview gives users an immediate picture of their AI coding activity for a selected period.
-
-It should answer:
-
-- How much have I used today?
-- How does this compare with previous periods?
-- Which tools and models account for the most usage?
-- What is my estimated cost?
-- Am I approaching a budget limit?
-
-### Activity Calendar
-
-The activity calendar is a contribution-style calendar heatmap. Each day is represented by a cell, and its intensity reflects the selected activity metric.
-
-Users can view activity by:
-
-- Tokens
-- Estimated cost
-- Sessions
-- Active days
-
-Selecting a day reveals its usage breakdown. The calendar helps users recognize streaks, unusually heavy days, and long-term patterns.
-
-### Usage Breakdown
-
-Users can explore usage by:
-
-- Coding tool
-- Model
-- Project, when available
-- Session
-- Time period
-
-The experience should make comparison easy while explaining when a metric is unavailable or not directly comparable.
-
-### System Tray
-
-Burnly runs with quick access from the system tray or menu bar.
-
-The tray view shows:
-
-- Today's usage
-- Today's estimated cost
-- Progress toward the current budget
-- Recent activity
-- A shortcut to open the full dashboard
-
-The tray should remain compact and useful throughout the workday.
-
-### Budgets and Alerts
-
-Users can set optional usage or cost budgets for daily, weekly, and monthly periods.
-
-Burnly can notify users when they:
-
-- Approach a budget threshold
-- Reach a budget
-- Experience an unusual usage increase
-
-Notifications should be configurable and disabled by default until the user sets a budget.
-
-### History
-
-Burnly maintains a long-term usage history so users can review trends beyond what individual coding tools expose.
-
-Users can compare:
-
-- Today with yesterday
-- This week with last week
-- This month with last month
-- Custom periods
-
-### Data Export
-
-Users can export their selected usage history for personal analysis or record keeping.
-
-Exports must contain only the data described before confirmation.
-
-## First Release
-
-The first release should prove that Burnly can become the easiest way to understand AI coding usage.
-
-### Included
-
-- Automatic discovery of supported coding tools
-- Unified usage overview
-- Daily, weekly, and monthly date ranges
-- Token and estimated-cost summaries
-- Breakdown by tool and model
-- Activity calendar
-- Daily detail view
-- System-tray quick view
-- Usage history
-- Optional budgets and notifications
-- Local data storage
-- Manual refresh and automatic background refresh
-- Data export
-
-### Not included
-
-- User accounts
-- Cloud synchronization
-- Web dashboard
-- Public profiles
-- Leaderboards
-- Team workspaces
-- Organization reporting
-- Billing or subscription management
-- Prompt, response, or source-code tracking
-
-## Key User Journeys
-
-### First launch
-
-1. The user opens Burnly.
-2. Burnly explains what usage information it reads and what it never collects.
-3. Burnly finds supported coding tools on the device.
-4. The user reviews the detected tools.
-5. Burnly presents the initial usage overview.
-
-### Daily check-in
-
-1. The user opens Burnly from the system tray.
-2. The user sees today's usage, estimated cost, and budget progress.
-3. The user optionally opens the full dashboard for more detail.
-
-### Investigating a usage increase
-
-1. The user notices an unusually active day.
-2. The user selects the day in the activity calendar.
-3. Burnly shows the tools, models, projects, and sessions that contributed to the total.
-4. The user compares the day with their normal activity.
-
-### Setting a budget
-
-1. The user chooses a time period and budget type.
-2. The user sets a threshold.
-3. Burnly shows progress in the dashboard and tray.
-4. Burnly notifies the user at the selected warning levels.
-
-## Privacy Commitments
-
-Burnly's product experience should make these commitments explicit:
-
-- Local use does not require an account.
-- Sync is optional and off by default.
-- Prompts, responses, source code, and file contents are not collected.
-- Users can see what data Burnly stores.
-- Users can delete their local history.
-- Users control which information is included in exports or future sync.
-- Public activity is always opt-in.
-
-Project names and file paths may reveal sensitive information. Burnly should treat them as private and exclude them from future sync unless the user explicitly includes them.
-
-## Success Measures
-
-The first release should be evaluated using:
-
-- Percentage of users who successfully detect at least one coding tool
-- Percentage of users who return to check usage after the first day
-- Frequency of tray-view usage
-- Percentage of users who review the activity calendar
-- Percentage of users who configure a budget
-- Accuracy and completeness reported by users
-- Number of users who continue using Burnly after four weeks
-
-No success measure should reward higher token consumption.
-
-## Product Roadmap
-
-### Phase 1: Local desktop experience
-
-Deliver the complete first-release experience with private local history, a unified dashboard, an activity calendar, tray access, and budgets.
-
-### Phase 2: Personal insights
-
-Add richer comparisons, configurable goals, unusual-activity detection, summaries, and more control over how activity is categorized.
-
-### Phase 3: Optional account and sync
-
-Allow users to create an account and sync selected aggregated usage data across devices. The web dashboard should reflect the same privacy controls as the desktop app.
-
-### Phase 4: Public profile and community
-
-Let users publish selected activity metrics and participate in optional community features.
-
-Public comparison should emphasize consistency and meaningful activity rather than raw token volume. Potential measures include active days, usage streaks, sessions, and projects.
-
-### Phase 5: Teams
-
-Introduce team workspaces, shared budgets, adoption trends, and organization-level reporting with clear employee privacy boundaries.
-
-## Open Product Questions
-
-- Which metric should be the default headline: total tokens, estimated cost, or sessions?
-- Should the activity calendar default to tokens or sessions?
-- How should Burnly explain subscription-plan usage when monetary cost cannot be estimated accurately?
-- What project information is consistently useful without exposing sensitive paths?
-- Which budget types provide meaningful control across subscription and usage-based plans?
-- Should the tray show combined usage or let users pin a preferred tool?
-- What should qualify as an active AI-assisted day for future community features?
-- Which activity metrics can be compared fairly across different coding tools?
+Burnly is a tray-first AI coding-tool token tracker.
+
+It runs locally, watches usage from supported tools such as Claude Code, Codex,
+and OpenCode, and gives developers a compact view of their current token usage
+without requiring them to open a full desktop window.
+
+The entire local experience is a small tray/menu-bar panel. There is no full
+desktop window. Local detail surfaces such as settings live as tabs inside the
+tray panel. Reporting, history, and leaderboards are deferred to a future web
+product that derives them from synced usage data.
+
+See `docs/planning/tray-only-decision.md` for the decision that removed the full
+desktop window.
 
 ## Product Positioning
 
-### Short description
+Burnly is not primarily a dashboard.
 
-Burnly is a private, local-first desktop app for tracking AI coding usage across tools.
+Burnly is not primarily a budget manager.
 
-### Extended description
+Burnly is not primarily an enterprise reporting tool.
 
-Burnly gives developers one place to understand their AI coding activity across tools such as Claude Code, Codex, and OpenCode. It provides daily usage, cost estimates, trends, an activity calendar, budget alerts, and system-tray access without requiring an account.
+Burnly is a lightweight tracker for developers who want to know how much AI
+coding-tool usage they are burning through during the day.
 
-### Product promise
+## Vision
 
-Understand where your AI coding usage goes, locally and privately.
+Make AI coding-tool usage visible with minimal friction.
+
+Burnly should feel like a small utility that is always available from the system
+tray, not like an application the user must manage.
+
+Longer term, Burnly can optionally connect to a web product for sync,
+leaderboards, profiles, and community features. Local tracking remains the
+foundation.
+
+## Product Principles
+
+### Tray-first
+
+The default interaction is quick open, quick read, quick close.
+
+The user should be able to answer "how much have I used today?" from the tray
+panel in seconds.
+
+### Compact by default
+
+The primary UI should be small and focused.
+
+The full desktop window is secondary and should not become the product's center
+of gravity.
+
+### Tracker before analytics
+
+The core product value is current and recent token usage tracking.
+
+Advanced analytics, custom reports, budget management, and complex filtering are
+secondary.
+
+### Local-first privacy
+
+Burnly's local experience must not require an account.
+
+Burnly should not collect prompts, responses, source code, or file contents.
+
+Project paths and names can reveal sensitive information and must remain under
+user control.
+
+### Honest usage data
+
+Different tools report usage differently.
+
+Burnly should clearly distinguish measured tokens, estimated cost, unavailable
+cost, and incomplete source data.
+
+### Future social features are opt-in
+
+Sync, leaderboard, public profiles, and community features are future optional
+experiences.
+
+Nothing local should become public without explicit user action.
+
+## Target Users
+
+### Primary Users
+
+- Developers who use AI coding tools daily.
+- Developers who use more than one coding assistant.
+- Developers who want a lightweight token tracker in the tray/menu bar.
+- Developers who want private local tracking before opting into any web/social
+  feature.
+
+### Future Users
+
+- Developers who want to compare optional public activity metrics.
+- Developers who may later want cross-device web sync or public activity
+  surfaces.
+- Teams or communities that want opt-in aggregate visibility.
+
+Team and organization workflows are not part of the immediate product center.
+
+## Core User Problems
+
+- Token usage is easy to lose track of during the day.
+- Usage is split across different tools.
+- Existing reports require commands, dashboards, or manual checking.
+- Developers want quick visibility without opening a heavy app.
+- Developers may want future streaks, rankings, or public activity metrics, but
+  only after local tracking is reliable and private.
+
+## Primary Experience: Tray Panel
+
+The tray/menu-bar panel is Burnly's main product surface.
+
+It should show:
+
+- today's total token usage,
+- this week's token usage,
+- this month's token usage,
+- today's model usage with coding-agent labels,
+- model usage trend compared with yesterday,
+- freshness state,
+- entry point to local detail tabs (settings now; sessions later).
+
+The panel should be compact enough to open frequently during normal work.
+
+## Local Detail: Tray Tabs
+
+Burnly has no full desktop window. Detail that does not fit the default tray
+summary is added as tabs inside the tray panel.
+
+Planned local tabs:
+
+- `Settings`
+- `Sessions` (later)
+
+Local tabs exist for what must stay on-device — settings, and session detail that
+carries sensitive local metadata such as project paths. They should remain
+compact and consistent with the tray panel; they must not recreate a dashboard.
+
+## Reporting Lives On The Web
+
+Calendar, usage reports, history exploration, trends, and comparison surfaces are
+deferred to a future web product. The web derives them from synced aggregate
+daily usage facts, so they are not built into the local app.
+
+The local app answers "how much have I used today, this week, this month?" The
+web app answers "show me my history and how I compare." Local tracking remains
+useful on its own and never requires an account.
+
+## Future Web And Leaderboard Direction
+
+Burnly may later connect to a website for:
+
+- optional account,
+- optional sync,
+- public profile,
+- leaderboard,
+- streaks,
+- activity summaries,
+- community comparisons.
+
+Likely leaderboard metrics:
+
+- daily tokens,
+- weekly tokens,
+- active days,
+- streaks,
+- session count,
+- source diversity,
+- anonymized project count.
+
+Leaderboard data must be opt-in and should avoid exposing prompts, responses,
+source code, local file paths, or sensitive project names.
+
+## MVP Scope
+
+### Included
+
+- Local app install.
+- Tray/menu-bar availability.
+- Compact tray panel.
+- Automatic/background refresh.
+- Manual refresh only as a secondary recovery/debug action.
+- Local usage collection for supported sources.
+- Today's usage summary.
+- This week and this month token summaries.
+- Today's model usage allocation.
+- Recent usage trend.
+- Local tray tabs for settings now and sessions later.
+- Local data storage.
+- Privacy controls for project/path handling.
+
+### Removed From Local Or Deferred To Web
+
+These are not part of the local app. Reporting-style surfaces are deferred to the
+future web product; the rest are removed:
+
+- budgets (removed),
+- calendar and usage reports (deferred to web),
+- history exploration (deferred to web),
+- heavy dashboards and custom views (deferred to web),
+- advanced exports (removed),
+- database maintenance and recovery tools (removed),
+- enterprise reporting (not planned).
+
+### Not Included In Immediate MVP
+
+- Required account.
+- Required cloud sync.
+- Public leaderboard.
+- Team workspace.
+- Organization reporting.
+- Billing reconciliation.
+- Prompt, response, or source-code tracking.
+- Generic query builder.
+
+## Key User Journeys
+
+### Quick Check
+
+1. The user opens Burnly from the tray/menu bar.
+2. The tray panel shows today's tokens, week/month tokens, model usage, and
+   freshness state.
+3. The user closes the panel and continues working.
+
+### Automatic Refresh
+
+1. Burnly refreshes automatically on startup, on a background interval, and when
+   the tray panel opens if data is stale.
+2. The tray panel shows freshness state.
+3. If a source fails, Burnly shows a compact warning and offers diagnostics from
+   the full window.
+
+### Inspect Details
+
+1. The user notices high usage in the tray panel.
+2. The user opens the tray model allocation and, later, a local Sessions tab.
+3. For history and deeper reporting, the user opens the future web product.
+4. The user identifies what caused the usage.
+
+### Future Opt-In Sync
+
+1. The user opens account/sync setup.
+2. Burnly explains exactly which metrics can sync.
+3. The user opts in.
+4. Only selected aggregate metrics are synced.
+
+## Design Direction
+
+Burnly should feel:
+
+- compact,
+- calm,
+- data-focused,
+- utility-like,
+- fast,
+- private.
+
+It should not feel:
+
+- like a large admin dashboard,
+- like an enterprise analytics suite,
+- like a gamified app before the user opts into social features,
+- like a budget/payments product.
+
+## Success Measures
+
+Near-term success should be measured by:
+
+- successful local source detection,
+- successful refresh,
+- tray panel open frequency,
+- quick-check completion,
+- percentage of users who return after first day,
+- percentage of users who open details from tray,
+- user confidence that usage data is accurate enough.
+
+No success measure should reward higher token consumption.
+
+Future web/social success can include opt-in profile or leaderboard activity,
+but only after the local tracker is valuable on its own.
+
+## Product Roadmap Shape
+
+### Stage 1: Local Tray Tracker
+
+Deliver a reliable local tray-first token tracker with compact daily usage and
+optional full details.
+
+### Stage 2: Better Local Detail
+
+Improve sessions, history, source/model/project breakdowns, and data-quality
+explanations inside the full window.
+
+### Stage 3: Optional Sync Foundation
+
+Add account and sync only for selected aggregate metrics.
+
+### Stage 4: Public Profile And Leaderboard
+
+Add opt-in public activity surfaces after privacy controls and metric semantics
+are clear.
+
+### Stage 5: Team Or Community Expansion
+
+Consider team/community use only after personal tracking and optional public
+profiles are proven.
+
+## Current Product Correction
+
+The initial implementation accumulated a full-window dashboard, budgets,
+diagnostics, export, history, and database-recovery work. As of 2026-06-26 the
+local product is corrected to **tray-only** (see
+`docs/planning/tray-only-decision.md`):
+
+- the tray panel is the entire local experience,
+- there is no full desktop window,
+- local detail (settings now, sessions later) lives as tray tabs,
+- budgets, export, history, diagnostics, and recovery are removed from local,
+- calendar, usage reports, and history exploration are deferred to a future web
+  product that derives them from synced daily usage facts,
+- future leaderboard affects metric design but remains opt-in, web-only, and
+  later.
+
+Future plans should be evaluated against this document before implementation.

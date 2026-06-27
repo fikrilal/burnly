@@ -7,81 +7,30 @@ import {
   CONTRACT_VERSION,
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
-  invokeDiagnosticsGetStatus,
-  invokeDiagnosticsGetHistory,
-  invokeDiagnosticsRevealLogs,
-  invokeDatabaseGetMaintenanceStatus,
-  invokeDatabaseIntegrityCheck,
-  invokeDatabaseCheckpoint,
-  invokeDatabaseVacuum,
-  invokeDatabaseRestoreMigrationBackup,
-  invokeHistoryExport,
-  invokeHistoryGetExportPreview,
-  invokeHistoryGetDeletePreview,
-  invokeHistoryDelete,
+  invokeAppHideTrayPanel,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeSettingsUpdateProjectPathRetention,
-  invokeBudgetsList,
-  invokeBudgetsGet,
-  invokeBudgetsCreate,
-  invokeBudgetsUpdate,
-  invokeBudgetsEnable,
-  invokeBudgetsDisable,
-  invokeBudgetsDelete,
-  invokeBudgetsGetProgress,
   invokeRefreshCancel,
   invokeRefreshGetState,
   invokeRefreshRequest,
-  invokeUsageGetOverview,
-  invokeUsageGetCalendar,
-  invokeUsageGetDayDetail,
-  invokeUsageGetSessions,
-  invokeUsageGetSessionDetail,
+  invokeUsageGetTraySummary,
   type AppBootstrapResponse,
   type AppCapabilitiesResponse,
   type CommandInvoker,
   type CommandName,
   type CommandRequests,
   type ContractProbeResponse,
-  type DiagnosticsStatusResponse,
-  type DatabaseMaintenanceStatusResponse,
-  type DatabaseMaintenanceActionResponse,
-  type HistoryRequest,
-  type HistoryResponse,
-  type ExportPreviewRequest,
-  type ExportPreviewResponse,
-  type ExportResponse,
-  type DeleteHistoryPreviewResponse,
-  type DeleteHistoryResponse,
+  type HideTrayPanelResponse,
   type FieldError,
   type IpcError,
   type IpcResponse,
   type RefreshStatusResponse,
   type ResponseMeta,
-  type UsageOverviewCostResponse,
-  type UsageOverviewRequest,
-  type UsageOverviewResponse,
-  type ActivityCalendarRequest,
-  type ActivityCalendarResponse,
-  type DayDetailRequest,
-  type DayDetailResponse,
-  type SessionListRequest,
-  type SessionListResponse,
-  type SessionDetailRequest,
-  type SessionDetailResponse,
+  type TraySummaryRequest,
+  type TraySummaryResponse,
   type SettingsResponse,
   type ProjectPathRetentionResponse,
-  type RevealLogsResponse,
-  type BudgetDefinition,
-  type BudgetIdRequest,
-  type BudgetListResponse,
-  type BudgetResponse,
-  type CreateBudgetRequest,
-  type DeleteBudgetResponse,
-  type CurrentBudgetProgressResponse,
-  type MutateBudgetRequest,
-  type UpdateBudgetRequest,
   type UpdateProjectPathRetentionRequest,
   type UpdateSettingsRequest,
 } from "./generated/contracts";
@@ -179,215 +128,26 @@ const capabilitySchema = z.object({
 const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
   tray: capabilitySchema,
   launchAtLogin: capabilitySchema,
-  nativeNotifications: capabilitySchema.extend({
+  nativeNotifications: z.object({
+    supported: z.boolean(),
+    status: z.enum(["available", "not_implemented", "unavailable"]),
     permission: z.enum(["granted", "denied", "prompt", "unknown"]),
   }),
   updates: capabilitySchema,
-  exportFormats: z.array(z.string().min(1)),
+  exportFormats: z.array(z.string()),
   diagnostics: z.object({
     desktopEvidence: z.boolean(),
   }),
 });
 
-const diagnosticHealthStatusSchema = z.enum([
-  "healthy",
-  "degraded",
-  "unavailable",
-  "unknown",
-]);
-
-const diagnosticsStatusDataSchema: z.ZodType<DiagnosticsStatusResponse> =
-  z.object({
-    status: diagnosticHealthStatusSchema,
-    contractVersion: z.literal(CONTRACT_VERSION),
-    components: z.array(
-      z.object({
-        component: z.enum([
-          "database",
-          "settings",
-          "sources",
-          "collector",
-          "runtime",
-        ]),
-        status: diagnosticHealthStatusSchema,
-        summary: z.string().min(1),
-        details: z.array(z.string().min(1)),
-      }),
-    ),
-    logs: z.object({
-      status: z.enum(["available", "missing", "unsupported"]),
-      label: z.string().min(1),
-    }),
-  });
-
-const revealLogsDataSchema: z.ZodType<RevealLogsResponse> = z.object({
-  status: z.enum(["revealed", "missing", "unsupported"]),
-  message: z.string().min(1),
-});
-
-const databaseMaintenanceStatusDataSchema: z.ZodType<DatabaseMaintenanceStatusResponse> =
-  z.object({
-    access: z.enum(["read_write", "read_only", "unavailable"]),
-    schemaVersion: z.number().int().nonnegative().nullable(),
-    backupAvailable: z.boolean(),
-    maintenanceAvailable: z.boolean(),
-  });
-
-const databaseMaintenanceActionDataSchema: z.ZodType<DatabaseMaintenanceActionResponse> =
-  z.object({
-    status: z.enum([
-      "healthy",
-      "corrupt",
-      "checkpointed",
-      "busy",
-      "vacuumed",
-      "restored",
-    ]),
-    message: z.string().min(1),
-    checkpoint: z
-      .object({
-        busy: z.number().int().nonnegative(),
-        logFrames: z.number().int().nonnegative(),
-        checkpointedFrames: z.number().int().nonnegative(),
-      })
-      .nullable(),
-  });
-
-const historyRequestSchema: z.ZodType<HistoryRequest> = z.object({
-  cursor: z
-    .string()
-    .regex(/^[1-9][0-9]*$/)
-    .optional(),
-  limit: z.number().int().min(1).max(50).optional(),
-});
-
-const historyStatusSchema = z.enum([
-  "queued",
-  "running",
-  "stale",
-  "succeeded",
-  "partial",
-  "failed",
-  "cancelled",
-]);
-
-const historyFailureSchema = z.object({
-  category: z.enum([
-    "collector",
-    "reconciliation",
-    "persistence",
-    "cancelled",
-    "unknown",
-  ]),
-  retryable: z.boolean(),
-  summary: z.string().min(1),
-});
-
-const historyCountSchema = z.string().regex(/^(0|[1-9][0-9]*)$/);
-
-const historyItemBaseSchema = z.object({
-  status: historyStatusSchema,
-  startedAt: z.iso.datetime({ offset: true }),
-  finishedAt: z.iso.datetime({ offset: true }).nullable(),
-  recordsSeen: historyCountSchema,
-  recordsRejected: historyCountSchema,
-  failure: historyFailureSchema.nullable(),
-});
-
-const historyDataSchema: z.ZodType<HistoryResponse> = z.object({
-  items: z.array(
-    historyItemBaseSchema.extend({
-      trigger: z.enum([
-        "launch",
-        "manual",
-        "scheduled",
-        "file_change",
-        "resume",
-        "reconcile",
-      ]),
-      summary: z.string().min(1),
-      importCount: z.number().int().nonnegative(),
-      imports: z.array(
-        historyItemBaseSchema.extend({
-          source: z.string().min(1),
-          projection: z.enum(["daily", "session"]),
-          scope: z.enum(["full", "incremental"]),
-        }),
-      ),
-    }),
-  ),
-  nextCursor: z
-    .string()
-    .regex(/^[1-9][0-9]*$/)
-    .nullable(),
-  limit: z.number().int().min(1).max(50),
-});
-
-const exportPreviewRequestSchema: z.ZodType<ExportPreviewRequest> = z.object({
-  startDate: z.iso.date(),
-  endDate: z.iso.date(),
-  datasets: z.array(z.enum(["daily_usage", "sessions"])).min(1),
-});
-
-const exportPreviewDataSchema: z.ZodType<ExportPreviewResponse> = z.object({
-  startDate: z.iso.date(),
-  endDate: z.iso.date(),
-  format: z.literal("csv"),
-  datasets: z.array(
-    z.object({
-      dataset: z.enum(["daily_usage", "sessions"]),
-      rows: historyCountSchema,
-    }),
-  ),
-  totalRows: historyCountSchema,
-  estimatedBytes: historyCountSchema,
-  privacyNotes: z.array(z.string().min(1)),
-  previewToken: z.string().regex(/^[a-f0-9]{64}$/),
-  canExport: z.boolean(),
-});
-
-const exportDataSchema: z.ZodType<ExportResponse> = z.object({
-  status: z.enum(["exported", "cancelled"]),
-  rows: historyCountSchema,
-  message: z.string().min(1),
-});
-
-const deletionCountsSchema = z.object({
-  dailyUsage: historyCountSchema,
-  dailyModelUsage: historyCountSchema,
-  sessions: historyCountSchema,
-  sessionModelUsage: historyCountSchema,
-  refreshRuns: historyCountSchema,
-  importRuns: historyCountSchema,
-  projects: historyCountSchema,
-  sourceModels: historyCountSchema,
-  notificationRecords: historyCountSchema,
-});
-
-const deleteHistoryPreviewDataSchema: z.ZodType<DeleteHistoryPreviewResponse> =
-  z.object({
-    scope: z.string().min(1),
-    earliestDate: z.iso.date().nullable(),
-    latestDate: z.iso.date().nullable(),
-    sourceCount: historyCountSchema,
-    counts: deletionCountsSchema,
-    totalRecords: historyCountSchema,
-    preserved: z.array(z.string().min(1)),
-    previewToken: z.string().regex(/^[a-f0-9]{64}$/),
-    canDelete: z.boolean(),
-    activeRefresh: z.boolean(),
-    confirmationText: z.string().min(1),
-  });
-
-const deleteHistoryDataSchema: z.ZodType<DeleteHistoryResponse> = z.object({
-  deletedRecords: historyCountSchema,
-  message: z.string().min(1),
+const hideTrayPanelDataSchema = z.object({
+  status: z.literal("hidden"),
 });
 
 const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
   reportingTimezone: z.string().min(1),
   backgroundRefreshEnabled: z.boolean(),
-  refreshIntervalMinutes: z.number().int().min(5).max(1440),
+  refreshIntervalMinutes: z.number().int().positive(),
   launchAtLogin: z.boolean(),
   closeBehavior: z.enum(["hide", "quit"]),
   notificationsEnabled: z.boolean(),
@@ -399,107 +159,6 @@ const projectPathRetentionDataSchema: z.ZodType<ProjectPathRetentionResponse> =
   z.object({
     settings: settingsDataSchema,
     clearedPaths: z.number().int().nonnegative(),
-  });
-
-const positiveInt64StringSchema = z
-  .string()
-  .refine(
-    (value) =>
-      /^[1-9][0-9]*$/.test(value) &&
-      BigInt(value) <= 9_223_372_036_854_775_807n,
-    "Expected a canonical positive integer string in the supported range.",
-  );
-
-const budgetLimitSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("tokens"),
-    value: positiveInt64StringSchema,
-  }),
-  z.object({
-    kind: z.literal("cost"),
-    amountMicros: positiveInt64StringSchema,
-    currency: z.string().regex(/^[A-Z]{3}$/),
-  }),
-]);
-
-const budgetScopeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("global") }),
-  z.object({
-    kind: z.literal("source"),
-    sourceId: positiveInt64StringSchema,
-  }),
-]);
-
-const budgetThresholdSchema = z.object({
-  basisPoints: z.number().int().positive(),
-  enabled: z.boolean(),
-});
-
-const budgetDefinitionSchema: z.ZodType<BudgetDefinition> = z.object({
-  name: z.string().trim().min(1),
-  limit: budgetLimitSchema,
-  period: z.enum(["daily", "weekly", "monthly"]),
-  scope: budgetScopeSchema,
-  enabled: z.boolean(),
-  thresholds: z
-    .array(budgetThresholdSchema)
-    .refine(
-      (thresholds) =>
-        new Set(thresholds.map((threshold) => threshold.basisPoints)).size ===
-        thresholds.length,
-      "Budget thresholds must be unique.",
-    ),
-});
-
-const budgetDataSchema: z.ZodType<BudgetResponse> = z.intersection(
-  budgetDefinitionSchema,
-  z.object({
-    id: positiveInt64StringSchema,
-    revision: positiveInt64StringSchema,
-  }),
-);
-
-const budgetListDataSchema: z.ZodType<BudgetListResponse> = z.object({
-  items: z.array(budgetDataSchema),
-});
-
-const deleteBudgetDataSchema: z.ZodType<DeleteBudgetResponse> = z.object({
-  budgetId: positiveInt64StringSchema,
-});
-
-const uint64StringSchema = z
-  .string()
-  .regex(/^(0|[1-9][0-9]*)$/, "Expected a canonical unsigned integer string.");
-
-const currentBudgetProgressDataSchema: z.ZodType<CurrentBudgetProgressResponse> =
-  z.object({
-    status: z.enum(["no_budgets", "all_disabled", "available"]),
-    reportingTimezone: z.string().min(1),
-    asOf: z.iso.datetime({ offset: true }),
-    configuredBudgetCount: z.number().int().nonnegative(),
-    enabledBudgetCount: z.number().int().nonnegative(),
-    traySummary: z.string().min(1).nullable(),
-    items: z.array(
-      z.object({
-        budgetId: positiveInt64StringSchema,
-        budgetName: z.string().min(1),
-        period: z.enum(["daily", "weekly", "monthly"]),
-        periodStartDate: z.iso.date(),
-        periodEndDate: z.iso.date(),
-        metric: z.enum(["tokens", "cost"]),
-        state: z.enum(["available", "cost_unavailable"]),
-        current: uint64StringSchema.nullable(),
-        limit: positiveInt64StringSchema,
-        currency: z
-          .string()
-          .regex(/^[A-Z]{3}$/)
-          .nullable(),
-        basisPoints: uint64StringSchema.nullable(),
-        exceeded: z.boolean(),
-        completeness: z.enum(["complete", "partial", "unavailable"]),
-        unavailableDays: z.number().int().nonnegative(),
-      }),
-    ),
   });
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
@@ -526,135 +185,52 @@ const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
   lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
 });
 
-const usageOverviewCostSchema: z.ZodType<UsageOverviewCostResponse> =
-  z.discriminatedUnion("valuation", [
-    z.object({
-      amountMicros: uint64StringSchema,
-      currency: z.string().regex(/^[A-Z]{3}$/),
-      valuation: z.enum(["available", "estimated"]),
-      completeness: z.enum(["complete", "partial"]),
-      unavailableDays: z.number().int().nonnegative(),
-    }),
-    z.object({
-      amountMicros: uint64StringSchema.nullable(),
-      currency: z
-        .string()
-        .regex(/^[A-Z]{3}$/)
-        .nullable(),
-      valuation: z.literal("unavailable"),
-      completeness: z.literal("unavailable"),
-      unavailableDays: z.number().int().nonnegative(),
-    }),
-  ]);
-
-const usageOverviewRequestSchema: z.ZodType<UsageOverviewRequest> = z.object({
-  startDate: z.iso.date(),
-  endDate: z.iso.date(),
-  reportingTimezone: z.string().trim().min(1),
+const traySummaryPeriodMetricSchema = z.object({
+  startDate: z.string().min(1),
+  endDate: z.string().min(1),
+  totalTokens: z.string().min(1),
 });
 
-const usageOverviewDataSchema: z.ZodType<UsageOverviewResponse> = z.object({
-  period: usageOverviewRequestSchema,
-  totalTokens: uint64StringSchema,
-  activeDays: z.number().int().nonnegative(),
-  cost: usageOverviewCostSchema,
-  sources: z.array(
-    z.object({
-      source: z.string().min(1),
-      totalTokens: uint64StringSchema,
-      activeDays: z.number().int().nonnegative(),
-      cost: usageOverviewCostSchema,
-      hasPartialData: z.boolean(),
-    }),
-  ),
-  models: z.array(
-    z.object({
-      name: z.string().min(1),
-      totalTokens: uint64StringSchema,
-      cost: usageOverviewCostSchema,
-    }),
-  ),
+const traySummaryModelSchema = z.object({
+  modelName: z.string().min(1),
+  agentLabel: z.string().min(1),
+  totalTokens: z.string().min(1),
+  trend: z
+    .object({
+      direction: z.enum(["increased", "decreased", "flat"]),
+      basisPoints: z.number().int().nonnegative(),
+    })
+    .nullable(),
+});
+
+const traySummaryDataSchema: z.ZodType<TraySummaryResponse> = z.object({
+  today: traySummaryPeriodMetricSchema,
+  week: traySummaryPeriodMetricSchema,
+  month: traySummaryPeriodMetricSchema,
+  models: z.array(traySummaryModelSchema),
   asOf: z.iso.datetime({ offset: true }),
   lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
   dataStatus: z.enum(["current", "stale", "partial", "empty"]),
 });
 
-const activityCalendarRequestSchema: z.ZodType<ActivityCalendarRequest> =
-  z.object({
-    startDate: z.iso.date(),
-    endDate: z.iso.date(),
-    reportingTimezone: z.string().trim().min(1),
-  });
-
-const activityCalendarDataSchema: z.ZodType<ActivityCalendarResponse> =
-  z.object({
-    days: z.array(
-      z.object({
-        date: z.iso.date(),
-        totalTokens: uint64StringSchema,
-        activeSources: z.number().int().min(0),
-        cost: usageOverviewCostSchema,
-        hasPartialData: z.boolean(),
-      }),
-    ),
-    dataStatus: z.enum(["current", "stale", "partial", "empty"]),
-  });
-
-const dayDetailRequestSchema: z.ZodType<DayDetailRequest> = z.object({
-  date: z.iso.date(),
-  reportingTimezone: z.string().trim().min(1),
+const updateSettingsRequestSchema = z.object({
+  reportingTimezone: z.string().min(1),
+  backgroundRefreshEnabled: z.boolean(),
+  refreshIntervalMinutes: z.number().int().positive(),
+  launchAtLogin: z.boolean(),
+  closeBehavior: z.enum(["hide", "quit"]),
+  notificationsEnabled: z.boolean(),
+  storeProjectPaths: z.boolean(),
+  expectedRevision: z.number().int().positive(),
 });
 
-const dayDetailDataSchema: z.ZodType<DayDetailResponse> = z.object({
-  date: z.iso.date(),
-  totalTokens: uint64StringSchema,
-  cost: usageOverviewCostSchema,
-  models: z.array(
-    z.object({
-      source: z.string(),
-      model: z.string(),
-      tokens: uint64StringSchema,
-      cost: usageOverviewCostSchema,
-    }),
-  ),
-  asOf: z.iso.datetime({ offset: true }),
+const updateProjectPathRetentionSchema = z.object({
+  retainPaths: z.boolean(),
+  expectedRevision: z.number().int().positive(),
 });
 
-const sessionItemResponseSchema = z.object({
-  id: z.string().min(1),
-  sourceId: z.string().min(1),
-  label: z.string().min(1),
-  projectPath: z.string().nullable(),
-  firstActivityAt: z.iso.datetime({ offset: true }).nullable(),
-  lastActivityAt: z.iso.datetime({ offset: true }).nullable(),
-  totalTokens: uint64StringSchema,
-  cost: usageOverviewCostSchema,
-});
-
-const sessionListRequestSchema: z.ZodType<SessionListRequest> = z.object({
-  sourceId: z.string().min(1).nullable(),
-  limit: z.number().int().positive().max(100),
-  afterCursor: z.string().min(1).nullable(),
-});
-
-const sessionListDataSchema: z.ZodType<SessionListResponse> = z.object({
-  items: z.array(sessionItemResponseSchema),
-  nextCursor: z.string().min(1).nullable(),
-});
-
-const sessionDetailRequestSchema: z.ZodType<SessionDetailRequest> = z.object({
-  sessionId: z.string().min(1),
-});
-
-const sessionDetailDataSchema: z.ZodType<SessionDetailResponse> = z.object({
-  session: sessionItemResponseSchema,
-  models: z.array(
-    z.object({
-      rawModelId: z.string().nullable(),
-      totalTokens: uint64StringSchema,
-      cost: usageOverviewCostSchema,
-    }),
-  ),
+const traySummaryRequestSchema = z.object({
+  reportingTimezone: z.string().min(1),
 });
 
 export interface CommandResult<TData> {
@@ -662,393 +238,157 @@ export interface CommandResult<TData> {
   meta: ResponseMeta;
 }
 
-export const commandInvoker: CommandInvoker = async (command, request) => {
-  const args = Object.entries(request).reduce<Record<string, unknown>>(
-    (acc, [key, val]) => {
-      acc[key] = val;
-      return acc;
-    },
-    {},
-  );
-  return tauriInvoke(command, args);
-};
-
-export async function invokeCommand<TCommand extends CommandName>(
-  command: TCommand,
-  request: CommandRequests[TCommand],
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<unknown>> {
-  try {
-    const response = await invoker(command, request);
-    return unwrapResponse(validateUnknownResponse(response));
-  } catch (error) {
-    if (error instanceof BurnlyClientError) {
-      throw error;
-    }
-
-    throw transportError(error);
-  }
+export function commandInvoker(
+  name: CommandName,
+  body: CommandRequests[CommandName],
+): Promise<unknown> {
+  return tauriInvoke(name, body);
 }
 
-export async function getContractProbe(
+export async function probeContract(
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<ContractProbeResponse>> {
-  const response = await invoker(COMMAND_NAMES.contractProbe, {});
-  const parsed = validateContractProbeResponse(response);
-  return unwrapResponse(parsed);
+  try {
+    const response = await invoker("__burnly_contract_probe", {});
+    return unwrapResponse(validateContractProbeResponse(response));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export async function getAppBootstrap(
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<AppBootstrapResponse>> {
-  const response = await invokeAppGetBootstrap(invoker);
-  const parsed = validateBootstrapResponse(response);
-  return unwrapResponse(parsed);
+  try {
+    const response = await invokeAppGetBootstrap(invoker);
+    return unwrapResponse(validateBootstrapResponse(response));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export async function getAppCapabilities(
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<AppCapabilitiesResponse>> {
-  const response = await invokeAppGetCapabilities(invoker);
-  const parsed = validateCapabilitiesResponse(response);
-  return unwrapResponse(parsed);
+  try {
+    const response = await invokeAppGetCapabilities(invoker);
+    return unwrapResponse(validateCapabilitiesResponse(response));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
-export async function getDiagnosticsStatus(
+export async function hideTrayPanel(
   invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<DiagnosticsStatusResponse>> {
-  const response = await invokeDiagnosticsGetStatus(invoker);
-  return unwrapResponse(
-    validateResponse(response, diagnosticsStatusDataSchema),
-  );
-}
-
-export async function getDiagnosticsHistory(
-  request: HistoryRequest = {},
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<HistoryResponse>> {
-  const parsedRequest = historyRequestSchema.parse(request);
-  const response = await invokeDiagnosticsGetHistory(invoker, {
-    request: parsedRequest,
-  });
-  return unwrapResponse(validateResponse(response, historyDataSchema));
-}
-
-export async function revealDiagnosticsLogs(
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<RevealLogsResponse>> {
-  const response = await invokeDiagnosticsRevealLogs(invoker);
-  return unwrapResponse(validateResponse(response, revealLogsDataSchema));
-}
-
-export async function getDatabaseMaintenanceStatus(
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<DatabaseMaintenanceStatusResponse>> {
-  const response = await invokeDatabaseGetMaintenanceStatus(invoker);
-  return unwrapResponse(
-    validateResponse(response, databaseMaintenanceStatusDataSchema),
-  );
-}
-
-async function runDatabaseMaintenanceAction(
-  invokeAction: (invoker: CommandInvoker) => Promise<unknown>,
-  invoker: CommandInvoker,
-): Promise<CommandResult<DatabaseMaintenanceActionResponse>> {
-  const response = await invokeAction(invoker);
-  return unwrapResponse(
-    validateResponse(response, databaseMaintenanceActionDataSchema),
-  );
-}
-
-export function checkDatabaseIntegrity(
-  invoker: CommandInvoker = commandInvoker,
-) {
-  return runDatabaseMaintenanceAction(invokeDatabaseIntegrityCheck, invoker);
-}
-
-export function checkpointDatabase(invoker: CommandInvoker = commandInvoker) {
-  return runDatabaseMaintenanceAction(invokeDatabaseCheckpoint, invoker);
-}
-
-export function vacuumDatabase(invoker: CommandInvoker = commandInvoker) {
-  return runDatabaseMaintenanceAction(invokeDatabaseVacuum, invoker);
-}
-
-export function restoreDatabaseMigrationBackup(
-  invoker: CommandInvoker = commandInvoker,
-) {
-  return runDatabaseMaintenanceAction(
-    invokeDatabaseRestoreMigrationBackup,
-    invoker,
-  );
-}
-
-export async function getExportPreview(
-  request: ExportPreviewRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<ExportPreviewResponse>> {
-  const parsedRequest = exportPreviewRequestSchema.parse(request);
-  const response = await invokeHistoryGetExportPreview(invoker, {
-    request: parsedRequest,
-  });
-  return unwrapResponse(validateResponse(response, exportPreviewDataSchema));
-}
-
-export async function exportHistory(
-  request: ExportPreviewRequest,
-  previewToken: string,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<ExportResponse>> {
-  const parsedRequest = exportPreviewRequestSchema.parse(request);
-  const response = await invokeHistoryExport(invoker, {
-    request: { request: parsedRequest, previewToken },
-  });
-  return unwrapResponse(validateResponse(response, exportDataSchema));
-}
-
-export async function getDeleteHistoryPreview(
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<DeleteHistoryPreviewResponse>> {
-  const response = await invokeHistoryGetDeletePreview(invoker);
-  return unwrapResponse(
-    validateResponse(response, deleteHistoryPreviewDataSchema),
-  );
-}
-
-export async function deleteHistory(
-  previewToken: string,
-  confirmation: string,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<DeleteHistoryResponse>> {
-  const response = await invokeHistoryDelete(invoker, {
-    request: { previewToken, confirmation },
-  });
-  return unwrapResponse(validateResponse(response, deleteHistoryDataSchema));
+): Promise<CommandResult<HideTrayPanelResponse>> {
+  try {
+    const response = await invokeAppHideTrayPanel(invoker);
+    return unwrapResponse(validateResponse(response, hideTrayPanelDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export async function getSettings(
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<SettingsResponse>> {
-  const response = await invokeSettingsGet(invoker);
-  return unwrapResponse(validateResponse(response, settingsDataSchema));
+  try {
+    const response = await invokeSettingsGet(invoker);
+    return unwrapResponse(validateResponse(response, settingsDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export async function updateSettings(
   request: UpdateSettingsRequest,
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<SettingsResponse>> {
-  const parsedRequest = settingsDataSchema.parse({
-    ...request,
-    revision: request.expectedRevision,
-  });
-  const response = await invokeSettingsUpdate(invoker, {
-    request: {
-      expectedRevision: parsedRequest.revision,
-      reportingTimezone: parsedRequest.reportingTimezone,
-      backgroundRefreshEnabled: parsedRequest.backgroundRefreshEnabled,
-      refreshIntervalMinutes: parsedRequest.refreshIntervalMinutes,
-      launchAtLogin: parsedRequest.launchAtLogin,
-      closeBehavior: parsedRequest.closeBehavior,
-      notificationsEnabled: parsedRequest.notificationsEnabled,
-      storeProjectPaths: parsedRequest.storeProjectPaths,
-    },
-  });
-  return unwrapResponse(validateResponse(response, settingsDataSchema));
+  try {
+    const parsedRequest = updateSettingsRequestSchema.parse(request);
+    const response = await invokeSettingsUpdate(invoker, {
+      request: parsedRequest,
+    });
+    return unwrapResponse(validateResponse(response, settingsDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export async function updateProjectPathRetention(
   request: UpdateProjectPathRetentionRequest,
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<ProjectPathRetentionResponse>> {
-  const parsed = z
-    .object({
-      expectedRevision: z.number().int().positive(),
-      retainPaths: z.boolean(),
-    })
-    .parse(request);
-  const response = await invokeSettingsUpdateProjectPathRetention(invoker, {
-    request: parsed,
-  });
-  return unwrapResponse(
-    validateResponse(response, projectPathRetentionDataSchema),
-  );
-}
-
-export async function listBudgets(
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<BudgetListResponse>> {
-  const response = await invokeBudgetsList(invoker);
-  return unwrapResponse(validateResponse(response, budgetListDataSchema));
-}
-
-export async function getBudget(
-  request: BudgetIdRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<BudgetResponse>> {
-  const parsed = z
-    .object({ budgetId: positiveInt64StringSchema })
-    .parse(request);
-  const response = await invokeBudgetsGet(invoker, { request: parsed });
-  return unwrapResponse(validateResponse(response, budgetDataSchema));
-}
-
-export async function createBudget(
-  request: CreateBudgetRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<BudgetResponse>> {
-  const parsed = z.object({ budget: budgetDefinitionSchema }).parse(request);
-  const response = await invokeBudgetsCreate(invoker, { request: parsed });
-  return unwrapResponse(validateResponse(response, budgetDataSchema));
-}
-
-export async function updateBudget(
-  request: UpdateBudgetRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<BudgetResponse>> {
-  const parsed = z
-    .object({
-      budgetId: positiveInt64StringSchema,
-      expectedRevision: positiveInt64StringSchema,
-      budget: budgetDefinitionSchema,
-    })
-    .parse(request);
-  const response = await invokeBudgetsUpdate(invoker, { request: parsed });
-  return unwrapResponse(validateResponse(response, budgetDataSchema));
-}
-
-export async function enableBudget(
-  request: MutateBudgetRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<BudgetResponse>> {
-  return mutateBudget(invokeBudgetsEnable, request, invoker);
-}
-
-export async function disableBudget(
-  request: MutateBudgetRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<BudgetResponse>> {
-  return mutateBudget(invokeBudgetsDisable, request, invoker);
-}
-
-export async function deleteBudget(
-  request: MutateBudgetRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<DeleteBudgetResponse>> {
-  const parsed = parseBudgetMutation(request);
-  const response = await invokeBudgetsDelete(invoker, { request: parsed });
-  return unwrapResponse(validateResponse(response, deleteBudgetDataSchema));
-}
-
-export async function getCurrentBudgetProgress(
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<CurrentBudgetProgressResponse>> {
-  const response = await invokeBudgetsGetProgress(invoker);
-  return unwrapResponse(
-    validateResponse(response, currentBudgetProgressDataSchema),
-  );
-}
-
-async function mutateBudget(
-  invoke: (
-    invoker: CommandInvoker,
-    request: { request: MutateBudgetRequest },
-  ) => Promise<unknown>,
-  request: MutateBudgetRequest,
-  invoker: CommandInvoker,
-): Promise<CommandResult<BudgetResponse>> {
-  const response = await invoke(invoker, {
-    request: parseBudgetMutation(request),
-  });
-  return unwrapResponse(validateResponse(response, budgetDataSchema));
-}
-
-function parseBudgetMutation(
-  request: MutateBudgetRequest,
-): MutateBudgetRequest {
-  return z
-    .object({
-      budgetId: positiveInt64StringSchema,
-      expectedRevision: positiveInt64StringSchema,
-    })
-    .parse(request);
+  try {
+    const parsedRequest = updateProjectPathRetentionSchema.parse(request);
+    const response = await invokeSettingsUpdateProjectPathRetention(invoker, {
+      request: parsedRequest,
+    });
+    return unwrapResponse(
+      validateResponse(response, projectPathRetentionDataSchema),
+    );
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export async function getRefreshState(
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<RefreshStatusResponse>> {
-  const response = await invokeRefreshGetState(invoker);
-  return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+  try {
+    const response = await invokeRefreshGetState(invoker);
+    return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export async function requestRefresh(
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<RefreshStatusResponse>> {
-  const response = await invokeRefreshRequest(invoker);
-  return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+  try {
+    const response = await invokeRefreshRequest(invoker);
+    return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export async function cancelRefresh(
   invoker: CommandInvoker = commandInvoker,
 ): Promise<CommandResult<RefreshStatusResponse>> {
-  const response = await invokeRefreshCancel(invoker);
-  return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+  try {
+    const response = await invokeRefreshCancel(invoker);
+    return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
-export async function getUsageOverview(
-  request: UsageOverviewRequest,
+export async function getTraySummary(
+  request: TraySummaryRequest,
   invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<UsageOverviewResponse>> {
-  const parsedRequest = usageOverviewRequestSchema.parse(request);
-  const response = await invokeUsageGetOverview(invoker, {
-    request: parsedRequest,
-  });
-  return unwrapResponse(validateResponse(response, usageOverviewDataSchema));
-}
-
-export async function getActivityCalendar(
-  request: ActivityCalendarRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<ActivityCalendarResponse>> {
-  const parsedRequest = activityCalendarRequestSchema.parse(request);
-  const response = await invokeUsageGetCalendar(invoker, {
-    request: parsedRequest,
-  });
-  return unwrapResponse(validateResponse(response, activityCalendarDataSchema));
-}
-
-export async function getDayDetail(
-  request: DayDetailRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<DayDetailResponse>> {
-  const parsedRequest = dayDetailRequestSchema.parse(request);
-  const response = await invokeUsageGetDayDetail(invoker, {
-    request: parsedRequest,
-  });
-  return unwrapResponse(validateResponse(response, dayDetailDataSchema));
-}
-
-export async function getSessions(
-  request: SessionListRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<SessionListResponse>> {
-  const parsedRequest = sessionListRequestSchema.parse(request);
-  const response = await invokeUsageGetSessions(invoker, {
-    request: parsedRequest,
-  });
-  return unwrapResponse(validateResponse(response, sessionListDataSchema));
-}
-
-export async function getSessionDetail(
-  request: SessionDetailRequest,
-  invoker: CommandInvoker = commandInvoker,
-): Promise<CommandResult<SessionDetailResponse | null>> {
-  const parsedRequest = sessionDetailRequestSchema.parse(request);
-  const response = await invokeUsageGetSessionDetail(invoker, {
-    request: parsedRequest,
-  });
-  return unwrapResponse(
-    validateResponse(response, sessionDetailDataSchema.nullable()),
-  );
+): Promise<CommandResult<TraySummaryResponse>> {
+  try {
+    const parsedRequest = traySummaryRequestSchema.parse(request);
+    const response = await invokeUsageGetTraySummary(invoker, {
+      request: parsedRequest,
+    });
+    return unwrapResponse(validateResponse(response, traySummaryDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
 }
 
 export function validateInt64String(value: string): bigint {
@@ -1105,10 +445,6 @@ function validateCapabilitiesResponse(
   response: unknown,
 ): IpcResponse<AppCapabilitiesResponse> {
   return validateResponse(response, capabilitiesDataSchema);
-}
-
-function validateUnknownResponse(response: unknown): IpcResponse<unknown> {
-  return validateResponse(response, z.unknown());
 }
 
 function validateResponse<TData>(

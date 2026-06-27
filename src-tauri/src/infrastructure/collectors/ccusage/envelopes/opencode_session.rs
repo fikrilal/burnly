@@ -16,10 +16,12 @@ pub(crate) struct OpenCodeSessionReport {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OpenCodeSessionRow {
     pub session_id: String,
-    pub first_activity_at: String,
-    pub last_activity_at: String,
+    pub first_activity_at: Option<String>,
+    pub last_activity_at: Option<String>,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
     pub total_tokens: u64,
     pub total_cost: f64,
     #[serde(default)]
@@ -54,8 +56,8 @@ fn validate(report: &OpenCodeSessionReport) -> Result<(), CollectorFailure> {
     let mut session_ids = HashSet::with_capacity(report.sessions.len());
     for row in &report.sessions {
         if !session_ids.insert(row.session_id.as_str())
-            || DateTime::parse_from_rfc3339(&row.first_activity_at).is_err()
-            || DateTime::parse_from_rfc3339(&row.last_activity_at).is_err()
+            || !valid_optional_timestamp(row.first_activity_at.as_deref())
+            || !valid_optional_timestamp(row.last_activity_at.as_deref())
             || !valid_nonnegative(row.total_cost)
             || !valid_row_tokens(row)
             || row.model_breakdowns.iter().any(|model| !valid_model(model))
@@ -69,10 +71,13 @@ fn validate(report: &OpenCodeSessionReport) -> Result<(), CollectorFailure> {
 
 fn valid_totals(totals: &TokenTotals) -> bool {
     valid_nonnegative(totals.total_cost)
-        && totals
-            .input_tokens
-            .checked_add(totals.output_tokens)
-            .is_some_and(|tokens| totals.total_tokens >= tokens)
+        && categorized(
+            totals.input_tokens,
+            totals.output_tokens,
+            totals.cache_creation_tokens,
+            totals.cache_read_tokens,
+        )
+        .is_some_and(|tokens| totals.total_tokens >= tokens)
 }
 
 fn valid_model(model: &ModelBreakdown) -> bool {
@@ -80,9 +85,25 @@ fn valid_model(model: &ModelBreakdown) -> bool {
 }
 
 fn valid_row_tokens(row: &OpenCodeSessionRow) -> bool {
-    row.input_tokens
-        .checked_add(row.output_tokens)
-        .is_some_and(|tokens| row.total_tokens >= tokens)
+    categorized(
+        row.input_tokens,
+        row.output_tokens,
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
+    )
+    .is_some_and(|tokens| row.total_tokens >= tokens)
+}
+
+fn categorized(
+    input: u64,
+    output: u64,
+    cache_creation: Option<u64>,
+    cache_read: Option<u64>,
+) -> Option<u64> {
+    input
+        .checked_add(output)?
+        .checked_add(cache_creation.unwrap_or(0))?
+        .checked_add(cache_read.unwrap_or(0))
 }
 
 fn totals_match_rows(report: &OpenCodeSessionReport) -> bool {
@@ -101,6 +122,10 @@ fn sum_rows(
 
 fn valid_nonnegative(value: f64) -> bool {
     value.is_finite() && value >= 0.0
+}
+
+fn valid_optional_timestamp(value: Option<&str>) -> bool {
+    value.is_none_or(|timestamp| DateTime::parse_from_rfc3339(timestamp).is_ok())
 }
 
 fn incompatible() -> CollectorFailure {
@@ -132,6 +157,16 @@ mod tests {
         let empty = decode(fixture("empty.json")).expect("empty report");
         assert!(empty.sessions.is_empty());
         assert_eq!(empty.totals.total_tokens, 0);
+    }
+
+    #[test]
+    fn accepts_real_rows_without_activity_timestamps() {
+        let report = decode(fixture("real-shape.json")).expect("real-shape report");
+
+        assert_eq!(report.sessions.len(), 1);
+        assert_eq!(report.sessions[0].first_activity_at, None);
+        assert_eq!(report.sessions[0].last_activity_at, None);
+        assert_eq!(report.sessions[0].cache_read_tokens, Some(400));
     }
 
     #[test]
@@ -169,6 +204,10 @@ mod tests {
             "incompatible-envelope.json" => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../tests/fixtures/collectors/ccusage/opencode-session/incompatible-envelope.json"
+            )),
+            "real-shape.json" => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tests/fixtures/collectors/ccusage/opencode-session/real-shape.json"
             )),
             _ => panic!("unknown fixture under {FIXTURES}"),
         }

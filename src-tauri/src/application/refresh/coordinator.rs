@@ -17,8 +17,13 @@ use std::thread;
 
 use chrono::{DateTime, Utc};
 
-use crate::application::budget_evaluation::{BudgetEvaluationError, BudgetEvaluationService};
-use crate::application::budget_notifications::BudgetNotificationService;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub(crate) enum BudgetEvaluationError {
+    #[error("budget storage failed")]
+    StorageUnavailable,
+}
 use crate::application::collection::{
     CollectionId, CollectionOutcome, CollectionProjection, CollectionRequest, CollectionResult,
     CollectionScope,
@@ -81,27 +86,6 @@ impl BudgetEvaluationRunner for NoopBudgetEvaluationRunner {
         _now_epoch_ms: i64,
     ) -> Result<(), BudgetEvaluationError> {
         Ok(())
-    }
-}
-
-impl BudgetEvaluationRunner for BudgetEvaluationService {
-    fn evaluate_after_commit(
-        &self,
-        aggregation_timezone: &str,
-        now_epoch_ms: i64,
-    ) -> Result<(), BudgetEvaluationError> {
-        self.evaluate(aggregation_timezone, now_epoch_ms)
-            .map(|_| ())
-    }
-}
-
-impl BudgetEvaluationRunner for BudgetNotificationService {
-    fn evaluate_after_commit(
-        &self,
-        aggregation_timezone: &str,
-        now_epoch_ms: i64,
-    ) -> Result<(), BudgetEvaluationError> {
-        self.evaluate_and_deliver(aggregation_timezone, now_epoch_ms)
     }
 }
 

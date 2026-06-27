@@ -12,47 +12,39 @@ use thiserror::Error;
 
 use crate::application::bootstrap::{
     BootstrapService, CapabilityStatus, NativeNotificationCapability, RuntimeCapabilities,
-    RuntimeSettings, StartupRecoveryState,
+    RuntimeSettings,
 };
-use crate::application::budget_evaluation::BudgetEvaluationService;
-use crate::application::budget_notifications::BudgetNotificationService;
-use crate::application::budget_progress::BudgetProgressQuery;
-use crate::application::budgets::BudgetService;
+
 use crate::application::collection::CollectorFailure;
-use crate::application::database_maintenance::DatabaseMaintenanceService;
-use crate::application::diagnostics::{DiagnosticsService, RuntimeDiagnosticRecord};
-use crate::application::export::ExportService;
-use crate::application::history::HistoryService;
-use crate::application::history_deletion::HistoryDeletionService;
-use crate::application::ports::database_maintenance::{MaintenanceActivity, MaintenanceGuard};
 use crate::application::ports::notification::{NotificationPermission, NotificationPort};
+use crate::application::ports::settings_store::SettingsStore;
+use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
-    RefreshCoordinator, RefreshCoordinatorHooks, RefreshEventSink, RefreshPolicy, RefreshScheduler,
-    RefreshSchedulerError, RefreshSnapshot, RefreshStatus,
+    RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
+    RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
-use crate::application::usage::{CalendarQuery, DayDetailQuery, OverviewQuery, SessionQuery};
+use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteBudgetNotificationStore,
-    SqliteBudgetStore, SqliteBudgetUsageStore, SqliteCalendarStore, SqliteDatabaseMaintenanceStore,
-    SqliteDiagnosticsStore, SqliteExportStore, SqliteHistoryDeletionStore, SqliteHistoryStore,
-    SqliteOverviewStore, SqliteReconciliationStore, SqliteSessionStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
+    SqliteTraySummaryStore,
 };
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
-use crate::platform::export::DesktopExportWriter;
 use crate::platform::lifecycle;
-use crate::platform::logs::DesktopLogReveal;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{
     database_path, notifications::NativeNotificationAdapter, single_instance, system_clock,
     system_timezone, tray,
 };
+
+const TRAY_OPEN_STALE_AFTER_MS: i64 = 5 * 60 * 1_000;
+const TRAY_OPEN_REFRESH_THROTTLE_MS: i64 = 60 * 1_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupErrorKind {
@@ -116,10 +108,8 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(crate::ipc::invoke_handler())
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if let Some(settings) = window.app_handle().try_state::<RuntimeSettings>() {
-                    lifecycle::handle_close_request(window, api, settings.close_behavior());
-                }
+            if let WindowEvent::Focused(false) = event {
+                lifecycle::handle_tray_panel_blur(window);
             }
         })
         .setup(|app| {
@@ -156,41 +146,24 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let database_path = database_path::resolve(app.handle()).map_err(StartupError::DatabasePath)?;
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
-    let database = match initialize(&database_path, &reporting_timezone, created_at_ms) {
-        Ok(database) => database,
-        Err(StartupError::Persistence(error)) => {
-            eprintln!(
-                "Burnly persistence startup entered recovery mode ({:?})",
-                error.kind()
-            );
-            app.manage(StartupRecoveryState);
-            app.manage(DatabaseMaintenanceService::new(
-                Arc::new(SqliteDatabaseMaintenanceStore::new(database_path)),
-                Arc::new(RecoveryMaintenanceGuard),
-            ));
-            return Ok(());
-        }
-        Err(error) => return Err(error),
-    };
+    let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
     let (_, background_refresh_enabled, refresh_interval_minutes, _, close_behavior, ..) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
     let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
     let tray_state = Arc::new(Mutex::new(None));
-    let budget_progress_query = build_budget_progress_query(&database_path)?;
     let notification_port: Arc<dyn NotificationPort> =
         Arc::new(NativeNotificationAdapter::new(app.handle().clone()));
+    let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
+    let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
+    let tray_summary_query = build_tray_summary_query(&database_path)?;
     let refresh_event_sink = runtime_refresh_event_sink(
         app.handle().clone(),
         tray_state.clone(),
-        budget_progress_query.clone(),
+        tray_summary_query.clone(),
+        settings_store.clone(),
     );
-    let refresh_coordinator = build_refresh_coordinator(
-        app,
-        &database_path,
-        refresh_event_sink,
-        notification_port.clone(),
-    )?;
+    let refresh_coordinator = build_refresh_coordinator(app, &database_path, refresh_event_sink)?;
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
             .map_err(StartupError::RefreshScheduler)?;
@@ -202,18 +175,27 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         })?);
     let tray_controller = tray::TrayController::install(
         app.handle(),
-        &tray_snapshot(&refresh_coordinator.snapshot(), &budget_progress_query),
+        &tray_snapshot(
+            &refresh_coordinator.snapshot(),
+            &tray_summary_query,
+            &reporting_timezone,
+        ),
     )
     .ok();
     if let Some(controller) = tray_controller.clone() {
         *tray_state.lock().expect("tray state lock is poisoned") = Some(controller.clone());
         controller.update(&tray_snapshot(
             &refresh_coordinator.snapshot(),
-            &budget_progress_query,
+            &tray_summary_query,
+            &reporting_timezone,
         ));
         app.manage(controller);
     }
-    install_tray_invalidation_listener(app.handle().clone(), budget_progress_query.clone());
+    install_tray_invalidation_listener(
+        app.handle().clone(),
+        tray_summary_query.clone(),
+        settings_store.clone(),
+    );
     let tray_capability = match tray_controller {
         Some(_) => RuntimeCapabilities::tray_available(),
         None => RuntimeCapabilities::tray_unavailable(),
@@ -232,33 +214,29 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         },
     );
 
-    app.manage(DatabaseMaintenanceService::new(
-        Arc::new(SqliteDatabaseMaintenanceStore::new(database_path.clone())),
-        Arc::new(RuntimeMaintenanceGuard {
-            coordinator: refresh_coordinator.clone(),
-        }),
-    ));
-    app.manage(refresh_coordinator);
+    app.manage(
+        Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
+            as Arc<dyn WindowActions>,
+    );
+    app.manage(refresh_coordinator.clone());
     app.manage(refresh_scheduler);
     app.manage(runtime_settings.clone());
-    app.manage(build_overview_query(&database_path)?);
-    app.manage(build_calendar_query(&database_path)?);
-    app.manage(build_day_detail_query(&database_path)?);
-    app.manage(build_session_query(&database_path)?);
-    app.manage(budget_progress_query);
-    let budget_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
-    app.manage(BudgetService::new(
-        Arc::new(SqliteBudgetStore::new(budget_database)),
+    let tray_open_refresh = TrayOpenRefreshController::new(
+        reporting_timezone.clone(),
+        tray_summary_query.clone(),
+        refresh_coordinator.clone(),
         Arc::new(SystemClock),
-    ));
+    );
+    tray_open_refresh.request_startup_refresh_if_stale();
+    app.manage(tray_summary_query.clone());
+    app.manage(tray_open_refresh);
+
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
         CONTRACT_VERSION,
         SqliteBootstrapStore::new(database),
         runtime_capabilities,
     ));
-    let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
-    let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
     settings_store
         .enforce_current_project_path_policy()
         .map_err(|_| StartupError::PrivacyPolicy)?;
@@ -273,62 +251,8 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         runtime,
         Arc::new(SystemClock),
     ));
-    app.manage(DiagnosticsService::new(
-        Arc::new(SqliteDiagnosticsStore::new(
-            Database::open(&database_path).map_err(StartupError::Persistence)?,
-        )),
-        settings_store,
-        Arc::new(DesktopLogReveal::new(app.handle().clone())),
-        RuntimeDiagnosticRecord {
-            app_version: env!("CARGO_PKG_VERSION").to_owned(),
-            contract_version: CONTRACT_VERSION,
-            collector_initialized: true,
-        },
-    ));
-    app.manage(HistoryService::new(
-        Arc::new(SqliteHistoryStore::new(
-            Database::open(&database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SystemClock),
-    ));
-    app.manage(ExportService::new(
-        Arc::new(SqliteExportStore::new(
-            Database::open(&database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(DesktopExportWriter::new(app.handle().clone())),
-    ));
-    app.manage(HistoryDeletionService::new(Arc::new(
-        SqliteHistoryDeletionStore::new(
-            Database::open(&database_path).map_err(StartupError::Persistence)?,
-        ),
-    )));
+
     Ok(())
-}
-
-struct RecoveryMaintenanceGuard;
-
-impl MaintenanceGuard for RecoveryMaintenanceGuard {
-    fn activity(&self) -> MaintenanceActivity {
-        MaintenanceActivity::Idle
-    }
-}
-
-struct RuntimeMaintenanceGuard {
-    coordinator: RefreshCoordinator,
-}
-
-impl MaintenanceGuard for RuntimeMaintenanceGuard {
-    fn activity(&self) -> MaintenanceActivity {
-        match self.coordinator.snapshot().status {
-            RefreshStatus::Queued | RefreshStatus::Running | RefreshStatus::Cancelling => {
-                MaintenanceActivity::Busy
-            }
-            RefreshStatus::Idle
-            | RefreshStatus::Succeeded
-            | RefreshStatus::Partial
-            | RefreshStatus::Failed => MaintenanceActivity::Idle,
-        }
-    }
 }
 
 struct DesktopSettingsRuntime<R: Runtime> {
@@ -389,9 +313,13 @@ fn ensure_notification_permission(
 
 fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuEvent) {
     match tray::TrayAction::from_menu_event(event) {
-        Some(tray::TrayAction::Open) => {
-            let _ = lifecycle::activate_main_window(app);
+        Some(tray::TrayAction::OpenPanel) => {
+            if let Some(controller) = app.try_state::<TrayOpenRefreshController>() {
+                controller.request_tray_open_refresh_if_stale();
+            }
+            let _ = lifecycle::open_tray_panel(app);
         }
+
         Some(tray::TrayAction::Refresh) => {
             if let Some(coordinator) = app.try_state::<RefreshCoordinator>() {
                 coordinator.request_refresh(RefreshTrigger::Manual);
@@ -413,58 +341,18 @@ fn refresh_policy(
     }
 }
 
-fn build_overview_query(database_path: &Path) -> Result<OverviewQuery, StartupError> {
+fn build_tray_summary_query(database_path: &Path) -> Result<TraySummaryQuery, StartupError> {
     let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(OverviewQuery::new(
-        Arc::new(SqliteOverviewStore::new(database)),
+    Ok(TraySummaryQuery::new(
+        Arc::new(SqliteTraySummaryStore::new(database)),
         Arc::new(SystemClock),
     ))
-}
-
-fn build_calendar_query(database_path: &Path) -> Result<CalendarQuery, StartupError> {
-    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(CalendarQuery::new(Arc::new(SqliteCalendarStore::new(
-        database,
-    ))))
-}
-
-fn build_day_detail_query(database_path: &Path) -> Result<DayDetailQuery, StartupError> {
-    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(DayDetailQuery::new(
-        Arc::new(SqliteCalendarStore::new(database)),
-        Arc::new(SystemClock),
-    ))
-}
-
-fn build_session_query(database_path: &Path) -> Result<SessionQuery, StartupError> {
-    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    Ok(SessionQuery::new(Arc::new(SqliteSessionStore::new(
-        Arc::new(Mutex::new(database)),
-    ))))
-}
-
-fn build_budget_progress_query(
-    database_path: &Path,
-) -> Result<Arc<BudgetProgressQuery>, StartupError> {
-    Ok(Arc::new(BudgetProgressQuery::new(
-        Arc::new(SqliteBudgetStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SqliteBudgetUsageStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SqliteSettingsStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SystemClock),
-    )))
 }
 
 fn build_refresh_coordinator<R: Runtime>(
     app: &tauri::App<R>,
     database_path: &Path,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
-    notifications: Arc<dyn NotificationPort>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let resource_directory = app
         .path()
@@ -478,45 +366,27 @@ fn build_refresh_coordinator<R: Runtime>(
         .map_err(StartupError::Collector)?,
     );
 
-    compose_refresh_coordinator(database_path, collector, refresh_event_sink, notifications)
+    compose_refresh_coordinator(database_path, collector, refresh_event_sink)
 }
 
 fn compose_refresh_coordinator(
     database_path: &Path,
     collector: Arc<CcusageCollector>,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
-    notifications: Arc<dyn NotificationPort>,
 ) -> Result<RefreshCoordinator, StartupError> {
     let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let (aggregation_timezone, ..) = write_database
         .read_settings()
         .map_err(StartupError::Persistence)?;
     let store = Arc::new(SqliteReconciliationStore::new(write_database));
-    let budget_store = Arc::new(SqliteBudgetStore::new(
-        Database::open(database_path).map_err(StartupError::Persistence)?,
-    ));
-    let budget_usage_store = Arc::new(SqliteBudgetUsageStore::new(
-        Database::open(database_path).map_err(StartupError::Persistence)?,
-    ));
-    let budget_evaluator = BudgetEvaluationService::new(budget_store, budget_usage_store);
-    let budget_notifications = Arc::new(BudgetNotificationService::new(
-        budget_evaluator,
-        Arc::new(SqliteSettingsStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        Arc::new(SqliteBudgetNotificationStore::new(
-            Database::open(database_path).map_err(StartupError::Persistence)?,
-        )),
-        notifications,
-    ));
     let clock = Arc::new(SystemClock);
 
-    Ok(RefreshCoordinator::with_event_sink_and_budget_evaluator(
+    Ok(RefreshCoordinator::with_event_sink(
         collector,
         store.clone(),
         store,
         clock,
-        RefreshCoordinatorHooks::new(refresh_event_sink, budget_notifications),
+        refresh_event_sink,
         env!("CARGO_PKG_VERSION"),
         aggregation_timezone,
     ))
@@ -525,7 +395,8 @@ fn compose_refresh_coordinator(
 struct RuntimeRefreshEventSink<R: Runtime> {
     frontend: Arc<dyn RefreshEventSink>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
-    budget_progress: Arc<BudgetProgressQuery>,
+    tray_summary: TraySummaryQuery,
+    settings_store: Arc<SqliteSettingsStore>,
 }
 
 impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
@@ -537,7 +408,12 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
             .expect("tray state lock is poisoned")
             .as_ref()
         {
-            tray.update(&tray_snapshot(&snapshot, &self.budget_progress));
+            let timezone = self
+                .settings_store
+                .get()
+                .map(|doc| doc.settings().reporting_timezone().to_owned())
+                .unwrap_or_else(|_| "UTC".to_owned());
+            tray.update(&tray_snapshot(&snapshot, &self.tray_summary, &timezone));
         }
     }
 }
@@ -545,18 +421,21 @@ impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
 fn runtime_refresh_event_sink<R: Runtime>(
     app: tauri::AppHandle<R>,
     tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
-    budget_progress: Arc<BudgetProgressQuery>,
+    tray_summary: TraySummaryQuery,
+    settings_store: Arc<SqliteSettingsStore>,
 ) -> Arc<dyn RefreshEventSink> {
     Arc::new(RuntimeRefreshEventSink {
         frontend: refresh_event_sink(app),
         tray,
-        budget_progress,
+        tray_summary,
+        settings_store,
     })
 }
 
 fn install_tray_invalidation_listener<R: Runtime>(
     app: tauri::AppHandle<R>,
-    budget_progress: Arc<BudgetProgressQuery>,
+    tray_summary: TraySummaryQuery,
+    settings_store: Arc<SqliteSettingsStore>,
 ) {
     let listener_app = app.clone();
     app.listen("burnly://v1/data-invalidated", move |_| {
@@ -564,22 +443,36 @@ fn install_tray_invalidation_listener<R: Runtime>(
             listener_app.try_state::<tray::TrayController<R>>(),
             listener_app.try_state::<RefreshCoordinator>(),
         ) {
-            controller.update(&tray_snapshot(&coordinator.snapshot(), &budget_progress));
+            let timezone = settings_store
+                .get()
+                .map(|doc| doc.settings().reporting_timezone().to_owned())
+                .unwrap_or_else(|_| "UTC".to_owned());
+            controller.update(&tray_snapshot(
+                &coordinator.snapshot(),
+                &tray_summary,
+                &timezone,
+            ));
         }
     });
 }
 
 pub(crate) fn tray_snapshot(
     snapshot: &RefreshSnapshot,
-    budget_progress: &BudgetProgressQuery,
+    tray_summary: &TraySummaryQuery,
+    reporting_timezone: &str,
 ) -> tray::TraySnapshot {
+    let summary = tray_summary.get(reporting_timezone).ok();
+    let today_tokens = summary.as_ref().map(|s| s.today.total_tokens);
+    let week_tokens = summary.as_ref().map(|s| s.week.total_tokens);
+    let month_tokens = summary.as_ref().map(|s| s.month.total_tokens);
+
     tray::TraySnapshot {
         status: tray_refresh_status(snapshot.status),
         last_successful_refresh_at_ms: snapshot.last_successful_refresh_at_ms,
-        budget_summary: budget_progress
-            .current()
-            .ok()
-            .and_then(|progress| progress.tray_summary),
+        budget_summary: None,
+        today_tokens,
+        week_tokens,
+        month_tokens,
     }
 }
 
@@ -593,6 +486,108 @@ const fn tray_refresh_status(status: RefreshStatus) -> tray::TrayRefreshStatus {
         RefreshStatus::Partial => tray::TrayRefreshStatus::Partial,
         RefreshStatus::Failed => tray::TrayRefreshStatus::Failed,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrayOpenRefreshDecision {
+    Request,
+    SkipActive,
+    SkipFresh,
+    SkipThrottled,
+    SkipClock,
+    SkipReadFailure,
+}
+
+trait TrayOpenClock: Send + Sync {
+    fn now_epoch_ms(&self) -> Option<i64>;
+}
+
+impl TrayOpenClock for SystemClock {
+    fn now_epoch_ms(&self) -> Option<i64> {
+        system_clock::now_epoch_ms().ok()
+    }
+}
+
+struct TrayOpenRefreshController {
+    reporting_timezone: String,
+    summary_query: TraySummaryQuery,
+    coordinator: RefreshCoordinator,
+    clock: Arc<dyn TrayOpenClock>,
+    last_request_at_ms: Mutex<Option<i64>>,
+}
+
+impl TrayOpenRefreshController {
+    fn new(
+        reporting_timezone: String,
+        summary_query: TraySummaryQuery,
+        coordinator: RefreshCoordinator,
+        clock: Arc<dyn TrayOpenClock>,
+    ) -> Self {
+        Self {
+            reporting_timezone,
+            summary_query,
+            coordinator,
+            clock,
+            last_request_at_ms: Mutex::new(None),
+        }
+    }
+
+    fn request_startup_refresh_if_stale(&self) -> TrayOpenRefreshDecision {
+        self.request_if_stale(RefreshTrigger::Launch)
+    }
+
+    fn request_tray_open_refresh_if_stale(&self) -> TrayOpenRefreshDecision {
+        self.request_if_stale(RefreshTrigger::Manual)
+    }
+
+    fn request_if_stale(&self, trigger: RefreshTrigger) -> TrayOpenRefreshDecision {
+        let now_ms = match self.clock.now_epoch_ms() {
+            Some(value) => value,
+            None => return TrayOpenRefreshDecision::SkipClock,
+        };
+        let last_successful_refresh_at_ms = match self.summary_query.get(&self.reporting_timezone) {
+            Ok(summary) => summary.last_successful_refresh_at_ms,
+            Err(_) => return TrayOpenRefreshDecision::SkipReadFailure,
+        };
+        let snapshot = self.coordinator.snapshot();
+        let mut last_request = self
+            .last_request_at_ms
+            .lock()
+            .expect("tray open refresh lock is poisoned");
+        let decision = tray_open_refresh_decision(
+            now_ms,
+            last_successful_refresh_at_ms,
+            *last_request,
+            snapshot.status.is_active(),
+        );
+        if decision == TrayOpenRefreshDecision::Request {
+            *last_request = Some(now_ms);
+            self.coordinator.request_refresh(trigger);
+        }
+        decision
+    }
+}
+
+fn tray_open_refresh_decision(
+    now_ms: i64,
+    last_successful_refresh_at_ms: Option<i64>,
+    last_request_at_ms: Option<i64>,
+    refresh_active: bool,
+) -> TrayOpenRefreshDecision {
+    if refresh_active {
+        return TrayOpenRefreshDecision::SkipActive;
+    }
+    if let Some(last_request_at_ms) = last_request_at_ms {
+        if now_ms.saturating_sub(last_request_at_ms) < TRAY_OPEN_REFRESH_THROTTLE_MS {
+            return TrayOpenRefreshDecision::SkipThrottled;
+        }
+    }
+    if let Some(last_successful_refresh_at_ms) = last_successful_refresh_at_ms {
+        if now_ms.saturating_sub(last_successful_refresh_at_ms) < TRAY_OPEN_STALE_AFTER_MS {
+            return TrayOpenRefreshDecision::SkipFresh;
+        }
+    }
+    TrayOpenRefreshDecision::Request
 }
 
 fn initialize(
@@ -627,9 +622,7 @@ mod tests {
     use crate::application::bootstrap::{
         BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
     };
-    use crate::application::ports::notification::{
-        NotificationCapability, NotificationDeliveryOutcome, NotificationMessage,
-    };
+    use crate::application::ports::notification::{NotificationCapability, NotificationPermission};
     use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
     use crate::domain::settings::{Settings, SettingsDocument};
 
@@ -640,27 +633,6 @@ mod tests {
     use super::*;
 
     struct FixedBootstrapStore;
-
-    #[cfg(unix)]
-    struct TestNotificationPort;
-
-    #[cfg(unix)]
-    impl NotificationPort for TestNotificationPort {
-        fn capability(&self) -> NotificationCapability {
-            NotificationCapability {
-                supported: false,
-                permission: NotificationPermission::Unknown,
-            }
-        }
-
-        fn request_permission(&self) -> NotificationPermission {
-            NotificationPermission::Unknown
-        }
-
-        fn deliver(&self, _message: &NotificationMessage) -> NotificationDeliveryOutcome {
-            NotificationDeliveryOutcome::Failed
-        }
-    }
 
     struct PermissionNotificationPort {
         initial: NotificationPermission,
@@ -679,10 +651,6 @@ mod tests {
         fn request_permission(&self) -> NotificationPermission {
             *self.requests.lock().expect("requests lock") += 1;
             self.requested
-        }
-
-        fn deliver(&self, _message: &NotificationMessage) -> NotificationDeliveryOutcome {
-            NotificationDeliveryOutcome::Failed
         }
     }
 
@@ -802,6 +770,30 @@ mod tests {
             Err(RuntimeSettingError::NotificationsUnavailable)
         );
         assert_eq!(*denied.requests.lock().expect("requests"), 0);
+    }
+
+    #[test]
+    fn tray_open_refresh_requests_only_when_stale_and_not_throttled() {
+        assert_eq!(
+            tray_open_refresh_decision(600_000, None, None, false),
+            TrayOpenRefreshDecision::Request
+        );
+        assert_eq!(
+            tray_open_refresh_decision(600_000, Some(550_001), None, false),
+            TrayOpenRefreshDecision::SkipFresh
+        );
+        assert_eq!(
+            tray_open_refresh_decision(600_000, Some(200_000), Some(590_001), false),
+            TrayOpenRefreshDecision::SkipThrottled
+        );
+        assert_eq!(
+            tray_open_refresh_decision(600_000, Some(200_000), Some(500_000), false),
+            TrayOpenRefreshDecision::Request
+        );
+        assert_eq!(
+            tray_open_refresh_decision(600_000, Some(200_000), None, true),
+            TrayOpenRefreshDecision::SkipActive
+        );
     }
 
     #[test]
@@ -1020,134 +1012,6 @@ mod tests {
     }
 
     #[test]
-    fn tauri_bridge_runs_budget_crud_with_exact_string_contracts() {
-        let directory = tempfile::TempDir::new().expect("temporary directory");
-        let database_path = directory.path().join("burnly.sqlite3");
-        let mut database = Database::open(database_path).expect("open database");
-        database.migrate_to_latest().expect("migrate database");
-        let app = tauri::test::mock_builder()
-            .invoke_handler(crate::ipc::invoke_handler())
-            .manage(BudgetService::new(
-                Arc::new(SqliteBudgetStore::new(database)),
-                Arc::new(SystemClock),
-            ))
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .expect("build mock tauri app");
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .expect("build mock webview");
-
-        let created = invoke_webview(
-            &webview,
-            "budgets_create",
-            json!({
-                "request": {
-                    "budget": {
-                        "name": "Monthly tokens",
-                        "limit": { "kind": "tokens", "value": "100000" },
-                        "period": "monthly",
-                        "scope": { "kind": "global" },
-                        "enabled": true,
-                        "thresholds": [
-                            { "basisPoints": 10000, "enabled": true },
-                            { "basisPoints": 8000, "enabled": true }
-                        ]
-                    }
-                }
-            }),
-        );
-        assert_eq!(created["ok"], true);
-        assert_eq!(created["data"]["id"], "1");
-        assert_eq!(created["data"]["revision"], "1");
-        assert_eq!(created["data"]["thresholds"][0]["basisPoints"], 8000);
-
-        let listed = invoke_webview(&webview, "budgets_list", json!({}));
-        assert_eq!(listed["data"]["items"][0]["id"], "1");
-
-        let fetched = invoke_webview(
-            &webview,
-            "budgets_get",
-            json!({ "request": { "budgetId": "1" } }),
-        );
-        assert_eq!(fetched["data"]["name"], "Monthly tokens");
-
-        let updated = invoke_webview(
-            &webview,
-            "budgets_update",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "1",
-                    "budget": {
-                        "name": "Daily tokens",
-                        "limit": { "kind": "tokens", "value": "5000" },
-                        "period": "daily",
-                        "scope": { "kind": "global" },
-                        "enabled": true,
-                        "thresholds": [
-                            { "basisPoints": 9000, "enabled": true }
-                        ]
-                    }
-                }
-            }),
-        );
-        assert_eq!(updated["data"]["revision"], "2");
-        assert_eq!(updated["data"]["period"], "daily");
-
-        let disabled = invoke_webview(
-            &webview,
-            "budgets_disable",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "2"
-                }
-            }),
-        );
-        assert_eq!(disabled["data"]["enabled"], false);
-        assert_eq!(disabled["data"]["revision"], "3");
-
-        let enabled = invoke_webview(
-            &webview,
-            "budgets_enable",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "3"
-                }
-            }),
-        );
-        assert_eq!(enabled["data"]["enabled"], true);
-        assert_eq!(enabled["data"]["revision"], "4");
-
-        let conflict = invoke_webview(
-            &webview,
-            "budgets_delete",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "1"
-                }
-            }),
-        );
-        assert_eq!(conflict["ok"], false);
-        assert_eq!(conflict["error"]["code"], "budgets.revision_conflict");
-
-        let deleted = invoke_webview(
-            &webview,
-            "budgets_delete",
-            json!({
-                "request": {
-                    "budgetId": "1",
-                    "expectedRevision": "4"
-                }
-            }),
-        );
-        assert_eq!(deleted["ok"], true);
-        assert_eq!(deleted["data"]["budgetId"], "1");
-    }
-
-    #[test]
     fn tauri_bridge_invokes_refresh_state_command() {
         let directory = tempfile::TempDir::new().expect("create app data directory");
         let database_path = directory.path().join("burnly.sqlite3");
@@ -1234,11 +1098,10 @@ mod tests {
             &database_path,
             collector,
             refresh_event_sink(app.handle().clone()),
-            Arc::new(TestNotificationPort),
         )
         .expect("coordinator");
         assert!(app.manage(coordinator));
-        assert!(app.manage(build_overview_query(&database_path).expect("overview query")));
+        assert!(app.manage(build_tray_summary_query(&database_path).expect("tray summary query")));
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
             .expect("build mock webview");
@@ -1279,33 +1142,24 @@ mod tests {
         assert_eq!(daily_count, 6);
         drop(connection);
 
-        let overview = tauri::test::get_ipc_response(
+        let summary = tauri::test::get_ipc_response(
             &webview,
             request_with_body(
-                "usage_get_overview",
+                "usage_get_tray_summary",
                 json!({
                     "request": {
-                        "startDate": "2026-06-13",
-                        "endDate": "2026-06-14",
                         "reportingTimezone": "UTC"
                     }
                 }),
             ),
         )
-        .expect("invoke usage overview")
+        .expect("invoke usage tray summary")
         .deserialize::<Value>()
-        .expect("deserialize usage overview");
+        .expect("deserialize usage tray summary");
 
-        assert_eq!(overview["ok"], true);
-        assert_eq!(overview["data"]["totalTokens"], "7500");
-        assert_eq!(overview["data"]["activeDays"], 2);
-        assert_eq!(overview["data"]["cost"]["amountMicros"], "1890000");
-        assert_eq!(overview["data"]["cost"]["valuation"], "estimated");
-        assert_eq!(overview["data"]["sources"][0]["source"], "claude-code");
-        assert_eq!(overview["data"]["sources"][1]["source"], "codex");
-        assert_eq!(overview["data"]["sources"][2]["source"], "opencode");
-        assert_eq!(overview["data"]["dataStatus"], "current");
-        assert!(overview["data"]["asOf"]
+        assert_eq!(summary["ok"], true);
+        assert_eq!(summary["data"]["dataStatus"], "empty");
+        assert!(summary["data"]["asOf"]
             .as_str()
             .expect("snapshot timestamp")
             .ends_with('Z'));
@@ -1420,16 +1274,5 @@ mod tests {
             headers: Default::default(),
             invoke_key: tauri::test::INVOKE_KEY.to_owned(),
         }
-    }
-
-    fn invoke_webview(
-        webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
-        command: &str,
-        body: Value,
-    ) -> Value {
-        tauri::test::get_ipc_response(webview, request_with_body(command, body))
-            .expect("invoke command")
-            .deserialize::<Value>()
-            .expect("deserialize command response")
     }
 }

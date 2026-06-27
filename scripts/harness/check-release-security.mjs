@@ -112,9 +112,12 @@ function validatePolicy({
       "src-tauri/capabilities: capability identifier must be main-window.",
     );
   }
-  if (JSON.stringify(capability?.windows) !== JSON.stringify(["main"])) {
+  if (
+    JSON.stringify(capability?.windows) !==
+    JSON.stringify(["main", "tray-panel"])
+  ) {
     failures.push(
-      "src-tauri/capabilities: capability must target only the main window.",
+      "src-tauri/capabilities: capability must target only reviewed local windows.",
     );
   }
   if ("remote" in (capability ?? {})) {
@@ -212,7 +215,7 @@ function runSelfTest() {
     capabilities: [
       {
         identifier: "main-window",
-        windows: ["main"],
+        windows: ["main", "tray-panel"],
         permissions: [...allowedCorePermissions, "allow-app-get-bootstrap"],
       },
     ],

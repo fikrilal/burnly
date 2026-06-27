@@ -19,13 +19,25 @@ use crate::{
 use super::envelopes::claude_daily::{ClaudeDailyReport, ClaudeDailyRow, ModelBreakdown};
 use super::envelopes::claude_session::{ClaudeSessionReport, ClaudeSessionRow};
 use super::envelopes::codex_daily::{CodexDailyReport, CodexDailyRow, CodexModelBreakdown};
-use super::envelopes::codex_session::{CodexSessionReport, CodexSessionRow};
+use super::envelopes::codex_session::{
+    first_activity_timestamp as codex_first_activity_timestamp,
+    last_activity_timestamp as codex_last_activity_timestamp, CodexSessionReport, CodexSessionRow,
+};
 use super::envelopes::opencode_daily::{
     ModelBreakdown as OpenCodeModelBreakdown, OpenCodeDailyReport, OpenCodeDailyRow,
 };
 use super::envelopes::opencode_session::{OpenCodeSessionReport, OpenCodeSessionRow};
 
 const COST_MICROS_PER_UNIT: f64 = 1_000_000.0;
+
+/// Stable model identity for OpenCode days/sessions that used several models with
+/// no per-model token split available from the collector. Keeping it stable lets
+/// the usage stay visible and reconcile with the daily total across every view.
+///
+/// This is a temporary workaround for a `ccusage` gap (OpenCode `daily` omits
+/// `modelBreakdowns`). See `docs/engineering/known-limitations.md` and
+/// https://github.com/ccusage/ccusage/issues/1380.
+const OPENCODE_MULTIPLE_MODELS: &str = "Multiple models";
 
 pub(crate) fn map_daily(
     report: ClaudeDailyReport,
@@ -138,8 +150,8 @@ fn map_codex_row(
     let tokens = TokenUsage::new(
         Some(row.input_tokens),
         Some(row.output_tokens),
-        None,
-        None,
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
         row.total_tokens,
     )?;
     let cost = map_cost(row.total_cost, row.total_tokens)?;
@@ -166,18 +178,21 @@ fn map_codex_model(
     let total_tokens = model
         .input_tokens
         .checked_add(model.output_tokens)
+        .and_then(|value| value.checked_add(model.cache_creation_tokens.unwrap_or(0)))
+        .and_then(|value| value.checked_add(model.cache_read_tokens.unwrap_or(0)))
         .and_then(|value| value.checked_add(model.reasoning_output_tokens))
         .ok_or(MappingError::TokenOverflow)?;
+    let total_tokens = model.total_tokens.unwrap_or(total_tokens);
     Ok(ModelUsageCandidate {
         raw_model_id: model_name,
         tokens: TokenUsage::new(
             Some(model.input_tokens),
             Some(model.output_tokens),
-            None,
-            None,
+            model.cache_creation_tokens,
+            model.cache_read_tokens,
             total_tokens,
         )?,
-        cost: map_cost(model.cost, total_tokens)?,
+        cost: map_optional_cost(model.cost, total_tokens)?,
     })
 }
 
@@ -199,24 +214,23 @@ fn map_codex_session_row(
     let tokens = TokenUsage::new(
         Some(row.input_tokens),
         Some(row.output_tokens),
-        None,
-        None,
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
         row.total_tokens,
     )?;
     let cost = map_cost(row.total_cost, row.total_tokens)?;
+    let first_activity_at = codex_first_activity_timestamp(&row)
+        .map(parse_timestamp)
+        .transpose()?;
+    let last_activity_at = codex_last_activity_timestamp(&row)
+        .as_deref()
+        .map(parse_timestamp)
+        .transpose()?;
     let model_breakdowns = row
         .models
         .into_iter()
         .map(|(model_name, model)| map_codex_model(model_name, model))
         .collect::<Result<Vec<_>, _>>()?;
-
-    let first_activity_at = DateTime::parse_from_rfc3339(&row.first_activity_at)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|_| MappingError::InvalidDate)?;
-
-    let last_activity_at = DateTime::parse_from_rfc3339(&row.last_activity_at)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|_| MappingError::InvalidDate)?;
 
     Ok(SessionUsageCandidate {
         provenance: context.provenance(),
@@ -227,8 +241,8 @@ fn map_codex_session_row(
         } else {
             Some(row.directory)
         },
-        first_activity_at: Some(first_activity_at),
-        last_activity_at: Some(last_activity_at),
+        first_activity_at,
+        last_activity_at,
         tokens,
         cost,
         model_breakdowns,
@@ -255,16 +269,13 @@ fn map_opencode_row(
     let tokens = TokenUsage::new(
         Some(row.input_tokens),
         Some(row.output_tokens),
-        None,
-        None,
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
         row.total_tokens,
     )?;
     let cost = map_cost(row.total_cost, row.total_tokens)?;
-    let model_breakdowns = row
-        .model_breakdowns
-        .into_iter()
-        .map(map_opencode_model)
-        .collect::<Result<Vec<_>, _>>()?;
+    let model_breakdowns =
+        opencode_model_breakdowns(row.model_breakdowns, row.models_used, &tokens, &cost)?;
     Ok(DailyUsageCandidate {
         provenance: context.provenance(),
         source_key: daily_source_key(context.source, usage_date, &context.aggregation_timezone)?,
@@ -280,18 +291,51 @@ fn map_opencode_model(model: OpenCodeModelBreakdown) -> Result<ModelUsageCandida
     let total_tokens = model
         .input_tokens
         .checked_add(model.output_tokens)
+        .and_then(|value| value.checked_add(model.cache_creation_tokens.unwrap_or(0)))
+        .and_then(|value| value.checked_add(model.cache_read_tokens.unwrap_or(0)))
         .ok_or(MappingError::TokenOverflow)?;
+    let total_tokens = model.total_tokens.unwrap_or(total_tokens);
     Ok(ModelUsageCandidate {
         raw_model_id: model.model_name,
         tokens: TokenUsage::new(
             Some(model.input_tokens),
             Some(model.output_tokens),
-            None,
-            None,
+            model.cache_creation_tokens,
+            model.cache_read_tokens,
             total_tokens,
         )?,
         cost: map_cost(model.cost, total_tokens)?,
     })
+}
+
+/// OpenCode's ccusage adapter reports each day's/session's totals plus the set of
+/// model names used, but never a per-model token split (even with `--breakdown`),
+/// and its sessions carry no timestamps to reconstruct a daily split from. Because
+/// OpenCode aggregates the whole period, the split is either fully recoverable or
+/// not at all:
+/// - one model used: the whole total provably belongs to it, attributed exactly;
+/// - several models used: the tokens cannot be divided, so they are kept together
+///   under a single stable "Multiple models" entry rather than fabricating a split
+///   or dropping the usage (which would desync the per-model view from the total).
+fn opencode_model_breakdowns(
+    explicit: Vec<OpenCodeModelBreakdown>,
+    models_used: Vec<String>,
+    row_tokens: &TokenUsage,
+    row_cost: &UsageCost,
+) -> Result<Vec<ModelUsageCandidate>, MappingError> {
+    if !explicit.is_empty() {
+        return explicit.into_iter().map(map_opencode_model).collect();
+    }
+    let raw_model_id = match models_used.as_slice() {
+        [] => return Ok(Vec::new()),
+        [model_name] => model_name.clone(),
+        _ => OPENCODE_MULTIPLE_MODELS.to_owned(),
+    };
+    Ok(vec![ModelUsageCandidate {
+        raw_model_id,
+        tokens: row_tokens.clone(),
+        cost: row_cost.clone(),
+    }])
 }
 
 pub(crate) fn map_opencode_session(
@@ -312,32 +356,33 @@ fn map_opencode_session_row(
     let tokens = TokenUsage::new(
         Some(row.input_tokens),
         Some(row.output_tokens),
-        None,
-        None,
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
         row.total_tokens,
     )?;
     let cost = map_cost(row.total_cost, row.total_tokens)?;
-    let model_breakdowns = row
-        .model_breakdowns
-        .into_iter()
-        .map(map_opencode_model)
-        .collect::<Result<Vec<_>, _>>()?;
+    let model_breakdowns =
+        opencode_model_breakdowns(row.model_breakdowns, row.models_used, &tokens, &cost)?;
 
-    let first_activity_at = DateTime::parse_from_rfc3339(&row.first_activity_at)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|_| MappingError::InvalidDate)?;
+    let first_activity_at = row
+        .first_activity_at
+        .as_deref()
+        .map(parse_timestamp)
+        .transpose()?;
 
-    let last_activity_at = DateTime::parse_from_rfc3339(&row.last_activity_at)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|_| MappingError::InvalidDate)?;
+    let last_activity_at = row
+        .last_activity_at
+        .as_deref()
+        .map(parse_timestamp)
+        .transpose()?;
 
     Ok(SessionUsageCandidate {
         provenance: context.provenance(),
         source_key: session_source_key(context.source, &row.session_id)?,
         source_session_id: row.session_id,
         project_path: None,
-        first_activity_at: Some(first_activity_at),
-        last_activity_at: Some(last_activity_at),
+        first_activity_at,
+        last_activity_at,
         tokens,
         cost,
         model_breakdowns,
@@ -447,6 +492,29 @@ fn map_cost(value: f64, total_tokens: u64) -> Result<UsageCost, MappingError> {
     })
 }
 
+fn map_optional_cost(value: Option<f64>, total_tokens: u64) -> Result<UsageCost, MappingError> {
+    value.map_or_else(
+        || {
+            Ok(if total_tokens == 0 {
+                UsageCost::NotApplicable {
+                    kind: CostKind::CollectorCalculated,
+                }
+            } else {
+                UsageCost::Unavailable {
+                    kind: CostKind::CollectorCalculated,
+                }
+            })
+        },
+        |cost| map_cost(cost, total_tokens),
+    )
+}
+
+fn parse_timestamp(value: &str) -> Result<DateTime<Utc>, MappingError> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|_| MappingError::InvalidDate)
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum MappingError {
     #[error("Claude daily mapping requires a collector version")]
@@ -496,17 +564,33 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/fixtures/collectors/ccusage/codex-daily/valid.json"
     ));
+    const CODEX_DAILY_REAL_SHAPE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/codex-daily/real-shape.json"
+    ));
     const CODEX_SESSION_VALID: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/fixtures/collectors/ccusage/codex-session/valid.json"
+    ));
+    const CODEX_SESSION_REAL_SHAPE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/codex-session/real-shape.json"
     ));
     const OPENCODE_DAILY_VALID: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/fixtures/collectors/ccusage/opencode-daily/valid.json"
     ));
+    const OPENCODE_DAILY_REAL_SHAPE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/opencode-daily/real-shape.json"
+    ));
     const OPENCODE_SESSION_VALID: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/fixtures/collectors/ccusage/opencode-session/valid.json"
+    ));
+    const OPENCODE_SESSION_REAL_SHAPE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/opencode-session/real-shape.json"
     ));
 
     #[test]
@@ -644,6 +728,30 @@ mod tests {
     }
 
     #[test]
+    fn maps_real_codex_daily_shape_without_model_costs() {
+        let context =
+            build_context(SourceKey::Codex, "20.0.14", 1, "Asia/Jakarta").expect("context");
+        let candidates = map_codex_daily(
+            decode_codex_daily(CODEX_DAILY_REAL_SHAPE).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "codex:daily:v1:Asia/Jakarta:2026-06-24");
+        assert_eq!(first.tokens.cache_read_tokens(), Some(400));
+        assert_eq!(first.tokens.unclassified_tokens(), Some(0));
+        assert_eq!(first.model_breakdowns.len(), 1);
+        assert_eq!(
+            first.model_breakdowns[0].cost,
+            UsageCost::Unavailable {
+                kind: CostKind::CollectorCalculated,
+            }
+        );
+    }
+
+    #[test]
     fn maps_codex_session_usage_with_deterministic_identity() {
         let context = build_context(SourceKey::Codex, "20.0.14", 1, "UTC").expect("context");
         let candidates = map_codex_session(
@@ -684,6 +792,28 @@ mod tests {
     }
 
     #[test]
+    fn maps_real_codex_session_shape_with_nullable_activity_bounds() {
+        let context = build_context(SourceKey::Codex, "20.0.14", 1, "UTC").expect("context");
+        let candidates = map_codex_session(
+            decode_codex_session(CODEX_SESSION_REAL_SHAPE).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "codex:session:v1:session-1");
+        assert_eq!(first.first_activity_at, None);
+        assert_eq!(
+            first
+                .last_activity_at
+                .map(|timestamp| timestamp.to_rfc3339()),
+            Some("2026-06-24T08:33:53.771+00:00".to_owned())
+        );
+        assert_eq!(first.tokens.cache_read_tokens(), Some(400));
+    }
+
+    #[test]
     fn maps_opencode_daily_usage_with_deterministic_identity() {
         let context =
             build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
@@ -713,6 +843,79 @@ mod tests {
     }
 
     #[test]
+    fn synthesizes_single_model_breakdown_for_real_opencode_daily_shape() {
+        let context =
+            build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
+        let candidates = map_opencode_daily(
+            decode_opencode_daily(OPENCODE_DAILY_REAL_SHAPE).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let first = &candidates[0];
+        assert_eq!(
+            first.source_key,
+            "opencode:daily:v1:Asia/Jakarta:2026-06-24"
+        );
+        assert_eq!(first.tokens.cache_read_tokens(), Some(400));
+        assert_eq!(first.tokens.unclassified_tokens(), Some(0));
+        // OpenCode reports `modelsUsed` without a per-model split. With a single
+        // model the whole daily total provably belongs to it, so it is attributed
+        // there and the per-model view reconciles with the daily total.
+        assert_eq!(first.model_breakdowns.len(), 1);
+        assert_eq!(first.model_breakdowns[0].raw_model_id, "mimo-v2.5-pro");
+        assert_eq!(first.model_breakdowns[0].tokens.total_tokens(), 1_200);
+        assert_eq!(
+            first.model_breakdowns[0].tokens.cache_read_tokens(),
+            Some(400)
+        );
+    }
+
+    #[test]
+    fn aggregates_multi_model_opencode_day_when_no_split_is_available() {
+        let report = decode_opencode_daily(
+            r#"{
+                "daily": [
+                    {
+                        "date": "2026-06-24",
+                        "inputTokens": 600,
+                        "outputTokens": 400,
+                        "totalTokens": 1000,
+                        "totalCost": 0.0,
+                        "modelsUsed": ["model-a", "model-b"]
+                    }
+                ],
+                "totals": {
+                    "inputTokens": 600,
+                    "outputTokens": 400,
+                    "totalTokens": 1000,
+                    "totalCost": 0.0
+                }
+            }"#,
+        )
+        .expect("decoded fixture");
+        let context =
+            build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
+
+        let candidates = map_opencode_daily(report, context).expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        // Two models with no split: the tokens cannot be divided, so they stay
+        // together under a single stable entry instead of vanishing from the
+        // per-model view (which would desync it from the daily total).
+        assert_eq!(candidates[0].model_breakdowns.len(), 1);
+        assert_eq!(
+            candidates[0].model_breakdowns[0].raw_model_id,
+            "Multiple models"
+        );
+        assert_eq!(
+            candidates[0].model_breakdowns[0].tokens.total_tokens(),
+            1_000
+        );
+    }
+
+    #[test]
     fn maps_opencode_session_usage_with_deterministic_identity() {
         let context = build_context(SourceKey::OpenCode, "20.0.14", 1, "UTC").expect("context");
         let candidates = map_opencode_session(
@@ -732,6 +935,23 @@ mod tests {
         assert_eq!(first.model_breakdowns.len(), 1);
         assert_eq!(first.model_breakdowns[0].raw_model_id, "gemini-2.5-pro");
         assert_eq!(first.model_breakdowns[0].tokens.total_tokens(), 1400);
+    }
+
+    #[test]
+    fn maps_real_opencode_session_shape_with_nullable_activity_bounds() {
+        let context = build_context(SourceKey::OpenCode, "20.0.14", 1, "UTC").expect("context");
+        let candidates = map_opencode_session(
+            decode_opencode_session(OPENCODE_SESSION_REAL_SHAPE).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "opencode:session:v1:session-1");
+        assert_eq!(first.first_activity_at, None);
+        assert_eq!(first.last_activity_at, None);
+        assert_eq!(first.tokens.cache_read_tokens(), Some(400));
     }
 
     fn context(timezone: &str) -> MappingContext {

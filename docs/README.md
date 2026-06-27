@@ -5,6 +5,7 @@ This directory is the source of truth for Burnly product and engineering decisio
 ## Product
 
 - [Product definition](./product/product.md)
+- [Tray panel product contract](./product/tray-panel-contract.md)
 
 ## Architecture
 
@@ -24,6 +25,7 @@ This directory is the source of truth for Burnly product and engineering decisio
 - [Harness engineering design](./engineering/harness-engineering-design.md)
 - [Design principles](./engineering/design-principles.md)
 - [Testing strategy](./engineering/testing-strategy.md)
+- [Known limitations](./engineering/known-limitations.md)
 - [Guardrails](./engineering/guardrails.md)
 - [Agent PR loop](./engineering/agent-pr-loop.md)
 - [Architecture boundaries](./engineering/architecture-boundaries.md)
@@ -35,5 +37,8 @@ This directory is the source of truth for Burnly product and engineering decisio
 
 ## Planning
 
+- [Tray-only decision](./planning/tray-only-decision.md)
 - [Implementation plan](./planning/implementation-plan.md)
+- [Product drift analysis](./planning/product-drift-analysis.md)
+- [Tray-first implementation plan](./planning/tray-first-implementation-plan.md)
 - [Execution plans](./exec-plans/README.md)

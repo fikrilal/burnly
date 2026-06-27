@@ -10,15 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Burnly",
-        "width": 1180,
-        "height": 760,
-        "minWidth": 920,
-        "minHeight": 640
-      }
-    ],
+    "windows": [],
     "security": {
       "capabilities": ["main-window"],
       "csp": {

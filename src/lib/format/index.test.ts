@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatCurrency, formatNumber } from ".";
+import { formatCompactNumber, formatCurrency, formatNumber } from ".";
 
 describe("formatNumber", () => {
   it("formats exact unsigned integer strings without number coercion", () => {
@@ -11,6 +11,19 @@ describe("formatNumber", () => {
 
   it("rejects unsafe numbers", () => {
     expect(formatNumber(Number.MAX_SAFE_INTEGER + 1)).toBe("0");
+  });
+});
+
+describe("formatCompactNumber", () => {
+  it("abbreviates large token counts", () => {
+    expect(formatCompactNumber("183240")).toBe("183.2K");
+    expect(formatCompactNumber("646404348")).toBe("646.4M");
+    expect(formatCompactNumber("2802219744")).toBe("2.8B");
+  });
+
+  it("returns 0 for invalid or negative input", () => {
+    expect(formatCompactNumber("abc")).toBe("0");
+    expect(formatCompactNumber(-5)).toBe("0");
   });
 });
 

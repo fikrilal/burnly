@@ -6,9 +6,9 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family:
-    Inter,
+    "Geist Variable",
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -110,6 +110,7 @@ select {
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -153,4 +154,11 @@ select {
   html {
     @apply font-sans;
   }
+}
+
+/* The tray panel is a transparent, frameless popover window; the panel itself
+   paints a rounded surface, so the window background must be transparent. */
+.tray-window,
+.tray-window body {
+  background-color: transparent;
 }

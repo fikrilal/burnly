@@ -7,9 +7,10 @@ use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
     Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary,
     NativeNotificationCapability, Readiness, RefreshState, RefreshStatus, SourceStatus,
-    SourceSummary, StartupRecoveryState,
+    SourceSummary,
 };
 use crate::application::ports::notification::NotificationPermission;
+use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshEventSink, RefreshSnapshot, RefreshStatus as RefreshLifecycleStatus,
@@ -115,14 +116,6 @@ struct DiagnosticCapabilitiesResponse {
 pub(super) fn app_get_bootstrap<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
 ) -> IpcResponse<AppBootstrapResponse> {
-    if app.try_state::<StartupRecoveryState>().is_some() {
-        return IpcResponse::failure(IpcError::new(
-            "bootstrap.recovery_required",
-            "Burnly could not initialize the database. Review the recovery status and restore a verified backup when available.",
-            ErrorCategory::Persistence,
-            false,
-        ));
-    }
     let Some(service) = app.try_state::<BootstrapService>() else {
         return IpcResponse::failure(IpcError::new(
             "bootstrap.storage_unavailable",
@@ -142,6 +135,27 @@ pub(super) fn app_get_capabilities(
     service: State<'_, BootstrapService>,
 ) -> IpcResponse<AppCapabilitiesResponse> {
     IpcResponse::success(service.capabilities().into())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct HideTrayPanelResponse {
+    status: &'static str,
+}
+
+#[tauri::command]
+pub(super) fn app_hide_tray_panel(
+    window_actions: State<'_, Arc<dyn WindowActions>>,
+) -> IpcResponse<HideTrayPanelResponse> {
+    match window_actions.hide_tray_panel() {
+        Ok(()) => IpcResponse::success(HideTrayPanelResponse { status: "hidden" }),
+        Err(_) => IpcResponse::failure(IpcError::new(
+            "app.hide_tray_panel_failed",
+            "Burnly could not hide the tray panel.",
+            ErrorCategory::Platform,
+            true,
+        )),
+    }
 }
 
 impl From<AppBootstrap> for AppBootstrapResponse {

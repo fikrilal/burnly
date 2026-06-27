@@ -17,6 +17,8 @@ pub(crate) struct OpenCodeDailyRow {
     pub date: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
     pub total_tokens: u64,
     pub total_cost: f64,
     #[serde(default)]
@@ -31,6 +33,9 @@ pub(crate) struct ModelBreakdown {
     pub model_name: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
     pub cost: f64,
 }
 
@@ -39,6 +44,8 @@ pub(crate) struct ModelBreakdown {
 pub(crate) struct TokenTotals {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
     pub total_tokens: u64,
     pub total_cost: f64,
 }
@@ -83,20 +90,52 @@ fn validate(report: &OpenCodeDailyReport) -> Result<(), CollectorFailure> {
 
 fn valid_totals(totals: &TokenTotals) -> bool {
     valid_nonnegative(totals.total_cost)
-        && totals
-            .input_tokens
-            .checked_add(totals.output_tokens)
-            .is_some_and(|tokens| totals.total_tokens >= tokens)
+        && categorized(
+            totals.input_tokens,
+            totals.output_tokens,
+            totals.cache_creation_tokens,
+            totals.cache_read_tokens,
+        )
+        .is_some_and(|tokens| totals.total_tokens >= tokens)
 }
 
 fn valid_model(model: &ModelBreakdown) -> bool {
-    !model.model_name.trim().is_empty() && valid_nonnegative(model.cost)
+    if model.model_name.trim().is_empty() || !valid_nonnegative(model.cost) {
+        return false;
+    }
+    let Some(classified) = categorized(
+        model.input_tokens,
+        model.output_tokens,
+        model.cache_creation_tokens,
+        model.cache_read_tokens,
+    ) else {
+        return false;
+    };
+    model
+        .total_tokens
+        .is_none_or(|total_tokens| total_tokens >= classified)
 }
 
 fn valid_row_tokens(row: &OpenCodeDailyRow) -> bool {
-    row.input_tokens
-        .checked_add(row.output_tokens)
-        .is_some_and(|tokens| row.total_tokens >= tokens)
+    categorized(
+        row.input_tokens,
+        row.output_tokens,
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
+    )
+    .is_some_and(|tokens| row.total_tokens >= tokens)
+}
+
+fn categorized(
+    input: u64,
+    output: u64,
+    cache_creation: Option<u64>,
+    cache_read: Option<u64>,
+) -> Option<u64> {
+    input
+        .checked_add(output)?
+        .checked_add(cache_creation.unwrap_or(0))?
+        .checked_add(cache_read.unwrap_or(0))
 }
 
 fn totals_match_rows(report: &OpenCodeDailyReport) -> bool {
@@ -149,6 +188,16 @@ mod tests {
     }
 
     #[test]
+    fn accepts_real_rows_without_model_breakdowns() {
+        let report = decode(fixture("real-shape.json")).expect("real-shape report");
+
+        assert_eq!(report.daily.len(), 1);
+        assert_eq!(report.daily[0].cache_read_tokens, Some(400));
+        assert_eq!(report.daily[0].model_breakdowns, Vec::new());
+        assert_eq!(report.daily[0].models_used, ["mimo-v2.5-pro"]);
+    }
+
+    #[test]
     fn distinguishes_malformed_json_from_incompatible_envelopes() {
         assert_eq!(
             decode(fixture("invalid-json.json"))
@@ -183,6 +232,10 @@ mod tests {
             "incompatible-envelope.json" => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../tests/fixtures/collectors/ccusage/opencode-daily/incompatible-envelope.json"
+            )),
+            "real-shape.json" => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tests/fixtures/collectors/ccusage/opencode-daily/real-shape.json"
             )),
             _ => panic!("unknown fixture under {FIXTURES}"),
         }

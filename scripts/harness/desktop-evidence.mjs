@@ -33,8 +33,6 @@ run(
   "Phase 7 background refresh scheduler evidence",
 );
 
-run("pnpm", ["test:e2e"], "Desktop UI states evidence");
-
 console.log("Desktop runtime evidence passed.");
 
 function printPlatformEvidence() {
