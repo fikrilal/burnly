@@ -5,6 +5,7 @@ This directory is the source of truth for Burnly product and engineering decisio
 ## Product
 
 - [Product definition](./product/product.md)
+- [Refresh policy](./product/refresh-policy.md)
 - [Tray panel product contract](./product/tray-panel-contract.md)
 
 ## Architecture
