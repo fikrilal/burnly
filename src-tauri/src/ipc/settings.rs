@@ -14,7 +14,6 @@ pub(super) struct SettingsResponse {
     refresh_interval_minutes: i64,
     launch_at_login: bool,
     close_behavior: &'static str,
-    notifications_enabled: bool,
     store_project_paths: bool,
     revision: i64,
 }
@@ -28,7 +27,6 @@ pub(super) struct UpdateSettingsRequest {
     refresh_interval_minutes: i64,
     launch_at_login: bool,
     close_behavior: String,
-    notifications_enabled: bool,
     store_project_paths: bool,
 }
 
@@ -66,7 +64,6 @@ pub(super) fn settings_update<R: tauri::Runtime>(
         request.refresh_interval_minutes,
         request.launch_at_login,
         &request.close_behavior,
-        request.notifications_enabled,
         request.store_project_paths,
     ) {
         Ok(settings) => settings,
@@ -121,7 +118,6 @@ impl From<SettingsDocument> for SettingsResponse {
             refresh_interval_minutes: settings.refresh_interval_minutes(),
             launch_at_login: settings.launch_at_login(),
             close_behavior: settings.close_behavior().as_str(),
-            notifications_enabled: settings.notifications_enabled(),
             store_project_paths: settings.store_project_paths(),
             revision,
         }
@@ -184,12 +180,6 @@ fn runtime_error(error: RuntimeSettingError) -> IpcError {
         RuntimeSettingError::LaunchAtLoginUnavailable => IpcError::new(
             "settings.launch_at_login_unavailable",
             "Launch at login is not available in this build.",
-            ErrorCategory::Unavailable,
-            false,
-        ),
-        RuntimeSettingError::NotificationsUnavailable => IpcError::new(
-            "settings.notifications_unavailable",
-            "Native notifications are not available in this build.",
             ErrorCategory::Unavailable,
             false,
         ),

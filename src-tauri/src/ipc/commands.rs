@@ -6,10 +6,9 @@ use tauri::{Emitter, Manager, State};
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
     Capability, CapabilityStatus, DatabaseState, ExportFormat, FeatureSummary,
-    NativeNotificationCapability, Readiness, RefreshState, RefreshStatus, SourceStatus,
+    Readiness, RefreshState, RefreshStatus, SourceStatus,
     SourceSummary,
 };
-use crate::application::ports::notification::NotificationPermission;
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -85,8 +84,6 @@ struct RefreshStateResponse {
 pub(super) struct AppCapabilitiesResponse {
     tray: CapabilityResponse,
     launch_at_login: CapabilityResponse,
-    native_notifications: NativeNotificationCapabilityResponse,
-    updates: CapabilityResponse,
     export_formats: Vec<String>,
     diagnostics: DiagnosticCapabilitiesResponse,
 }
@@ -96,14 +93,6 @@ pub(super) struct AppCapabilitiesResponse {
 struct CapabilityResponse {
     supported: bool,
     status: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct NativeNotificationCapabilityResponse {
-    supported: bool,
-    status: &'static str,
-    permission: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -219,8 +208,6 @@ impl From<AppCapabilities> for AppCapabilitiesResponse {
         Self {
             tray: value.tray.into(),
             launch_at_login: value.launch_at_login.into(),
-            native_notifications: value.native_notifications.into(),
-            updates: value.updates.into(),
             export_formats: value
                 .export_formats
                 .into_iter()
@@ -238,16 +225,6 @@ impl From<Capability> for CapabilityResponse {
         Self {
             supported: value.supported,
             status: capability_status_label(value.status),
-        }
-    }
-}
-
-impl From<NativeNotificationCapability> for NativeNotificationCapabilityResponse {
-    fn from(value: NativeNotificationCapability) -> Self {
-        Self {
-            supported: value.supported,
-            status: capability_status_label(value.status),
-            permission: notification_permission_label(value.permission),
         }
     }
 }
@@ -275,15 +252,6 @@ fn capability_status_label(value: CapabilityStatus) -> &'static str {
         CapabilityStatus::Available => "available",
         CapabilityStatus::NotImplemented => "not_implemented",
         CapabilityStatus::Unavailable => "unavailable",
-    }
-}
-
-fn notification_permission_label(value: NotificationPermission) -> &'static str {
-    match value {
-        NotificationPermission::Granted => "granted",
-        NotificationPermission::Denied => "denied",
-        NotificationPermission::Prompt => "prompt",
-        NotificationPermission::Unknown => "unknown",
     }
 }
 

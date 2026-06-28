@@ -14,7 +14,6 @@ pub(crate) trait SettingsRuntime: Send + Sync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RuntimeSettingError {
     LaunchAtLoginUnavailable,
-    NotificationsUnavailable,
     ProjectPathRetentionRequiresPrivacyFlow,
 }
 
@@ -155,7 +154,6 @@ mod tests {
                 current.refresh_interval_minutes(),
                 current.launch_at_login(),
                 current.close_behavior().as_str(),
-                current.notifications_enabled(),
                 retain_paths,
             )
             .expect("valid settings");
@@ -191,7 +189,7 @@ mod tests {
     }
 
     fn settings(timezone: &str) -> Settings {
-        Settings::new(timezone.to_owned(), false, 15, false, "quit", false, false)
+        Settings::new(timezone.to_owned(), false, 15, false, "quit", false)
             .expect("valid settings")
     }
 

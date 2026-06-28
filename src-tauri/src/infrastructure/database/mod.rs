@@ -134,13 +134,11 @@ impl Database {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn read_settings(
-        &self,
-    ) -> Result<(String, bool, i64, bool, String, bool, bool), PersistenceError> {
+    pub fn read_settings(&self) -> Result<(String, bool, i64, bool, String, bool), PersistenceError> {
         self.connection
             .query_row(
                 "SELECT reporting_timezone, background_refresh_enabled, refresh_interval_minutes,
-                        launch_at_login, close_behavior, notifications_enabled, store_project_paths
+                        launch_at_login, close_behavior, store_project_paths
                  FROM app_settings WHERE id = 1",
                 [],
                 |row| {
@@ -151,7 +149,6 @@ impl Database {
                         row.get::<_, i32>(3)? != 0,
                         row.get(4)?,
                         row.get::<_, i32>(5)? != 0,
-                        row.get::<_, i32>(6)? != 0,
                     ))
                 },
             )
@@ -330,8 +327,7 @@ mod tests {
         assert_eq!(settings.2, 15); // refresh_interval_minutes
         assert!(!settings.3); // launch_at_login
         assert_eq!(settings.4, "quit"); // close_behavior
-        assert!(!settings.5); // notifications_enabled
-        assert!(!settings.6); // store_project_paths
+        assert!(!settings.5); // store_project_paths
 
         assert_eq!(database.schema_version().expect("schema version"), 3);
     }

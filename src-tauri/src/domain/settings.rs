@@ -35,7 +35,6 @@ pub(crate) struct Settings {
     refresh_interval_minutes: i64,
     launch_at_login: bool,
     close_behavior: CloseBehavior,
-    notifications_enabled: bool,
     store_project_paths: bool,
 }
 
@@ -47,7 +46,6 @@ impl Settings {
         refresh_interval_minutes: i64,
         launch_at_login: bool,
         close_behavior: &str,
-        notifications_enabled: bool,
         store_project_paths: bool,
     ) -> Result<Self, SettingsValidationError> {
         let reporting_timezone = reporting_timezone.trim().to_owned();
@@ -65,7 +63,6 @@ impl Settings {
             refresh_interval_minutes,
             launch_at_login,
             close_behavior: CloseBehavior::parse(close_behavior)?,
-            notifications_enabled,
             store_project_paths,
         })
     }
@@ -88,10 +85,6 @@ impl Settings {
 
     pub(crate) const fn close_behavior(&self) -> CloseBehavior {
         self.close_behavior
-    }
-
-    pub(crate) const fn notifications_enabled(&self) -> bool {
-        self.notifications_enabled
     }
 
     pub(crate) const fn store_project_paths(&self) -> bool {
@@ -142,7 +135,6 @@ mod tests {
             false,
             "hide",
             false,
-            false,
         )
         .expect("valid settings")
     }
@@ -157,17 +149,16 @@ mod tests {
                 15,
                 false,
                 "quit",
-                false,
                 false
             ),
             Err(SettingsValidationError::ReportingTimezone)
         );
         assert_eq!(
-            Settings::new("UTC".to_owned(), false, 1, false, "quit", false, false),
+            Settings::new("UTC".to_owned(), false, 1, false, "quit", false),
             Err(SettingsValidationError::RefreshInterval)
         );
         assert_eq!(
-            Settings::new("UTC".to_owned(), false, 15, false, "close", false, false),
+            Settings::new("UTC".to_owned(), false, 15, false, "close", false),
             Err(SettingsValidationError::CloseBehavior)
         );
     }

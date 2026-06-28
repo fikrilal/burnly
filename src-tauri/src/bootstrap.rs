@@ -11,12 +11,11 @@ use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
 use crate::application::bootstrap::{
-    BootstrapService, CapabilityStatus, NativeNotificationCapability, RuntimeCapabilities,
+    BootstrapService, CapabilityStatus, RuntimeCapabilities,
     RuntimeSettings,
 };
 
 use crate::application::collection::CollectorFailure;
-use crate::application::ports::notification::{NotificationPermission, NotificationPort};
 use crate::application::ports::settings_store::SettingsStore;
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
@@ -39,7 +38,7 @@ use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{
-    database_path, notifications::NativeNotificationAdapter, single_instance, system_clock,
+    database_path, single_instance, system_clock,
     system_timezone, tray,
 };
 
@@ -104,7 +103,6 @@ pub(crate) fn run() {
     let app = tauri::Builder::default()
         .plugin(single_instance::plugin())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(crate::ipc::invoke_handler())
         .on_window_event(|window, event| {
@@ -152,8 +150,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         .map_err(StartupError::Persistence)?;
     let refresh_policy = refresh_policy(background_refresh_enabled, refresh_interval_minutes);
     let tray_state = Arc::new(Mutex::new(None));
-    let notification_port: Arc<dyn NotificationPort> =
-        Arc::new(NativeNotificationAdapter::new(app.handle().clone()));
     let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
     let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
     let tray_summary_query = build_tray_summary_query(&database_path)?;
@@ -200,19 +196,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         Some(_) => RuntimeCapabilities::tray_available(),
         None => RuntimeCapabilities::tray_unavailable(),
     };
-    let notification_capability = notification_port.capability();
-    let runtime_capabilities = RuntimeCapabilities::with_native_notifications(
-        tray_capability,
-        NativeNotificationCapability {
-            supported: notification_capability.supported,
-            status: if notification_capability.supported {
-                CapabilityStatus::Available
-            } else {
-                CapabilityStatus::Unavailable
-            },
-            permission: notification_capability.permission,
-        },
-    );
+    let runtime_capabilities = RuntimeCapabilities::new(tray_capability);
 
     app.manage(
         Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
@@ -244,7 +228,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         app: app.handle().clone(),
         runtime_settings,
         launch_at_login_available: false,
-        notifications: notification_port,
     });
     app.manage(SettingsService::new(
         settings_store.clone(),
@@ -259,7 +242,6 @@ struct DesktopSettingsRuntime<R: Runtime> {
     app: tauri::AppHandle<R>,
     runtime_settings: RuntimeSettings,
     launch_at_login_available: bool,
-    notifications: Arc<dyn NotificationPort>,
 }
 
 impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
@@ -270,9 +252,7 @@ impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
         {
             return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
         }
-        if proposed.notifications_enabled() && !current.notifications_enabled() {
-            ensure_notification_permission(self.notifications.as_ref())?;
-        }
+
         if proposed.store_project_paths() != current.store_project_paths() {
             return Err(RuntimeSettingError::ProjectPathRetentionRequiresPrivacyFlow);
         }
@@ -290,24 +270,6 @@ impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
         if let Some(coordinator) = self.app.try_state::<RefreshCoordinator>() {
             coordinator.set_aggregation_timezone(settings.reporting_timezone());
         }
-    }
-}
-
-fn ensure_notification_permission(
-    notifications: &dyn NotificationPort,
-) -> Result<(), RuntimeSettingError> {
-    let capability = notifications.capability();
-    if !capability.supported {
-        return Err(RuntimeSettingError::NotificationsUnavailable);
-    }
-    let permission = match capability.permission {
-        NotificationPermission::Prompt => notifications.request_permission(),
-        permission => permission,
-    };
-    if permission == NotificationPermission::Granted {
-        Ok(())
-    } else {
-        Err(RuntimeSettingError::NotificationsUnavailable)
     }
 }
 
@@ -622,7 +584,6 @@ mod tests {
     use crate::application::bootstrap::{
         BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
     };
-    use crate::application::ports::notification::{NotificationCapability, NotificationPermission};
     use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
     use crate::domain::settings::{Settings, SettingsDocument};
 
@@ -634,25 +595,6 @@ mod tests {
 
     struct FixedBootstrapStore;
 
-    struct PermissionNotificationPort {
-        initial: NotificationPermission,
-        requested: NotificationPermission,
-        requests: Mutex<u32>,
-    }
-
-    impl NotificationPort for PermissionNotificationPort {
-        fn capability(&self) -> NotificationCapability {
-            NotificationCapability {
-                supported: true,
-                permission: self.initial,
-            }
-        }
-
-        fn request_permission(&self) -> NotificationPermission {
-            *self.requests.lock().expect("requests lock") += 1;
-            self.requested
-        }
-    }
 
     impl BootstrapStore for FixedBootstrapStore {
         fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
@@ -662,7 +604,6 @@ mod tests {
                 refresh_interval_minutes: 15,
                 launch_at_login: false,
                 close_behavior: "quit".to_owned(),
-                notifications_enabled: false,
                 store_project_paths: false,
                 settings_revision: 1,
                 schema_version: 2,
@@ -714,7 +655,6 @@ mod tests {
                 current.refresh_interval_minutes(),
                 current.launch_at_login(),
                 current.close_behavior().as_str(),
-                current.notifications_enabled(),
                 retain_paths,
             )
             .expect("valid settings");
@@ -750,27 +690,6 @@ mod tests {
         })
     }
 
-    #[test]
-    fn notification_enablement_requests_prompted_permission_and_rejects_denial() {
-        let granted = PermissionNotificationPort {
-            initial: NotificationPermission::Prompt,
-            requested: NotificationPermission::Granted,
-            requests: Mutex::new(0),
-        };
-        assert_eq!(ensure_notification_permission(&granted), Ok(()));
-        assert_eq!(*granted.requests.lock().expect("requests"), 1);
-
-        let denied = PermissionNotificationPort {
-            initial: NotificationPermission::Denied,
-            requested: NotificationPermission::Granted,
-            requests: Mutex::new(0),
-        };
-        assert_eq!(
-            ensure_notification_permission(&denied),
-            Err(RuntimeSettingError::NotificationsUnavailable)
-        );
-        assert_eq!(*denied.requests.lock().expect("requests"), 0);
-    }
 
     #[test]
     fn tray_open_refresh_requests_only_when_stale_and_not_throttled() {
@@ -930,7 +849,6 @@ mod tests {
             15,
             false,
             "quit",
-            false,
             false,
         )
         .expect("valid settings");

@@ -34,7 +34,6 @@ fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceErro
         refresh_interval_minutes,
         launch_at_login,
         close_behavior,
-        notifications_enabled,
         store_project_paths,
     ) = database.read_settings()?;
     let settings_revision = database
@@ -52,7 +51,6 @@ fn read_storage(database: &Database) -> Result<BootstrapStorage, PersistenceErro
         refresh_interval_minutes,
         launch_at_login,
         close_behavior,
-        notifications_enabled,
         store_project_paths,
         settings_revision,
         schema_version: database.schema_version()?,
