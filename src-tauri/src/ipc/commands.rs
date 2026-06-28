@@ -250,7 +250,6 @@ fn capability_status_label(value: CapabilityStatus) -> &'static str {
     match value {
         CapabilityStatus::Available => "available",
         CapabilityStatus::NotImplemented => "not_implemented",
-        CapabilityStatus::Unavailable => "unavailable",
     }
 }
 

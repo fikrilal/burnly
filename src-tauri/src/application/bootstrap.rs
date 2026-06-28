@@ -78,7 +78,6 @@ pub(crate) struct Capability {
 pub(crate) enum CapabilityStatus {
     Available,
     NotImplemented,
-    Unavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,13 +214,6 @@ impl RuntimeCapabilities {
         Capability {
             supported: true,
             status: CapabilityStatus::Available,
-        }
-    }
-
-    pub(crate) fn tray_unavailable() -> Capability {
-        Capability {
-            supported: false,
-            status: CapabilityStatus::Unavailable,
         }
     }
 
