@@ -74,7 +74,7 @@ describe("TrayPanel overview", () => {
   it("renders compact token metrics and model allocation", async () => {
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
       wrapper: createTestQueryWrapper(),
     });
 
@@ -103,7 +103,7 @@ describe("TrayPanel overview", () => {
       }),
     );
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
       wrapper: createTestQueryWrapper(),
     });
 
@@ -119,7 +119,7 @@ describe("TrayPanel overview", () => {
   it("renders failed loading state", async () => {
     vi.mocked(getTraySummary).mockRejectedValue(new Error("summary offline"));
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
       wrapper: createTestQueryWrapper(),
     });
 
@@ -135,7 +135,7 @@ describe("TrayPanel settings controls", () => {
       settingsResult({ closeBehavior: "quit" }),
     );
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
       wrapper: createTestQueryWrapper(),
     });
 
@@ -167,7 +167,7 @@ describe("TrayPanel settings controls", () => {
       }),
     );
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
       wrapper: createTestQueryWrapper(),
     });
 
@@ -192,7 +192,7 @@ describe("TrayPanel settings failures", () => {
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
     vi.mocked(getSettings).mockRejectedValue(new Error("settings offline"));
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
       wrapper: createTestQueryWrapper(),
     });
 
@@ -210,7 +210,7 @@ describe("TrayPanel settings failures", () => {
     );
     vi.mocked(updateSettings).mockRejectedValue(new Error("settings conflict"));
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
       wrapper: createTestQueryWrapper(),
     });
 

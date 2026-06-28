@@ -25,9 +25,10 @@ import { useTraySummary } from "./use-tray-summary";
 
 interface TrayPanelProps {
   reportingTimezone: string;
+  appVersion: string;
 }
 
-export function TrayPanel({ reportingTimezone }: TrayPanelProps) {
+export function TrayPanel({ reportingTimezone, appVersion }: TrayPanelProps) {
   const summary = useTraySummary(reportingTimezone);
 
   useEffect(() => {
@@ -62,6 +63,7 @@ export function TrayPanel({ reportingTimezone }: TrayPanelProps) {
       isRefreshing={summary.isRefreshing}
       isError={summary.isError}
       error={summary.error}
+      appVersion={appVersion}
     />
   );
 }
@@ -81,11 +83,13 @@ function TrayPanelContent({
   isRefreshing,
   isError,
   error,
+  appVersion,
 }: {
   summary: TraySummaryResponse;
   isRefreshing: boolean;
   isError: boolean;
   error: Error | null;
+  appVersion: string;
 }) {
   const [activeTab, setActiveTab] = useState<string>("overview");
 
@@ -122,7 +126,7 @@ function TrayPanelContent({
         {activeTab === "overview" ? (
           <OverviewTab summary={summary} isError={isError} error={error} />
         ) : (
-          <SettingsTab />
+          <SettingsTab appVersion={appVersion} />
         )}
       </div>
     </main>
@@ -182,7 +186,7 @@ function OverviewTab({
   );
 }
 
-function SettingsTab() {
+function SettingsTab({ appVersion }: { appVersion: string }) {
   const settings = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -213,24 +217,31 @@ function SettingsTab() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col divide-y divide-border">
-        <LaunchAtLoginSetting value={settings.data.launchAtLogin} />
-        <CloseBehaviorSetting
-          value={settings.data.closeBehavior}
-          isSaving={updateSettings.isPending}
-          onChange={changeCloseBehavior}
-        />
+    <div className="flex flex-1 flex-col justify-between gap-4">
+      <div className="flex flex-col">
+        <div className="flex flex-col divide-y divide-border">
+          <LaunchAtLoginSetting value={settings.data.launchAtLogin} />
+          <CloseBehaviorSetting
+            value={settings.data.closeBehavior}
+            isSaving={updateSettings.isPending}
+            onChange={changeCloseBehavior}
+          />
+        </div>
+        {updateSettings.isError ? (
+          <div className="mt-4">
+            <ErrorState
+              title="Settings not saved"
+              description={userSafeErrorMessage(
+                updateSettings.error,
+                "Burnly could not save settings.",
+              )}
+            />
+          </div>
+        ) : null}
       </div>
-      {updateSettings.isError ? (
-        <ErrorState
-          title="Settings not saved"
-          description={userSafeErrorMessage(
-            updateSettings.error,
-            "Burnly could not save settings.",
-          )}
-        />
-      ) : null}
+      <div className="text-center text-[10px] font-mono tracking-widest text-muted-foreground/40 uppercase">
+        Version {appVersion}
+      </div>
     </div>
   );
 }
