@@ -2,8 +2,6 @@ use std::sync::{Arc, Mutex};
 
 use thiserror::Error;
 
-use crate::application::ports::notification::NotificationPermission;
-
 use crate::domain::settings::{CloseBehavior, Settings, SettingsDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,17 +64,8 @@ pub(crate) enum RefreshStatus {
 pub(crate) struct AppCapabilities {
     pub tray: Capability,
     pub launch_at_login: Capability,
-    pub native_notifications: NativeNotificationCapability,
-    pub updates: Capability,
     pub export_formats: Vec<ExportFormat>,
     pub diagnostics: DiagnosticCapabilities,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NativeNotificationCapability {
-    pub supported: bool,
-    pub status: CapabilityStatus,
-    pub permission: NotificationPermission,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,10 +75,10 @@ pub(crate) struct Capability {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum CapabilityStatus {
     Available,
     NotImplemented,
-    Unavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,13 +93,8 @@ pub(crate) struct DiagnosticCapabilities {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BootstrapStorage {
-    pub reporting_timezone: String,
-    pub background_refresh_enabled: bool,
-    pub refresh_interval_minutes: i64,
     pub launch_at_login: bool,
     pub close_behavior: String,
-    pub notifications_enabled: bool,
-    pub store_project_paths: bool,
     pub settings_revision: i64,
     pub schema_version: i64,
 }
@@ -134,7 +118,6 @@ pub(crate) struct RuntimeSettings {
 #[derive(Clone)]
 pub(crate) struct RuntimeCapabilities {
     tray: Arc<Mutex<Capability>>,
-    native_notifications: Arc<Mutex<NativeNotificationCapability>>,
 }
 
 impl RuntimeSettings {
@@ -178,16 +161,8 @@ impl BootstrapService {
                 schema_version: storage.schema_version,
             },
             settings: SettingsDocument::new(
-                Settings::new(
-                    storage.reporting_timezone,
-                    storage.background_refresh_enabled,
-                    storage.refresh_interval_minutes,
-                    storage.launch_at_login,
-                    &storage.close_behavior,
-                    storage.notifications_enabled,
-                    storage.store_project_paths,
-                )
-                .map_err(|_| BootstrapError::storage_unavailable())?,
+                Settings::new(storage.launch_at_login, &storage.close_behavior)
+                    .map_err(|_| BootstrapError::storage_unavailable())?,
                 storage.settings_revision,
             )
             .map_err(|_| BootstrapError::storage_unavailable())?,
@@ -213,16 +188,14 @@ impl BootstrapService {
     }
 
     pub(crate) fn capabilities(&self) -> AppCapabilities {
-        let unavailable = Capability {
-            supported: false,
-            status: CapabilityStatus::NotImplemented,
+        let launch_at_login = Capability {
+            supported: true,
+            status: CapabilityStatus::Available,
         };
 
         AppCapabilities {
             tray: self.runtime_capabilities.tray(),
-            launch_at_login: unavailable.clone(),
-            native_notifications: self.runtime_capabilities.native_notifications(),
-            updates: unavailable,
+            launch_at_login,
             export_formats: vec![ExportFormat::Csv],
             diagnostics: DiagnosticCapabilities {
                 desktop_evidence: true,
@@ -232,25 +205,9 @@ impl BootstrapService {
 }
 
 impl RuntimeCapabilities {
-    #[cfg(test)]
     pub(crate) fn new(tray: Capability) -> Self {
         Self {
             tray: Arc::new(Mutex::new(tray)),
-            native_notifications: Arc::new(Mutex::new(NativeNotificationCapability {
-                supported: false,
-                status: CapabilityStatus::NotImplemented,
-                permission: NotificationPermission::Unknown,
-            })),
-        }
-    }
-
-    pub(crate) fn with_native_notifications(
-        tray: Capability,
-        native_notifications: NativeNotificationCapability,
-    ) -> Self {
-        Self {
-            tray: Arc::new(Mutex::new(tray)),
-            native_notifications: Arc::new(Mutex::new(native_notifications)),
         }
     }
 
@@ -261,22 +218,8 @@ impl RuntimeCapabilities {
         }
     }
 
-    pub(crate) fn tray_unavailable() -> Capability {
-        Capability {
-            supported: false,
-            status: CapabilityStatus::Unavailable,
-        }
-    }
-
     pub(crate) fn tray(&self) -> Capability {
         self.tray
-            .lock()
-            .expect("runtime capabilities lock is poisoned")
-            .clone()
-    }
-
-    pub(crate) fn native_notifications(&self) -> NativeNotificationCapability {
-        self.native_notifications
             .lock()
             .expect("runtime capabilities lock is poisoned")
             .clone()
@@ -334,13 +277,8 @@ mod tests {
             1,
             FixedStore {
                 storage: BootstrapStorage {
-                    reporting_timezone: "Asia/Jakarta".to_owned(),
-                    background_refresh_enabled: false,
-                    refresh_interval_minutes: 15,
                     launch_at_login: false,
                     close_behavior: "quit".to_owned(),
-                    notifications_enabled: false,
-                    store_project_paths: false,
                     settings_revision: 1,
                     schema_version: 2,
                 },
@@ -354,10 +292,7 @@ mod tests {
         assert_eq!(bootstrap.contract_version, 1);
         assert_eq!(bootstrap.database.status, Readiness::Ready);
         assert_eq!(bootstrap.database.schema_version, 2);
-        assert_eq!(
-            bootstrap.settings.settings().reporting_timezone(),
-            "Asia/Jakarta"
-        );
+        assert!(!bootstrap.settings.settings().launch_at_login());
         assert_eq!(bootstrap.settings.revision(), 1);
         assert_eq!(bootstrap.sources.status, SourceStatus::NotConfigured);
         assert_eq!(bootstrap.refresh.status, RefreshStatus::Idle);
@@ -373,13 +308,8 @@ mod tests {
             1,
             FixedStore {
                 storage: BootstrapStorage {
-                    reporting_timezone: "UTC".to_owned(),
-                    background_refresh_enabled: false,
-                    refresh_interval_minutes: 15,
                     launch_at_login: false,
                     close_behavior: "quit".to_owned(),
-                    notifications_enabled: false,
-                    store_project_paths: false,
                     settings_revision: 1,
                     schema_version: 2,
                 },

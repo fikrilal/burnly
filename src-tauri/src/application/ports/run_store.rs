@@ -11,8 +11,8 @@
 use thiserror::Error;
 
 use crate::application::reconciliation::{
-    ImportRunCompletion, ImportRunId, ImportRunSpec, RefreshRunCompletion, RefreshRunId,
-    RefreshRunSpec, SourceId,
+    ImportRunCompletion, ImportRunId, ImportRunLookup, ImportRunSpec, RefreshRunCompletion,
+    RefreshRunId, RefreshRunSpec, SourceId, SuccessfulImportState,
 };
 use crate::domain::source::SourceKey;
 
@@ -48,6 +48,13 @@ pub(crate) trait RunStore: Send + Sync {
         id: ImportRunId,
         completion: ImportRunCompletion,
     ) -> Result<(), RunStoreError>;
+
+    /// Returns the latest successful import state for a source/projection
+    /// identity, if one exists.
+    fn latest_successful_import(
+        &self,
+        lookup: ImportRunLookup,
+    ) -> Result<Option<SuccessfulImportState>, RunStoreError>;
 }
 
 /// Failure categories surfaced by the run store, independent of the engine.

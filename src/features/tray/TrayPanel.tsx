@@ -1,8 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 
 import { hideTrayPanel } from "../../ipc/client";
-import type { TraySummaryResponse } from "../../ipc/generated/contracts";
+import type {
+  SettingsResponse,
+  TraySummaryResponse,
+} from "../../ipc/generated/contracts";
 import {
   AllocationList,
   CompactMetric,
@@ -13,15 +16,20 @@ import {
   type ModelUsage,
 } from "../../components/burnly";
 import { AnimatedNumber } from "../../components/ui/animated-number";
+import { MotionTabs } from "../../components/ui/motion-tabs";
+import { Switch } from "../../components/ui/switch";
+import { ThemeToggle } from "../../components/ui/theme-toggle";
 import { cn } from "../../lib/cn";
 import { formatCompactNumber, formatNumber } from "../../lib/format";
+import { useSettings, useUpdateSettings } from "../settings/use-settings";
 import { useTraySummary } from "./use-tray-summary";
 
 interface TrayPanelProps {
   reportingTimezone: string;
+  appVersion: string;
 }
 
-export function TrayPanel({ reportingTimezone }: TrayPanelProps) {
+export function TrayPanel({ reportingTimezone, appVersion }: TrayPanelProps) {
   const summary = useTraySummary(reportingTimezone);
 
   useEffect(() => {
@@ -56,6 +64,7 @@ export function TrayPanel({ reportingTimezone }: TrayPanelProps) {
       isRefreshing={summary.isRefreshing}
       isError={summary.isError}
       error={summary.error}
+      appVersion={appVersion}
     />
   );
 }
@@ -75,13 +84,15 @@ function TrayPanelContent({
   isRefreshing,
   isError,
   error,
+  appVersion,
 }: {
   summary: TraySummaryResponse;
   isRefreshing: boolean;
   isError: boolean;
   error: Error | null;
+  appVersion: string;
 }) {
-  const isEmpty = summary.dataStatus === "empty";
+  const [activeTab, setActiveTab] = useState<string>("overview");
 
   return (
     <main className="flex min-h-screen flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground">
@@ -90,10 +101,15 @@ function TrayPanelContent({
           data-tauri-drag-region
           className="flex items-start justify-between gap-3"
         >
-          <div>
-            <p className="text-sm font-semibold tracking-tight text-foreground">
-              Burnly
-            </p>
+          <div className="flex flex-col gap-2">
+            <MotionTabs
+              tabs={[
+                { id: "overview", label: "Overview" },
+                { id: "settings", label: "Settings" },
+              ]}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+            />
             <div className="mt-0.5">
               <HeaderStatus
                 state={freshnessState(
@@ -108,47 +124,251 @@ function TrayPanelContent({
           <PanelCloseButton />
         </header>
 
-        {isError ? (
-          <ErrorState
-            title="Update failed"
-            description={userSafeErrorMessage(error)}
-          />
-        ) : null}
-
-        <CompactMetric
-          label="Today token usage"
-          value={
-            <AnimatedNumber value={tokenNumber(summary.today.totalTokens)} />
-          }
-          caption="tokens today"
-        />
-
-        <MetricRow
-          items={[
-            {
-              label: "This week",
-              value: formatCompactNumber(summary.week.totalTokens),
-            },
-            {
-              label: "This month",
-              value: formatCompactNumber(summary.month.totalTokens),
-            },
-          ]}
-        />
-
-        {isEmpty ? (
-          <EmptyState
-            title="No usage collected today"
-            description="Burnly updates automatically when data becomes stale."
-          />
-        ) : null}
-
-        <AllocationList models={toModelUsage(summary.models)} />
+        {activeTab === "overview" ? (
+          <OverviewTab summary={summary} isError={isError} error={error} />
+        ) : (
+          <SettingsTab appVersion={appVersion} />
+        )}
       </div>
     </main>
   );
 }
 
+function OverviewTab({
+  summary,
+  isError,
+  error,
+}: {
+  summary: TraySummaryResponse;
+  isError: boolean;
+  error: Error | null;
+}) {
+  const isEmpty = summary.dataStatus === "empty";
+
+  return (
+    <div className="flex flex-col gap-6">
+      {isError ? (
+        <ErrorState
+          title="Update failed"
+          description={userSafeErrorMessage(error)}
+        />
+      ) : null}
+
+      <CompactMetric
+        label="Today token usage"
+        value={
+          <AnimatedNumber value={tokenNumber(summary.today.totalTokens)} />
+        }
+        caption="tokens today"
+      />
+
+      <MetricRow
+        items={[
+          {
+            label: "This week",
+            value: formatCompactNumber(summary.week.totalTokens),
+          },
+          {
+            label: "This month",
+            value: formatCompactNumber(summary.month.totalTokens),
+          },
+        ]}
+      />
+
+      {isEmpty ? (
+        <EmptyState
+          title="No usage collected today"
+          description="Burnly updates automatically when data becomes stale."
+        />
+      ) : null}
+
+      <AllocationList models={toModelUsage(summary.models)} />
+    </div>
+  );
+}
+
+function SettingsTab({ appVersion }: { appVersion: string }) {
+  const settings = useSettings();
+  const updateSettings = useUpdateSettings();
+
+  if (settings.isPending) {
+    return <SettingsLoading />;
+  }
+
+  if (settings.isError) {
+    return (
+      <SettingsLoadError
+        error={settings.error}
+        onRetry={() => {
+          void settings.refetch();
+        }}
+      />
+    );
+  }
+
+  const changeCloseBehavior = (
+    closeBehavior: SettingsResponse["closeBehavior"],
+  ) => {
+    if (closeBehavior === settings.data.closeBehavior) return;
+    updateSettings.mutate({
+      launchAtLogin: settings.data.launchAtLogin,
+      closeBehavior,
+      expectedRevision: settings.data.revision,
+    });
+  };
+
+  const changeLaunchAtLogin = (launchAtLogin: boolean) => {
+    if (launchAtLogin === settings.data.launchAtLogin) return;
+    updateSettings.mutate({
+      launchAtLogin,
+      closeBehavior: settings.data.closeBehavior,
+      expectedRevision: settings.data.revision,
+    });
+  };
+
+  return (
+    <div className="flex flex-1 flex-col justify-between gap-4">
+      <div className="flex flex-col">
+        <div className="flex flex-col divide-y divide-border">
+          <LaunchAtLoginSetting
+            value={settings.data.launchAtLogin}
+            isSaving={updateSettings.isPending}
+            onChange={changeLaunchAtLogin}
+          />
+          <CloseBehaviorSetting
+            value={settings.data.closeBehavior}
+            isSaving={updateSettings.isPending}
+            onChange={changeCloseBehavior}
+          />
+          <ThemeSetting />
+        </div>
+        {updateSettings.isError ? (
+          <div className="mt-4">
+            <ErrorState
+              title="Settings not saved"
+              description={userSafeErrorMessage(
+                updateSettings.error,
+                "Burnly could not save settings.",
+              )}
+            />
+          </div>
+        ) : null}
+      </div>
+      <div className="text-center text-[10px] font-mono tracking-widest text-muted-foreground/40 uppercase">
+        Version {appVersion}
+      </div>
+    </div>
+  );
+}
+
+function ThemeSetting() {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Theme</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          Select the interface color mode.
+        </span>
+      </div>
+      <ThemeToggle />
+    </div>
+  );
+}
+
+function SettingsLoading() {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">Loading settings</p>
+    </div>
+  );
+}
+
+function SettingsLoadError({
+  error,
+  onRetry,
+}: {
+  error: unknown;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <ErrorState
+        title="Settings unavailable"
+        description={userSafeErrorMessage(
+          error,
+          "Burnly could not load settings.",
+        )}
+      />
+      <button
+        type="button"
+        onClick={onRetry}
+        className="w-fit rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function LaunchAtLoginSetting({
+  value,
+  isSaving,
+  onChange,
+}: {
+  value: boolean;
+  isSaving: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Launch at login</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          Start Burnly automatically when you log into your system.
+        </span>
+      </div>
+      <Switch
+        checked={value}
+        disabled={isSaving}
+        aria-label="Launch at login"
+        onCheckedChange={onChange}
+      />
+    </div>
+  );
+}
+
+function CloseBehaviorSetting({
+  value,
+  isSaving,
+  onChange,
+}: {
+  value: SettingsResponse["closeBehavior"];
+  isSaving: boolean;
+  onChange: (value: SettingsResponse["closeBehavior"]) => void;
+}) {
+  const isQuit = value === "quit";
+
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Quit on close</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          Terminate the application when closing the panel.
+        </span>
+      </div>
+      <div className="flex items-center gap-3">
+        <Switch
+          checked={isQuit}
+          disabled={isSaving}
+          aria-label="Quit on close"
+          onCheckedChange={(checked) => {
+            onChange(checked ? "quit" : "hide");
+          }}
+        />
+      </div>
+    </div>
+  );
+}
 function TrayShell({
   status,
   detail,
@@ -261,6 +481,7 @@ function freshnessState(
   return dataStatus;
 }
 
+// Keep helper functions at end of file.
 function toModelUsage(models: TraySummaryResponse["models"]): ModelUsage[] {
   return models.map((model) => ({
     modelName: model.modelName,
@@ -275,8 +496,9 @@ function tokenNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function userSafeErrorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "Burnly could not load tray summary data.";
+function userSafeErrorMessage(
+  error: unknown,
+  fallback = "Burnly could not load tray summary data.",
+): string {
+  return error instanceof Error ? error.message : fallback;
 }

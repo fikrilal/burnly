@@ -12,7 +12,8 @@
 
 use std::sync::Mutex;
 
-use rusqlite::{params, Connection, Transaction};
+use chrono::NaiveDate;
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 
 use crate::application::collection::{
     CollectionOutcome, CollectionProjection, CollectionScope, DailyUsageCandidate,
@@ -22,8 +23,9 @@ use crate::application::ports::run_store::{RunStore, RunStoreError};
 use crate::application::ports::usage_store::{UsageStore, UsageStoreError};
 use crate::application::reconciliation::{
     DailyReconciliationRequest, DailyReconciliationSummary, ImportOutcome, ImportRunCompletion,
-    ImportRunId, ImportRunSpec, RefreshOutcome, RefreshRunCompletion, RefreshRunId, RefreshRunSpec,
-    RefreshTrigger, RunError, SessionReconciliationRequest, SessionReconciliationSummary, SourceId,
+    ImportRunId, ImportRunLookup, ImportRunSpec, RefreshOutcome, RefreshRunCompletion,
+    RefreshRunId, RefreshRunSpec, RefreshTrigger, RunError, SessionReconciliationRequest,
+    SessionReconciliationSummary, SourceId, SuccessfulImportState,
 };
 use crate::domain::identity::DAILY_IDENTITY_VERSION;
 use crate::domain::source::SourceKey;
@@ -197,6 +199,61 @@ impl RunStore for SqliteReconciliationStore {
             run_found(changed)
         })
     }
+
+    fn latest_successful_import(
+        &self,
+        lookup: ImportRunLookup,
+    ) -> Result<Option<SuccessfulImportState>, RunStoreError> {
+        self.with_connection(|connection| {
+            let projection = projection_value(lookup.projection());
+            let row = match lookup.aggregation_timezone() {
+                Some(timezone) => connection
+                    .query_row(
+                        "SELECT import_runs.scope_kind, import_runs.scope_start_date,
+                            import_runs.scope_end_date, import_runs.finished_at_ms
+                        FROM import_runs
+                        INNER JOIN sources ON sources.id = import_runs.source_id
+                        WHERE sources.source_key = ?1
+                            AND import_runs.projection = ?2
+                            AND import_runs.aggregation_timezone = ?3
+                            AND import_runs.status = 'succeeded'
+                        ORDER BY import_runs.finished_at_ms DESC, import_runs.id DESC
+                        LIMIT 1",
+                        params![lookup.source().as_str(), projection, timezone],
+                        import_run_scope_row,
+                    )
+                    .optional()
+                    .map_err(|_| RunStoreError::Backend)?,
+                None => connection
+                    .query_row(
+                        "SELECT import_runs.scope_kind, import_runs.scope_start_date,
+                            import_runs.scope_end_date, import_runs.finished_at_ms
+                        FROM import_runs
+                        INNER JOIN sources ON sources.id = import_runs.source_id
+                        WHERE sources.source_key = ?1
+                            AND import_runs.projection = ?2
+                            AND import_runs.status = 'succeeded'
+                        ORDER BY import_runs.finished_at_ms DESC, import_runs.id DESC
+                        LIMIT 1",
+                        params![lookup.source().as_str(), projection],
+                        import_run_scope_row,
+                    )
+                    .optional()
+                    .map_err(|_| RunStoreError::Backend)?,
+            };
+
+            row.map(|(kind, start, end, finished_at_ms)| {
+                import_state_from_row(
+                    &lookup,
+                    &kind,
+                    start.as_deref(),
+                    end.as_deref(),
+                    finished_at_ms,
+                )
+            })
+            .transpose()
+        })
+    }
 }
 
 impl UsageStore for SqliteReconciliationStore {
@@ -281,14 +338,6 @@ fn reconcile_session_in_transaction(
     let source_id = request.source_id();
     let import_run_id = request.import_run_id();
     let observed_at_ms = request.observed_at_ms();
-    let retain_project_paths: bool = transaction
-        .query_row(
-            "SELECT store_project_paths FROM app_settings WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|_| UsageStoreError::Backend)?;
-
     let mut observed_source_keys = Vec::with_capacity(request.candidates().len());
 
     for candidate in request.candidates() {
@@ -298,7 +347,7 @@ fn reconcile_session_in_transaction(
                 source_id,
                 observed_at_ms,
                 path,
-                retain_project_paths,
+                false,
             )?),
             None => None,
         };
@@ -900,6 +949,47 @@ fn scope_fields(scope: &CollectionScope) -> (&'static str, Option<String>, Optio
     }
 }
 
+fn import_run_scope_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<(String, Option<String>, Option<String>, i64)> {
+    Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, Option<String>>(1)?,
+        row.get::<_, Option<String>>(2)?,
+        row.get::<_, i64>(3)?,
+    ))
+}
+
+fn import_state_from_row(
+    lookup: &ImportRunLookup,
+    scope_kind: &str,
+    scope_start_date: Option<&str>,
+    scope_end_date: Option<&str>,
+    finished_at_ms: i64,
+) -> Result<SuccessfulImportState, RunStoreError> {
+    let scope = match scope_kind {
+        "full" => CollectionScope::Full,
+        "incremental" => CollectionScope::incremental(
+            parse_scope_date(scope_start_date)?,
+            parse_scope_date(scope_end_date)?,
+        )
+        .map_err(|_| RunStoreError::Backend)?,
+        _ => return Err(RunStoreError::Backend),
+    };
+
+    Ok(SuccessfulImportState::new(
+        lookup.source(),
+        lookup.projection(),
+        scope,
+        finished_at_ms,
+    ))
+}
+
+fn parse_scope_date(value: Option<&str>) -> Result<NaiveDate, RunStoreError> {
+    let value = value.ok_or(RunStoreError::Backend)?;
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| RunStoreError::Backend)
+}
+
 const fn refresh_trigger_value(trigger: RefreshTrigger) -> &'static str {
     match trigger {
         RefreshTrigger::Launch => "launch",
@@ -993,6 +1083,23 @@ mod tests {
             None,
         )
         .expect("session import spec")
+    }
+
+    fn daily_import_spec_with_scope(
+        refresh_run_id: RefreshRunId,
+        source_id: SourceId,
+        scope: CollectionScope,
+        aggregation_timezone: &str,
+    ) -> ImportRunSpec {
+        ImportRunSpec::new(
+            refresh_run_id,
+            source_id,
+            ImportCollector::new("ccusage", "20.0.11", 1).expect("collector"),
+            CollectionProjection::Daily,
+            scope,
+            Some(aggregation_timezone.to_owned()),
+        )
+        .expect("daily import spec")
     }
 
     #[test]
@@ -1089,6 +1196,185 @@ mod tests {
         store
             .begin_import_run(spec, 110)
             .expect("begin incremental import run");
+    }
+
+    #[test]
+    fn latest_successful_import_returns_matching_source_projection_and_timezone() {
+        let (_directory, store) = migrated_store();
+        let source_id = store
+            .resolve_source(SourceKey::ClaudeCode, 100)
+            .expect("resolve source");
+        let utc_refresh_id = store
+            .begin_refresh_run(refresh_spec("refresh-utc"), 100)
+            .expect("begin utc refresh");
+        let jakarta_refresh_id = store
+            .begin_refresh_run(refresh_spec("refresh-jakarta"), 200)
+            .expect("begin jakarta refresh");
+
+        let utc_import_id = store
+            .begin_import_run(
+                daily_import_spec_with_scope(
+                    utc_refresh_id,
+                    source_id,
+                    CollectionScope::Full,
+                    "UTC",
+                ),
+                110,
+            )
+            .expect("begin utc import");
+        let jakarta_import_id = store
+            .begin_import_run(
+                daily_import_spec_with_scope(
+                    jakarta_refresh_id,
+                    source_id,
+                    CollectionScope::Full,
+                    "Asia/Jakarta",
+                ),
+                210,
+            )
+            .expect("begin jakarta import");
+
+        store
+            .complete_import_run(
+                utc_import_id,
+                ImportRunCompletion {
+                    outcome: ImportOutcome::Succeeded,
+                    records_seen: 1,
+                    records_rejected: 0,
+                    finished_at_ms: 150,
+                    error: None,
+                },
+            )
+            .expect("complete utc import");
+        store
+            .complete_import_run(
+                jakarta_import_id,
+                ImportRunCompletion {
+                    outcome: ImportOutcome::Succeeded,
+                    records_seen: 1,
+                    records_rejected: 0,
+                    finished_at_ms: 250,
+                    error: None,
+                },
+            )
+            .expect("complete jakarta import");
+
+        let state = store
+            .latest_successful_import(
+                ImportRunLookup::new(
+                    SourceKey::ClaudeCode,
+                    CollectionProjection::Daily,
+                    Some("UTC".to_owned()),
+                )
+                .expect("lookup"),
+            )
+            .expect("latest import")
+            .expect("matching import");
+
+        assert_eq!(state.source(), SourceKey::ClaudeCode);
+        assert_eq!(state.projection(), CollectionProjection::Daily);
+        assert_eq!(state.scope(), &CollectionScope::Full);
+        assert_eq!(state.finished_at_ms(), 150);
+    }
+
+    #[test]
+    fn latest_successful_import_ignores_failed_runs_and_returns_latest_scope() {
+        let (_directory, store) = migrated_store();
+        let source_id = store
+            .resolve_source(SourceKey::ClaudeCode, 100)
+            .expect("resolve source");
+        let failed_refresh_id = store
+            .begin_refresh_run(refresh_spec("refresh-failed"), 100)
+            .expect("begin failed refresh");
+        let latest_refresh_id = store
+            .begin_refresh_run(refresh_spec("refresh-latest"), 200)
+            .expect("begin latest refresh");
+        let failed_scope = CollectionScope::incremental(
+            NaiveDate::from_ymd_opt(2026, 6, 1).expect("start"),
+            NaiveDate::from_ymd_opt(2026, 6, 14).expect("end"),
+        )
+        .expect("failed scope");
+        let latest_scope = CollectionScope::incremental(
+            NaiveDate::from_ymd_opt(2026, 6, 18).expect("start"),
+            NaiveDate::from_ymd_opt(2026, 6, 20).expect("end"),
+        )
+        .expect("latest scope");
+
+        let failed_import_id = store
+            .begin_import_run(
+                daily_import_spec_with_scope(failed_refresh_id, source_id, failed_scope, "UTC"),
+                110,
+            )
+            .expect("begin failed import");
+        let latest_import_id = store
+            .begin_import_run(
+                daily_import_spec_with_scope(
+                    latest_refresh_id,
+                    source_id,
+                    latest_scope.clone(),
+                    "UTC",
+                ),
+                210,
+            )
+            .expect("begin latest import");
+
+        store
+            .complete_import_run(
+                failed_import_id,
+                ImportRunCompletion {
+                    outcome: ImportOutcome::Failed,
+                    records_seen: 0,
+                    records_rejected: 0,
+                    finished_at_ms: 400,
+                    error: Some(RunError::new("collector.failed", "failed").expect("run error")),
+                },
+            )
+            .expect("complete failed import");
+        store
+            .complete_import_run(
+                latest_import_id,
+                ImportRunCompletion {
+                    outcome: ImportOutcome::Succeeded,
+                    records_seen: 1,
+                    records_rejected: 0,
+                    finished_at_ms: 300,
+                    error: None,
+                },
+            )
+            .expect("complete latest import");
+
+        let state = store
+            .latest_successful_import(
+                ImportRunLookup::new(
+                    SourceKey::ClaudeCode,
+                    CollectionProjection::Daily,
+                    Some("UTC".to_owned()),
+                )
+                .expect("lookup"),
+            )
+            .expect("latest import")
+            .expect("successful import");
+
+        assert_eq!(state.scope(), &latest_scope);
+        assert_eq!(state.finished_at_ms(), 300);
+    }
+
+    #[test]
+    fn latest_successful_import_returns_none_when_identity_has_no_success() {
+        let (_directory, store) = migrated_store();
+
+        let result = store
+            .latest_successful_import(
+                ImportRunLookup::new(
+                    SourceKey::Codex,
+                    CollectionProjection::Daily,
+                    Some("UTC".to_owned()),
+                )
+                .expect("lookup"),
+            )
+            .expect("lookup succeeds");
+
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -1196,19 +1482,12 @@ mod tests {
         }
     }
 
-    fn reconcile_session_with_policy(retain_paths: bool) -> SqliteReconciliationStore {
+    fn reconcile_session() -> SqliteReconciliationStore {
         let directory = tempfile::TempDir::new().expect("create temporary directory");
         let database_path = directory.keep().join("burnly.sqlite3");
         let mut database = Database::open(&database_path).expect("open database");
         database.migrate_to_latest().expect("migrate database");
         database.ensure_app_settings("UTC", 100).expect("settings");
-        database
-            .connection()
-            .execute(
-                "UPDATE app_settings SET store_project_paths = ?1",
-                [retain_paths],
-            )
-            .expect("set privacy policy");
         let store = SqliteReconciliationStore::new(database);
         let source_id = store
             .resolve_source(SourceKey::ClaudeCode, 100)
@@ -1233,8 +1512,8 @@ mod tests {
     }
 
     #[test]
-    fn disabled_retention_persists_only_non_reversible_project_identity() {
-        let store = reconcile_session_with_policy(false);
+    fn session_reconciliation_persists_only_non_reversible_project_identity() {
+        let store = reconcile_session();
         let database = store.database.lock().expect("store lock");
         let (identity_key, raw_path, fingerprint): (String, Option<String>, Vec<u8>) = database
             .connection()
@@ -1249,21 +1528,6 @@ mod tests {
         assert!(!identity_key.contains("secret-project"));
         assert_eq!(raw_path, None);
         assert_eq!(fingerprint.len(), 32);
-    }
-
-    #[test]
-    fn enabled_retention_keeps_raw_path_separate_from_project_identity() {
-        let store = reconcile_session_with_policy(true);
-        let database = store.database.lock().expect("store lock");
-        let (identity_key, raw_path): (String, Option<String>) = database
-            .connection()
-            .query_row("SELECT identity_key, raw_path FROM projects", [], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
-            .expect("read project");
-
-        assert!(ProjectPathIdentity::is_key(&identity_key));
-        assert_eq!(raw_path.as_deref(), Some("/home/dante/secret-project"));
     }
 
     fn request(

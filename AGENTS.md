@@ -29,6 +29,7 @@ Burnly is a local desktop app for AI coding-tool token usage.
 - Use execution plans for non-trivial implementation work.
 - Keep only the current implementation chunk active; future dependent plans stay queued.
 - Update harness checks when the same mistake repeats.
+- Never commit or push code unless explicitly instructed by the user. Do not assume permission to commit.
 
 ## Verification
 

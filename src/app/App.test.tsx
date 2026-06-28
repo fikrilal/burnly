@@ -159,13 +159,8 @@ function bootstrapResult(
         schemaVersion: 1,
       },
       settings: {
-        reportingTimezone: "Asia/Jakarta",
-        backgroundRefreshEnabled: false,
-        refreshIntervalMinutes: 15,
         launchAtLogin: false,
         closeBehavior: "quit",
-        notificationsEnabled: false,
-        storeProjectPaths: false,
         revision: 1,
       },
       features: {
@@ -201,8 +196,6 @@ function capabilitiesResult(): CommandResult<AppCapabilitiesResponse> {
     data: {
       tray: capability,
       launchAtLogin: capability,
-      nativeNotifications: { ...capability, permission: "unknown" },
-      updates: capability,
       exportFormats: [],
       diagnostics: {
         desktopEvidence: true,

@@ -17,9 +17,9 @@ pub(crate) use daily::{DailyReconciliationRequest, DailyReconciliationSummary};
     reason = "reconciliation re-exports the run lifecycle contract for callers and adapters"
 )]
 pub(crate) use run::{
-    ImportCollector, ImportOutcome, ImportRunCompletion, ImportRunId, ImportRunSpec, JobKey,
-    RefreshOutcome, RefreshRunCompletion, RefreshRunId, RefreshRunSpec, RefreshTrigger, RunError,
-    RunValidationError, SourceId,
+    ImportCollector, ImportOutcome, ImportRunCompletion, ImportRunId, ImportRunLookup,
+    ImportRunSpec, JobKey, RefreshOutcome, RefreshRunCompletion, RefreshRunId, RefreshRunSpec,
+    RefreshTrigger, RunError, RunValidationError, SourceId, SuccessfulImportState,
 };
 #[allow(
     unused_imports,

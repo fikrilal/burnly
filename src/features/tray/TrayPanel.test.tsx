@@ -1,13 +1,32 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TrayPanel } from "./TrayPanel";
-import { getTraySummary, type CommandResult } from "../../ipc/client";
+import {
+  getSettings,
+  getTraySummary,
+  updateSettings,
+  type CommandResult,
+} from "../../ipc/client";
 import { subscribeToEvent } from "../../ipc/events";
-import type { TraySummaryResponse } from "../../ipc/generated/contracts";
+import type {
+  SettingsResponse,
+  TraySummaryResponse,
+} from "../../ipc/generated/contracts";
 import { createTestQueryWrapper } from "../../test/query";
+import { ThemeProvider } from "../../lib/theme";
 
 vi.mock("../../ipc/client");
+
+function createTestWrapper() {
+  const QueryWrapper = createTestQueryWrapper();
+  return ({ children }: { children: React.ReactNode }) => (
+    <ThemeProvider>
+      <QueryWrapper>{children}</QueryWrapper>
+    </ThemeProvider>
+  );
+}
 vi.mock("../../ipc/events");
 
 const responseMeta = {
@@ -54,18 +73,19 @@ const summary: TraySummaryResponse = {
   dataStatus: "current",
 };
 
-describe("TrayPanel", () => {
-  beforeEach(() => {
-    vi.mocked(subscribeToEvent).mockResolvedValue(() => {
-      /* no-op */
-    });
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(subscribeToEvent).mockResolvedValue(() => {
+    /* no-op */
   });
+});
 
+describe("TrayPanel overview", () => {
   it("renders compact token metrics and model allocation", async () => {
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
-      wrapper: createTestQueryWrapper(),
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
+      wrapper: createTestWrapper(),
     });
 
     expect(await screen.findByText("42,180")).toBeInTheDocument();
@@ -93,8 +113,8 @@ describe("TrayPanel", () => {
       }),
     );
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
-      wrapper: createTestQueryWrapper(),
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
+      wrapper: createTestWrapper(),
     });
 
     expect(
@@ -109,8 +129,8 @@ describe("TrayPanel", () => {
   it("renders failed loading state", async () => {
     vi.mocked(getTraySummary).mockRejectedValue(new Error("summary offline"));
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
-      wrapper: createTestQueryWrapper(),
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
+      wrapper: createTestWrapper(),
     });
 
     expect(await screen.findByText("Failed")).toBeInTheDocument();
@@ -118,8 +138,118 @@ describe("TrayPanel", () => {
   });
 });
 
+describe("TrayPanel settings controls", () => {
+  it("renders persisted close behavior in settings", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(
+      settingsResult({ closeBehavior: "quit" }),
+    );
+
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
+      wrapper: createTestWrapper(),
+    });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Settings" }),
+    );
+
+    expect(await screen.findByText("Quit on close")).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: "Quit on close" }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("updates close behavior while preserving hidden settings fields", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(
+      settingsResult({
+        launchAtLogin: true,
+        closeBehavior: "quit",
+        revision: 7,
+      }),
+    );
+    vi.mocked(updateSettings).mockResolvedValue(
+      settingsResult({
+        launchAtLogin: true,
+        closeBehavior: "hide",
+        revision: 8,
+      }),
+    );
+
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
+      wrapper: createTestWrapper(),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(
+      await screen.findByRole("switch", { name: "Quit on close" }),
+    );
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({
+        launchAtLogin: true,
+        closeBehavior: "hide",
+        expectedRevision: 7,
+      });
+    });
+  });
+});
+
+describe("TrayPanel settings failures", () => {
+  it("renders settings load failures", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockRejectedValue(new Error("settings offline"));
+
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
+      wrapper: createTestWrapper(),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText("Settings unavailable")).toBeInTheDocument();
+    expect(screen.getByText("settings offline")).toBeInTheDocument();
+  });
+
+  it("renders settings save failures", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(
+      settingsResult({ closeBehavior: "quit" }),
+    );
+    vi.mocked(updateSettings).mockRejectedValue(new Error("settings conflict"));
+
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
+      wrapper: createTestWrapper(),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(
+      await screen.findByRole("switch", { name: "Quit on close" }),
+    );
+
+    expect(await screen.findByText("Settings not saved")).toBeInTheDocument();
+    expect(screen.getByText("settings conflict")).toBeInTheDocument();
+  });
+});
+
 function traySummaryResult(
   data: TraySummaryResponse = summary,
 ): CommandResult<TraySummaryResponse> {
   return { data, meta: responseMeta };
+}
+
+function settingsResult(
+  overrides: Partial<SettingsResponse> = {},
+): CommandResult<SettingsResponse> {
+  return {
+    data: {
+      launchAtLogin: false,
+      closeBehavior: "hide",
+      revision: 1,
+      ...overrides,
+    },
+    meta: responseMeta,
+  };
 }

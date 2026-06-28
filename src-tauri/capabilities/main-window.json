@@ -2,6 +2,14 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-window",
   "description": "Least-privilege capability for the local Burnly dashboard.",
+  "remote": {
+    "urls": [
+      "http://localhost:1420/*",
+      "http://127.0.0.1:1420/*",
+      "tauri://localhost/*",
+      "http://tauri.localhost/*"
+    ]
+  },
   "windows": ["main", "tray-panel"],
   "platforms": ["linux", "macOS", "windows"],
   "permissions": [
@@ -13,7 +21,6 @@
     "allow-app-hide-tray-panel",
     "allow-settings-get",
     "allow-settings-update",
-    "allow-settings-update-project-path-retention",
     "allow-refresh-get-state",
     "allow-refresh-request",
     "allow-refresh-cancel",

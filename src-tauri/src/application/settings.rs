@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use crate::application::ports::clock::Clock;
-use crate::application::ports::settings_store::{
-    ProjectPathRetentionResult, SettingsStore, SettingsStoreError,
-};
+use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
 use crate::domain::settings::{Settings, SettingsDocument, SettingsValidationError};
 
 pub(crate) trait SettingsRuntime: Send + Sync {
@@ -12,10 +10,9 @@ pub(crate) trait SettingsRuntime: Send + Sync {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum RuntimeSettingError {
     LaunchAtLoginUnavailable,
-    NotificationsUnavailable,
-    ProjectPathRetentionRequiresPrivacyFlow,
 }
 
 pub(crate) struct SettingsService {
@@ -60,23 +57,6 @@ impl SettingsService {
             .map_err(SettingsError::from_store)?;
         self.runtime.apply(updated.settings());
         Ok(updated)
-    }
-
-    pub(crate) fn update_project_path_retention(
-        &self,
-        expected_revision: i64,
-        retain_paths: bool,
-    ) -> Result<ProjectPathRetentionResult, SettingsError> {
-        if expected_revision <= 0 {
-            return Err(SettingsError::Validation(SettingsValidationError::Revision));
-        }
-        self.store
-            .replace_project_path_retention(
-                expected_revision,
-                retain_paths,
-                self.clock.now_epoch_ms(),
-            )
-            .map_err(SettingsError::from_store)
     }
 }
 
@@ -137,35 +117,6 @@ mod tests {
                 .expect("valid revision");
             Ok(document.clone())
         }
-
-        fn replace_project_path_retention(
-            &self,
-            expected_revision: i64,
-            retain_paths: bool,
-            _updated_at_ms: i64,
-        ) -> Result<ProjectPathRetentionResult, SettingsStoreError> {
-            let mut document = self.document.lock().expect("settings lock");
-            if document.revision() != expected_revision {
-                return Err(SettingsStoreError::Conflict);
-            }
-            let current = document.settings();
-            let settings = Settings::new(
-                current.reporting_timezone().to_owned(),
-                current.background_refresh_enabled(),
-                current.refresh_interval_minutes(),
-                current.launch_at_login(),
-                current.close_behavior().as_str(),
-                current.notifications_enabled(),
-                retain_paths,
-            )
-            .expect("valid settings");
-            *document =
-                SettingsDocument::new(settings, expected_revision + 1).expect("valid revision");
-            Ok(ProjectPathRetentionResult {
-                settings: document.clone(),
-                cleared_paths: 0,
-            })
-        }
     }
 
     #[derive(Default)]
@@ -190,9 +141,8 @@ mod tests {
         }
     }
 
-    fn settings(timezone: &str) -> Settings {
-        Settings::new(timezone.to_owned(), false, 15, false, "quit", false, false)
-            .expect("valid settings")
+    fn settings(close_behavior: &str) -> Settings {
+        Settings::new(false, close_behavior).expect("valid settings")
     }
 
     #[test]
@@ -200,18 +150,18 @@ mod tests {
         let runtime = Arc::new(RecordingRuntime::default());
         let service = SettingsService::new(
             Arc::new(MemoryStore {
-                document: Mutex::new(SettingsDocument::new(settings("UTC"), 1).expect("document")),
+                document: Mutex::new(SettingsDocument::new(settings("quit"), 1).expect("document")),
             }),
             runtime.clone(),
             Arc::new(FixedClock),
         );
 
-        let updated = service.update(1, settings("Asia/Jakarta")).expect("update");
+        let updated = service.update(1, settings("hide")).expect("update");
 
         assert_eq!(updated.revision(), 2);
         assert_eq!(
             runtime.applied.lock().expect("runtime lock").as_slice(),
-            &[settings("Asia/Jakarta")]
+            &[settings("hide")]
         );
     }
 
@@ -220,14 +170,14 @@ mod tests {
         let runtime = Arc::new(RecordingRuntime::default());
         let service = SettingsService::new(
             Arc::new(MemoryStore {
-                document: Mutex::new(SettingsDocument::new(settings("UTC"), 2).expect("document")),
+                document: Mutex::new(SettingsDocument::new(settings("quit"), 2).expect("document")),
             }),
             runtime.clone(),
             Arc::new(FixedClock),
         );
 
         assert_eq!(
-            service.update(1, settings("Asia/Jakarta")),
+            service.update(1, settings("hide")),
             Err(SettingsError::Conflict)
         );
         assert!(runtime.applied.lock().expect("runtime lock").is_empty());

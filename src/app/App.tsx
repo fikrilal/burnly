@@ -61,9 +61,11 @@ export function App({
 
 function TraySurface({ state }: { state: AppState }) {
   if (state.status === "ready") {
+    const reportingTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     return (
       <TrayPanel
-        reportingTimezone={state.bootstrap.settings.reportingTimezone}
+        reportingTimezone={reportingTimezone}
+        appVersion={state.bootstrap.appVersion}
       />
     );
   }

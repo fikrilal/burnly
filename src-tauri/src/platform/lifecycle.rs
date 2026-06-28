@@ -51,7 +51,39 @@ pub(crate) fn open_tray_panel<R: Runtime, M: Manager<R>>(
         return activate_webview_window(&window);
     }
 
-    let window = tauri::WebviewWindowBuilder::new(
+    let window = create_tray_panel_window(manager)?;
+
+    position_tray_panel(&window);
+
+    window
+        .show()
+        .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Show))?;
+    window
+        .set_focus()
+        .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Focus))?;
+
+    Ok(())
+}
+
+pub(crate) fn prepare_tray_panel<R: Runtime, M: Manager<R>>(
+    manager: &M,
+) -> Result<(), WindowActivationError> {
+    if manager
+        .get_webview_window(TRAY_PANEL_WINDOW_LABEL)
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    create_tray_panel_window(manager)?;
+
+    Ok(())
+}
+
+fn create_tray_panel_window<R: Runtime, M: Manager<R>>(
+    manager: &M,
+) -> Result<tauri::WebviewWindow<R>, WindowActivationError> {
+    tauri::WebviewWindowBuilder::new(
         manager,
         TRAY_PANEL_WINDOW_LABEL,
         WebviewUrl::App("index.html#/tray".into()),
@@ -66,18 +98,7 @@ pub(crate) fn open_tray_panel<R: Runtime, M: Manager<R>>(
     .focused(true)
     .visible(false)
     .build()
-    .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Show))?;
-
-    position_tray_panel(&window);
-
-    window
-        .show()
-        .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Show))?;
-    window
-        .set_focus()
-        .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Focus))?;
-
-    Ok(())
+    .map_err(|_| WindowActivationError::new(WindowActivationErrorKind::Show))
 }
 
 /// Hides the tray panel when it loses focus, so clicking elsewhere dismisses it.
@@ -153,6 +174,29 @@ mod tests {
             .expect("build mock tauri app");
 
         open_tray_panel(app.handle()).expect("open tray panel");
+
+        assert!(app.get_webview_window(TRAY_PANEL_WINDOW_LABEL).is_some());
+    }
+
+    #[test]
+    fn prepare_tray_panel_creates_panel_when_missing() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build mock tauri app");
+
+        prepare_tray_panel(app.handle()).expect("prepare tray panel");
+
+        assert!(app.get_webview_window(TRAY_PANEL_WINDOW_LABEL).is_some());
+    }
+
+    #[test]
+    fn prepare_tray_panel_is_idempotent() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build mock tauri app");
+
+        prepare_tray_panel(app.handle()).expect("first prepare");
+        prepare_tray_panel(app.handle()).expect("second prepare");
 
         assert!(app.get_webview_window(TRAY_PANEL_WINDOW_LABEL).is_some());
     }
