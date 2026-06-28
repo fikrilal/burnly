@@ -1,10 +1,19 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TrayPanel } from "./TrayPanel";
-import { getTraySummary, type CommandResult } from "../../ipc/client";
+import {
+  getSettings,
+  getTraySummary,
+  updateSettings,
+  type CommandResult,
+} from "../../ipc/client";
 import { subscribeToEvent } from "../../ipc/events";
-import type { TraySummaryResponse } from "../../ipc/generated/contracts";
+import type {
+  SettingsResponse,
+  TraySummaryResponse,
+} from "../../ipc/generated/contracts";
 import { createTestQueryWrapper } from "../../test/query";
 
 vi.mock("../../ipc/client");
@@ -54,13 +63,14 @@ const summary: TraySummaryResponse = {
   dataStatus: "current",
 };
 
-describe("TrayPanel", () => {
-  beforeEach(() => {
-    vi.mocked(subscribeToEvent).mockResolvedValue(() => {
-      /* no-op */
-    });
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(subscribeToEvent).mockResolvedValue(() => {
+    /* no-op */
   });
+});
 
+describe("TrayPanel overview", () => {
   it("renders compact token metrics and model allocation", async () => {
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
 
@@ -118,8 +128,122 @@ describe("TrayPanel", () => {
   });
 });
 
+describe("TrayPanel settings controls", () => {
+  it("renders persisted close behavior in settings", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(
+      settingsResult({ closeBehavior: "quit" }),
+    );
+
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+      wrapper: createTestQueryWrapper(),
+    });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Settings" }),
+    );
+
+    expect(await screen.findByText("Close panel behavior")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Quit app" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "Hide to tray" }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("updates close behavior while preserving hidden settings fields", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(
+      settingsResult({
+        launchAtLogin: true,
+        closeBehavior: "quit",
+        revision: 7,
+      }),
+    );
+    vi.mocked(updateSettings).mockResolvedValue(
+      settingsResult({
+        launchAtLogin: true,
+        closeBehavior: "hide",
+        revision: 8,
+      }),
+    );
+
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+      wrapper: createTestQueryWrapper(),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Hide to tray" }),
+    );
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({
+        launchAtLogin: true,
+        closeBehavior: "hide",
+        expectedRevision: 7,
+      });
+    });
+  });
+});
+
+describe("TrayPanel settings failures", () => {
+  it("renders settings load failures", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockRejectedValue(new Error("settings offline"));
+
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+      wrapper: createTestQueryWrapper(),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText("Settings unavailable")).toBeInTheDocument();
+    expect(screen.getByText("settings offline")).toBeInTheDocument();
+  });
+
+  it("renders settings save failures", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(
+      settingsResult({ closeBehavior: "quit" }),
+    );
+    vi.mocked(updateSettings).mockRejectedValue(new Error("settings conflict"));
+
+    render(<TrayPanel reportingTimezone="Asia/Jakarta" />, {
+      wrapper: createTestQueryWrapper(),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Hide to tray" }),
+    );
+
+    expect(await screen.findByText("Settings not saved")).toBeInTheDocument();
+    expect(screen.getByText("settings conflict")).toBeInTheDocument();
+  });
+});
+
 function traySummaryResult(
   data: TraySummaryResponse = summary,
 ): CommandResult<TraySummaryResponse> {
   return { data, meta: responseMeta };
+}
+
+function settingsResult(
+  overrides: Partial<SettingsResponse> = {},
+): CommandResult<SettingsResponse> {
+  return {
+    data: {
+      launchAtLogin: false,
+      closeBehavior: "hide",
+      revision: 1,
+      ...overrides,
+    },
+    meta: responseMeta,
+  };
 }

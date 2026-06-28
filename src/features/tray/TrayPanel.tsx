@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 
 import { hideTrayPanel } from "../../ipc/client";
-import type { TraySummaryResponse } from "../../ipc/generated/contracts";
+import type {
+  SettingsResponse,
+  TraySummaryResponse,
+} from "../../ipc/generated/contracts";
 import {
   AllocationList,
   CompactMetric,
@@ -16,6 +19,7 @@ import { AnimatedNumber } from "../../components/ui/animated-number";
 import { MotionTabs } from "../../components/ui/motion-tabs";
 import { cn } from "../../lib/cn";
 import { formatCompactNumber, formatNumber } from "../../lib/format";
+import { useSettings, useUpdateSettings } from "../settings/use-settings";
 import { useTraySummary } from "./use-tray-summary";
 
 interface TrayPanelProps {
@@ -178,15 +182,167 @@ function OverviewTab({
 }
 
 function SettingsTab() {
+  const settings = useSettings();
+  const updateSettings = useUpdateSettings();
+
+  if (settings.isPending) {
+    return <SettingsLoading />;
+  }
+
+  if (settings.isError) {
+    return (
+      <SettingsLoadError
+        error={settings.error}
+        onRetry={() => {
+          void settings.refetch();
+        }}
+      />
+    );
+  }
+
+  const changeCloseBehavior = (
+    closeBehavior: SettingsResponse["closeBehavior"],
+  ) => {
+    if (closeBehavior === settings.data.closeBehavior) return;
+    updateSettings.mutate({
+      launchAtLogin: settings.data.launchAtLogin,
+      closeBehavior,
+      expectedRevision: settings.data.revision,
+    });
+  };
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <h2 className="text-sm font-semibold">Settings</h2>
-      <p className="text-sm text-muted-foreground">
-        Settings configuration will go here.
-      </p>
+      <CloseBehaviorSetting
+        value={settings.data.closeBehavior}
+        isSaving={updateSettings.isPending}
+        onChange={changeCloseBehavior}
+      />
+      {updateSettings.isError ? (
+        <ErrorState
+          title="Settings not saved"
+          description={userSafeErrorMessage(
+            updateSettings.error,
+            "Burnly could not save settings.",
+          )}
+        />
+      ) : null}
     </div>
   );
 }
+
+function SettingsLoading() {
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold">Settings</h2>
+      <p className="text-sm text-muted-foreground">Loading settings</p>
+    </div>
+  );
+}
+
+function SettingsLoadError({
+  error,
+  onRetry,
+}: {
+  error: unknown;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold">Settings</h2>
+      <ErrorState
+        title="Settings unavailable"
+        description={userSafeErrorMessage(
+          error,
+          "Burnly could not load settings.",
+        )}
+      />
+      <button
+        type="button"
+        onClick={onRetry}
+        className="w-fit rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function CloseBehaviorSetting({
+  value,
+  isSaving,
+  onChange,
+}: {
+  value: SettingsResponse["closeBehavior"];
+  isSaving: boolean;
+  onChange: (value: SettingsResponse["closeBehavior"]) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium">Close panel behavior</span>
+        {isSaving ? (
+          <span className="text-xs text-muted-foreground">Saving</span>
+        ) : null}
+      </div>
+      <div
+        role="group"
+        aria-label="Close panel behavior"
+        className="grid grid-cols-2 rounded-lg border border-border bg-muted p-0.5"
+      >
+        {closeBehaviorOptions.map((option) => (
+          <CloseBehaviorOption
+            key={option.value}
+            option={option}
+            selected={option.value === value}
+            disabled={isSaving}
+            onChange={onChange}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CloseBehaviorOption({
+  option,
+  selected,
+  disabled,
+  onChange,
+}: {
+  option: (typeof closeBehaviorOptions)[number];
+  selected: boolean;
+  disabled: boolean;
+  onChange: (value: SettingsResponse["closeBehavior"]) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={() => {
+        onChange(option.value);
+      }}
+      className={cn(
+        "min-h-9 rounded-md px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60",
+        selected
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {option.label}
+    </button>
+  );
+}
+
+const closeBehaviorOptions: {
+  value: SettingsResponse["closeBehavior"];
+  label: string;
+}[] = [
+  { value: "hide", label: "Hide to tray" },
+  { value: "quit", label: "Quit app" },
+];
 
 function TrayShell({
   status,
@@ -315,8 +471,9 @@ function tokenNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function userSafeErrorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "Burnly could not load tray summary data.";
+function userSafeErrorMessage(
+  error: unknown,
+  fallback = "Burnly could not load tray summary data.",
+): string {
+  return error instanceof Error ? error.message : fallback;
 }

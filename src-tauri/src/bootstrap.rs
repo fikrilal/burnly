@@ -4,6 +4,7 @@
 //! modules receive constructed dependencies instead of constructing their own.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use iana_time_zone::GetTimezoneError;
@@ -32,11 +33,28 @@ use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle;
+#[cfg(not(debug_assertions))]
+use crate::platform::single_instance;
 use crate::platform::system_clock::SystemClock;
-use crate::platform::{database_path, single_instance, system_clock, system_timezone, tray};
+use crate::platform::{database_path, system_clock, system_timezone, tray};
 
 const TRAY_OPEN_STALE_AFTER_MS: i64 = 5 * 60 * 1_000;
 const TRAY_OPEN_REFRESH_THROTTLE_MS: i64 = 60 * 1_000;
+
+#[derive(Default)]
+struct ExitGuard {
+    explicit_exit_requested: AtomicBool,
+}
+
+impl ExitGuard {
+    fn request_explicit_exit(&self) {
+        self.explicit_exit_requested.store(true, Ordering::SeqCst);
+    }
+
+    fn allows_exit(&self) -> bool {
+        self.explicit_exit_requested.load(Ordering::SeqCst)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupErrorKind {
@@ -46,6 +64,8 @@ pub(crate) enum StartupErrorKind {
     ResourceDir,
     Collector,
     RefreshScheduler,
+    Tray,
+    TrayPanel,
     PrivacyPolicy,
     Persistence(PersistenceErrorKind),
 }
@@ -70,6 +90,12 @@ pub(crate) enum StartupError {
     #[error("failed to initialize refresh scheduler")]
     RefreshScheduler(#[source] RefreshSchedulerError),
 
+    #[error("failed to initialize the system tray")]
+    Tray(#[source] tauri::Error),
+
+    #[error("failed to initialize the tray panel")]
+    TrayPanel(#[source] lifecycle::WindowActivationError),
+
     #[error("failed to enforce the project-path privacy policy")]
     PrivacyPolicy,
 
@@ -86,6 +112,8 @@ impl StartupError {
             Self::ResourceDir(_) => StartupErrorKind::ResourceDir,
             Self::Collector(_) => StartupErrorKind::Collector,
             Self::RefreshScheduler(_) => StartupErrorKind::RefreshScheduler,
+            Self::Tray(_) => StartupErrorKind::Tray,
+            Self::TrayPanel(_) => StartupErrorKind::TrayPanel,
             Self::PrivacyPolicy => StartupErrorKind::PrivacyPolicy,
             Self::Persistence(error) => StartupErrorKind::Persistence(error.kind()),
         }
@@ -93,8 +121,7 @@ impl StartupError {
 }
 
 pub(crate) fn run() {
-    let app = tauri::Builder::default()
-        .plugin(single_instance::plugin())
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(crate::ipc::invoke_handler())
@@ -108,7 +135,12 @@ pub(crate) fn run() {
                 eprintln!("Burnly startup failed ({:?})", error.kind());
                 Box::new(error) as Box<dyn std::error::Error>
             })
-        })
+        });
+
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(single_instance::plugin());
+
+    let app = builder
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
 
@@ -125,6 +157,14 @@ fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
         RunEvent::MenuEvent(event) => {
             handle_menu_event(app, &event);
         }
+        RunEvent::ExitRequested { api, .. } => {
+            let explicit_exit_requested = app
+                .try_state::<ExitGuard>()
+                .is_some_and(|guard| guard.allows_exit());
+            if !explicit_exit_requested {
+                api.prevent_exit();
+            }
+        }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
             let _ = lifecycle::activate_main_window(app);
@@ -134,6 +174,7 @@ fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
 }
 
 fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError> {
+    app.manage(ExitGuard::default());
     let database_path = database_path::resolve(app.handle()).map_err(StartupError::DatabasePath)?;
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
@@ -145,6 +186,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let tray_state = Arc::new(Mutex::new(None));
     let settings_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
     let settings_store = Arc::new(SqliteSettingsStore::new(settings_database));
+    settings_store
+        .enforce_current_project_path_policy()
+        .map_err(|_| StartupError::PrivacyPolicy)?;
     let tray_summary_query = build_tray_summary_query(&database_path)?;
     let refresh_event_sink = runtime_refresh_event_sink(
         app.handle().clone(),
@@ -174,22 +218,17 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
             &reporting_timezone,
         ),
     )
-    .ok();
-    if let Some(controller) = tray_controller.clone() {
-        *tray_state.lock().expect("tray state lock is poisoned") = Some(controller.clone());
-        controller.update(&tray_snapshot(
-            &refresh_coordinator.snapshot(),
-            &tray_summary_query,
-            &reporting_timezone,
-        ));
-        app.manage(controller);
-    }
+    .map_err(StartupError::Tray)?;
+    *tray_state.lock().expect("tray state lock is poisoned") = Some(tray_controller.clone());
+    tray_controller.update(&tray_snapshot(
+        &refresh_coordinator.snapshot(),
+        &tray_summary_query,
+        &reporting_timezone,
+    ));
+    app.manage(tray_controller);
+    lifecycle::prepare_tray_panel(app.handle()).map_err(StartupError::TrayPanel)?;
     install_tray_invalidation_listener(app.handle().clone(), tray_summary_query.clone());
-    let tray_capability = match tray_controller {
-        Some(_) => RuntimeCapabilities::tray_available(),
-        None => RuntimeCapabilities::tray_unavailable(),
-    };
-    let runtime_capabilities = RuntimeCapabilities::new(tray_capability);
+    let runtime_capabilities = RuntimeCapabilities::new(RuntimeCapabilities::tray_available());
 
     app.manage(
         Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
@@ -214,9 +253,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         SqliteBootstrapStore::new(database),
         runtime_capabilities,
     ));
-    settings_store
-        .enforce_current_project_path_policy()
-        .map_err(|_| StartupError::PrivacyPolicy)?;
     let runtime = Arc::new(DesktopSettingsRuntime {
         runtime_settings,
         launch_at_login_available: false,
@@ -266,7 +302,12 @@ fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu:
                 coordinator.request_refresh(RefreshTrigger::Manual);
             }
         }
-        Some(tray::TrayAction::Quit) => app.exit(0),
+        Some(tray::TrayAction::Quit) => {
+            if let Some(exit_guard) = app.try_state::<ExitGuard>() {
+                exit_guard.request_explicit_exit();
+            }
+            app.exit(0);
+        }
         None => {}
     }
 }
@@ -758,6 +799,15 @@ mod tests {
     }
 
     #[test]
+    fn tauri_bridge_allows_tray_panel_bootstrap_ipc() {
+        let response = invoke_from_window(lifecycle::TRAY_PANEL_WINDOW_LABEL, "app_get_bootstrap");
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["contractVersion"], CONTRACT_VERSION);
+        assert_eq!(response["data"]["settings"]["closeBehavior"], "quit");
+    }
+
+    #[test]
     fn tauri_bridge_invokes_capabilities_command_with_explicit_states() {
         let response = invoke("app_get_capabilities");
 
@@ -1040,6 +1090,10 @@ mod tests {
     }
 
     fn invoke(command: &str) -> Value {
+        invoke_from_window("main", command)
+    }
+
+    fn invoke_from_window(label: &str, command: &str) -> Value {
         let app = tauri::test::mock_builder()
             .invoke_handler(crate::ipc::invoke_handler())
             .manage(BootstrapService::new(
@@ -1050,7 +1104,7 @@ mod tests {
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        let webview = tauri::WebviewWindowBuilder::new(&app, label, Default::default())
             .build()
             .expect("build mock webview");
 
