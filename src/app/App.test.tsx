@@ -196,8 +196,6 @@ function capabilitiesResult(): CommandResult<AppCapabilitiesResponse> {
     data: {
       tray: capability,
       launchAtLogin: capability,
-      nativeNotifications: { ...capability, permission: "unknown" },
-      updates: capability,
       exportFormats: [],
       diagnostics: {
         desktopEvidence: true,

@@ -143,14 +143,10 @@ describe("TrayPanel settings controls", () => {
       await screen.findByRole("button", { name: "Settings" }),
     );
 
-    expect(await screen.findByText("Close panel behavior")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Quit app" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(await screen.findByText("Quit on close")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Hide to tray" }),
-    ).toHaveAttribute("aria-pressed", "false");
+      screen.getByRole("switch", { name: "Quit on close" }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("updates close behavior while preserving hidden settings fields", async () => {
@@ -177,7 +173,7 @@ describe("TrayPanel settings controls", () => {
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     await user.click(
-      await screen.findByRole("button", { name: "Hide to tray" }),
+      await screen.findByRole("switch", { name: "Quit on close" }),
     );
 
     await waitFor(() => {
@@ -220,7 +216,7 @@ describe("TrayPanel settings failures", () => {
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     await user.click(
-      await screen.findByRole("button", { name: "Hide to tray" }),
+      await screen.findByRole("switch", { name: "Quit on close" }),
     );
 
     expect(await screen.findByText("Settings not saved")).toBeInTheDocument();

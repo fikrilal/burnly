@@ -17,6 +17,7 @@ import {
 } from "../../components/burnly";
 import { AnimatedNumber } from "../../components/ui/animated-number";
 import { MotionTabs } from "../../components/ui/motion-tabs";
+import { Switch } from "../../components/ui/switch";
 import { cn } from "../../lib/cn";
 import { formatCompactNumber, formatNumber } from "../../lib/format";
 import { useSettings, useUpdateSettings } from "../settings/use-settings";
@@ -212,13 +213,15 @@ function SettingsTab() {
   };
 
   return (
-    <div className="flex flex-col gap-5">
-      <h2 className="text-sm font-semibold">Settings</h2>
-      <CloseBehaviorSetting
-        value={settings.data.closeBehavior}
-        isSaving={updateSettings.isPending}
-        onChange={changeCloseBehavior}
-      />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col divide-y divide-border">
+        <LaunchAtLoginSetting value={settings.data.launchAtLogin} />
+        <CloseBehaviorSetting
+          value={settings.data.closeBehavior}
+          isSaving={updateSettings.isPending}
+          onChange={changeCloseBehavior}
+        />
+      </div>
       {updateSettings.isError ? (
         <ErrorState
           title="Settings not saved"
@@ -235,7 +238,6 @@ function SettingsTab() {
 function SettingsLoading() {
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold">Settings</h2>
       <p className="text-sm text-muted-foreground">Loading settings</p>
     </div>
   );
@@ -250,7 +252,6 @@ function SettingsLoadError({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold">Settings</h2>
       <ErrorState
         title="Settings unavailable"
         description={userSafeErrorMessage(
@@ -269,6 +270,20 @@ function SettingsLoadError({
   );
 }
 
+function LaunchAtLoginSetting({ value }: { value: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Launch at login</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          Start Burnly automatically when you log into your system.
+        </span>
+      </div>
+      <Switch checked={value} disabled={true} aria-label="Launch at login" />
+    </div>
+  );
+}
+
 function CloseBehaviorSetting({
   value,
   isSaving,
@@ -278,72 +293,29 @@ function CloseBehaviorSetting({
   isSaving: boolean;
   onChange: (value: SettingsResponse["closeBehavior"]) => void;
 }) {
+  const isQuit = value === "quit";
+
   return (
-    <section className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium">Close panel behavior</span>
-        {isSaving ? (
-          <span className="text-xs text-muted-foreground">Saving</span>
-        ) : null}
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Quit on close</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          Terminate the application when closing the panel.
+        </span>
       </div>
-      <div
-        role="group"
-        aria-label="Close panel behavior"
-        className="grid grid-cols-2 rounded-lg border border-border bg-muted p-0.5"
-      >
-        {closeBehaviorOptions.map((option) => (
-          <CloseBehaviorOption
-            key={option.value}
-            option={option}
-            selected={option.value === value}
-            disabled={isSaving}
-            onChange={onChange}
-          />
-        ))}
+      <div className="flex items-center gap-3">
+        <Switch
+          checked={isQuit}
+          disabled={isSaving}
+          aria-label="Quit on close"
+          onCheckedChange={(checked) => {
+            onChange(checked ? "quit" : "hide");
+          }}
+        />
       </div>
-    </section>
+    </div>
   );
 }
-
-function CloseBehaviorOption({
-  option,
-  selected,
-  disabled,
-  onChange,
-}: {
-  option: (typeof closeBehaviorOptions)[number];
-  selected: boolean;
-  disabled: boolean;
-  onChange: (value: SettingsResponse["closeBehavior"]) => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      disabled={disabled}
-      onClick={() => {
-        onChange(option.value);
-      }}
-      className={cn(
-        "min-h-9 rounded-md px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60",
-        selected
-          ? "bg-background text-foreground shadow-sm"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {option.label}
-    </button>
-  );
-}
-
-const closeBehaviorOptions: {
-  value: SettingsResponse["closeBehavior"];
-  label: string;
-}[] = [
-  { value: "hide", label: "Hide to tray" },
-  { value: "quit", label: "Quit app" },
-];
-
 function TrayShell({
   status,
   detail,
