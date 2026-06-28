@@ -124,6 +124,10 @@ pub(crate) fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(crate::ipc::invoke_handler())
         .on_window_event(|window, event| {
             if let WindowEvent::Focused(false) = event {
@@ -254,8 +258,8 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         runtime_capabilities,
     ));
     let runtime = Arc::new(DesktopSettingsRuntime {
+        app: app.handle().clone(),
         runtime_settings,
-        launch_at_login_available: false,
     });
     app.manage(SettingsService::new(
         settings_store.clone(),
@@ -266,25 +270,30 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     Ok(())
 }
 
-struct DesktopSettingsRuntime {
+struct DesktopSettingsRuntime<R: Runtime> {
+    app: tauri::AppHandle<R>,
     runtime_settings: RuntimeSettings,
-    launch_at_login_available: bool,
 }
 
-impl SettingsRuntime for DesktopSettingsRuntime {
-    fn validate(&self, current: &Settings, proposed: &Settings) -> Result<(), RuntimeSettingError> {
-        if proposed.launch_at_login()
-            && !current.launch_at_login()
-            && !self.launch_at_login_available
-        {
-            return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
-        }
-
+impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
+    fn validate(
+        &self,
+        _current: &Settings,
+        _proposed: &Settings,
+    ) -> Result<(), RuntimeSettingError> {
         Ok(())
     }
 
     fn apply(&self, settings: &Settings) {
         self.runtime_settings.update(settings);
+
+        use tauri_plugin_autostart::ManagerExt;
+        let autostart = self.app.autolaunch();
+        if settings.launch_at_login() {
+            let _ = autostart.enable();
+        } else {
+            let _ = autostart.disable();
+        }
     }
 }
 

@@ -75,6 +75,7 @@ pub(crate) struct Capability {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum CapabilityStatus {
     Available,
     NotImplemented,
@@ -187,14 +188,14 @@ impl BootstrapService {
     }
 
     pub(crate) fn capabilities(&self) -> AppCapabilities {
-        let unavailable = Capability {
-            supported: false,
-            status: CapabilityStatus::NotImplemented,
+        let launch_at_login = Capability {
+            supported: true,
+            status: CapabilityStatus::Available,
         };
 
         AppCapabilities {
             tray: self.runtime_capabilities.tray(),
-            launch_at_login: unavailable.clone(),
+            launch_at_login,
             export_formats: vec![ExportFormat::Csv],
             diagnostics: DiagnosticCapabilities {
                 desktop_evidence: true,

@@ -216,11 +216,24 @@ function SettingsTab({ appVersion }: { appVersion: string }) {
     });
   };
 
+  const changeLaunchAtLogin = (launchAtLogin: boolean) => {
+    if (launchAtLogin === settings.data.launchAtLogin) return;
+    updateSettings.mutate({
+      launchAtLogin,
+      closeBehavior: settings.data.closeBehavior,
+      expectedRevision: settings.data.revision,
+    });
+  };
+
   return (
     <div className="flex flex-1 flex-col justify-between gap-4">
       <div className="flex flex-col">
         <div className="flex flex-col divide-y divide-border">
-          <LaunchAtLoginSetting value={settings.data.launchAtLogin} />
+          <LaunchAtLoginSetting
+            value={settings.data.launchAtLogin}
+            isSaving={updateSettings.isPending}
+            onChange={changeLaunchAtLogin}
+          />
           <CloseBehaviorSetting
             value={settings.data.closeBehavior}
             isSaving={updateSettings.isPending}
@@ -281,7 +294,15 @@ function SettingsLoadError({
   );
 }
 
-function LaunchAtLoginSetting({ value }: { value: boolean }) {
+function LaunchAtLoginSetting({
+  value,
+  isSaving,
+  onChange,
+}: {
+  value: boolean;
+  isSaving: boolean;
+  onChange: (value: boolean) => void;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 py-3">
       <div className="flex flex-col gap-1">
@@ -290,7 +311,12 @@ function LaunchAtLoginSetting({ value }: { value: boolean }) {
           Start Burnly automatically when you log into your system.
         </span>
       </div>
-      <Switch checked={value} disabled={true} aria-label="Launch at login" />
+      <Switch
+        checked={value}
+        disabled={isSaving}
+        aria-label="Launch at login"
+        onCheckedChange={onChange}
+      />
     </div>
   );
 }

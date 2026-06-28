@@ -10,6 +10,7 @@ pub(crate) trait SettingsRuntime: Send + Sync {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum RuntimeSettingError {
     LaunchAtLoginUnavailable,
 }
