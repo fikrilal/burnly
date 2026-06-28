@@ -15,8 +15,18 @@ import type {
   TraySummaryResponse,
 } from "../../ipc/generated/contracts";
 import { createTestQueryWrapper } from "../../test/query";
+import { ThemeProvider } from "../../lib/theme";
 
 vi.mock("../../ipc/client");
+
+function createTestWrapper() {
+  const QueryWrapper = createTestQueryWrapper();
+  return ({ children }: { children: React.ReactNode }) => (
+    <ThemeProvider>
+      <QueryWrapper>{children}</QueryWrapper>
+    </ThemeProvider>
+  );
+}
 vi.mock("../../ipc/events");
 
 const responseMeta = {
@@ -75,7 +85,7 @@ describe("TrayPanel overview", () => {
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
 
     render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestQueryWrapper(),
+      wrapper: createTestWrapper(),
     });
 
     expect(await screen.findByText("42,180")).toBeInTheDocument();
@@ -104,7 +114,7 @@ describe("TrayPanel overview", () => {
     );
 
     render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestQueryWrapper(),
+      wrapper: createTestWrapper(),
     });
 
     expect(
@@ -120,7 +130,7 @@ describe("TrayPanel overview", () => {
     vi.mocked(getTraySummary).mockRejectedValue(new Error("summary offline"));
 
     render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestQueryWrapper(),
+      wrapper: createTestWrapper(),
     });
 
     expect(await screen.findByText("Failed")).toBeInTheDocument();
@@ -136,7 +146,7 @@ describe("TrayPanel settings controls", () => {
     );
 
     render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestQueryWrapper(),
+      wrapper: createTestWrapper(),
     });
 
     await userEvent.click(
@@ -168,7 +178,7 @@ describe("TrayPanel settings controls", () => {
     );
 
     render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestQueryWrapper(),
+      wrapper: createTestWrapper(),
     });
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
@@ -193,7 +203,7 @@ describe("TrayPanel settings failures", () => {
     vi.mocked(getSettings).mockRejectedValue(new Error("settings offline"));
 
     render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestQueryWrapper(),
+      wrapper: createTestWrapper(),
     });
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
@@ -211,7 +221,7 @@ describe("TrayPanel settings failures", () => {
     vi.mocked(updateSettings).mockRejectedValue(new Error("settings conflict"));
 
     render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestQueryWrapper(),
+      wrapper: createTestWrapper(),
     });
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));

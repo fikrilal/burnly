@@ -11,9 +11,11 @@ interface MotionTabsProps {
   tabs: Tab[];
   activeTab: string;
   onTabChange: (id: string) => void;
-  className?: string;
-  tabClassName?: string;
-  activeTabClassName?: string;
+  className?: string | undefined;
+  tabClassName?: string | undefined;
+  activeTabClassName?: string | undefined;
+  layoutId?: string | undefined;
+  hoverLayoutId?: string | undefined;
 }
 
 export function MotionTabs({
@@ -23,6 +25,8 @@ export function MotionTabs({
   className,
   tabClassName,
   activeTabClassName,
+  layoutId = "active-tab-indicator",
+  hoverLayoutId = "hover-tab-indicator",
 }: MotionTabsProps) {
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
 
@@ -49,6 +53,7 @@ export function MotionTabs({
             onMouseEnter={() => {
               setHoveredTab(tab.id);
             }}
+            aria-pressed={isActive}
             className={cn(
               "relative z-10 flex-none px-2 py-0.5 font-medium transition-colors text-xs",
               isActive ? "text-foreground" : "text-muted-foreground",
@@ -61,7 +66,7 @@ export function MotionTabs({
           >
             {isActive && (
               <motion.div
-                layoutId="active-tab-indicator"
+                layoutId={layoutId}
                 className="absolute inset-0 z-0 rounded-md bg-background shadow-sm"
                 transition={{
                   type: "spring",
@@ -72,7 +77,7 @@ export function MotionTabs({
             )}
             {!isActive && isHovered && (
               <motion.div
-                layoutId="hover-tab-indicator"
+                layoutId={hoverLayoutId}
                 className="absolute inset-0 z-0 rounded-md bg-muted-foreground/10"
                 transition={{
                   type: "spring",

@@ -18,6 +18,7 @@ import {
 import { AnimatedNumber } from "../../components/ui/animated-number";
 import { MotionTabs } from "../../components/ui/motion-tabs";
 import { Switch } from "../../components/ui/switch";
+import { ThemeToggle } from "../../components/ui/theme-toggle";
 import { cn } from "../../lib/cn";
 import { formatCompactNumber, formatNumber } from "../../lib/format";
 import { useSettings, useUpdateSettings } from "../settings/use-settings";
@@ -239,6 +240,7 @@ function SettingsTab({ appVersion }: { appVersion: string }) {
             isSaving={updateSettings.isPending}
             onChange={changeCloseBehavior}
           />
+          <ThemeSetting />
         </div>
         {updateSettings.isError ? (
           <div className="mt-4">
@@ -255,6 +257,20 @@ function SettingsTab({ appVersion }: { appVersion: string }) {
       <div className="text-center text-[10px] font-mono tracking-widest text-muted-foreground/40 uppercase">
         Version {appVersion}
       </div>
+    </div>
+  );
+}
+
+function ThemeSetting() {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Theme</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          Select the interface color mode.
+        </span>
+      </div>
+      <ThemeToggle />
     </div>
   );
 }
