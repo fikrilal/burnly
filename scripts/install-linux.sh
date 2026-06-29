@@ -47,17 +47,21 @@ else
 fi
 
 case "$VERSION" in
-  burnly-v*) ;;
+  v*)
+    RELEASE_VERSION="${VERSION#v}"
+    ;;
+  burnly-v*)
+    RELEASE_VERSION="${VERSION#burnly-v}"
+    ;;
   *)
-    echo "Burnly release tag must use the burnly-vX.Y.Z format: $VERSION" >&2
+    echo "Burnly release tag must use the vX.Y.Z format: $VERSION" >&2
     exit 1
     ;;
 esac
 
-RELEASE_VERSION="${VERSION#burnly-v}"
 ASSET_NAME="burnly-v$RELEASE_VERSION-linux-$ARCHITECTURE.AppImage"
 
-if [ "$RELEASE_VERSION" = "$VERSION" ]; then
+if [ -z "$RELEASE_VERSION" ] || [ "$RELEASE_VERSION" = "$VERSION" ]; then
   echo "Could not parse Burnly release version from $VERSION" >&2
   exit 1
 fi

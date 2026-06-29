@@ -7,8 +7,8 @@ requests, pushes to `development` or `main`, and manual runs. It has read-only
 repository permissions and receives no release secrets.
 
 `release.yml` runs for version tags and manual dry runs. Its validation job runs
-the complete gate and requires a release tag to equal `burnly-v` plus the
-version in `package.json` before publication is possible.
+the complete gate and requires a release tag to equal `v` plus the version in
+`package.json` before publication is possible.
 
 ## Build Matrix
 

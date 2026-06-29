@@ -56,11 +56,11 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   if (verifyWorkflow.includes("${{ secrets.")) {
     failures.push("verification workflow must not read secrets.");
   }
-  if (!releaseWorkflow.includes("- burnly-v*")) {
-    failures.push("release workflow must trigger only for branded tags.");
+  if (!releaseWorkflow.includes("- v*")) {
+    failures.push("release workflow must trigger only for version tags.");
   }
-  if (releaseWorkflow.includes("- v*")) {
-    failures.push("release workflow must not trigger for unbranded v* tags.");
+  if (releaseWorkflow.includes("- burnly-v*")) {
+    failures.push("release workflow must not trigger for branded tags.");
   }
   for (const requiredSecret of [
     "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",

@@ -11,7 +11,7 @@ if (cargoVersion !== packageDocument.version) {
   );
   process.exit(1);
 }
-const expectedTag = `burnly-v${packageDocument.version}`;
+const expectedTag = `v${packageDocument.version}`;
 if (requestedTag && requestedTag !== expectedTag) {
   console.error(`Release tag ${requestedTag} must equal ${expectedTag}.`);
   process.exit(1);

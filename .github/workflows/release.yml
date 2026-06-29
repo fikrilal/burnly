@@ -3,11 +3,11 @@ name: Release Artifacts
 on:
   push:
     tags:
-      - burnly-v*
+      - v*
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing burnly-v-prefixed tag to validate or publish
+        description: Existing v-prefixed tag to validate or publish
         required: false
         type: string
       publish:
