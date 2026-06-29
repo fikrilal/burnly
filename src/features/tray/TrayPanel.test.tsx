@@ -7,8 +7,13 @@ import {
   getSettings,
   getTraySummary,
   updateSettings,
+  getUpdateState,
+  checkForUpdate,
+  downloadUpdate,
+  restartForUpdate,
   type CommandResult,
 } from "../../ipc/client";
+import type { UpdateStatusResponse } from "../../ipc/generated/contracts";
 import { subscribeToEvent } from "../../ipc/events";
 import type {
   AppCapabilitiesResponse,
@@ -327,3 +332,144 @@ function settingsResult(
     meta: responseMeta,
   };
 }
+
+function updateResult(
+  overrides: Partial<UpdateStatusResponse> = {},
+): CommandResult<UpdateStatusResponse> {
+  return {
+    data: {
+      status: "idle",
+      availableVersion: null,
+      downloadedVersion: null,
+      lastCheckedAt: null,
+      error: null,
+      ...overrides,
+    },
+    meta: responseMeta,
+  };
+}
+
+describe("TrayPanel updates settings tab", () => {
+  it("renders updater state and triggers check action", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getUpdateState).mockResolvedValue(
+      updateResult({ status: "idle" }),
+    );
+    vi.mocked(checkForUpdate).mockResolvedValue(
+      updateResult({ status: "available", availableVersion: "1.2.0" }),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText("Updates")).toBeInTheDocument();
+    expect(
+      screen.getByText("Check for updates to get the latest features."),
+    ).toBeInTheDocument();
+
+    const checkButton = screen.getByRole("button", { name: "Check" });
+    await user.click(checkButton);
+
+    expect(checkForUpdate).toHaveBeenCalled();
+    expect(
+      await screen.findByText("Version 1.2.0 is available."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders available update and triggers install action", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getUpdateState).mockResolvedValue(
+      updateResult({ status: "available", availableVersion: "1.2.0" }),
+    );
+    vi.mocked(downloadUpdate).mockResolvedValue(
+      updateResult({ status: "ready", downloadedVersion: "1.2.0" }),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(
+      await screen.findByText("Version 1.2.0 is available."),
+    ).toBeInTheDocument();
+
+    const installButton = screen.getByRole("button", { name: "Install" });
+    await user.click(installButton);
+
+    expect(downloadUpdate).toHaveBeenCalled();
+    expect(
+      await screen.findByText("Version 1.2.0 is ready."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders ready update and triggers restart action", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getUpdateState).mockResolvedValue(
+      updateResult({ status: "ready", downloadedVersion: "1.2.0" }),
+    );
+    vi.mocked(restartForUpdate).mockResolvedValue(
+      updateResult({ status: "idle" }),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(
+      await screen.findByText("Version 1.2.0 is ready."),
+    ).toBeInTheDocument();
+
+    const restartButton = screen.getByRole("button", { name: "Restart" });
+    await user.click(restartButton);
+
+    expect(restartForUpdate).toHaveBeenCalled();
+  });
+
+  it("renders unavailable updater quietly as disabled row", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getUpdateState).mockResolvedValue(
+      updateResult({ status: "unavailable" }),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(
+      await screen.findByText("Updates are not available for this build."),
+    ).toBeInTheDocument();
+    const checkButton = screen.getByRole("button", { name: "Check" });
+    expect(checkButton).toBeDisabled();
+  });
+
+  it("renders update command errors using user-safe copy", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getUpdateState).mockResolvedValue(
+      updateResult({ status: "idle" }),
+    );
+    vi.mocked(checkForUpdate).mockRejectedValue(
+      new Error("Update service offline"),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    const checkButton = screen.getByRole("button", { name: "Check" });
+    await user.click(checkButton);
+
+    expect(await screen.findByText("Update failed")).toBeInTheDocument();
+    expect(screen.getByText("Update service offline")).toBeInTheDocument();
+  });
+});

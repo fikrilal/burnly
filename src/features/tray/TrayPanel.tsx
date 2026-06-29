@@ -23,6 +23,7 @@ import { ThemeToggle } from "../../components/ui/theme-toggle";
 import { cn } from "../../lib/cn";
 import { formatCompactNumber, formatNumber } from "../../lib/format";
 import { useSettings, useUpdateSettings } from "../settings/use-settings";
+import { UpdateSetting } from "../update/UpdateSetting";
 import { useTraySummary } from "./use-tray-summary";
 
 interface TrayPanelProps {
@@ -293,6 +294,7 @@ function SettingsForm({
             onChange={changeCloseBehavior}
           />
           <ThemeSetting />
+          <UpdateSetting />
         </div>
         <SettingsSaveError error={saveError} />
       </div>
