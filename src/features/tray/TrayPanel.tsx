@@ -3,6 +3,7 @@ import { RefreshCw, X } from "lucide-react";
 
 import { hideTrayPanel } from "../../ipc/client";
 import type {
+  AppCapabilitiesResponse,
   SettingsResponse,
   TraySummaryResponse,
 } from "../../ipc/generated/contracts";
@@ -27,9 +28,14 @@ import { useTraySummary } from "./use-tray-summary";
 interface TrayPanelProps {
   reportingTimezone: string;
   appVersion: string;
+  capabilities: AppCapabilitiesResponse;
 }
 
-export function TrayPanel({ reportingTimezone, appVersion }: TrayPanelProps) {
+export function TrayPanel({
+  reportingTimezone,
+  appVersion,
+  capabilities,
+}: TrayPanelProps) {
   const summary = useTraySummary(reportingTimezone);
 
   useEffect(() => {
@@ -65,6 +71,7 @@ export function TrayPanel({ reportingTimezone, appVersion }: TrayPanelProps) {
       isError={summary.isError}
       error={summary.error}
       appVersion={appVersion}
+      capabilities={capabilities}
     />
   );
 }
@@ -85,12 +92,14 @@ function TrayPanelContent({
   isError,
   error,
   appVersion,
+  capabilities,
 }: {
   summary: TraySummaryResponse;
   isRefreshing: boolean;
   isError: boolean;
   error: Error | null;
   appVersion: string;
+  capabilities: AppCapabilitiesResponse;
 }) {
   const [activeTab, setActiveTab] = useState<string>("overview");
 
@@ -127,7 +136,10 @@ function TrayPanelContent({
         {activeTab === "overview" ? (
           <OverviewTab summary={summary} isError={isError} error={error} />
         ) : (
-          <SettingsTab appVersion={appVersion} />
+          <SettingsTab
+            appVersion={appVersion}
+            launchAtLoginCapability={capabilities.launchAtLogin}
+          />
         )}
       </div>
     </main>
@@ -187,7 +199,13 @@ function OverviewTab({
   );
 }
 
-function SettingsTab({ appVersion }: { appVersion: string }) {
+function SettingsTab({
+  appVersion,
+  launchAtLoginCapability,
+}: {
+  appVersion: string;
+  launchAtLoginCapability: AppCapabilitiesResponse["launchAtLogin"];
+}) {
   const settings = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -206,23 +224,57 @@ function SettingsTab({ appVersion }: { appVersion: string }) {
     );
   }
 
+  return (
+    <SettingsForm
+      settings={settings.data}
+      appVersion={appVersion}
+      launchAtLoginCapability={launchAtLoginCapability}
+      isSaving={updateSettings.isPending}
+      saveError={updateSettings.error}
+      onUpdate={(request) => {
+        updateSettings.mutate(request);
+      }}
+    />
+  );
+}
+
+function SettingsForm({
+  settings,
+  appVersion,
+  launchAtLoginCapability,
+  isSaving,
+  saveError,
+  onUpdate,
+}: {
+  settings: SettingsResponse;
+  appVersion: string;
+  launchAtLoginCapability: AppCapabilitiesResponse["launchAtLogin"];
+  isSaving: boolean;
+  saveError: Error | null;
+  onUpdate: (request: {
+    launchAtLogin: boolean;
+    closeBehavior: SettingsResponse["closeBehavior"];
+    expectedRevision: number;
+  }) => void;
+}) {
   const changeCloseBehavior = (
     closeBehavior: SettingsResponse["closeBehavior"],
   ) => {
-    if (closeBehavior === settings.data.closeBehavior) return;
-    updateSettings.mutate({
-      launchAtLogin: settings.data.launchAtLogin,
+    if (closeBehavior === settings.closeBehavior) return;
+    onUpdate({
+      launchAtLogin: settings.launchAtLogin,
       closeBehavior,
-      expectedRevision: settings.data.revision,
+      expectedRevision: settings.revision,
     });
   };
 
   const changeLaunchAtLogin = (launchAtLogin: boolean) => {
-    if (launchAtLogin === settings.data.launchAtLogin) return;
-    updateSettings.mutate({
+    if (!launchAtLoginCapability.supported) return;
+    if (launchAtLogin === settings.launchAtLogin) return;
+    onUpdate({
       launchAtLogin,
-      closeBehavior: settings.data.closeBehavior,
-      expectedRevision: settings.data.revision,
+      closeBehavior: settings.closeBehavior,
+      expectedRevision: settings.revision,
     });
   };
 
@@ -231,32 +283,44 @@ function SettingsTab({ appVersion }: { appVersion: string }) {
       <div className="flex flex-col">
         <div className="flex flex-col divide-y divide-border">
           <LaunchAtLoginSetting
-            value={settings.data.launchAtLogin}
-            isSaving={updateSettings.isPending}
+            value={settings.launchAtLogin}
+            isDisabled={isSaving || !launchAtLoginCapability.supported}
             onChange={changeLaunchAtLogin}
           />
           <CloseBehaviorSetting
-            value={settings.data.closeBehavior}
-            isSaving={updateSettings.isPending}
+            value={settings.closeBehavior}
+            isSaving={isSaving}
             onChange={changeCloseBehavior}
           />
           <ThemeSetting />
         </div>
-        {updateSettings.isError ? (
-          <div className="mt-4">
-            <ErrorState
-              title="Settings not saved"
-              description={userSafeErrorMessage(
-                updateSettings.error,
-                "Burnly could not save settings.",
-              )}
-            />
-          </div>
-        ) : null}
+        <SettingsSaveError error={saveError} />
       </div>
-      <div className="text-center text-[10px] font-mono tracking-widest text-muted-foreground/40 uppercase">
-        Version {appVersion}
-      </div>
+      <SettingsVersion appVersion={appVersion} />
+    </div>
+  );
+}
+
+function SettingsVersion({ appVersion }: { appVersion: string }) {
+  return (
+    <div className="text-center text-[10px] font-mono tracking-widest text-muted-foreground/40 uppercase">
+      Version {appVersion}
+    </div>
+  );
+}
+
+function SettingsSaveError({ error }: { error: Error | null }) {
+  if (!error) return null;
+
+  return (
+    <div className="mt-4">
+      <ErrorState
+        title="Settings not saved"
+        description={userSafeErrorMessage(
+          error,
+          "Burnly could not save settings.",
+        )}
+      />
     </div>
   );
 }
@@ -312,11 +376,11 @@ function SettingsLoadError({
 
 function LaunchAtLoginSetting({
   value,
-  isSaving,
+  isDisabled,
   onChange,
 }: {
   value: boolean;
-  isSaving: boolean;
+  isDisabled: boolean;
   onChange: (value: boolean) => void;
 }) {
   return (
@@ -329,7 +393,7 @@ function LaunchAtLoginSetting({
       </div>
       <Switch
         checked={value}
-        disabled={isSaving}
+        disabled={isDisabled}
         aria-label="Launch at login"
         onCheckedChange={onChange}
       />

@@ -92,9 +92,9 @@ function validate({ matrix, guide, packageDocument }) {
         `${environment.id}: updates must remain unavailable in Phase 10D.`,
       );
     }
-    if (environment.expectedCapabilities?.launchAtLogin !== "not_implemented") {
+    if (environment.expectedCapabilities?.launchAtLogin !== "available") {
       failures.push(
-        `${environment.id}: launch at login must remain not implemented.`,
+        `${environment.id}: launch at login must be available in packaged builds.`,
       );
     }
   }
@@ -109,7 +109,7 @@ function validate({ matrix, guide, packageDocument }) {
     "release workflow dry-run `28090081218`",
     "Linux is validated first",
     "Linux tray support is host-dependent",
-    "Launch at login is not implemented",
+    "Launch at login is available in packaged builds",
   ]) {
     if (!guide.includes(requiredText)) {
       failures.push(

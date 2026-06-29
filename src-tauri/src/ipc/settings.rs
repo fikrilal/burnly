@@ -117,5 +117,11 @@ fn runtime_error(error: RuntimeSettingError) -> IpcError {
             ErrorCategory::Unavailable,
             false,
         ),
+        RuntimeSettingError::LaunchAtLoginApplyFailed => IpcError::new(
+            "settings.launch_at_login_apply_failed",
+            "Burnly could not update the system launch-at-login setting.",
+            ErrorCategory::Platform,
+            true,
+        ),
     }
 }

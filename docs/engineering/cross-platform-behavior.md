@@ -43,7 +43,7 @@ Each environment must record:
   and KDE. A missing StatusNotifier/AppIndicator host is an explicit
   unavailable outcome, not a successful support claim.
 - Native notifications are permission-dependent on every desktop.
-- Launch at login is not implemented.
+- Launch at login is available in packaged builds.
 - Updates are unavailable until Phase 10F defines the signing/update policy.
 
 ## Evidence rule

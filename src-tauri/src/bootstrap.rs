@@ -11,7 +11,9 @@ use iana_time_zone::GetTimezoneError;
 use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
-use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
+use crate::application::bootstrap::{
+    BootstrapService, Capability, RuntimeCapabilities, RuntimeSettings,
+};
 
 use crate::application::collection::CollectorFailure;
 use crate::application::ports::window_actions::WindowActions;
@@ -232,7 +234,10 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(tray_controller);
     lifecycle::prepare_tray_panel(app.handle()).map_err(StartupError::TrayPanel)?;
     install_tray_invalidation_listener(app.handle().clone(), tray_summary_query.clone());
-    let runtime_capabilities = RuntimeCapabilities::new(RuntimeCapabilities::tray_available());
+    let runtime_capabilities = RuntimeCapabilities::new(
+        RuntimeCapabilities::tray_available(),
+        launch_at_login_capability(),
+    );
 
     app.manage(
         Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
@@ -276,24 +281,64 @@ struct DesktopSettingsRuntime<R: Runtime> {
 }
 
 impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
-    fn validate(
-        &self,
-        _current: &Settings,
-        _proposed: &Settings,
-    ) -> Result<(), RuntimeSettingError> {
+    fn validate(&self, current: &Settings, proposed: &Settings) -> Result<(), RuntimeSettingError> {
+        if proposed.launch_at_login() && !current.launch_at_login() && !launch_at_login_supported()
+        {
+            return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
+        }
+
         Ok(())
     }
 
-    fn apply(&self, settings: &Settings) {
-        self.runtime_settings.update(settings);
-
-        use tauri_plugin_autostart::ManagerExt;
-        let autostart = self.app.autolaunch();
-        if settings.launch_at_login() {
-            let _ = autostart.enable();
-        } else {
-            let _ = autostart.disable();
+    fn prepare_update(
+        &self,
+        current: &Settings,
+        proposed: &Settings,
+    ) -> Result<(), RuntimeSettingError> {
+        if current.launch_at_login() != proposed.launch_at_login() {
+            self.apply_launch_at_login(proposed.launch_at_login())?;
         }
+
+        Ok(())
+    }
+
+    fn rollback_update(&self, current: &Settings) -> Result<(), RuntimeSettingError> {
+        self.apply_launch_at_login(current.launch_at_login())
+    }
+
+    fn commit_update(&self, settings: &Settings) {
+        self.runtime_settings.update(settings);
+    }
+}
+
+impl<R: Runtime> DesktopSettingsRuntime<R> {
+    fn apply_launch_at_login(&self, enabled: bool) -> Result<(), RuntimeSettingError> {
+        use tauri_plugin_autostart::ManagerExt;
+
+        if enabled && !launch_at_login_supported() {
+            return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
+        }
+
+        let autostart = self.app.autolaunch();
+        let result = if enabled {
+            autostart.enable()
+        } else {
+            autostart.disable()
+        };
+
+        result.map_err(|_| RuntimeSettingError::LaunchAtLoginApplyFailed)
+    }
+}
+
+fn launch_at_login_supported() -> bool {
+    !cfg!(debug_assertions)
+}
+
+fn launch_at_login_capability() -> Capability {
+    if launch_at_login_supported() {
+        RuntimeCapabilities::launch_at_login_available()
+    } else {
+        RuntimeCapabilities::launch_at_login_not_implemented()
     }
 }
 
@@ -661,14 +706,29 @@ mod tests {
             Ok(())
         }
 
-        fn apply(&self, _settings: &Settings) {}
+        fn prepare_update(
+            &self,
+            _current: &Settings,
+            _proposed: &Settings,
+        ) -> Result<(), RuntimeSettingError> {
+            Ok(())
+        }
+
+        fn rollback_update(&self, _current: &Settings) -> Result<(), RuntimeSettingError> {
+            Ok(())
+        }
+
+        fn commit_update(&self, _settings: &Settings) {}
     }
 
     fn capabilities_without_tray() -> RuntimeCapabilities {
-        RuntimeCapabilities::new(Capability {
-            supported: false,
-            status: CapabilityStatus::NotImplemented,
-        })
+        RuntimeCapabilities::new(
+            Capability {
+                supported: false,
+                status: CapabilityStatus::NotImplemented,
+            },
+            RuntimeCapabilities::launch_at_login_not_implemented(),
+        )
     }
 
     #[test]

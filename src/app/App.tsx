@@ -66,6 +66,7 @@ function TraySurface({ state }: { state: AppState }) {
       <TrayPanel
         reportingTimezone={reportingTimezone}
         appVersion={state.bootstrap.appVersion}
+        capabilities={state.capabilities}
       />
     );
   }
