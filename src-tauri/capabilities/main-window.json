@@ -24,6 +24,10 @@
     "allow-refresh-get-state",
     "allow-refresh-request",
     "allow-refresh-cancel",
+    "allow-update-get-state",
+    "allow-update-check",
+    "allow-update-download",
+    "allow-update-restart",
     "allow-usage-get-tray-summary"
   ]
 }

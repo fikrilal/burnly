@@ -29,12 +29,12 @@ const expectedTargets = {
   "aarch64-unknown-linux-gnu": {
     platform: "linux",
     architecture: "aarch64",
-    bundles: [["deb", "deb"]],
+    bundles: [["appimage", "AppImage"]],
   },
   "x86_64-unknown-linux-gnu": {
     platform: "linux",
     architecture: "x86_64",
-    bundles: [["deb", "deb"]],
+    bundles: [["appimage", "AppImage"]],
   },
 };
 
@@ -126,7 +126,7 @@ function validatePlatformConfigs(
   failures,
 ) {
   const platformTargets = [
-    ["linux", linuxConfig.bundle?.targets, ["deb"]],
+    ["linux", linuxConfig.bundle?.targets, ["appimage"]],
     ["macos", macosConfig.bundle?.targets, ["dmg"]],
     ["windows", windowsConfig.bundle?.targets, ["nsis"]],
   ];

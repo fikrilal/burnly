@@ -33,6 +33,9 @@ or unverified targets fail the collector harness.
 4. Runs `ccusage --version` when the target is executable on the build host.
 5. Stages only the selected executable and the release manifest into the
    ignored runtime resource directory.
+6. Stages `ccusage.payload`, a Burnly-header-wrapped copy of the reviewed
+   executable bytes. This payload exists because AppImage tooling rewrites the
+   direct ELF executable and breaks Bun-packed `ccusage`.
 
 Tauri's `beforeBuildCommand` runs this before the frontend build. The resource
 map places the staged files at:
@@ -40,11 +43,16 @@ map places the staged files at:
 ```text
 $RESOURCE/sidecars/ccusage/manifest.json
 $RESOURCE/sidecars/ccusage/ccusage[.exe]
+$RESOURCE/sidecars/ccusage/ccusage[.exe].payload
 ```
 
 The Rust adapter independently rechecks SHA-256 and runtime version before each
-collector operation. Release startup therefore fails closed if resources are
-missing, modified, mismatched, or built for an unsupported target.
+collector operation. It prefers the direct packaged executable when its bytes
+match the release manifest. If package tooling mutates that executable, the
+adapter verifies the wrapped payload bytes against the same manifest checksum,
+materializes an executable temporary copy, and runs that copy. Release startup
+therefore fails closed if resources are missing, modified, mismatched, or built
+for an unsupported target.
 
 ## Development
 
@@ -55,6 +63,8 @@ manifest. That state is explicit and cannot satisfy release integrity policy.
 
 - `pnpm sidecar:check` verifies the installed host package without staging.
 - `pnpm collectors:fixtures` validates manifest completeness and metadata.
+- `pnpm linux-smoke:appimage <path>` verifies AppImage sidecar payload
+  materialization, checksum, and runtime version.
 - Rust tests verify target mapping, checksum-before-version behavior, location
   policy, missing binaries, and incompatible versions.
 - Packaged evidence must inspect the actual installer contents and execute the

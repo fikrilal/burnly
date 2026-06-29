@@ -1,12 +1,15 @@
 import { readFile } from "node:fs/promises";
 
 const expectedTargets = [
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-gnu",
+];
+
+const deferredTargets = [
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
   "aarch64-pc-windows-msvc",
   "x86_64-pc-windows-msvc",
-  "aarch64-unknown-linux-gnu",
-  "x86_64-unknown-linux-gnu",
 ];
 
 function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
@@ -43,10 +46,24 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   if (actionReferences.length < 10) {
     failures.push("release workflows must use the reviewed pinned actions.");
   }
-  if (combined.includes("${{ secrets.")) {
-    failures.push(
-      "verification and unsigned build jobs must not read secrets.",
-    );
+  if (verifyWorkflow.includes("${{ secrets.")) {
+    failures.push("verification workflow must not read secrets.");
+  }
+  if (!releaseWorkflow.includes("- burnly-v*")) {
+    failures.push("release workflow must trigger only for branded tags.");
+  }
+  if (releaseWorkflow.includes("- v*")) {
+    failures.push("release workflow must not trigger for unbranded v* tags.");
+  }
+  for (const requiredSecret of [
+    "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
+    "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}",
+  ]) {
+    if (!releaseWorkflow.includes(requiredSecret)) {
+      failures.push(
+        `release workflow is missing signing secret: ${requiredSecret}.`,
+      );
+    }
   }
 
   for (const target of expectedTargets) {
@@ -54,18 +71,30 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
       failures.push(`release build matrix is missing ${target}.`);
     }
   }
+  for (const target of deferredTargets) {
+    if (releaseWorkflow.includes(`target: ${target}`)) {
+      failures.push(`release build matrix must stay Linux-only: ${target}.`);
+    }
+  }
   for (const requiredBoundary of [
     "attestations: write",
     "id-token: write",
     "retention-days: 14",
     "if-no-files-found: error",
+    "pnpm tauri signer sign",
     "pnpm release:stage ${{ matrix.target }}",
+    "pnpm linux-smoke:appimage",
+    "pnpm updater:manifest artifacts",
+    "pnpm updater:verify artifacts",
+    "latest-linux.json",
+    "install-linux.sh",
     "pnpm release:verify artifacts",
     "merge-multiple: true",
     "needs:\n      - validate\n      - build",
     "if: github.event_name == 'push' || inputs.publish == true",
     "contents: write",
     "--verify-tag",
+    "--notes-file",
   ]) {
     if (!releaseWorkflow.includes(requiredBoundary)) {
       failures.push(
@@ -84,6 +113,9 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "release:version",
     "release:stage",
     "release:verify",
+    "updater:manifest",
+    "updater:verify",
+    "updater-metadata:test",
     "verify:windows",
   ]) {
     if (!scripts[script]) failures.push(`package.json is missing ${script}.`);
@@ -106,7 +138,7 @@ if (process.argv.includes("--self-test")) {
     "actions/checkout@v5",
   );
   mutated.releaseWorkflow = mutated.releaseWorkflow
-    .replace("target: aarch64-pc-windows-msvc", "target: unsupported-target")
+    .replace("target: aarch64-unknown-linux-gnu", "target: unsupported-target")
     .replace("needs:\n      - validate\n      - build", "needs: validate");
   if (validate(mutated).length < 3) {
     console.error("Release workflow harness self-test did not catch drift.");

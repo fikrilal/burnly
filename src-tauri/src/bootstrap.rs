@@ -11,7 +11,9 @@ use iana_time_zone::GetTimezoneError;
 use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
-use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
+use crate::application::bootstrap::{
+    BootstrapService, Capability, RuntimeCapabilities, RuntimeSettings,
+};
 
 use crate::application::collection::CollectorFailure;
 use crate::application::ports::window_actions::WindowActions;
@@ -21,6 +23,9 @@ use crate::application::refresh::{
     RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
+#[cfg(test)]
+use crate::application::update::UnavailableUpdateRuntime;
+use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
@@ -36,7 +41,7 @@ use crate::platform::lifecycle;
 #[cfg(not(debug_assertions))]
 use crate::platform::single_instance;
 use crate::platform::system_clock::SystemClock;
-use crate::platform::{database_path, system_clock, system_timezone, tray};
+use crate::platform::{database_path, system_clock, system_timezone, tray, updater};
 
 const TRAY_OPEN_STALE_AFTER_MS: i64 = 5 * 60 * 1_000;
 const TRAY_OPEN_REFRESH_THROTTLE_MS: i64 = 60 * 1_000;
@@ -124,6 +129,7 @@ pub(crate) fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -232,7 +238,11 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(tray_controller);
     lifecycle::prepare_tray_panel(app.handle()).map_err(StartupError::TrayPanel)?;
     install_tray_invalidation_listener(app.handle().clone(), tray_summary_query.clone());
-    let runtime_capabilities = RuntimeCapabilities::new(RuntimeCapabilities::tray_available());
+    let runtime_capabilities = RuntimeCapabilities::new(
+        RuntimeCapabilities::tray_available(),
+        launch_at_login_capability(),
+        RuntimeCapabilities::update_available(),
+    );
 
     app.manage(
         Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
@@ -250,6 +260,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     tray_open_refresh.request_startup_refresh_if_stale();
     app.manage(tray_summary_query.clone());
     app.manage(tray_open_refresh);
+    app.manage(UpdateService::new(Arc::new(
+        updater::TauriUpdateRuntime::new(app.handle().clone()),
+    )));
 
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
@@ -276,24 +289,64 @@ struct DesktopSettingsRuntime<R: Runtime> {
 }
 
 impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
-    fn validate(
-        &self,
-        _current: &Settings,
-        _proposed: &Settings,
-    ) -> Result<(), RuntimeSettingError> {
+    fn validate(&self, current: &Settings, proposed: &Settings) -> Result<(), RuntimeSettingError> {
+        if proposed.launch_at_login() && !current.launch_at_login() && !launch_at_login_supported()
+        {
+            return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
+        }
+
         Ok(())
     }
 
-    fn apply(&self, settings: &Settings) {
-        self.runtime_settings.update(settings);
-
-        use tauri_plugin_autostart::ManagerExt;
-        let autostart = self.app.autolaunch();
-        if settings.launch_at_login() {
-            let _ = autostart.enable();
-        } else {
-            let _ = autostart.disable();
+    fn prepare_update(
+        &self,
+        current: &Settings,
+        proposed: &Settings,
+    ) -> Result<(), RuntimeSettingError> {
+        if current.launch_at_login() != proposed.launch_at_login() {
+            self.apply_launch_at_login(proposed.launch_at_login())?;
         }
+
+        Ok(())
+    }
+
+    fn rollback_update(&self, current: &Settings) -> Result<(), RuntimeSettingError> {
+        self.apply_launch_at_login(current.launch_at_login())
+    }
+
+    fn commit_update(&self, settings: &Settings) {
+        self.runtime_settings.update(settings);
+    }
+}
+
+impl<R: Runtime> DesktopSettingsRuntime<R> {
+    fn apply_launch_at_login(&self, enabled: bool) -> Result<(), RuntimeSettingError> {
+        use tauri_plugin_autostart::ManagerExt;
+
+        if enabled && !launch_at_login_supported() {
+            return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
+        }
+
+        let autostart = self.app.autolaunch();
+        let result = if enabled {
+            autostart.enable()
+        } else {
+            autostart.disable()
+        };
+
+        result.map_err(|_| RuntimeSettingError::LaunchAtLoginApplyFailed)
+    }
+}
+
+fn launch_at_login_supported() -> bool {
+    !cfg!(debug_assertions)
+}
+
+fn launch_at_login_capability() -> Capability {
+    if launch_at_login_supported() {
+        RuntimeCapabilities::launch_at_login_available()
+    } else {
+        RuntimeCapabilities::launch_at_login_not_implemented()
     }
 }
 
@@ -661,14 +714,30 @@ mod tests {
             Ok(())
         }
 
-        fn apply(&self, _settings: &Settings) {}
+        fn prepare_update(
+            &self,
+            _current: &Settings,
+            _proposed: &Settings,
+        ) -> Result<(), RuntimeSettingError> {
+            Ok(())
+        }
+
+        fn rollback_update(&self, _current: &Settings) -> Result<(), RuntimeSettingError> {
+            Ok(())
+        }
+
+        fn commit_update(&self, _settings: &Settings) {}
     }
 
     fn capabilities_without_tray() -> RuntimeCapabilities {
-        RuntimeCapabilities::new(Capability {
-            supported: false,
-            status: CapabilityStatus::NotImplemented,
-        })
+        RuntimeCapabilities::new(
+            Capability {
+                supported: false,
+                status: CapabilityStatus::NotImplemented,
+            },
+            RuntimeCapabilities::launch_at_login_not_implemented(),
+            RuntimeCapabilities::update_not_implemented(),
+        )
     }
 
     #[test]
@@ -823,7 +892,34 @@ mod tests {
         assert_eq!(response["ok"], true);
         assert_eq!(response["data"]["tray"]["supported"], false);
         assert_eq!(response["data"]["tray"]["status"], "not_implemented");
+        assert_eq!(response["data"]["update"]["supported"], false);
+        assert_eq!(response["data"]["update"]["status"], "not_implemented");
         assert_eq!(response["data"]["diagnostics"]["desktopEvidence"], true);
+        assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
+    #[test]
+    fn tauri_bridge_reports_unavailable_update_state() {
+        let response = invoke("update_get_state");
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["status"], "unavailable");
+        assert_eq!(response["data"]["availableVersion"], Value::Null);
+        assert_eq!(response["data"]["downloadedVersion"], Value::Null);
+        assert_eq!(response["data"]["lastCheckedAt"], Value::Null);
+        assert_eq!(response["data"]["error"]["code"], "update.unavailable");
+        assert_eq!(response["data"]["error"]["retryable"], false);
+        assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
+    #[test]
+    fn tauri_bridge_rejects_update_check_when_unavailable() {
+        let response = invoke("update_check");
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "update.unavailable");
+        assert_eq!(response["error"]["category"], "unavailable");
+        assert_eq!(response["error"]["retryable"], false);
         assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
     }
 
@@ -946,6 +1042,9 @@ mod tests {
                 CONTRACT_VERSION,
                 FixedBootstrapStore,
                 capabilities_without_tray(),
+            ))
+            .manage(UpdateService::new(
+                Arc::new(UnavailableUpdateRuntime::new()),
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
@@ -1110,6 +1209,9 @@ mod tests {
                 CONTRACT_VERSION,
                 FixedBootstrapStore,
                 capabilities_without_tray(),
+            ))
+            .manage(UpdateService::new(
+                Arc::new(UnavailableUpdateRuntime::new()),
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");

@@ -92,6 +92,7 @@ export interface AppBootstrapResponse {
 export interface AppCapabilitiesResponse {
   tray: DesktopCapability;
   launchAtLogin: DesktopCapability;
+  update: DesktopCapability;
   exportFormats: string[];
   diagnostics: {
     desktopEvidence: boolean;
@@ -447,6 +448,24 @@ export interface RefreshStatusResponse {
   lastSuccessfulRefreshAt: string | null;
 }
 
+export interface UpdateStatusResponse {
+  status:
+    | "unavailable"
+    | "idle"
+    | "checking"
+    | "available"
+    | "downloading"
+    | "ready"
+    | "failed";
+  availableVersion: string | null;
+  downloadedVersion: string | null;
+  lastCheckedAt: string | null;
+  error: {
+    code: string;
+    retryable: boolean;
+  } | null;
+}
+
 export interface UsageOverviewRequest {
   startDate: string;
   endDate: string;
@@ -630,6 +649,10 @@ export const COMMAND_NAMES = {
   refreshGetState: "refresh_get_state",
   refreshRequest: "refresh_request",
   refreshCancel: "refresh_cancel",
+  updateGetState: "update_get_state",
+  updateCheck: "update_check",
+  updateDownload: "update_download",
+  updateRestart: "update_restart",
   usageGetTraySummary: "usage_get_tray_summary",
 } as const;
 
@@ -645,6 +668,10 @@ export interface CommandRequests {
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
   [COMMAND_NAMES.refreshRequest]: Record<string, never>;
   [COMMAND_NAMES.refreshCancel]: Record<string, never>;
+  [COMMAND_NAMES.updateGetState]: Record<string, never>;
+  [COMMAND_NAMES.updateCheck]: Record<string, never>;
+  [COMMAND_NAMES.updateDownload]: Record<string, never>;
+  [COMMAND_NAMES.updateRestart]: Record<string, never>;
   [COMMAND_NAMES.usageGetTraySummary]: TraySummaryCommandRequest;
 }
 
@@ -658,6 +685,10 @@ export interface CommandResponses {
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshRequest]: IpcResponse<RefreshStatusResponse>;
   [COMMAND_NAMES.refreshCancel]: IpcResponse<RefreshStatusResponse>;
+  [COMMAND_NAMES.updateGetState]: IpcResponse<UpdateStatusResponse>;
+  [COMMAND_NAMES.updateCheck]: IpcResponse<UpdateStatusResponse>;
+  [COMMAND_NAMES.updateDownload]: IpcResponse<UpdateStatusResponse>;
+  [COMMAND_NAMES.updateRestart]: IpcResponse<UpdateStatusResponse>;
   [COMMAND_NAMES.usageGetTraySummary]: IpcResponse<TraySummaryResponse>;
 }
 
@@ -711,6 +742,22 @@ export function invokeRefreshRequest(invoke: CommandInvoker): Promise<unknown> {
 
 export function invokeRefreshCancel(invoke: CommandInvoker): Promise<unknown> {
   return invoke(COMMAND_NAMES.refreshCancel, {});
+}
+
+export function invokeUpdateGetState(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.updateGetState, {});
+}
+
+export function invokeUpdateCheck(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.updateCheck, {});
+}
+
+export function invokeUpdateDownload(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.updateDownload, {});
+}
+
+export function invokeUpdateRestart(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.updateRestart, {});
 }
 
 export function invokeUsageGetTraySummary(

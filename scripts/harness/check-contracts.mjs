@@ -265,6 +265,7 @@ export interface AppBootstrapResponse {
 export interface AppCapabilitiesResponse {
   tray: DesktopCapability;
   launchAtLogin: DesktopCapability;
+  update: DesktopCapability;
   exportFormats: string[];
   diagnostics: {
     desktopEvidence: boolean;
@@ -601,6 +602,24 @@ export interface RefreshStatusResponse {
     | "reconcile"
     | null;
   lastSuccessfulRefreshAt: string | null;
+}
+
+export interface UpdateStatusResponse {
+  status:
+    | "unavailable"
+    | "idle"
+    | "checking"
+    | "available"
+    | "downloading"
+    | "ready"
+    | "failed";
+  availableVersion: string | null;
+  downloadedVersion: string | null;
+  lastCheckedAt: string | null;
+  error: {
+    code: string;
+    retryable: boolean;
+  } | null;
 }
 
 export interface UsageOverviewRequest {

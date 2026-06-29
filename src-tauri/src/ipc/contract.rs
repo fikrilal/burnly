@@ -64,6 +64,30 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "RefreshStatusResponse",
     },
     CommandSpec {
+        name: "update_get_state",
+        export_name: "invokeUpdateGetState",
+        request_type: "Record<string, never>",
+        response_type: "UpdateStatusResponse",
+    },
+    CommandSpec {
+        name: "update_check",
+        export_name: "invokeUpdateCheck",
+        request_type: "Record<string, never>",
+        response_type: "UpdateStatusResponse",
+    },
+    CommandSpec {
+        name: "update_download",
+        export_name: "invokeUpdateDownload",
+        request_type: "Record<string, never>",
+        response_type: "UpdateStatusResponse",
+    },
+    CommandSpec {
+        name: "update_restart",
+        export_name: "invokeUpdateRestart",
+        request_type: "Record<string, never>",
+        response_type: "UpdateStatusResponse",
+    },
+    CommandSpec {
         name: "usage_get_tray_summary",
         export_name: "invokeUsageGetTraySummary",
         request_type: "TraySummaryCommandRequest",

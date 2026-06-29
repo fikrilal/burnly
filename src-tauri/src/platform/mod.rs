@@ -7,3 +7,4 @@ pub(crate) mod single_instance;
 pub mod system_clock;
 pub mod system_timezone;
 pub(crate) mod tray;
+pub(crate) mod updater;

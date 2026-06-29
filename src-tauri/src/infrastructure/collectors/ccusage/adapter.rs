@@ -146,6 +146,7 @@ impl Collector for CcusageCollector {
         let VerifiedSidecar {
             executable,
             descriptor,
+            ..
         } = self.verify(cancellation)?;
         let prepared = prepare_collection(&executable, &request)?;
         let output = execute(prepared.process(), cancellation, self.limits)?;

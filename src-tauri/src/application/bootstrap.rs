@@ -64,6 +64,7 @@ pub(crate) enum RefreshStatus {
 pub(crate) struct AppCapabilities {
     pub tray: Capability,
     pub launch_at_login: Capability,
+    pub update: Capability,
     pub export_formats: Vec<ExportFormat>,
     pub diagnostics: DiagnosticCapabilities,
 }
@@ -118,6 +119,8 @@ pub(crate) struct RuntimeSettings {
 #[derive(Clone)]
 pub(crate) struct RuntimeCapabilities {
     tray: Arc<Mutex<Capability>>,
+    launch_at_login: Arc<Mutex<Capability>>,
+    update: Arc<Mutex<Capability>>,
 }
 
 impl RuntimeSettings {
@@ -188,14 +191,10 @@ impl BootstrapService {
     }
 
     pub(crate) fn capabilities(&self) -> AppCapabilities {
-        let launch_at_login = Capability {
-            supported: true,
-            status: CapabilityStatus::Available,
-        };
-
         AppCapabilities {
             tray: self.runtime_capabilities.tray(),
-            launch_at_login,
+            launch_at_login: self.runtime_capabilities.launch_at_login(),
+            update: self.runtime_capabilities.update(),
             export_formats: vec![ExportFormat::Csv],
             diagnostics: DiagnosticCapabilities {
                 desktop_evidence: true,
@@ -205,9 +204,11 @@ impl BootstrapService {
 }
 
 impl RuntimeCapabilities {
-    pub(crate) fn new(tray: Capability) -> Self {
+    pub(crate) fn new(tray: Capability, launch_at_login: Capability, update: Capability) -> Self {
         Self {
             tray: Arc::new(Mutex::new(tray)),
+            launch_at_login: Arc::new(Mutex::new(launch_at_login)),
+            update: Arc::new(Mutex::new(update)),
         }
     }
 
@@ -218,8 +219,51 @@ impl RuntimeCapabilities {
         }
     }
 
+    pub(crate) fn launch_at_login_available() -> Capability {
+        Capability {
+            supported: true,
+            status: CapabilityStatus::Available,
+        }
+    }
+
+    pub(crate) fn update_available() -> Capability {
+        Capability {
+            supported: true,
+            status: CapabilityStatus::Available,
+        }
+    }
+
+    pub(crate) fn launch_at_login_not_implemented() -> Capability {
+        Capability {
+            supported: false,
+            status: CapabilityStatus::NotImplemented,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_not_implemented() -> Capability {
+        Capability {
+            supported: false,
+            status: CapabilityStatus::NotImplemented,
+        }
+    }
+
     pub(crate) fn tray(&self) -> Capability {
         self.tray
+            .lock()
+            .expect("runtime capabilities lock is poisoned")
+            .clone()
+    }
+
+    pub(crate) fn launch_at_login(&self) -> Capability {
+        self.launch_at_login
+            .lock()
+            .expect("runtime capabilities lock is poisoned")
+            .clone()
+    }
+
+    pub(crate) fn update(&self) -> Capability {
+        self.update
             .lock()
             .expect("runtime capabilities lock is poisoned")
             .clone()
@@ -254,10 +298,14 @@ mod tests {
     use super::*;
 
     fn capabilities_without_tray() -> RuntimeCapabilities {
-        RuntimeCapabilities::new(Capability {
-            supported: false,
-            status: CapabilityStatus::NotImplemented,
-        })
+        RuntimeCapabilities::new(
+            Capability {
+                supported: false,
+                status: CapabilityStatus::NotImplemented,
+            },
+            RuntimeCapabilities::launch_at_login_not_implemented(),
+            RuntimeCapabilities::update_not_implemented(),
+        )
     }
 
     struct FixedStore {
@@ -314,14 +362,54 @@ mod tests {
                     schema_version: 2,
                 },
             },
-            RuntimeCapabilities::new(RuntimeCapabilities::tray_available()),
+            RuntimeCapabilities::new(
+                RuntimeCapabilities::tray_available(),
+                RuntimeCapabilities::launch_at_login_not_implemented(),
+                RuntimeCapabilities::update_not_implemented(),
+            ),
         );
 
         let capabilities = service.capabilities();
 
         assert!(capabilities.tray.supported);
         assert_eq!(capabilities.tray.status, CapabilityStatus::Available);
+        assert!(!capabilities.launch_at_login.supported);
+        assert_eq!(
+            capabilities.launch_at_login.status,
+            CapabilityStatus::NotImplemented
+        );
+        assert!(!capabilities.update.supported);
+        assert_eq!(capabilities.update.status, CapabilityStatus::NotImplemented);
         assert_eq!(capabilities.export_formats, vec![ExportFormat::Csv]);
         assert!(capabilities.diagnostics.desktop_evidence);
+    }
+
+    #[test]
+    fn exposes_launch_at_login_when_runtime_reports_support() {
+        let service = BootstrapService::new(
+            "0.1.0",
+            1,
+            FixedStore {
+                storage: BootstrapStorage {
+                    launch_at_login: false,
+                    close_behavior: "quit".to_owned(),
+                    settings_revision: 1,
+                    schema_version: 2,
+                },
+            },
+            RuntimeCapabilities::new(
+                RuntimeCapabilities::tray_available(),
+                RuntimeCapabilities::launch_at_login_available(),
+                RuntimeCapabilities::update_not_implemented(),
+            ),
+        );
+
+        let capabilities = service.capabilities();
+
+        assert!(capabilities.launch_at_login.supported);
+        assert_eq!(
+            capabilities.launch_at_login.status,
+            CapabilityStatus::Available
+        );
     }
 }

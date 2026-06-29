@@ -27,7 +27,7 @@
       "expectedCapabilities": {
         "tray": "available",
         "nativeNotifications": "permission_dependent",
-        "launchAtLogin": "not_implemented",
+        "launchAtLogin": "available",
         "updates": "unavailable"
       }
     },
@@ -44,7 +44,7 @@
       "expectedCapabilities": {
         "tray": "available",
         "nativeNotifications": "permission_dependent",
-        "launchAtLogin": "not_implemented",
+        "launchAtLogin": "available",
         "updates": "unavailable"
       }
     },
@@ -61,7 +61,7 @@
       "expectedCapabilities": {
         "tray": "available",
         "nativeNotifications": "permission_dependent",
-        "launchAtLogin": "not_implemented",
+        "launchAtLogin": "available",
         "updates": "unavailable"
       }
     },
@@ -78,7 +78,7 @@
       "expectedCapabilities": {
         "tray": "available",
         "nativeNotifications": "permission_dependent",
-        "launchAtLogin": "not_implemented",
+        "launchAtLogin": "available",
         "updates": "unavailable"
       }
     },
@@ -95,7 +95,7 @@
       "expectedCapabilities": {
         "tray": "host_dependent",
         "nativeNotifications": "permission_dependent",
-        "launchAtLogin": "not_implemented",
+        "launchAtLogin": "available",
         "updates": "unavailable"
       }
     },
@@ -112,7 +112,7 @@
       "expectedCapabilities": {
         "tray": "host_dependent",
         "nativeNotifications": "permission_dependent",
-        "launchAtLogin": "not_implemented",
+        "launchAtLogin": "available",
         "updates": "unavailable"
       }
     },
@@ -129,7 +129,7 @@
       "expectedCapabilities": {
         "tray": "host_dependent",
         "nativeNotifications": "permission_dependent",
-        "launchAtLogin": "not_implemented",
+        "launchAtLogin": "available",
         "updates": "unavailable"
       }
     }
@@ -138,10 +138,6 @@
     {
       "capability": "auto_updates",
       "status": "unavailable_until_phase_10f"
-    },
-    {
-      "capability": "launch_at_login",
-      "status": "not_implemented"
     },
     {
       "capability": "linux_tray_without_status_notifier_host",

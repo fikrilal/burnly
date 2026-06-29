@@ -30,13 +30,13 @@
       "rustTargetTriple": "aarch64-unknown-linux-gnu",
       "platform": "linux",
       "architecture": "aarch64",
-      "bundles": [{ "kind": "deb", "extension": "deb" }]
+      "bundles": [{ "kind": "appimage", "extension": "AppImage" }]
     },
     {
       "rustTargetTriple": "x86_64-unknown-linux-gnu",
       "platform": "linux",
       "architecture": "x86_64",
-      "bundles": [{ "kind": "deb", "extension": "deb" }]
+      "bundles": [{ "kind": "appimage", "extension": "AppImage" }]
     }
   ]
 }

@@ -11,6 +11,7 @@ import {
 } from "../../ipc/client";
 import { subscribeToEvent } from "../../ipc/events";
 import type {
+  AppCapabilitiesResponse,
   SettingsResponse,
   TraySummaryResponse,
 } from "../../ipc/generated/contracts";
@@ -73,6 +74,16 @@ const summary: TraySummaryResponse = {
   dataStatus: "current",
 };
 
+const capabilities: AppCapabilitiesResponse = {
+  tray: { supported: true, status: "available" },
+  launchAtLogin: { supported: true, status: "available" },
+  update: { supported: false, status: "not_implemented" },
+  exportFormats: ["csv"],
+  diagnostics: {
+    desktopEvidence: true,
+  },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(subscribeToEvent).mockResolvedValue(() => {
@@ -84,9 +95,7 @@ describe("TrayPanel overview", () => {
   it("renders compact token metrics and model allocation", async () => {
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestWrapper(),
-    });
+    renderTrayPanel();
 
     expect(await screen.findByText("42,180")).toBeInTheDocument();
     expect(screen.getByText("183.2K")).toBeInTheDocument();
@@ -113,9 +122,7 @@ describe("TrayPanel overview", () => {
       }),
     );
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestWrapper(),
-    });
+    renderTrayPanel();
 
     expect(
       await screen.findByText("No usage collected today"),
@@ -129,25 +136,21 @@ describe("TrayPanel overview", () => {
   it("renders failed loading state", async () => {
     vi.mocked(getTraySummary).mockRejectedValue(new Error("summary offline"));
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestWrapper(),
-    });
+    renderTrayPanel();
 
     expect(await screen.findByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("summary offline")).toBeInTheDocument();
   });
 });
 
-describe("TrayPanel settings controls", () => {
+describe("TrayPanel close behavior settings", () => {
   it("renders persisted close behavior in settings", async () => {
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
     vi.mocked(getSettings).mockResolvedValue(
       settingsResult({ closeBehavior: "quit" }),
     );
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestWrapper(),
-    });
+    renderTrayPanel();
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Settings" }),
@@ -177,9 +180,7 @@ describe("TrayPanel settings controls", () => {
       }),
     );
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestWrapper(),
-    });
+    renderTrayPanel();
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     await user.click(
@@ -196,15 +197,71 @@ describe("TrayPanel settings controls", () => {
   });
 });
 
+describe("TrayPanel launch at login settings", () => {
+  it("updates launch at login when the runtime supports it", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(
+      settingsResult({
+        launchAtLogin: false,
+        closeBehavior: "hide",
+        revision: 4,
+      }),
+    );
+    vi.mocked(updateSettings).mockResolvedValue(
+      settingsResult({
+        launchAtLogin: true,
+        closeBehavior: "hide",
+        revision: 5,
+      }),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(
+      await screen.findByRole("switch", { name: "Launch at login" }),
+    );
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({
+        launchAtLogin: true,
+        closeBehavior: "hide",
+        expectedRevision: 4,
+      });
+    });
+  });
+
+  it("disables launch at login when the runtime does not support it", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+
+    renderTrayPanel({
+      capabilities: {
+        ...capabilities,
+        launchAtLogin: { supported: false, status: "not_implemented" },
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    const launchAtLogin = await screen.findByRole("switch", {
+      name: "Launch at login",
+    });
+    expect(launchAtLogin).toBeDisabled();
+    await user.click(launchAtLogin);
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+});
+
 describe("TrayPanel settings failures", () => {
   it("renders settings load failures", async () => {
     const user = userEvent.setup();
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
     vi.mocked(getSettings).mockRejectedValue(new Error("settings offline"));
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestWrapper(),
-    });
+    renderTrayPanel();
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
 
@@ -220,9 +277,7 @@ describe("TrayPanel settings failures", () => {
     );
     vi.mocked(updateSettings).mockRejectedValue(new Error("settings conflict"));
 
-    render(<TrayPanel reportingTimezone="Asia/Jakarta" appVersion="0.1.0" />, {
-      wrapper: createTestWrapper(),
-    });
+    renderTrayPanel();
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     await user.click(
@@ -238,6 +293,25 @@ function traySummaryResult(
   data: TraySummaryResponse = summary,
 ): CommandResult<TraySummaryResponse> {
   return { data, meta: responseMeta };
+}
+
+function renderTrayPanel(
+  overrides: Partial<{
+    capabilities: AppCapabilitiesResponse;
+    appVersion: string;
+    reportingTimezone: string;
+  }> = {},
+) {
+  render(
+    <TrayPanel
+      reportingTimezone={overrides.reportingTimezone ?? "Asia/Jakarta"}
+      appVersion={overrides.appVersion ?? "0.1.0"}
+      capabilities={overrides.capabilities ?? capabilities}
+    />,
+    {
+      wrapper: createTestWrapper(),
+    },
+  );
 }
 
 function settingsResult(

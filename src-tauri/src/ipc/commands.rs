@@ -83,6 +83,7 @@ struct RefreshStateResponse {
 pub(super) struct AppCapabilitiesResponse {
     tray: CapabilityResponse,
     launch_at_login: CapabilityResponse,
+    update: CapabilityResponse,
     export_formats: Vec<String>,
     diagnostics: DiagnosticCapabilitiesResponse,
 }
@@ -207,6 +208,7 @@ impl From<AppCapabilities> for AppCapabilitiesResponse {
         Self {
             tray: value.tray.into(),
             launch_at_login: value.launch_at_login.into(),
+            update: value.update.into(),
             export_formats: value
                 .export_formats
                 .into_iter()

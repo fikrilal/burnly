@@ -22,6 +22,7 @@ const releaseManifestPath = path.join(
   "release-manifest.json",
 );
 const runtimeDirectory = path.join(sidecarDirectory, "runtime");
+const payloadHeader = Buffer.from("BURNLY-CCUSAGE-PAYLOAD-V1\n", "utf8");
 const manifest = JSON.parse(await readFile(releaseManifestPath, "utf8"));
 const checkOnly = process.argv.includes("--check");
 const rustTargetTriple =
@@ -70,6 +71,10 @@ if (!checkOnly) {
   await mkdir(runtimeDirectory, { recursive: true });
   verifiedBinary = path.join(runtimeDirectory, entry.executableName);
   await copyFile(sourceBinary, verifiedBinary);
+  await writeFile(
+    `${verifiedBinary}.payload`,
+    Buffer.concat([payloadHeader, await readFile(sourceBinary)]),
+  );
   if (process.platform !== "win32") {
     await chmod(verifiedBinary, 0o755);
   }

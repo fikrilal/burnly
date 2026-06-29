@@ -10,6 +10,10 @@ fn main() {
             "refresh_get_state",
             "refresh_request",
             "refresh_cancel",
+            "update_get_state",
+            "update_check",
+            "update_download",
+            "update_restart",
             "usage_get_tray_summary",
         ]),
     ))

@@ -3,11 +3,11 @@ name: Release Artifacts
 on:
   push:
     tags:
-      - v*
+      - burnly-v*
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing v-prefixed tag to validate or publish
+        description: Existing burnly-v-prefixed tag to validate or publish
         required: false
         type: string
       publish:
@@ -71,29 +71,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
-            target: aarch64-apple-darwin
-            bundle: dmg
-            artifact: release-macos-aarch64
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            bundle: dmg
-            artifact: release-macos-x86_64
-          - os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            bundle: nsis
-            artifact: release-windows-aarch64
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-            bundle: nsis
-            artifact: release-windows-x86_64
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            bundle: deb
+            bundle: appimage
             artifact: release-linux-aarch64
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            bundle: deb
+            bundle: appimage
             artifact: release-linux-x86_64
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -115,12 +99,31 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - run: pnpm install --frozen-lockfile
       - run: pnpm packaging:check
-      - name: Build unsigned bundle
+      - name: Build bundle
         env:
           BURNLY_SIDECAR_TARGET: ${{ matrix.target }}
         run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+      - name: Sign Linux AppImage updater artifact
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          artifact="$(find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f -name '*.AppImage' -print -quit)"
+          if [[ -z "$artifact" ]]; then
+            echo "Linux AppImage artifact was not produced."
+            exit 1
+          fi
+          pnpm tauri signer sign "$artifact"
       - name: Stage canonical artifact and checksum manifest
         run: pnpm release:stage ${{ matrix.target }}
+      - name: Smoke Linux AppImage artifact
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }})"
+          pnpm linux-smoke:appimage "src-tauri/target/release-artifacts/$artifact"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ matrix.artifact }}
@@ -159,6 +162,15 @@ jobs:
           path: artifacts
           merge-multiple: true
       - run: pnpm release:verify artifacts
+      - name: Generate Linux updater metadata
+        shell: bash
+        run: |
+          base_url="https://github.com/${{ github.repository }}/releases/download/$RELEASE_TAG"
+          pnpm updater:manifest artifacts "$base_url" artifacts/latest-linux.json
+          pnpm updater:verify artifacts artifacts/latest-linux.json "$base_url"
+          sha256sum artifacts/latest-linux.json >> artifacts/SHA256SUMS
+          cp scripts/install-linux.sh artifacts/install-linux.sh
+          sha256sum artifacts/install-linux.sh >> artifacts/SHA256SUMS
       - name: Publish complete draft release
         shell: bash
         run: |
@@ -166,8 +178,14 @@ jobs:
             echo "Release $RELEASE_TAG already exists."
             exit 1
           fi
+          notes_file=".github/release-notes/$RELEASE_TAG.md"
+          if [[ -f "$notes_file" ]]; then
+            notes_args=(--notes-file "$notes_file")
+          else
+            notes_args=(--notes "Release-candidate artifacts with SHA-256 manifests, Linux updater metadata, and GitHub build provenance.")
+          fi
           gh release create "$RELEASE_TAG" artifacts/* \
             --draft \
             --verify-tag \
             --title "Burnly $RELEASE_TAG" \
-            --notes "Unsigned release-candidate artifacts with SHA-256 manifests and GitHub build provenance."
+            "${notes_args[@]}"
