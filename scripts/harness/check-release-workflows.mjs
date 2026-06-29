@@ -60,6 +60,7 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "retention-days: 14",
     "if-no-files-found: error",
     "pnpm release:stage ${{ matrix.target }}",
+    "pnpm linux-smoke:appimage",
     "pnpm release:verify artifacts",
     "merge-multiple: true",
     "needs:\n      - validate\n      - build",

@@ -4,12 +4,11 @@
 
 Draft proposal for the Linux-only MVP distribution and update system.
 
-This proposal intentionally changes the Linux release direction from the
-current Debian-first packaging docs if the AppImage sidecar issue can be
-resolved. The existing release docs still say Linux publishes a Debian package
-and AppImage is deferred because bundled `ccusage` sidecar bytes are changed by
-AppImage assembly. That must be fixed and proven before AppImage can become the
-primary update channel.
+This proposal intentionally changes the earlier Debian-first Linux release
+direction to AppImage-first. The AppImage sidecar blocker has been resolved by
+packaging a reviewed `ccusage.payload` and materializing it after checksum
+verification, so the remaining release work is artifact foundation, signing,
+updater integration, launcher hardening, and end-to-end evidence.
 
 ## Goal
 
@@ -60,8 +59,8 @@ path is stable.
 
 AppImage is not free. Before promoting it, Burnly must solve and verify:
 
-- Packaged `ccusage` sidecar bytes are preserved exactly, or the runtime
-  integrity model is updated with an explicit, reviewed extraction policy.
+- Packaged `ccusage` sidecar payload bytes are verified against the release
+  manifest before an executable copy is materialized.
 - The packaged sidecar executes successfully from the installed AppImage on the
   target Linux architectures.
 - Desktop integration creates a stable launcher path for normal user launch.
@@ -183,13 +182,12 @@ If this direction is accepted, update:
 - `docs/engineering/packaged-sidecars.md`
 - `docs/planning/implementation-plan.md`
 
-The release docs should not be changed until the AppImage sidecar blocker is
-either fixed or explicitly replaced with another Linux auto-update strategy.
+The release packaging and automation docs now describe AppImage as the Linux
+MVP artifact. Remaining promotion work should focus on signing, update
+metadata, updater UX, launcher hardening, and end-to-end update evidence.
 
 ## Open Questions
 
-- Should the first public Linux build remain `.deb` while AppImage auto-update
-  is finished, or should public distribution wait for the updater path?
 - Where should update metadata live for MVP: GitHub Releases only, or a static
   endpoint that can be moved independently later?
 - What is the minimum supported Linux desktop/session matrix for tray plus

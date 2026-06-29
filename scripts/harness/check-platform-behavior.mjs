@@ -117,8 +117,8 @@ function validate({ matrix, guide, packageDocument }) {
       );
     }
   }
-  if (!packageDocument.scripts?.["linux-smoke:deb"]) {
-    failures.push("package.json is missing linux-smoke:deb.");
+  if (!packageDocument.scripts?.["linux-smoke:appimage"]) {
+    failures.push("package.json is missing linux-smoke:appimage.");
   }
   return failures;
 }

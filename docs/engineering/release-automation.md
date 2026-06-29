@@ -17,12 +17,12 @@ The release matrix builds all six native target triples from
 
 - macOS ARM64 and x86_64 DMGs
 - Windows ARM64 and x86_64 NSIS installers
-- Linux ARM64 and x86_64 Debian packages
+- Linux ARM64 and x86_64 AppImages
 
 Each job uses a native GitHub-hosted runner. Build jobs have no publication
 permission. They stage one canonical artifact, produce a target checksum
-manifest, upload an immutable workflow artifact for 14 days, and request GitHub
-build-provenance attestation.
+manifest, run Linux AppImage smoke on Linux jobs, upload an immutable workflow
+artifact for 14 days, and request GitHub build-provenance attestation.
 
 ## Publication
 

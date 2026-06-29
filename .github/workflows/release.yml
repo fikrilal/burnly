@@ -89,11 +89,11 @@ jobs:
             artifact: release-windows-x86_64
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            bundle: deb
+            bundle: appimage
             artifact: release-linux-aarch64
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            bundle: deb
+            bundle: appimage
             artifact: release-linux-x86_64
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -121,6 +121,12 @@ jobs:
         run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
       - name: Stage canonical artifact and checksum manifest
         run: pnpm release:stage ${{ matrix.target }}
+      - name: Smoke Linux AppImage artifact
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }})"
+          pnpm linux-smoke:appimage "src-tauri/target/release-artifacts/$artifact"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ matrix.artifact }}

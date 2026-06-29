@@ -86,8 +86,8 @@ metadata.
 Scope:
 
 - Promote AppImage into the Linux release target matrix once Phase 1 passes.
-- Decide whether `.deb` is removed from MVP, kept as secondary manual
-  artifact, or deferred.
+- Remove `.deb` from the MVP release matrix and defer it as a later secondary
+  package-manager channel.
 - Produce canonical AppImage names using the existing release naming policy.
 - Generate checksums and staged release manifests.
 - Update release packaging docs to describe AppImage install, launch, user
@@ -301,7 +301,6 @@ Then move the completed execution plans into `docs/exec-plans/completed/`.
 
 ## Open Decisions
 
-- Whether `.deb` remains in the release matrix during the AppImage transition.
 - Whether update metadata starts on GitHub Releases or a separate static HTTPS
   endpoint.
 - Whether the first implementation includes a manual "Check for updates" action

@@ -17,18 +17,20 @@ desktop category is `DeveloperTool`.
 
 - macOS: one unsigned DMG containing `Burnly.app`.
 - Windows: one NSIS per-user installer. Downgrades are unsupported and blocked.
-- Linux: one Debian package.
+- Linux: one AppImage.
 
 MSI and RPM are not selected for the first release. Every additional installer
 format creates another install, upgrade, uninstall, and signing path that must
 be tested.
 
-AppImage is also deferred from the first published release matrix until install,
-launch-at-login, update, and rollback behavior are reviewed. AppImage assembly
-rewrites the direct Bun-packed `ccusage` executable, so Burnly packages a
-reviewed sidecar payload and materializes it at runtime after checksum
-verification. AppImage promotion requires the AppImage smoke to pass on the
-target architecture.
+Debian is deferred. It remains useful for package-manager-owned installs, but
+it adds repository, signing, install, upgrade, and root/Polkit support paths
+that do not serve the first auto-update track.
+
+AppImage assembly rewrites the direct Bun-packed `ccusage` executable, so
+Burnly packages a reviewed sidecar payload and materializes it at runtime after
+checksum verification. AppImage promotion requires the AppImage smoke to pass
+on the target architecture.
 
 Canonical artifact names use:
 
@@ -41,11 +43,11 @@ records byte sizes plus SHA-256 checksums in a target-specific manifest.
 
 ## Install And Launch Locations
 
-| Platform | Package | Application location or launch model                                                                                                  |
-| -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS    | DMG     | User copies `Burnly.app` to `/Applications` or `~/Applications`.                                                                      |
-| Windows  | NSIS    | Per-user installation under the current user's local application directory, with Start Menu and uninstall registration owned by NSIS. |
-| Linux    | Debian  | Package-manager-owned files under standard system application directories.                                                            |
+| Platform | Package  | Application location or launch model                                                                                                  |
+| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS    | DMG      | User copies `Burnly.app` to `/Applications` or `~/Applications`.                                                                      |
+| Windows  | NSIS     | Per-user installation under the current user's local application directory, with Start Menu and uninstall registration owned by NSIS. |
+| Linux    | AppImage | User-owned executable file. Desktop integration and stable launcher ownership are Burnly responsibilities.                            |
 
 The exact platform path is installer-owned. Burnly must resolve application
 resources through Tauri APIs and must not infer installation paths.
@@ -70,6 +72,9 @@ Uninstalling Burnly does not delete application data automatically. This avoids
 silent destruction of usage history and recovery backups. Users can explicitly
 delete the application-data directory after uninstall when they intend to erase
 all local history.
+
+Linux AppImage removal does not imply data deletion. Removing the executable
+leaves the application-data directory in place.
 
 ## Icon Source
 
