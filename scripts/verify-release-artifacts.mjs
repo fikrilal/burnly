@@ -12,8 +12,11 @@ const packageDocument = JSON.parse(await readFile("package.json", "utf8"));
 const releaseTargets = JSON.parse(
   await readFile("src-tauri/release-targets.json", "utf8"),
 );
+const publishedTargets = releaseTargets.targets.filter(
+  (target) => target.platform === "linux",
+);
 const expectedTargets = new Set(
-  releaseTargets.targets.map((target) => target.rustTargetTriple),
+  publishedTargets.map((target) => target.rustTargetTriple),
 );
 const entries = await readdir(artifactDirectory, { withFileTypes: true });
 const manifestNames = entries

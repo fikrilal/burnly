@@ -1,12 +1,15 @@
 import { readFile } from "node:fs/promises";
 
 const expectedTargets = [
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-gnu",
+];
+
+const deferredTargets = [
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
   "aarch64-pc-windows-msvc",
   "x86_64-pc-windows-msvc",
-  "aarch64-unknown-linux-gnu",
-  "x86_64-unknown-linux-gnu",
 ];
 
 function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
@@ -66,6 +69,11 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   for (const target of expectedTargets) {
     if (!releaseWorkflow.includes(`target: ${target}`)) {
       failures.push(`release build matrix is missing ${target}.`);
+    }
+  }
+  for (const target of deferredTargets) {
+    if (releaseWorkflow.includes(`target: ${target}`)) {
+      failures.push(`release build matrix must stay Linux-only: ${target}.`);
     }
   }
   for (const requiredBoundary of [
@@ -130,7 +138,7 @@ if (process.argv.includes("--self-test")) {
     "actions/checkout@v5",
   );
   mutated.releaseWorkflow = mutated.releaseWorkflow
-    .replace("target: aarch64-pc-windows-msvc", "target: unsupported-target")
+    .replace("target: aarch64-unknown-linux-gnu", "target: unsupported-target")
     .replace("needs:\n      - validate\n      - build", "needs: validate");
   if (validate(mutated).length < 3) {
     console.error("Release workflow harness self-test did not catch drift.");

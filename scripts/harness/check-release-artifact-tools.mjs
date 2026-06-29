@@ -11,6 +11,9 @@ const packageDocument = JSON.parse(await readFile("package.json", "utf8"));
 const releaseTargets = JSON.parse(
   await readFile("src-tauri/release-targets.json", "utf8"),
 );
+const publishedTargets = releaseTargets.targets.filter(
+  (target) => target.platform === "linux",
+);
 
 function artifactName(target, bundle) {
   return releaseTargets.artifactNameTemplate
@@ -21,7 +24,7 @@ function artifactName(target, bundle) {
 }
 
 try {
-  for (const target of releaseTargets.targets) {
+  for (const target of publishedTargets) {
     const artifacts = [];
     for (const bundle of target.bundles) {
       const fileName = artifactName(target, bundle);
@@ -71,7 +74,7 @@ try {
     path.join(fixtureDirectory, "SHA256SUMS"),
     "utf8",
   );
-  const expectedChecksumLines = releaseTargets.targets.reduce(
+  const expectedChecksumLines = publishedTargets.reduce(
     (count, target) =>
       count +
       target.bundles.length +
@@ -85,8 +88,8 @@ try {
   }
 
   const tamperedName = artifactName(
-    releaseTargets.targets[0],
-    releaseTargets.targets[0].bundles[0],
+    publishedTargets[0],
+    publishedTargets[0].bundles[0],
   );
   await writeFile(path.join(fixtureDirectory, tamperedName), "tampered");
   try {
