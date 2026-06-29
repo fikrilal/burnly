@@ -79,6 +79,7 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "if: github.event_name == 'push' || inputs.publish == true",
     "contents: write",
     "--verify-tag",
+    "--notes-file",
   ]) {
     if (!releaseWorkflow.includes(requiredBoundary)) {
       failures.push(

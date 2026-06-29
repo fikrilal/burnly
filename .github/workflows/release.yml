@@ -192,8 +192,14 @@ jobs:
             echo "Release $RELEASE_TAG already exists."
             exit 1
           fi
+          notes_file=".github/release-notes/$RELEASE_TAG.md"
+          if [[ -f "$notes_file" ]]; then
+            notes_args=(--notes-file "$notes_file")
+          else
+            notes_args=(--notes "Release-candidate artifacts with SHA-256 manifests, Linux updater metadata, and GitHub build provenance.")
+          fi
           gh release create "$RELEASE_TAG" artifacts/* \
             --draft \
             --verify-tag \
             --title "Burnly $RELEASE_TAG" \
-            --notes "Release-candidate artifacts with SHA-256 manifests, Linux updater metadata, and GitHub build provenance."
+            "${notes_args[@]}"
