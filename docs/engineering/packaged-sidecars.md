@@ -46,6 +46,14 @@ $RESOURCE/sidecars/ccusage/ccusage[.exe]
 $RESOURCE/sidecars/ccusage/ccusage[.exe].payload
 ```
 
+On Linux AppImage builds, Tauri's runtime resource resolver and the AppImage
+bundler can disagree on whether the application resource directory is named
+from the lowercase executable/package identity or the configured product name.
+Burnly first uses Tauri's resolved resource directory. If the packaged sidecar
+manifest is absent there and the process is running from an AppImage, Burnly
+falls back to `$APPDIR/usr/lib/Burnly` only when the sidecar manifest exists at
+that exact product resource path.
+
 The Rust adapter independently rechecks SHA-256 and runtime version before each
 collector operation. It prefers the direct packaged executable when its bytes
 match the release manifest. If package tooling mutates that executable, the

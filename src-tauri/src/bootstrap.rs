@@ -3,7 +3,7 @@
 //! This module selects concrete infrastructure and platform integrations. Other
 //! modules receive constructed dependencies instead of constructing their own.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -396,10 +396,11 @@ fn build_refresh_coordinator<R: Runtime>(
         .path()
         .resource_dir()
         .map_err(StartupError::ResourceDir)?;
+    let packaged_resource_directory = resolve_packaged_resource_directory(resource_directory);
     let collector = Arc::new(
         match std::env::var_os("BURNLY_CCUSAGE_DEV_BINARY") {
             Some(binary) => CcusageCollector::development(binary),
-            None => CcusageCollector::packaged(resource_directory),
+            None => CcusageCollector::packaged(packaged_resource_directory),
         }
         .map_err(StartupError::Collector)?,
     );
@@ -410,6 +411,40 @@ fn build_refresh_coordinator<R: Runtime>(
         refresh_event_sink,
         reporting_timezone,
     )
+}
+
+fn resolve_packaged_resource_directory(resource_directory: PathBuf) -> PathBuf {
+    let appdir = std::env::var_os("APPDIR").map(PathBuf::from);
+    resolve_packaged_resource_directory_for_appdir(resource_directory, appdir.as_deref())
+}
+
+fn resolve_packaged_resource_directory_for_appdir(
+    resource_directory: PathBuf,
+    appdir: Option<&Path>,
+) -> PathBuf {
+    if packaged_sidecar_manifest_exists(&resource_directory) {
+        return resource_directory;
+    }
+
+    #[cfg(target_os = "linux")]
+    if let Some(appdir) = appdir {
+        let product_resource_directory = appdir.join("usr").join("lib").join("Burnly");
+        if product_resource_directory != resource_directory
+            && packaged_sidecar_manifest_exists(&product_resource_directory)
+        {
+            return product_resource_directory;
+        }
+    }
+
+    resource_directory
+}
+
+fn packaged_sidecar_manifest_exists(resource_directory: &Path) -> bool {
+    resource_directory
+        .join("sidecars")
+        .join("ccusage")
+        .join("manifest.json")
+        .is_file()
 }
 
 fn compose_refresh_coordinator(
@@ -738,6 +773,40 @@ mod tests {
             RuntimeCapabilities::launch_at_login_not_implemented(),
             RuntimeCapabilities::update_not_implemented(),
         )
+    }
+
+    #[test]
+    fn packaged_resource_resolver_prefers_tauri_resource_directory_when_valid() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let resource_directory = workspace.path().join("usr").join("lib").join("burnly");
+        write_packaged_sidecar_manifest(&resource_directory);
+
+        let resolved =
+            resolve_packaged_resource_directory_for_appdir(resource_directory.clone(), None);
+
+        assert_eq!(resolved, resource_directory);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn packaged_resource_resolver_uses_product_directory_for_appimage_case_mismatch() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let appdir = workspace.path().join("squashfs-root");
+        let tauri_resource_directory = appdir.join("usr").join("lib").join("burnly");
+        let product_resource_directory = appdir.join("usr").join("lib").join("Burnly");
+        write_packaged_sidecar_manifest(&product_resource_directory);
+
+        let resolved =
+            resolve_packaged_resource_directory_for_appdir(tauri_resource_directory, Some(&appdir));
+
+        assert_eq!(resolved, product_resource_directory);
+    }
+
+    fn write_packaged_sidecar_manifest(resource_directory: &Path) {
+        let sidecar_directory = resource_directory.join("sidecars").join("ccusage");
+        std::fs::create_dir_all(&sidecar_directory).expect("create sidecar directory");
+        std::fs::write(sidecar_directory.join("manifest.json"), "{}")
+            .expect("write sidecar manifest");
     }
 
     #[test]

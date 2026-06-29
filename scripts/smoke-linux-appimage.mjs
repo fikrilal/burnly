@@ -56,6 +56,49 @@ async function firstMatchingFile(root, predicate) {
   return files.find((filePath) => predicate(relativeTo(root, filePath)));
 }
 
+async function fileExists(filePath) {
+  try {
+    const metadata = await stat(filePath);
+    return metadata.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function appImageResourceDirectory(extractDirectory) {
+  const tauriResourceDirectory = path.join(
+    extractDirectory,
+    "usr",
+    "lib",
+    "burnly",
+  );
+  const productResourceDirectory = path.join(
+    extractDirectory,
+    "usr",
+    "lib",
+    "Burnly",
+  );
+  const tauriManifest = path.join(
+    tauriResourceDirectory,
+    "sidecars",
+    "ccusage",
+    "manifest.json",
+  );
+  const productManifest = path.join(
+    productResourceDirectory,
+    "sidecars",
+    "ccusage",
+    "manifest.json",
+  );
+
+  if (await fileExists(tauriManifest)) return tauriResourceDirectory;
+  if (await fileExists(productManifest)) return productResourceDirectory;
+
+  throw new Error(
+    "AppImage is missing the ccusage sidecar manifest at the runtime resource path.",
+  );
+}
+
 async function executableSidecarVersion(
   executablePath,
   expectedSidecarVersion,
@@ -153,13 +196,13 @@ try {
     throw new Error("AppImage is missing the Burnly executable.");
   }
 
-  const sidecarManifestPath = await firstMatchingFile(
-    extractDirectory,
-    (relativePath) => relativePath.endsWith("sidecars/ccusage/manifest.json"),
+  const resourceDirectory = await appImageResourceDirectory(extractDirectory);
+  const sidecarManifestPath = path.join(
+    resourceDirectory,
+    "sidecars",
+    "ccusage",
+    "manifest.json",
   );
-  if (!sidecarManifestPath) {
-    throw new Error("AppImage is missing the ccusage sidecar manifest.");
-  }
   const sidecarManifest = JSON.parse(
     await readFile(sidecarManifestPath, "utf8"),
   );
@@ -211,6 +254,7 @@ try {
         appRun: relativeTo(extractDirectory, appRun),
         appExecutable: relativeTo(extractDirectory, appExecutable),
         desktopEntry: relativeTo(extractDirectory, desktopEntry),
+        resourceDirectory: relativeTo(extractDirectory, resourceDirectory),
         sidecarManifest: relativeTo(extractDirectory, sidecarManifestPath),
         sidecarExecutable:
           verifiedSidecar.executablePath === sidecarExecutable
