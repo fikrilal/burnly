@@ -46,6 +46,12 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   if (verifyWorkflow.includes("${{ secrets.")) {
     failures.push("verification workflow must not read secrets.");
   }
+  if (!releaseWorkflow.includes("- burnly-v*")) {
+    failures.push("release workflow must trigger only for branded tags.");
+  }
+  if (releaseWorkflow.includes("- v*")) {
+    failures.push("release workflow must not trigger for unbranded v* tags.");
+  }
   for (const requiredSecret of [
     "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
     "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}",
@@ -73,6 +79,7 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "pnpm updater:manifest artifacts",
     "pnpm updater:verify artifacts",
     "latest-linux.json",
+    "install-linux.sh",
     "pnpm release:verify artifacts",
     "merge-multiple: true",
     "needs:\n      - validate\n      - build",

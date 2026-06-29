@@ -14,13 +14,21 @@ the system tray.
 
 ## Linux Install
 
-Download the Linux AppImage artifact for your architecture, make it executable,
-and run it:
+Run:
 
 ```bash
-chmod +x Burnly_0.1.0_amd64.AppImage
-./Burnly_0.1.0_amd64.AppImage
+curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-linux.sh | sh
 ```
+
+For a pinned install of this release:
+
+```bash
+curl -fsSL https://github.com/fikrilal/burnly/releases/download/burnly-v0.1.0/install-linux.sh | BURNLY_VERSION=burnly-v0.1.0 sh
+```
+
+The installer downloads the matching Linux AppImage for your architecture,
+verifies `SHA256SUMS`, installs Burnly under your local user data directory,
+creates a `burnly` command, and writes a desktop entry.
 
 ## Verification
 
@@ -32,5 +40,5 @@ Release artifacts include `SHA256SUMS`. Linux updater metadata is published as
 - Linux is the MVP distribution target.
 - macOS and Windows artifacts may be produced by CI, but Linux is the supported
   install/update path for this release.
-- Keep the AppImage in a stable user-owned location if launch-at-login is
+- Keep the installed AppImage in its managed location if launch-at-login is
   enabled.

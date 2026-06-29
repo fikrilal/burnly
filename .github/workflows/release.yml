@@ -3,11 +3,11 @@ name: Release Artifacts
 on:
   push:
     tags:
-      - v*
+      - burnly-v*
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing v-prefixed tag to validate or publish
+        description: Existing burnly-v-prefixed tag to validate or publish
         required: false
         type: string
       publish:
@@ -185,6 +185,8 @@ jobs:
           pnpm updater:manifest artifacts "$base_url" artifacts/latest-linux.json
           pnpm updater:verify artifacts artifacts/latest-linux.json "$base_url"
           sha256sum artifacts/latest-linux.json >> artifacts/SHA256SUMS
+          cp scripts/install-linux.sh artifacts/install-linux.sh
+          sha256sum artifacts/install-linux.sh >> artifacts/SHA256SUMS
       - name: Publish complete draft release
         shell: bash
         run: |

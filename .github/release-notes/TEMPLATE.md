@@ -12,8 +12,7 @@ Download the Linux AppImage artifact for your architecture, make it executable,
 and run it:
 
 ```bash
-chmod +x Burnly_X.Y.Z_amd64.AppImage
-./Burnly_X.Y.Z_amd64.AppImage
+curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-linux.sh | sh
 ```
 
 ## Verification
