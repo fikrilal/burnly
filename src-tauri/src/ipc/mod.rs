@@ -14,6 +14,7 @@ mod contract;
 )]
 mod response;
 mod settings;
+mod update;
 mod usage;
 
 pub(crate) use commands::refresh_event_sink;
@@ -30,6 +31,10 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::refresh_get_state,
         commands::refresh_request,
         commands::refresh_cancel,
+        update::update_get_state,
+        update::update_check,
+        update::update_download,
+        update::update_restart,
         usage::usage_get_tray_summary,
     ]
 }

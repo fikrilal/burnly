@@ -64,6 +64,7 @@ pub(crate) enum RefreshStatus {
 pub(crate) struct AppCapabilities {
     pub tray: Capability,
     pub launch_at_login: Capability,
+    pub update: Capability,
     pub export_formats: Vec<ExportFormat>,
     pub diagnostics: DiagnosticCapabilities,
 }
@@ -119,6 +120,7 @@ pub(crate) struct RuntimeSettings {
 pub(crate) struct RuntimeCapabilities {
     tray: Arc<Mutex<Capability>>,
     launch_at_login: Arc<Mutex<Capability>>,
+    update: Arc<Mutex<Capability>>,
 }
 
 impl RuntimeSettings {
@@ -192,6 +194,7 @@ impl BootstrapService {
         AppCapabilities {
             tray: self.runtime_capabilities.tray(),
             launch_at_login: self.runtime_capabilities.launch_at_login(),
+            update: self.runtime_capabilities.update(),
             export_formats: vec![ExportFormat::Csv],
             diagnostics: DiagnosticCapabilities {
                 desktop_evidence: true,
@@ -201,10 +204,11 @@ impl BootstrapService {
 }
 
 impl RuntimeCapabilities {
-    pub(crate) fn new(tray: Capability, launch_at_login: Capability) -> Self {
+    pub(crate) fn new(tray: Capability, launch_at_login: Capability, update: Capability) -> Self {
         Self {
             tray: Arc::new(Mutex::new(tray)),
             launch_at_login: Arc::new(Mutex::new(launch_at_login)),
+            update: Arc::new(Mutex::new(update)),
         }
     }
 
@@ -229,6 +233,13 @@ impl RuntimeCapabilities {
         }
     }
 
+    pub(crate) fn update_not_implemented() -> Capability {
+        Capability {
+            supported: false,
+            status: CapabilityStatus::NotImplemented,
+        }
+    }
+
     pub(crate) fn tray(&self) -> Capability {
         self.tray
             .lock()
@@ -238,6 +249,13 @@ impl RuntimeCapabilities {
 
     pub(crate) fn launch_at_login(&self) -> Capability {
         self.launch_at_login
+            .lock()
+            .expect("runtime capabilities lock is poisoned")
+            .clone()
+    }
+
+    pub(crate) fn update(&self) -> Capability {
+        self.update
             .lock()
             .expect("runtime capabilities lock is poisoned")
             .clone()
@@ -278,6 +296,7 @@ mod tests {
                 status: CapabilityStatus::NotImplemented,
             },
             RuntimeCapabilities::launch_at_login_not_implemented(),
+            RuntimeCapabilities::update_not_implemented(),
         )
     }
 
@@ -338,6 +357,7 @@ mod tests {
             RuntimeCapabilities::new(
                 RuntimeCapabilities::tray_available(),
                 RuntimeCapabilities::launch_at_login_not_implemented(),
+                RuntimeCapabilities::update_not_implemented(),
             ),
         );
 
@@ -350,6 +370,8 @@ mod tests {
             capabilities.launch_at_login.status,
             CapabilityStatus::NotImplemented
         );
+        assert!(!capabilities.update.supported);
+        assert_eq!(capabilities.update.status, CapabilityStatus::NotImplemented);
         assert_eq!(capabilities.export_formats, vec![ExportFormat::Csv]);
         assert!(capabilities.diagnostics.desktop_evidence);
     }
@@ -370,6 +392,7 @@ mod tests {
             RuntimeCapabilities::new(
                 RuntimeCapabilities::tray_available(),
                 RuntimeCapabilities::launch_at_login_available(),
+                RuntimeCapabilities::update_not_implemented(),
             ),
         );
 

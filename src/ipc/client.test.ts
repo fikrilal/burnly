@@ -151,6 +151,7 @@ function capabilities(): IpcResponse<AppCapabilitiesResponse> {
     data: {
       tray: capability,
       launchAtLogin: capability,
+      update: capability,
       exportFormats: [],
       diagnostics: {
         desktopEvidence: true,

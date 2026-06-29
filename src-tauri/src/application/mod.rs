@@ -9,4 +9,5 @@ pub(crate) mod ports;
 pub(crate) mod reconciliation;
 pub(crate) mod refresh;
 pub(crate) mod settings;
+pub(crate) mod update;
 pub(crate) mod usage;

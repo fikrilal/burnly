@@ -77,6 +77,7 @@ const summary: TraySummaryResponse = {
 const capabilities: AppCapabilitiesResponse = {
   tray: { supported: true, status: "available" },
   launchAtLogin: { supported: true, status: "available" },
+  update: { supported: false, status: "not_implemented" },
   exportFormats: ["csv"],
   diagnostics: {
     desktopEvidence: true,

@@ -23,6 +23,7 @@ use crate::application::refresh::{
     RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
+use crate::application::update::{UnavailableUpdateRuntime, UpdateService};
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
@@ -237,6 +238,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let runtime_capabilities = RuntimeCapabilities::new(
         RuntimeCapabilities::tray_available(),
         launch_at_login_capability(),
+        RuntimeCapabilities::update_not_implemented(),
     );
 
     app.manage(
@@ -255,6 +257,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     tray_open_refresh.request_startup_refresh_if_stale();
     app.manage(tray_summary_query.clone());
     app.manage(tray_open_refresh);
+    app.manage(UpdateService::new(
+        Arc::new(UnavailableUpdateRuntime::new()),
+    ));
 
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
@@ -728,6 +733,7 @@ mod tests {
                 status: CapabilityStatus::NotImplemented,
             },
             RuntimeCapabilities::launch_at_login_not_implemented(),
+            RuntimeCapabilities::update_not_implemented(),
         )
     }
 
@@ -883,7 +889,34 @@ mod tests {
         assert_eq!(response["ok"], true);
         assert_eq!(response["data"]["tray"]["supported"], false);
         assert_eq!(response["data"]["tray"]["status"], "not_implemented");
+        assert_eq!(response["data"]["update"]["supported"], false);
+        assert_eq!(response["data"]["update"]["status"], "not_implemented");
         assert_eq!(response["data"]["diagnostics"]["desktopEvidence"], true);
+        assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
+    #[test]
+    fn tauri_bridge_reports_unavailable_update_state() {
+        let response = invoke("update_get_state");
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["status"], "unavailable");
+        assert_eq!(response["data"]["availableVersion"], Value::Null);
+        assert_eq!(response["data"]["downloadedVersion"], Value::Null);
+        assert_eq!(response["data"]["lastCheckedAt"], Value::Null);
+        assert_eq!(response["data"]["error"]["code"], "update.unavailable");
+        assert_eq!(response["data"]["error"]["retryable"], false);
+        assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
+    }
+
+    #[test]
+    fn tauri_bridge_rejects_update_check_when_unavailable() {
+        let response = invoke("update_check");
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "update.unavailable");
+        assert_eq!(response["error"]["category"], "unavailable");
+        assert_eq!(response["error"]["retryable"], false);
         assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
     }
 
@@ -1006,6 +1039,9 @@ mod tests {
                 CONTRACT_VERSION,
                 FixedBootstrapStore,
                 capabilities_without_tray(),
+            ))
+            .manage(UpdateService::new(
+                Arc::new(UnavailableUpdateRuntime::new()),
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
@@ -1170,6 +1206,9 @@ mod tests {
                 CONTRACT_VERSION,
                 FixedBootstrapStore,
                 capabilities_without_tray(),
+            ))
+            .manage(UpdateService::new(
+                Arc::new(UnavailableUpdateRuntime::new()),
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");

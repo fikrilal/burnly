@@ -14,6 +14,10 @@ import {
   invokeRefreshGetState,
   invokeRefreshRequest,
   invokeUsageGetTraySummary,
+  invokeUpdateCheck,
+  invokeUpdateDownload,
+  invokeUpdateGetState,
+  invokeUpdateRestart,
   type AppBootstrapResponse,
   type AppCapabilitiesResponse,
   type CommandInvoker,
@@ -29,6 +33,7 @@ import {
   type TraySummaryRequest,
   type TraySummaryResponse,
   type SettingsResponse,
+  type UpdateStatusResponse,
   type UpdateSettingsRequest,
 } from "./generated/contracts";
 
@@ -120,6 +125,7 @@ const capabilitySchema = z.object({
 const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
   tray: capabilitySchema,
   launchAtLogin: capabilitySchema,
+  update: capabilitySchema,
   exportFormats: z.array(z.string()),
   diagnostics: z.object({
     desktopEvidence: z.boolean(),
@@ -158,6 +164,27 @@ const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
     ])
     .nullable(),
   lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
+});
+
+const updateStatusDataSchema: z.ZodType<UpdateStatusResponse> = z.object({
+  status: z.enum([
+    "unavailable",
+    "idle",
+    "checking",
+    "available",
+    "downloading",
+    "ready",
+    "failed",
+  ]),
+  availableVersion: z.string().min(1).nullable(),
+  downloadedVersion: z.string().min(1).nullable(),
+  lastCheckedAt: z.iso.datetime({ offset: true }).nullable(),
+  error: z
+    .object({
+      code: z.string().min(1),
+      retryable: z.boolean(),
+    })
+    .nullable(),
 });
 
 const traySummaryPeriodMetricSchema = z.object({
@@ -316,6 +343,54 @@ export async function cancelRefresh(
   try {
     const response = await invokeRefreshCancel(invoker);
     return unwrapResponse(validateResponse(response, refreshStatusDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function getUpdateState(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<UpdateStatusResponse>> {
+  try {
+    const response = await invokeUpdateGetState(invoker);
+    return unwrapResponse(validateResponse(response, updateStatusDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function checkForUpdate(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<UpdateStatusResponse>> {
+  try {
+    const response = await invokeUpdateCheck(invoker);
+    return unwrapResponse(validateResponse(response, updateStatusDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function downloadUpdate(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<UpdateStatusResponse>> {
+  try {
+    const response = await invokeUpdateDownload(invoker);
+    return unwrapResponse(validateResponse(response, updateStatusDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function restartForUpdate(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<UpdateStatusResponse>> {
+  try {
+    const response = await invokeUpdateRestart(invoker);
+    return unwrapResponse(validateResponse(response, updateStatusDataSchema));
   } catch (error) {
     if (error instanceof BurnlyClientError) throw error;
     throw transportError(error);
