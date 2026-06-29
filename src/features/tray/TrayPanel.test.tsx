@@ -349,7 +349,7 @@ function updateResult(
   };
 }
 
-describe("TrayPanel updates settings tab", () => {
+describe("TrayPanel update check and install actions", () => {
   it("renders updater state and triggers check action", async () => {
     const user = userEvent.setup();
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
@@ -406,7 +406,9 @@ describe("TrayPanel updates settings tab", () => {
       await screen.findByText("Version 1.2.0 is ready."),
     ).toBeInTheDocument();
   });
+});
 
+describe("TrayPanel update restart action", () => {
   it("renders ready update and triggers restart action", async () => {
     const user = userEvent.setup();
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
@@ -431,7 +433,9 @@ describe("TrayPanel updates settings tab", () => {
 
     expect(restartForUpdate).toHaveBeenCalled();
   });
+});
 
+describe("TrayPanel update unavailable states", () => {
   it("renders unavailable updater quietly as disabled row", async () => {
     const user = userEvent.setup();
     vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
@@ -449,6 +453,57 @@ describe("TrayPanel updates settings tab", () => {
     ).toBeInTheDocument();
     const checkButton = screen.getByRole("button", { name: "Check" });
     expect(checkButton).toBeDisabled();
+  });
+
+  it("renders update state load failures instead of a permanent loading row", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getUpdateState).mockRejectedValue(
+      new Error("update status unavailable"),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(
+      await screen.findByText("Burnly could not load update status."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("update status unavailable")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Checking update status..."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
+  });
+});
+
+describe("TrayPanel update failures", () => {
+  it("does not offer check action for non-retryable failed update states", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getUpdateState).mockResolvedValue(
+      updateResult({
+        status: "failed",
+        error: { code: "update.signature_failed", retryable: false },
+      }),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(
+      await screen.findByText(
+        "Burnly cannot continue this update automatically.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Burnly could not verify the update signature."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
+    expect(checkForUpdate).not.toHaveBeenCalled();
   });
 
   it("renders update command errors using user-safe copy", async () => {

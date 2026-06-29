@@ -13,10 +13,22 @@ interface UpdateActionProps {
   status: UpdateStatusResponse["status"];
   availableVersion: string | null;
   downloadedVersion: string | null;
+  error: UpdateStatusResponse["error"];
   isMutating: boolean;
   isChecking: boolean;
   isDownloading: boolean;
   isRestarting: boolean;
+  onCheck: () => void;
+  onDownload: () => void;
+  onRestart: () => void;
+}
+
+interface InteractiveUpdateRowProps {
+  updateState: UpdateStatusResponse;
+  isChecking: boolean;
+  isDownloading: boolean;
+  isRestarting: boolean;
+  mutationError: unknown;
   onCheck: () => void;
   onDownload: () => void;
   onRestart: () => void;
@@ -40,30 +52,46 @@ const UPDATER_ERROR_MESSAGES: Record<string, string> = {
 };
 
 function getUpdateViewProps(props: UpdateActionProps): UpdateViewProps {
+  return (
+    getBusyUpdateViewProps(props) ??
+    getActionUpdateViewProps(props) ?? {
+      description: "Check for updates to get the latest features.",
+      buttonLabel: "Check",
+      isDisabled: props.isMutating,
+      showSpinner: props.isChecking,
+      onClick: props.onCheck,
+    }
+  );
+}
+
+function getBusyUpdateViewProps({
+  status,
+}: UpdateActionProps): UpdateViewProps | null {
+  if (status === "checking") {
+    return disabledUpdateAction("Checking for updates...", "Checking", true);
+  }
+
+  if (status === "downloading") {
+    return disabledUpdateAction("Downloading update...", "Downloading", true);
+  }
+
+  return null;
+}
+
+function getActionUpdateViewProps(
+  props: UpdateActionProps,
+): UpdateViewProps | null {
   const {
     status,
     availableVersion,
     downloadedVersion,
+    error,
     isMutating,
-    isChecking,
     isDownloading,
     isRestarting,
-    onCheck,
     onDownload,
     onRestart,
   } = props;
-
-  if (status === "checking") {
-    return {
-      description: "Checking for updates...",
-      buttonLabel: "Checking",
-      isDisabled: true,
-      showSpinner: true,
-      onClick: () => {
-        /* no-op */
-      },
-    };
-  }
 
   if (status === "available") {
     return {
@@ -72,18 +100,6 @@ function getUpdateViewProps(props: UpdateActionProps): UpdateViewProps {
       isDisabled: isMutating,
       showSpinner: isDownloading,
       onClick: onDownload,
-    };
-  }
-
-  if (status === "downloading") {
-    return {
-      description: "Downloading update...",
-      buttonLabel: "Downloading",
-      isDisabled: true,
-      showSpinner: true,
-      onClick: () => {
-        /* no-op */
-      },
     };
   }
 
@@ -97,12 +113,37 @@ function getUpdateViewProps(props: UpdateActionProps): UpdateViewProps {
     };
   }
 
+  if (isTerminalFailure(status, error)) {
+    return disabledUpdateAction(
+      "Burnly cannot continue this update automatically.",
+      "Check",
+      false,
+    );
+  }
+
+  return null;
+}
+
+function isTerminalFailure(
+  status: UpdateStatusResponse["status"],
+  error: UpdateStatusResponse["error"],
+): boolean {
+  return status === "failed" && error?.retryable === false;
+}
+
+function disabledUpdateAction(
+  description: string,
+  buttonLabel: string,
+  showSpinner: boolean,
+): UpdateViewProps {
   return {
-    description: "Check for updates to get the latest features.",
-    buttonLabel: "Check",
-    isDisabled: isMutating,
-    showSpinner: isChecking,
-    onClick: onCheck,
+    description,
+    buttonLabel,
+    isDisabled: true,
+    showSpinner,
+    onClick: () => {
+      /* no-op */
+    },
   };
 }
 
@@ -132,87 +173,75 @@ function getErrorMessage(error: unknown): string | null {
   return "Failed to perform update operation.";
 }
 
-export function UpdateSetting() {
-  const { data: updateState, error: loadError, isError } = useUpdateState();
-  const checkForUpdateMutation = useCheckForUpdate();
-  const downloadUpdateMutation = useDownloadUpdate();
-  const restartForUpdateMutation = useRestartForUpdate();
+function DisabledUpdateRow({
+  description,
+  error,
+}: {
+  description: string;
+  error?: unknown;
+}) {
+  const errorMessage = getErrorMessage(error);
 
-  if (!updateState) {
-    return (
-      <div className="flex items-center justify-between gap-4 py-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-muted-foreground">
-            Checking update status...
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  const isUnavailable = isError || updateState.status === "unavailable";
-
-  if (isUnavailable) {
-    return (
-      <div className="flex items-center justify-between gap-4 py-3 opacity-50">
+  return (
+    <div className="flex flex-col gap-2 py-3 opacity-50">
+      <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium">Updates</span>
           <span className="text-xs text-muted-foreground leading-normal">
-            Updates are not available for this build.
+            {description}
           </span>
         </div>
         <Button variant="outline" size="xs" disabled>
           <span className="text-xs leading-none">Check</span>
         </Button>
       </div>
-    );
-  }
+      {errorMessage ? (
+        <div className="mt-1">
+          <ErrorState title="Update failed" description={errorMessage} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
+function LoadingUpdateRow() {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium text-muted-foreground">
+          Checking update status...
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function InteractiveUpdateRow({
+  updateState,
+  isChecking,
+  isDownloading,
+  isRestarting,
+  mutationError,
+  onCheck,
+  onDownload,
+  onRestart,
+}: InteractiveUpdateRowProps) {
   const { status, availableVersion, downloadedVersion, error } = updateState;
-  const isMutating =
-    checkForUpdateMutation.isPending ||
-    downloadUpdateMutation.isPending ||
-    restartForUpdateMutation.isPending;
-
-  const handleCheck = () => {
-    if (!isMutating) {
-      checkForUpdateMutation.mutate();
-    }
-  };
-
-  const handleDownload = () => {
-    if (!isMutating) {
-      downloadUpdateMutation.mutate();
-    }
-  };
-
-  const handleRestart = () => {
-    if (!isMutating) {
-      restartForUpdateMutation.mutate();
-    }
-  };
-
+  const isMutating = isChecking || isDownloading || isRestarting;
   const viewProps = getUpdateViewProps({
     status,
     availableVersion,
     downloadedVersion,
+    error,
     isMutating,
-    isChecking: checkForUpdateMutation.isPending,
-    isDownloading: downloadUpdateMutation.isPending,
-    isRestarting: restartForUpdateMutation.isPending,
-    onCheck: handleCheck,
-    onDownload: handleDownload,
-    onRestart: handleRestart,
+    isChecking,
+    isDownloading,
+    isRestarting,
+    onCheck,
+    onDownload,
+    onRestart,
   });
-
-  const activeError =
-    error ??
-    checkForUpdateMutation.error ??
-    downloadUpdateMutation.error ??
-    restartForUpdateMutation.error ??
-    loadError;
-
-  const errorMessage = getErrorMessage(activeError);
+  const errorMessage = getErrorMessage(error ?? mutationError);
 
   return (
     <div className="flex flex-col gap-2 py-3">
@@ -241,5 +270,70 @@ export function UpdateSetting() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+export function UpdateSetting() {
+  const { data: updateState, error: loadError, isError } = useUpdateState();
+  const checkForUpdateMutation = useCheckForUpdate();
+  const downloadUpdateMutation = useDownloadUpdate();
+  const restartForUpdateMutation = useRestartForUpdate();
+
+  if (!updateState && isError) {
+    return (
+      <DisabledUpdateRow
+        description="Burnly could not load update status."
+        error={loadError}
+      />
+    );
+  }
+
+  if (!updateState) return <LoadingUpdateRow />;
+
+  if (updateState.status === "unavailable") {
+    return (
+      <DisabledUpdateRow description="Updates are not available for this build." />
+    );
+  }
+
+  const isMutating =
+    checkForUpdateMutation.isPending ||
+    downloadUpdateMutation.isPending ||
+    restartForUpdateMutation.isPending;
+
+  const handleCheck = () => {
+    if (!isMutating) {
+      checkForUpdateMutation.mutate();
+    }
+  };
+
+  const handleDownload = () => {
+    if (!isMutating) {
+      downloadUpdateMutation.mutate();
+    }
+  };
+
+  const handleRestart = () => {
+    if (!isMutating) {
+      restartForUpdateMutation.mutate();
+    }
+  };
+
+  const mutationError =
+    checkForUpdateMutation.error ??
+    downloadUpdateMutation.error ??
+    restartForUpdateMutation.error;
+
+  return (
+    <InteractiveUpdateRow
+      updateState={updateState}
+      isChecking={checkForUpdateMutation.isPending}
+      isDownloading={downloadUpdateMutation.isPending}
+      isRestarting={restartForUpdateMutation.isPending}
+      mutationError={mutationError}
+      onCheck={handleCheck}
+      onDownload={handleDownload}
+      onRestart={handleRestart}
+    />
   );
 }
