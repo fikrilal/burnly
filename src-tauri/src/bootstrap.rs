@@ -16,6 +16,7 @@ use crate::application::bootstrap::{
 };
 
 use crate::application::collection::CollectorFailure;
+use crate::application::ports::run_store::RunStoreError;
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
@@ -69,6 +70,7 @@ pub(crate) enum StartupErrorKind {
     ResourceDir,
     Collector,
     RefreshScheduler,
+    RunRecovery,
     Tray,
     TrayPanel,
     PrivacyPolicy,
@@ -95,6 +97,9 @@ pub(crate) enum StartupError {
     #[error("failed to initialize refresh scheduler")]
     RefreshScheduler(#[source] RefreshSchedulerError),
 
+    #[error("failed to recover interrupted refresh runs")]
+    RunRecovery(#[source] RunStoreError),
+
     #[error("failed to initialize the system tray")]
     Tray(#[source] tauri::Error),
 
@@ -117,6 +122,7 @@ impl StartupError {
             Self::ResourceDir(_) => StartupErrorKind::ResourceDir,
             Self::Collector(_) => StartupErrorKind::Collector,
             Self::RefreshScheduler(_) => StartupErrorKind::RefreshScheduler,
+            Self::RunRecovery(_) => StartupErrorKind::RunRecovery,
             Self::Tray(_) => StartupErrorKind::Tray,
             Self::TrayPanel(_) => StartupErrorKind::TrayPanel,
             Self::PrivacyPolicy => StartupErrorKind::PrivacyPolicy,
@@ -189,6 +195,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
+    recover_interrupted_runs(&database_path, created_at_ms)?;
     let (_, close_behavior) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
@@ -686,6 +693,15 @@ fn initialize(
     Ok(database)
 }
 
+fn recover_interrupted_runs(database_path: &Path, now_ms: i64) -> Result<(), StartupError> {
+    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    SqliteReconciliationStore::new(database)
+        .recover_interrupted_runs(now_ms)
+        .map_err(StartupError::RunRecovery)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::application::bootstrap::{
@@ -862,6 +878,81 @@ mod tests {
         assert_eq!(settings_count(&connection), 1);
         assert_eq!(setting_text(&connection, "reporting_timezone"), "UTC");
         assert_eq!(setting_i64(&connection, "created_at_ms"), 100);
+    }
+
+    #[test]
+    fn startup_recovery_terminalizes_interrupted_runs() {
+        let directory = tempfile::TempDir::new().expect("create app data directory");
+        let database_path = directory.path().join("burnly.sqlite3");
+
+        drop(initialize(&database_path, "UTC", 100).expect("initialize application"));
+        let connection = Connection::open(&database_path).expect("open database");
+        connection
+            .execute(
+                "INSERT INTO sources (
+                    id, source_key, display_name, enabled, detection_state,
+                    created_at_ms, updated_at_ms
+                ) VALUES (1, 'claude-code', 'claude-code', 1, 'unknown', 100, 100)",
+                [],
+            )
+            .expect("insert source");
+        connection
+            .execute(
+                "INSERT INTO refresh_runs (
+                    id, job_key, trigger, status, started_at_ms,
+                    requested_by_app_version, created_at_ms
+                ) VALUES (1, 'startup-recovery', 'launch', 'running', 110, '0.1.0', 110)",
+                [],
+            )
+            .expect("insert refresh run");
+        connection
+            .execute(
+                "INSERT INTO import_runs (
+                    refresh_run_id, source_id, collector_key, collector_version,
+                    profile_version, projection, scope_kind, scope_start_date,
+                    scope_end_date, aggregation_timezone, status, records_seen,
+                    records_rejected, started_at_ms
+                ) VALUES (1, 1, 'ccusage', '20.0.14', 1, 'daily', 'full',
+                    NULL, NULL, 'UTC', 'running', 0, 0, 120)",
+                [],
+            )
+            .expect("insert import run");
+        drop(connection);
+
+        recover_interrupted_runs(&database_path, 200).expect("recover interrupted runs");
+
+        let connection = Connection::open(database_path).expect("reopen database");
+        let refresh: (String, Option<i64>, Option<String>) = connection
+            .query_row(
+                "SELECT status, finished_at_ms, error_code FROM refresh_runs WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read refresh run");
+        let import: (String, Option<i64>, Option<String>) = connection
+            .query_row(
+                "SELECT status, finished_at_ms, error_code FROM import_runs WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read import run");
+
+        assert_eq!(
+            refresh,
+            (
+                "failed".to_owned(),
+                Some(200),
+                Some("refresh.interrupted".to_owned())
+            )
+        );
+        assert_eq!(
+            import,
+            (
+                "failed".to_owned(),
+                Some(200),
+                Some("import.interrupted".to_owned())
+            )
+        );
     }
 
     #[test]

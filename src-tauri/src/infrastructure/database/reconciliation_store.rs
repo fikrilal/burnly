@@ -34,8 +34,21 @@ use crate::domain::usage::{CostKind, DataQuality, TokenUsage, UsageCost, ValuedC
 use super::Database;
 use crate::infrastructure::project_identity::ProjectPathIdentity;
 
+const INTERRUPTED_REFRESH_ERROR_CODE: &str = "refresh.interrupted";
+const INTERRUPTED_REFRESH_ERROR_SUMMARY: &str =
+    "The previous refresh was interrupted before it completed.";
+const INTERRUPTED_IMPORT_ERROR_CODE: &str = "import.interrupted";
+const INTERRUPTED_IMPORT_ERROR_DETAIL: &str =
+    "The previous import was interrupted before it completed.";
+
 pub(crate) struct SqliteReconciliationStore {
     database: Mutex<Database>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct InterruptedRunRecovery {
+    pub(crate) refresh_runs: usize,
+    pub(crate) import_runs: usize,
 }
 
 impl SqliteReconciliationStore {
@@ -51,6 +64,56 @@ impl SqliteReconciliationStore {
     ) -> Result<T, RunStoreError> {
         let database = self.database.lock().map_err(|_| RunStoreError::Backend)?;
         operation(database.connection())
+    }
+
+    pub(crate) fn recover_interrupted_runs(
+        &self,
+        finished_at_ms: i64,
+    ) -> Result<InterruptedRunRecovery, RunStoreError> {
+        let mut database = self.database.lock().map_err(|_| RunStoreError::Backend)?;
+        let transaction = database
+            .connection_mut()
+            .transaction()
+            .map_err(|_| RunStoreError::Backend)?;
+
+        let import_runs = transaction
+            .execute(
+                "UPDATE import_runs
+                SET status = 'failed',
+                    finished_at_ms = ?1,
+                    error_code = ?2,
+                    error_detail = ?3
+                WHERE status = 'running'",
+                params![
+                    finished_at_ms,
+                    INTERRUPTED_IMPORT_ERROR_CODE,
+                    INTERRUPTED_IMPORT_ERROR_DETAIL,
+                ],
+            )
+            .map_err(|_| RunStoreError::Backend)?;
+
+        let refresh_runs = transaction
+            .execute(
+                "UPDATE refresh_runs
+                SET status = 'failed',
+                    finished_at_ms = ?1,
+                    error_code = ?2,
+                    error_summary = ?3
+                WHERE status IN ('queued', 'running', 'cancelling')",
+                params![
+                    finished_at_ms,
+                    INTERRUPTED_REFRESH_ERROR_CODE,
+                    INTERRUPTED_REFRESH_ERROR_SUMMARY,
+                ],
+            )
+            .map_err(|_| RunStoreError::Backend)?;
+
+        transaction.commit().map_err(|_| RunStoreError::Backend)?;
+
+        Ok(InterruptedRunRecovery {
+            refresh_runs,
+            import_runs,
+        })
     }
 }
 
@@ -1409,6 +1472,145 @@ mod tests {
         assert_eq!(error, RunStoreError::RunNotFound);
     }
 
+    #[test]
+    fn interrupted_run_recovery_terminalizes_only_active_rows() {
+        let (_directory, store) = migrated_store();
+        let source_id = store
+            .resolve_source(SourceKey::ClaudeCode, 100)
+            .expect("resolve source");
+
+        let running_refresh_id = store
+            .begin_refresh_run(refresh_spec("refresh-running"), 100)
+            .expect("begin running refresh");
+        let running_import_id = store
+            .begin_import_run(daily_import_spec(running_refresh_id, source_id), 110)
+            .expect("begin running import");
+        let queued_refresh_id = store
+            .begin_refresh_run(refresh_spec("refresh-queued"), 120)
+            .expect("begin queued refresh");
+        let cancelling_refresh_id = store
+            .begin_refresh_run(refresh_spec("refresh-cancelling"), 130)
+            .expect("begin cancelling refresh");
+        let succeeded_refresh_id = store
+            .begin_refresh_run(refresh_spec("refresh-succeeded"), 140)
+            .expect("begin succeeded refresh");
+        let succeeded_import_id = store
+            .begin_import_run(daily_import_spec(succeeded_refresh_id, source_id), 145)
+            .expect("begin succeeded import");
+        store
+            .complete_import_run(
+                succeeded_import_id,
+                ImportRunCompletion {
+                    outcome: ImportOutcome::Succeeded,
+                    records_seen: 2,
+                    records_rejected: 0,
+                    finished_at_ms: 150,
+                    error: None,
+                },
+            )
+            .expect("complete succeeded import");
+        store
+            .complete_refresh_run(
+                succeeded_refresh_id,
+                RefreshRunCompletion {
+                    outcome: RefreshOutcome::Succeeded,
+                    finished_at_ms: 160,
+                    error: None,
+                },
+            )
+            .expect("complete succeeded refresh");
+
+        {
+            let database = store.database.lock().expect("store lock");
+            database
+                .connection()
+                .execute(
+                    "UPDATE refresh_runs SET status = 'queued' WHERE id = ?1",
+                    [queued_refresh_id.value()],
+                )
+                .expect("mark queued");
+            database
+                .connection()
+                .execute(
+                    "UPDATE refresh_runs SET status = 'cancelling' WHERE id = ?1",
+                    [cancelling_refresh_id.value()],
+                )
+                .expect("mark cancelling");
+        }
+
+        let recovery = store
+            .recover_interrupted_runs(500)
+            .expect("recover interrupted runs");
+
+        assert_eq!(
+            recovery,
+            InterruptedRunRecovery {
+                refresh_runs: 3,
+                import_runs: 1,
+            }
+        );
+        assert_eq!(
+            refresh_status(&store, running_refresh_id),
+            (
+                "failed".to_owned(),
+                Some(500),
+                Some(INTERRUPTED_REFRESH_ERROR_CODE.to_owned())
+            )
+        );
+        assert_eq!(
+            refresh_status(&store, queued_refresh_id),
+            (
+                "failed".to_owned(),
+                Some(500),
+                Some(INTERRUPTED_REFRESH_ERROR_CODE.to_owned())
+            )
+        );
+        assert_eq!(
+            refresh_status(&store, cancelling_refresh_id),
+            (
+                "failed".to_owned(),
+                Some(500),
+                Some(INTERRUPTED_REFRESH_ERROR_CODE.to_owned())
+            )
+        );
+        assert_eq!(
+            import_status(&store, running_import_id),
+            (
+                "failed".to_owned(),
+                Some(500),
+                Some(INTERRUPTED_IMPORT_ERROR_CODE.to_owned())
+            )
+        );
+        assert_eq!(
+            refresh_status(&store, succeeded_refresh_id),
+            ("succeeded".to_owned(), Some(160), None)
+        );
+        assert_eq!(
+            import_status(&store, succeeded_import_id),
+            ("succeeded".to_owned(), Some(150), None)
+        );
+
+        let second_recovery = store
+            .recover_interrupted_runs(600)
+            .expect("recover interrupted runs again");
+
+        assert_eq!(
+            second_recovery,
+            InterruptedRunRecovery {
+                refresh_runs: 0,
+                import_runs: 0,
+            }
+        );
+        assert_eq!(
+            refresh_status(&store, running_refresh_id),
+            (
+                "failed".to_owned(),
+                Some(500),
+                Some(INTERRUPTED_REFRESH_ERROR_CODE.to_owned())
+            )
+        );
+    }
+
     fn setup_import(store: &SqliteReconciliationStore, job_key: &str) -> (SourceId, ImportRunId) {
         let source_id = store
             .resolve_source(SourceKey::ClaudeCode, 100)
@@ -1421,6 +1623,36 @@ mod tests {
             .expect("begin import run");
 
         (source_id, import_run_id)
+    }
+
+    fn refresh_status(
+        store: &SqliteReconciliationStore,
+        id: RefreshRunId,
+    ) -> (String, Option<i64>, Option<String>) {
+        let database = store.database.lock().expect("store lock");
+        database
+            .connection()
+            .query_row(
+                "SELECT status, finished_at_ms, error_code FROM refresh_runs WHERE id = ?1",
+                [id.value()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read refresh status")
+    }
+
+    fn import_status(
+        store: &SqliteReconciliationStore,
+        id: ImportRunId,
+    ) -> (String, Option<i64>, Option<String>) {
+        let database = store.database.lock().expect("store lock");
+        database
+            .connection()
+            .query_row(
+                "SELECT status, finished_at_ms, error_code FROM import_runs WHERE id = ?1",
+                [id.value()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read import status")
     }
 
     fn provenance() -> CandidateProvenance {

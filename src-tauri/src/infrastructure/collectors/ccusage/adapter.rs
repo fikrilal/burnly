@@ -143,21 +143,17 @@ impl Collector for CcusageCollector {
     ) -> Result<CollectionResult, CollectorFailure> {
         let started_at = Utc::now();
         profile_for(request.source(), request.projection())?;
-        let VerifiedSidecar {
-            executable,
-            descriptor,
-            ..
-        } = self.verify(cancellation)?;
-        let prepared = prepare_collection(&executable, &request)?;
+        let sidecar = self.verify(cancellation)?;
+        let prepared = prepare_collection(&sidecar.executable, &request)?;
         let output = execute(prepared.process(), cancellation, self.limits)?;
         let finished_at = Utc::now();
-        let metadata = metadata(&request, &descriptor, started_at, finished_at)?;
+        let metadata = metadata(&request, &sidecar.descriptor, started_at, finished_at)?;
         let timezone = request.aggregation_timezone().unwrap_or("UTC");
         let context = MappingContext::new(
             request.source(),
-            descriptor.collector.clone(),
-            descriptor.runtime_version.clone(),
-            profile_version(&descriptor, request.source())?,
+            sidecar.descriptor.collector.clone(),
+            sidecar.descriptor.runtime_version.clone(),
+            profile_version(&sidecar.descriptor, request.source())?,
             request.collection_id().clone(),
             finished_at,
             timezone.to_owned(),
@@ -323,6 +319,7 @@ impl CancellationSignal for ActiveCancellation {
 mod tests {
     use std::{
         fs,
+        io::Write,
         ops::Deref,
         os::unix::fs::symlink,
         path::{Path, PathBuf},
@@ -331,6 +328,7 @@ mod tests {
     };
 
     use chrono::TimeZone;
+    use sha2::{Digest, Sha256};
 
     use crate::application::{
         collection::{
@@ -468,6 +466,21 @@ mod tests {
     }
 
     #[test]
+    fn packaged_payload_executable_lives_through_collection() {
+        let collector = packaged_payload_collector();
+
+        let result = collector
+            .collect(
+                daily_request(SourceKey::ClaudeCode),
+                &TestCancellation::active(),
+            )
+            .expect("payload-backed collection result");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        assert_eq!(result.daily_candidates().len(), 2);
+    }
+
+    #[test]
     fn keeps_binary_process_and_output_failures_distinguishable() {
         assert_code(
             CcusageCollector::development(PathBuf::from("/missing/ccusage"))
@@ -560,6 +573,87 @@ mod tests {
             _directory: directory,
             collector,
         }
+    }
+
+    fn packaged_payload_collector() -> FakeCollector {
+        let directory = tempfile::tempdir().expect("packaged collector directory");
+        let target = BinaryTarget::current().expect("supported test target");
+        let sidecar_directory = directory.path().join("sidecars").join("ccusage");
+        fs::create_dir_all(&sidecar_directory).expect("sidecar directory");
+
+        let executable_name = target.executable_name();
+        let script = packaged_payload_script();
+        let checksum = sha256(&script);
+
+        let executable = sidecar_directory.join(executable_name);
+        fs::write(&executable, b"mutated by package tooling").expect("mutated executable");
+        let payload = sidecar_directory.join(format!("{executable_name}.payload"));
+        let mut payload_file = fs::File::create(payload).expect("payload file");
+        payload_file
+            .write_all(b"BURNLY-CCUSAGE-PAYLOAD-V1\n")
+            .expect("payload header");
+        payload_file.write_all(&script).expect("payload bytes");
+
+        fs::write(
+            sidecar_directory.join("manifest.json"),
+            format!(
+                r#"{{
+                    "collectorKey":"ccusage",
+                    "displayName":"ccusage",
+                    "expectedVersion":"20.0.14",
+                    "sourceRevision":"a7726bb9227ef828a8fa06422a08162254a61563",
+                    "adapterVersion":1,
+                    "entries":[{{
+                        "target":"{}",
+                        "rustTargetTriple":"{}",
+                        "packageName":"{}",
+                        "executableName":"{}",
+                        "integrity":{{"kind":"release_sha256","sha256":"{}"}}
+                    }}]
+                }}"#,
+                target.as_str(),
+                target.rust_target_triple(),
+                target.package_name(),
+                executable_name,
+                checksum
+            ),
+        )
+        .expect("manifest");
+
+        let collector = CcusageCollector::packaged(directory.path())
+            .expect("packaged collector")
+            .with_limits(ProcessLimits::collection());
+        FakeCollector {
+            _directory: directory,
+            collector,
+        }
+    }
+
+    fn packaged_payload_script() -> Vec<u8> {
+        let valid_daily = fixture_data_path().join("valid.json");
+        format!(
+            r#"#!/bin/sh
+case "$1" in
+  --version)
+    printf 'ccusage 20.0.14\n'
+    exit 0
+    ;;
+  claude)
+    if [ "$2" = "daily" ]; then
+      cat '{}'
+      exit 0
+    fi
+    ;;
+esac
+exit 7
+"#,
+            valid_daily.display()
+        )
+        .into_bytes()
+    }
+
+    fn sha256(bytes: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(bytes))
     }
 
     fn daily_request(source: SourceKey) -> CollectionRequest {
