@@ -23,10 +23,12 @@ MSI and RPM are not selected for the first release. Every additional installer
 format creates another install, upgrade, uninstall, and signing path that must
 be tested.
 
-AppImage is also deferred. Current AppImage assembly changes the checksum of the
-appended Bun payload in the bundled `ccusage` executable and the resulting
-sidecar segfaults. Burnly will not publish that format until packaging preserves
-the reviewed sidecar bytes and the extracted binary passes its version smoke.
+AppImage is also deferred from the first published release matrix until install,
+launch-at-login, update, and rollback behavior are reviewed. AppImage assembly
+rewrites the direct Bun-packed `ccusage` executable, so Burnly packages a
+reviewed sidecar payload and materializes it at runtime after checksum
+verification. AppImage promotion requires the AppImage smoke to pass on the
+target architecture.
 
 Canonical artifact names use:
 

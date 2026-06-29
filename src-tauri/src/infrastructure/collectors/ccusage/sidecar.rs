@@ -1,6 +1,7 @@
 use std::{fs, io::Read, path::PathBuf};
 
 use sha2::{Digest, Sha256};
+use tempfile::TempDir;
 
 use crate::application::{
     collection::{CollectorDescriptor, CollectorFailure, CollectorFailureCode, CollectorIntegrity},
@@ -9,9 +10,11 @@ use crate::application::{
 
 use super::{
     command::prepare_version_check,
-    manifest::{BinaryTarget, SidecarManifest},
+    manifest::{BinaryTarget, SidecarEntry, SidecarManifest},
     process::{execute, ProcessLimits},
 };
+
+const PACKAGED_PAYLOAD_HEADER: &[u8] = b"BURNLY-CCUSAGE-PAYLOAD-V1\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SidecarLocation {
@@ -23,6 +26,7 @@ pub(crate) enum SidecarLocation {
 pub(crate) struct VerifiedSidecar {
     pub executable: PathBuf,
     pub descriptor: CollectorDescriptor,
+    _materialized_directory: Option<TempDir>,
 }
 
 pub(crate) fn verify(
@@ -34,27 +38,35 @@ pub(crate) fn verify(
     let entry = manifest
         .entry_for(target)
         .ok_or_else(|| failure(CollectorFailureCode::BinaryMissing))?;
-    let (executable, expected_development) = match location {
-        SidecarLocation::PackagedResourceDirectory(directory) => (
-            directory
-                .join("sidecars")
-                .join("ccusage")
-                .join(entry.executable_name()),
-            false,
-        ),
-        SidecarLocation::DevelopmentBinary(executable) => (executable, true),
+    let (executable, expected_development, packaged_directory) = match location {
+        SidecarLocation::PackagedResourceDirectory(directory) => {
+            let sidecar_directory = directory.join("sidecars").join("ccusage");
+            (
+                sidecar_directory.join(entry.executable_name()),
+                false,
+                Some(sidecar_directory),
+            )
+        }
+        SidecarLocation::DevelopmentBinary(executable) => (executable, true, None),
     };
 
-    let metadata =
-        fs::metadata(&executable).map_err(|_| failure(CollectorFailureCode::BinaryMissing))?;
-    if !metadata.is_file() || entry.integrity().is_development() != expected_development {
+    if entry.integrity().is_development() != expected_development {
         return Err(failure(CollectorFailureCode::BinaryChecksumMismatch));
     }
 
-    let integrity = match entry.integrity().expected_sha256() {
-        Some(expected) if sha256(&executable)? == expected => CollectorIntegrity::Verified,
-        Some(_) => return Err(failure(CollectorFailureCode::BinaryChecksumMismatch)),
-        None => CollectorIntegrity::UnverifiedDevelopment,
+    let (executable, materialized_directory, integrity) = match entry.integrity().expected_sha256()
+    {
+        Some(expected) => {
+            verified_release_executable(executable, packaged_directory.as_deref(), entry, expected)?
+        }
+        None => {
+            let metadata = fs::metadata(&executable)
+                .map_err(|_| failure(CollectorFailureCode::BinaryMissing))?;
+            if !metadata.is_file() {
+                return Err(failure(CollectorFailureCode::BinaryMissing));
+            }
+            (executable, None, CollectorIntegrity::UnverifiedDevelopment)
+        }
     };
     let version_check = prepare_version_check(&executable)?;
     let output = execute(
@@ -74,7 +86,84 @@ pub(crate) fn verify(
     Ok(VerifiedSidecar {
         executable,
         descriptor,
+        _materialized_directory: materialized_directory,
     })
+}
+
+fn verified_release_executable(
+    executable: PathBuf,
+    packaged_directory: Option<&std::path::Path>,
+    entry: &SidecarEntry,
+    expected_sha256: &str,
+) -> Result<(PathBuf, Option<TempDir>, CollectorIntegrity), CollectorFailure> {
+    let direct_binary_is_file = fs::metadata(&executable)
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false);
+    if direct_binary_is_file {
+        if sha256(&executable)? == expected_sha256 {
+            return Ok((executable, None, CollectorIntegrity::Verified));
+        }
+        let payload = packaged_directory
+            .map(|directory| directory.join(format!("{}.payload", entry.executable_name())));
+        if !payload.as_ref().is_some_and(|path| path.is_file()) {
+            return Err(failure(CollectorFailureCode::BinaryChecksumMismatch));
+        }
+    }
+
+    let packaged_directory =
+        packaged_directory.ok_or_else(|| failure(CollectorFailureCode::BinaryChecksumMismatch))?;
+    let payload = packaged_directory.join(format!("{}.payload", entry.executable_name()));
+    let materialized = materialize_payload(&payload, entry.executable_name(), expected_sha256)?;
+    Ok((
+        materialized.executable,
+        Some(materialized.directory),
+        CollectorIntegrity::Verified,
+    ))
+}
+
+struct MaterializedPayload {
+    directory: TempDir,
+    executable: PathBuf,
+}
+
+fn materialize_payload(
+    payload: &std::path::Path,
+    executable_name: &str,
+    expected_sha256: &str,
+) -> Result<MaterializedPayload, CollectorFailure> {
+    let bytes = fs::read(payload).map_err(|_| failure(CollectorFailureCode::BinaryMissing))?;
+    let executable_bytes = bytes
+        .strip_prefix(PACKAGED_PAYLOAD_HEADER)
+        .ok_or_else(|| failure(CollectorFailureCode::BinaryChecksumMismatch))?;
+    let observed = format!("{:x}", Sha256::digest(executable_bytes));
+    if observed != expected_sha256 {
+        return Err(failure(CollectorFailureCode::BinaryChecksumMismatch));
+    }
+
+    let directory = tempfile::Builder::new()
+        .prefix("burnly-ccusage-sidecar-")
+        .tempdir()
+        .map_err(|_| failure(CollectorFailureCode::Internal))?;
+    let executable = directory.path().join(executable_name);
+    fs::write(&executable, executable_bytes)
+        .map_err(|_| failure(CollectorFailureCode::Internal))?;
+    make_executable(&executable).map_err(|_| failure(CollectorFailureCode::Internal))?;
+    Ok(MaterializedPayload {
+        directory,
+        executable,
+    })
+}
+
+#[cfg(unix)]
+fn make_executable(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn sha256(path: &std::path::Path) -> Result<String, CollectorFailure> {
@@ -163,6 +252,40 @@ mod tests {
         .expect("verified packaged sidecar");
 
         assert_eq!(verified.descriptor.integrity, CollectorIntegrity::Verified);
+    }
+
+    #[test]
+    fn materializes_verified_packaged_payload_when_direct_binary_was_mutated() {
+        let fixture = Fixture::new("20.0.14");
+        let (package_root, packaged) = fixture.package();
+        let checksum = sha256(&fixture.executable).expect("checksum");
+        fs::remove_file(&packaged).expect("remove linked executable");
+        fs::write(&packaged, b"mutated by package tooling").expect("write mutated executable");
+        let mut payload = PACKAGED_PAYLOAD_HEADER.to_vec();
+        payload.extend(fs::read(&fixture.executable).expect("read fixture"));
+        fs::write(
+            packaged.with_file_name(format!("{}.payload", fixture.target.executable_name())),
+            payload,
+        )
+        .expect("write payload");
+        let manifest = fixture.manifest(&format!(
+            r#"{{"kind":"release_sha256","sha256":"{checksum}"}}"#
+        ));
+
+        let verified = verify(
+            &manifest,
+            fixture.target,
+            SidecarLocation::PackagedResourceDirectory(package_root.path().to_path_buf()),
+            &Active,
+        )
+        .expect("verified packaged payload");
+
+        assert_ne!(verified.executable, packaged);
+        assert_eq!(verified.descriptor.integrity, CollectorIntegrity::Verified);
+        assert_eq!(
+            sha256(&verified.executable).expect("materialized checksum"),
+            checksum
+        );
     }
 
     #[test]
