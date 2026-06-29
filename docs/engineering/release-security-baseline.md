@@ -57,6 +57,9 @@ registry.
 - `tauri-plugin-dialog`: Rust-only export destination selection.
 - `tauri-plugin-notification`: Rust-only permission and budget notification
   delivery.
+- `tauri-plugin-updater`: Rust-only update checking, artifact download,
+  signature verification, install, and restart. The webview receives only
+  Burnly wrapper IPC commands, not updater plugin permissions.
 
 None of these plugins requires frontend capability permissions.
 

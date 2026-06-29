@@ -1,4 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
 use thiserror::Error;
 
@@ -12,11 +16,11 @@ pub(crate) struct UpdateSnapshot {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "native updater adapter will construct these states when endpoint configuration is enabled"
-)]
 pub(crate) enum UpdateStatus {
+    #[allow(
+        dead_code,
+        reason = "unavailable status is used by deterministic test/runtime fakes"
+    )]
     Unavailable,
     Idle,
     Checking,
@@ -32,11 +36,14 @@ pub(crate) struct UpdateErrorSummary {
     pub retryable: bool,
 }
 
+pub(crate) type UpdateRuntimeFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<UpdateSnapshot, UpdateRuntimeError>> + Send + 'a>>;
+
 pub(crate) trait UpdateRuntime: Send + Sync {
     fn status(&self) -> UpdateSnapshot;
-    fn check(&self) -> Result<UpdateSnapshot, UpdateRuntimeError>;
-    fn download(&self) -> Result<UpdateSnapshot, UpdateRuntimeError>;
-    fn restart(&self) -> Result<UpdateSnapshot, UpdateRuntimeError>;
+    fn check(self: Arc<Self>) -> UpdateRuntimeFuture<'static>;
+    fn download(self: Arc<Self>) -> UpdateRuntimeFuture<'static>;
+    fn restart(self: Arc<Self>) -> UpdateRuntimeFuture<'static>;
 }
 
 pub(crate) struct UpdateService {
@@ -52,24 +59,20 @@ impl UpdateService {
         self.runtime.status()
     }
 
-    pub(crate) fn check(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
-        self.runtime.check()
+    pub(crate) async fn check(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
+        self.runtime.clone().check().await
     }
 
-    pub(crate) fn download(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
-        self.runtime.download()
+    pub(crate) async fn download(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
+        self.runtime.clone().download().await
     }
 
-    pub(crate) fn restart(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
-        self.runtime.restart()
+    pub(crate) async fn restart(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
+        self.runtime.clone().restart().await
     }
 }
 
-#[derive(Debug, Error)]
-#[expect(
-    dead_code,
-    reason = "native updater adapter will map these failures when endpoint configuration is enabled"
-)]
+#[derive(Debug, Clone, Copy, Error)]
 pub(crate) enum UpdateRuntimeError {
     #[error("updates are unavailable")]
     Unavailable,
@@ -117,10 +120,12 @@ pub(crate) fn update_status_label(value: UpdateStatus) -> &'static str {
     }
 }
 
+#[cfg(test)]
 pub(crate) struct UnavailableUpdateRuntime {
     snapshot: Mutex<UpdateSnapshot>,
 }
 
+#[cfg(test)]
 impl UnavailableUpdateRuntime {
     pub(crate) fn new() -> Self {
         Self {
@@ -138,6 +143,7 @@ impl UnavailableUpdateRuntime {
     }
 }
 
+#[cfg(test)]
 impl UpdateRuntime for UnavailableUpdateRuntime {
     fn status(&self) -> UpdateSnapshot {
         self.snapshot
@@ -146,22 +152,25 @@ impl UpdateRuntime for UnavailableUpdateRuntime {
             .clone()
     }
 
-    fn check(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
-        Err(UpdateRuntimeError::Unavailable)
+    fn check(self: Arc<Self>) -> UpdateRuntimeFuture<'static> {
+        Box::pin(async { Err(UpdateRuntimeError::Unavailable) })
     }
 
-    fn download(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
-        Err(UpdateRuntimeError::Unavailable)
+    fn download(self: Arc<Self>) -> UpdateRuntimeFuture<'static> {
+        Box::pin(async { Err(UpdateRuntimeError::Unavailable) })
     }
 
-    fn restart(&self) -> Result<UpdateSnapshot, UpdateRuntimeError> {
-        Err(UpdateRuntimeError::Unavailable)
+    fn restart(self: Arc<Self>) -> UpdateRuntimeFuture<'static> {
+        Box::pin(async { Err(UpdateRuntimeError::Unavailable) })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
 
     #[test]
     fn unavailable_runtime_reports_stable_snapshot_and_rejects_commands() {
@@ -178,16 +187,33 @@ mod tests {
             })
         );
         assert!(matches!(
-            service.check(),
+            poll_ready(service.check()),
             Err(UpdateRuntimeError::Unavailable)
         ));
         assert!(matches!(
-            service.download(),
+            poll_ready(service.download()),
             Err(UpdateRuntimeError::Unavailable)
         ));
         assert!(matches!(
-            service.restart(),
+            poll_ready(service.restart()),
             Err(UpdateRuntimeError::Unavailable)
         ));
+    }
+
+    fn poll_ready<T>(future: impl Future<Output = T>) -> T {
+        let waker = Waker::from(Arc::new(NoopWake));
+        let mut context = Context::from_waker(&waker);
+        let mut future = Box::pin(future);
+
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("test future should complete without awaiting runtime work"),
+        }
+    }
+
+    struct NoopWake;
+
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
     }
 }

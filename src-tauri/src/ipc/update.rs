@@ -33,22 +33,24 @@ pub(super) fn update_get_state(
 }
 
 #[tauri::command]
-pub(super) fn update_check(service: State<'_, UpdateService>) -> IpcResponse<UpdateStatusResponse> {
-    update_command_result(service.check())
+pub(super) async fn update_check(
+    service: State<'_, UpdateService>,
+) -> Result<IpcResponse<UpdateStatusResponse>, String> {
+    Ok(update_command_result(service.check().await))
 }
 
 #[tauri::command]
-pub(super) fn update_download(
+pub(super) async fn update_download(
     service: State<'_, UpdateService>,
-) -> IpcResponse<UpdateStatusResponse> {
-    update_command_result(service.download())
+) -> Result<IpcResponse<UpdateStatusResponse>, String> {
+    Ok(update_command_result(service.download().await))
 }
 
 #[tauri::command]
-pub(super) fn update_restart(
+pub(super) async fn update_restart(
     service: State<'_, UpdateService>,
-) -> IpcResponse<UpdateStatusResponse> {
-    update_command_result(service.restart())
+) -> Result<IpcResponse<UpdateStatusResponse>, String> {
+    Ok(update_command_result(service.restart().await))
 }
 
 fn update_command_result(

@@ -23,7 +23,9 @@ use crate::application::refresh::{
     RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
-use crate::application::update::{UnavailableUpdateRuntime, UpdateService};
+#[cfg(test)]
+use crate::application::update::UnavailableUpdateRuntime;
+use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
@@ -39,7 +41,7 @@ use crate::platform::lifecycle;
 #[cfg(not(debug_assertions))]
 use crate::platform::single_instance;
 use crate::platform::system_clock::SystemClock;
-use crate::platform::{database_path, system_clock, system_timezone, tray};
+use crate::platform::{database_path, system_clock, system_timezone, tray, updater};
 
 const TRAY_OPEN_STALE_AFTER_MS: i64 = 5 * 60 * 1_000;
 const TRAY_OPEN_REFRESH_THROTTLE_MS: i64 = 60 * 1_000;
@@ -127,6 +129,7 @@ pub(crate) fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -238,7 +241,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let runtime_capabilities = RuntimeCapabilities::new(
         RuntimeCapabilities::tray_available(),
         launch_at_login_capability(),
-        RuntimeCapabilities::update_not_implemented(),
+        RuntimeCapabilities::update_available(),
     );
 
     app.manage(
@@ -257,9 +260,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     tray_open_refresh.request_startup_refresh_if_stale();
     app.manage(tray_summary_query.clone());
     app.manage(tray_open_refresh);
-    app.manage(UpdateService::new(
-        Arc::new(UnavailableUpdateRuntime::new()),
-    ));
+    app.manage(UpdateService::new(Arc::new(
+        updater::TauriUpdateRuntime::new(app.handle().clone()),
+    )));
 
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),

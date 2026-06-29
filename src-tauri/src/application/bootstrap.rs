@@ -226,6 +226,13 @@ impl RuntimeCapabilities {
         }
     }
 
+    pub(crate) fn update_available() -> Capability {
+        Capability {
+            supported: true,
+            status: CapabilityStatus::Available,
+        }
+    }
+
     pub(crate) fn launch_at_login_not_implemented() -> Capability {
         Capability {
             supported: false,
@@ -233,6 +240,7 @@ impl RuntimeCapabilities {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn update_not_implemented() -> Capability {
         Capability {
             supported: false,

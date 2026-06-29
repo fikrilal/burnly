@@ -32,6 +32,14 @@
       "freezePrototype": true
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/fikrilal/burnly/releases/latest/download/latest-linux.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5RTIxODlCNThDN0U5RkEKUldUNjZjZFlteGppcWVZVVEwSzFqc3oydDM3Zzh6S3htMDRsWDIwMnpnc1lONTdyT3BOanFlSkIK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
