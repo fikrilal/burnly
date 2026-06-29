@@ -43,10 +43,18 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   if (actionReferences.length < 10) {
     failures.push("release workflows must use the reviewed pinned actions.");
   }
-  if (combined.includes("${{ secrets.")) {
-    failures.push(
-      "verification and unsigned build jobs must not read secrets.",
-    );
+  if (verifyWorkflow.includes("${{ secrets.")) {
+    failures.push("verification workflow must not read secrets.");
+  }
+  for (const requiredSecret of [
+    "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
+    "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}",
+  ]) {
+    if (!releaseWorkflow.includes(requiredSecret)) {
+      failures.push(
+        `release workflow is missing signing secret: ${requiredSecret}.`,
+      );
+    }
   }
 
   for (const target of expectedTargets) {
@@ -59,8 +67,12 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "id-token: write",
     "retention-days: 14",
     "if-no-files-found: error",
+    "pnpm tauri signer sign",
     "pnpm release:stage ${{ matrix.target }}",
     "pnpm linux-smoke:appimage",
+    "pnpm updater:manifest artifacts",
+    "pnpm updater:verify artifacts",
+    "latest-linux.json",
     "pnpm release:verify artifacts",
     "merge-multiple: true",
     "needs:\n      - validate\n      - build",
@@ -85,6 +97,9 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "release:version",
     "release:stage",
     "release:verify",
+    "updater:manifest",
+    "updater:verify",
+    "updater-metadata:test",
     "verify:windows",
   ]) {
     if (!scripts[script]) failures.push(`package.json is missing ${script}.`);

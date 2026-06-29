@@ -64,6 +64,9 @@ None of these plugins requires frontend capability permissions.
 
 - Custom Burnly commands remain security-sensitive native entry points and must
   validate typed input and preserve existing application boundaries.
+- Updater signing private keys are release secrets. A compromised signing key
+  can authorize malicious update artifacts even when release checksums are
+  correct, so key rotation and secret access must remain tightly controlled.
 - `'unsafe-inline'` remains enabled for styles only. Removing it requires a
   dedicated audit of runtime style attributes.
 - Dependency and platform security remain part of the overall release trust
@@ -75,3 +78,4 @@ None of these plugins requires frontend capability permissions.
 - [Tauri permissions](https://v2.tauri.app/security/permissions/)
 - [Tauri content security policy](https://v2.tauri.app/security/csp/)
 - [Tauri opener permissions](https://v2.tauri.app/plugin/opener/)
+- [Tauri updater](https://v2.tauri.app/plugin/updater/)

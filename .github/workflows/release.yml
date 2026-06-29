@@ -115,10 +115,23 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - run: pnpm install --frozen-lockfile
       - run: pnpm packaging:check
-      - name: Build unsigned bundle
+      - name: Build bundle
         env:
           BURNLY_SIDECAR_TARGET: ${{ matrix.target }}
         run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+      - name: Sign Linux AppImage updater artifact
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          artifact="$(find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f -name '*.AppImage' -print -quit)"
+          if [[ -z "$artifact" ]]; then
+            echo "Linux AppImage artifact was not produced."
+            exit 1
+          fi
+          pnpm tauri signer sign "$artifact"
       - name: Stage canonical artifact and checksum manifest
         run: pnpm release:stage ${{ matrix.target }}
       - name: Smoke Linux AppImage artifact
@@ -165,6 +178,13 @@ jobs:
           path: artifacts
           merge-multiple: true
       - run: pnpm release:verify artifacts
+      - name: Generate Linux updater metadata
+        shell: bash
+        run: |
+          base_url="https://github.com/${{ github.repository }}/releases/download/$RELEASE_TAG"
+          pnpm updater:manifest artifacts "$base_url" artifacts/latest-linux.json
+          pnpm updater:verify artifacts artifacts/latest-linux.json "$base_url"
+          sha256sum artifacts/latest-linux.json >> artifacts/SHA256SUMS
       - name: Publish complete draft release
         shell: bash
         run: |
@@ -176,4 +196,4 @@ jobs:
             --draft \
             --verify-tag \
             --title "Burnly $RELEASE_TAG" \
-            --notes "Unsigned release-candidate artifacts with SHA-256 manifests and GitHub build provenance."
+            --notes "Release-candidate artifacts with SHA-256 manifests, Linux updater metadata, and GitHub build provenance."

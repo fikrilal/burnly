@@ -27,12 +27,26 @@ try {
       const fileName = artifactName(target, bundle);
       const contents = Buffer.from(`${target.rustTargetTriple}:${bundle.kind}`);
       await writeFile(path.join(fixtureDirectory, fileName), contents);
-      artifacts.push({
+      const artifact = {
         kind: bundle.kind,
         fileName,
         bytes: contents.length,
         sha256: createHash("sha256").update(contents).digest("hex"),
-      });
+      };
+      if (target.platform === "linux" && bundle.kind === "appimage") {
+        const signatureFileName = `${fileName}.sig`;
+        const signature = Buffer.from(`signature:${target.rustTargetTriple}`);
+        await writeFile(
+          path.join(fixtureDirectory, signatureFileName),
+          signature,
+        );
+        artifact.signature = {
+          fileName: signatureFileName,
+          bytes: signature.length,
+          sha256: createHash("sha256").update(signature).digest("hex"),
+        };
+      }
+      artifacts.push(artifact);
     }
     await writeFile(
       path.join(fixtureDirectory, `manifest-${target.rustTargetTriple}.json`),
@@ -57,7 +71,16 @@ try {
     path.join(fixtureDirectory, "SHA256SUMS"),
     "utf8",
   );
-  if (checksums.trim().split("\n").length !== releaseTargets.targets.length) {
+  const expectedChecksumLines = releaseTargets.targets.reduce(
+    (count, target) =>
+      count +
+      target.bundles.length +
+      target.bundles.filter(
+        (bundle) => target.platform === "linux" && bundle.kind === "appimage",
+      ).length,
+    0,
+  );
+  if (checksums.trim().split("\n").length !== expectedChecksumLines) {
     throw new Error("checksum output is incomplete");
   }
 

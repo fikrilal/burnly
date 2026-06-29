@@ -83,6 +83,28 @@ for (const manifestName of manifestNames) {
       process.exit(1);
     }
     checksumLines.push(`${sha256}  ${artifact.fileName}`);
+    if (artifact.signature) {
+      allowedFiles.add(artifact.signature.fileName);
+      const signaturePath = path.join(
+        artifactDirectory,
+        artifact.signature.fileName,
+      );
+      const signatureContents = await readFile(signaturePath);
+      const signatureMetadata = await stat(signaturePath);
+      const signatureSha256 = createHash("sha256")
+        .update(signatureContents)
+        .digest("hex");
+      if (
+        signatureMetadata.size !== artifact.signature.bytes ||
+        signatureSha256 !== artifact.signature.sha256
+      ) {
+        console.error(
+          `Artifact signature integrity mismatch: ${artifact.signature.fileName}`,
+        );
+        process.exit(1);
+      }
+      checksumLines.push(`${signatureSha256}  ${artifact.signature.fileName}`);
+    }
   }
 }
 

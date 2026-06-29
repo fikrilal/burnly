@@ -20,21 +20,35 @@ The release matrix builds all six native target triples from
 - Linux ARM64 and x86_64 AppImages
 
 Each job uses a native GitHub-hosted runner. Build jobs have no publication
-permission. They stage one canonical artifact, produce a target checksum
-manifest, run Linux AppImage smoke on Linux jobs, upload an immutable workflow
-artifact for 14 days, and request GitHub build-provenance attestation.
+permission. They receive updater signing secrets only for Tauri's updater
+artifact signing, stage one canonical artifact, preserve signature files when
+present, produce a target checksum manifest, run Linux AppImage smoke on Linux
+jobs, upload an immutable workflow artifact for 14 days, and request GitHub
+build-provenance attestation.
 
 ## Publication
 
 Publication is a separate job with `contents: write`. It runs only for a pushed
 version tag or an explicitly approved manual run, and only after validation and
 every matrix build succeed. It downloads all six artifacts, verifies every size
-and SHA-256 against its manifest, writes `SHA256SUMS`, rejects duplicate release
-tags, and creates a draft release.
+and SHA-256 against its manifest, writes `SHA256SUMS`, generates and verifies
+Linux `latest-linux.json` updater metadata from staged AppImage signatures,
+rejects duplicate release tags, and creates a draft release.
 
-Signing and public release promotion remain outside this unsigned workflow and
-belong to Phase 10F. A failed, cancelled, or missing matrix job cannot publish a
-partial release.
+Public release promotion remains outside this workflow. A failed, cancelled, or
+missing matrix job cannot publish a partial release.
+
+## Updater Signing
+
+Linux updater signing uses Tauri's updater signing flow. Release jobs require:
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+The private key must exist only as a release secret. The public key belongs in
+source once the runtime updater plugin is configured in Phase 4. Updater
+metadata publishes inline signatures from staged `.AppImage.sig` files; missing
+or mismatched signatures fail metadata generation or verification.
 
 ## Pinning And Caching
 

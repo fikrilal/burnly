@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import {
   copyFile,
+  constants,
   mkdir,
   readFile,
   readdir,
   stat,
   writeFile,
+  access,
 } from "node:fs/promises";
 import path from "node:path";
 
@@ -97,12 +99,26 @@ for (const inputPath of inputPaths) {
   const outputPath = path.join(outputDirectory, name);
   await copyFile(inputPath, outputPath);
   const metadata = await stat(outputPath);
-  staged.push({
+  const artifact = {
     kind: bundle.kind,
     fileName: name,
     bytes: metadata.size,
     sha256: createHash("sha256").update(contents).digest("hex"),
-  });
+  };
+  const signaturePath = `${inputPath}.sig`;
+  if (await fileExists(signaturePath)) {
+    const signatureFileName = `${name}.sig`;
+    const signatureOutputPath = path.join(outputDirectory, signatureFileName);
+    await copyFile(signaturePath, signatureOutputPath);
+    const signatureContents = await readFile(signatureOutputPath);
+    const signatureMetadata = await stat(signatureOutputPath);
+    artifact.signature = {
+      fileName: signatureFileName,
+      bytes: signatureMetadata.size,
+      sha256: createHash("sha256").update(signatureContents).digest("hex"),
+    };
+  }
+  staged.push(artifact);
   console.log(outputPath);
 }
 
@@ -116,3 +132,12 @@ await writeFile(
   path.join(outputDirectory, `manifest-${targetTriple}.json`),
   `${JSON.stringify(manifest, null, 2)}\n`,
 );
+
+async function fileExists(file) {
+  try {
+    await access(file, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
