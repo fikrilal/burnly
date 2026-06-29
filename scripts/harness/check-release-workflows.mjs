@@ -19,9 +19,12 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   if (!verifyWorkflow.includes("pull_request:")) {
     failures.push("verify workflow must run for pull requests.");
   }
-  for (const runner of ["ubuntu-24.04", "macos-15", "windows-2022"]) {
-    if (!verifyWorkflow.includes(`- ${runner}`)) {
-      failures.push(`verify workflow is missing ${runner}.`);
+  if (!verifyWorkflow.includes("runs-on: ubuntu-24.04")) {
+    failures.push("verify workflow must run on Ubuntu 24.04.");
+  }
+  for (const runner of ["macos-15", "windows-2022"]) {
+    if (verifyWorkflow.includes(runner)) {
+      failures.push(`verify workflow must stay Linux-only: ${runner}.`);
     }
   }
   if (!verifyWorkflow.includes("permissions:\n  contents: read")) {
@@ -29,10 +32,14 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
       "verify workflow must have read-only repository permissions.",
     );
   }
-  if (!verifyWorkflow.includes("pnpm verify:windows")) {
-    failures.push(
-      "verify workflow must compile Rust tests on the Windows runner.",
-    );
+  if (!verifyWorkflow.includes("pnpm verify")) {
+    failures.push("verify workflow must run the complete Linux gate.");
+  }
+  if (verifyWorkflow.includes("pnpm verify:windows")) {
+    failures.push("verify workflow must stay Linux-only for the MVP.");
+  }
+  if (!combined.includes("xdg-utils")) {
+    failures.push("Linux workflow prerequisites must include xdg-utils.");
   }
 
   const actionReferences = [...combined.matchAll(/uses:\s+[^@\s]+@([^\s]+)/g)];
@@ -116,7 +123,6 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "updater:manifest",
     "updater:verify",
     "updater-metadata:test",
-    "verify:windows",
   ]) {
     if (!scripts[script]) failures.push(`package.json is missing ${script}.`);
   }

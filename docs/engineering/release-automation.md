@@ -2,9 +2,9 @@
 
 ## Workflow Boundaries
 
-`verify.yml` runs the complete repository gate on pinned Ubuntu, macOS, and
-Windows runners for pull requests, pushes to `development` or `main`, and manual
-runs. It has read-only repository permissions and receives no release secrets.
+`verify.yml` runs the complete repository gate on pinned Ubuntu for pull
+requests, pushes to `development` or `main`, and manual runs. It has read-only
+repository permissions and receives no release secrets.
 
 `release.yml` runs for version tags and manual dry runs. Its validation job runs
 the complete gate and requires a release tag to equal `burnly-v` plus the
