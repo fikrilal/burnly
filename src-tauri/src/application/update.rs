@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-#[cfg(test)]
 use std::sync::Mutex;
 
 use thiserror::Error;
@@ -120,12 +119,12 @@ pub(crate) fn update_status_label(value: UpdateStatus) -> &'static str {
     }
 }
 
-#[cfg(test)]
+/// Deterministic update runtime for platforms (and tests) where Burnly does not
+/// ship auto-update support, e.g. the macOS `.dmg` preview.
 pub(crate) struct UnavailableUpdateRuntime {
     snapshot: Mutex<UpdateSnapshot>,
 }
 
-#[cfg(test)]
 impl UnavailableUpdateRuntime {
     pub(crate) fn new() -> Self {
         Self {
@@ -143,7 +142,6 @@ impl UnavailableUpdateRuntime {
     }
 }
 
-#[cfg(test)]
 impl UpdateRuntime for UnavailableUpdateRuntime {
     fn status(&self) -> UpdateSnapshot {
         self.snapshot
