@@ -89,6 +89,15 @@ for (const manifestName of manifestNames) {
       process.exit(1);
     }
     checksumLines.push(`${sha256}  ${artifact.fileName}`);
+    if (signatureRequired(target, artifact)) {
+      allowedFiles.add(`${artifact.fileName}.sig`);
+      if (!artifact.signature) {
+        console.error(
+          `Missing required artifact signature: ${artifact.fileName}`,
+        );
+        process.exit(1);
+      }
+    }
     if (artifact.signature) {
       allowedFiles.add(artifact.signature.fileName);
       const signaturePath = path.join(
@@ -136,3 +145,12 @@ await writeFile(
   `${checksumLines.join("\n")}\n`,
 );
 console.log(`Verified ${observedFiles.size} release artifacts.`);
+
+function signatureRequired(target, artifact) {
+  return (
+    (target.platform === "linux" && artifact.kind === "appimage") ||
+    (target.platform === "macos" && artifact.kind === "app") ||
+    (target.rustTargetTriple === "x86_64-pc-windows-msvc" &&
+      artifact.kind === "nsis")
+  );
+}

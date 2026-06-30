@@ -4,7 +4,11 @@
 
 Add macOS to the CI build matrix and the publish/verification path so the
 release workflow builds and stages per-arch `.dmg` artifacts, without making
-macOS publicly user-ready yet and without giving macOS an updater entry.
+macOS publicly user-ready yet.
+
+Note: this plan was written before
+`2026-06-30_macos-release-05-tauri-updater.md`. The original no-updater decision
+was superseded by the signed `.app.tar.gz` updater follow-up.
 
 ## Acceptance Criteria
 
@@ -18,9 +22,9 @@ macOS publicly user-ready yet and without giving macOS an updater entry.
   upload from the workflow.
 - `verify-release-artifacts.mjs` accepts and checksums macOS `.dmg` artifacts
   (extends `publishedTargets`), and still rejects unexpected files.
-- The updater manifest stays darwin-free: `generate-updater-manifest.mjs` /
-  `verify-updater-manifest.mjs` `updaterTargets` are unchanged, so `latest.json`
-  has no macOS platform and macOS updates remain `unavailable`.
+- The initial release-artifact chunk can land without updater metadata changes;
+  the signed macOS updater archive and metadata are handled by
+  `2026-06-30_macos-release-05-tauri-updater.md`.
 - Linux and Windows artifact generation, signing, and updater metadata are
   unchanged.
 
@@ -39,17 +43,17 @@ macOS publicly user-ready yet and without giving macOS an updater entry.
 ## Design Review
 
 - What complexity is being introduced?
-  - Two more matrix entries and one more "published but non-updater" platform
-    class (macOS) in the verifier.
+  - Two more matrix entries and macOS artifact verification in the release
+    verifier.
 - Which decisions are hidden inside the owning module?
-  - "Which targets are published" vs "which targets get updater entries" stays
-    in the release scripts as two separate filters.
+  - "Which artifacts are published" and "which artifacts are updater payloads"
+    stay in release scripts as separate concerns.
 - Is each new interface simpler than its implementation?
   - Operators still push one tag; CI fans out per platform.
 - What special cases exist, and can the design eliminate them?
-  - macOS is "published, not auto-updated". Model it as a verifier-level
-    `publishedTargets` membership while keeping `updaterTargets` separate,
-    rather than scattering darwin conditionals.
+  - macOS has a human installer (`.dmg`) and, after chunk 05, an app-owned
+    updater payload (`.app.tar.gz`). Keep those bundle kinds explicit instead
+    of scattering platform conditionals.
 - Why is each new abstraction needed now?
   - No new abstraction; extend the two existing target filters.
 - Can an existing module absorb this responsibility cleanly?
@@ -67,12 +71,10 @@ macOS publicly user-ready yet and without giving macOS an updater entry.
 - [x] Extend `publishedTargets` in `verify-release-artifacts.mjs` to include
       macOS so `.dmg` artifacts and their `manifest-*.json` are accepted.
 - [x] Verify `stage-release-artifacts.mjs` stages exactly one `.dmg` per macOS
-      target and ignores the `.app` directory contents (validated against the
-      real build: staged `burnly-v0.1.4-macos-aarch64.dmg`).
+      target and ignores the raw `.app` directory contents (validated against
+      the real build: staged `burnly-v0.1.4-macos-aarch64.dmg`).
 - [x] Update `check-release-artifact-tools.mjs` `publishedTargets` to mirror the
-      verifier and exercise the macOS smoke on a synthetic DMG;
-      `check-updater-manifest-tools.mjs` is unchanged because macOS is not an
-      updater target (latest.json stays darwin-free).
+      verifier and exercise the macOS smoke on a synthetic DMG.
 - [x] Add a `macos-smoke:dmg` script + workflow step mirroring
       `windows-smoke:exe` (validates name, size, and the UDIF `koly` trailer).
 - [x] Run all release-harness gates.
@@ -82,13 +84,12 @@ macOS publicly user-ready yet and without giving macOS an updater entry.
 - Behavior and invariants to prove:
   - Linux/Windows artifact names, signing, and updater metadata unchanged.
   - macOS `.dmg` staged with canonical names; unexpected macOS names fail.
-  - `latest.json` contains no macOS platform key.
+  - macOS updater metadata is handled separately by chunk 05.
 - Lowest stable test layer:
   - Node harness tests with synthetic artifact directories (linux + windows +
     macОS).
 - Failure paths:
-  - Missing `.dmg`; wrong extension; macOS manifest present but file absent;
-    accidental darwin entry in the updater manifest.
+  - Missing `.dmg`; wrong extension; macOS manifest present but file absent.
 - Fixtures or fakes:
   - Synthetic release artifact directories including macOS `.dmg`.
 - Runtime or platform evidence:
@@ -103,8 +104,8 @@ macOS publicly user-ready yet and without giving macOS an updater entry.
 
 ## Decisions
 
-- macOS is "published, not auto-updated": include macOS in `publishedTargets`
-  but never in `updaterTargets`.
+- macOS first-install artifacts are `.dmg`; macOS updater archives are handled
+  by chunk 05.
 - Promote both macOS architectures in this chunk.
 - Do not mark macOS public-ready here; do not add code signing here.
 
@@ -114,8 +115,8 @@ macOS publicly user-ready yet and without giving macOS an updater entry.
 - Command: `pnpm packaging:test && pnpm packaging:check` — passed.
 - Command: `pnpm release-artifacts:test` — passed (now stages + smokes a macOS
   DMG fixture alongside Linux/Windows).
-- Command: `pnpm updater-metadata:test` — passed (updater platforms remain
-  `linux-aarch64,linux-x86_64,windows-x86_64`; no darwin entry).
+- Command: `pnpm updater-metadata:test` — passed for the original
+  release-artifact chunk scope.
 - Command: `pnpm platform-behavior:check` — passed.
 - Command: `pnpm release:stage aarch64-apple-darwin` against the real build —
   passed; produced `burnly-v0.1.4-macos-aarch64.dmg` and

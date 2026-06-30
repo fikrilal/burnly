@@ -39,7 +39,7 @@ try {
         bytes: contents.length,
         sha256: createHash("sha256").update(contents).digest("hex"),
       };
-      if (target.platform === "linux" && bundle.kind === "appimage") {
+      if (signatureRequired(target, bundle)) {
         const signatureFileName = `${fileName}.sig`;
         const signature = Buffer.from(`signature:${target.rustTargetTriple}`);
         await writeFile(
@@ -81,9 +81,8 @@ try {
     (count, target) =>
       count +
       target.bundles.length +
-      target.bundles.filter(
-        (bundle) => target.platform === "linux" && bundle.kind === "appimage",
-      ).length,
+      target.bundles.filter((bundle) => signatureRequired(target, bundle))
+        .length,
     0,
   );
   if (checksums.trim().split("\n").length !== expectedChecksumLines) {
@@ -117,6 +116,18 @@ try {
     "scripts/smoke-macos-dmg.mjs",
     path.join(fixtureDirectory, macosArtifact),
   ]);
+  const macosUpdaterBundle = macosTarget.bundles.find(
+    (bundle) => bundle.kind === "app",
+  );
+  const macosUpdaterArtifact = artifactName(macosTarget, macosUpdaterBundle);
+  await writeFile(
+    path.join(fixtureDirectory, macosUpdaterArtifact),
+    Buffer.concat([Buffer.from([0x1f, 0x8b]), Buffer.alloc(1024)]),
+  );
+  await execute(process.execPath, [
+    "scripts/smoke-macos-updater-archive.mjs",
+    path.join(fixtureDirectory, macosUpdaterArtifact),
+  ]);
 
   const tamperedName = artifactName(
     publishedTargets[0],
@@ -136,4 +147,13 @@ try {
   console.log("Release artifact aggregation and tamper tests passed.");
 } finally {
   await rm(fixtureDirectory, { recursive: true, force: true });
+}
+
+function signatureRequired(target, bundle) {
+  return (
+    (target.platform === "linux" && bundle.kind === "appimage") ||
+    (target.platform === "macos" && bundle.kind === "app") ||
+    (target.rustTargetTriple === "x86_64-pc-windows-msvc" &&
+      bundle.kind === "nsis")
+  );
 }

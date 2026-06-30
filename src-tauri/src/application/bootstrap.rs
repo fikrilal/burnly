@@ -240,6 +240,7 @@ impl RuntimeCapabilities {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn update_not_implemented() -> Capability {
         Capability {
             supported: false,

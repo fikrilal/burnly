@@ -9,12 +9,18 @@ const expectedTargets = {
   "aarch64-apple-darwin": {
     platform: "macos",
     architecture: "aarch64",
-    bundles: [["dmg", "dmg"]],
+    bundles: [
+      ["dmg", "dmg"],
+      ["app", "app.tar.gz"],
+    ],
   },
   "x86_64-apple-darwin": {
     platform: "macos",
     architecture: "x86_64",
-    bundles: [["dmg", "dmg"]],
+    bundles: [
+      ["dmg", "dmg"],
+      ["app", "app.tar.gz"],
+    ],
   },
   "aarch64-pc-windows-msvc": {
     platform: "windows",

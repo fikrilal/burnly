@@ -1,7 +1,7 @@
 {
   "name": "burnly",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Local desktop app for AI coding-tool token usage.",
   "type": "module",
   "scripts": {
@@ -46,6 +46,8 @@
     "linux-smoke:appimage": "node scripts/smoke-linux-appimage.mjs",
     "windows-smoke:exe": "node scripts/smoke-windows-exe.mjs",
     "macos-smoke:dmg": "node scripts/smoke-macos-dmg.mjs",
+    "macos-smoke:updater": "node scripts/smoke-macos-updater-archive.mjs",
+    "macos-updater:archive": "node scripts/create-macos-updater-archive.mjs",
     "windows-runtime:evidence:check": "node scripts/verify-windows-runtime-evidence.mjs",
     "release-artifacts:test": "node scripts/harness/check-release-artifact-tools.mjs",
     "release:artifacts": "node scripts/release-artifact-names.mjs",

@@ -88,7 +88,7 @@ try {
   const manifest = JSON.parse(await readFile(crossPlatformOutputPath, "utf8"));
   if (
     Object.keys(manifest.platforms).join(",") !==
-    "linux-aarch64,linux-x86_64,windows-x86_64"
+    "darwin-aarch64,darwin-x86_64,linux-aarch64,linux-x86_64,windows-x86_64"
   ) {
     throw new Error("updater manifest platforms are incomplete or unsorted");
   }
@@ -99,6 +99,15 @@ try {
     !manifest.platforms["windows-x86_64"].url.endsWith("windows-x86_64.exe")
   ) {
     throw new Error("updater manifest does not include the Windows exe URL");
+  }
+  if (
+    !manifest.platforms["darwin-aarch64"].url.endsWith(
+      "macos-aarch64.app.tar.gz",
+    )
+  ) {
+    throw new Error(
+      "updater manifest does not include the macOS app archive URL",
+    );
   }
 
   const tampered = structuredClone(manifest);
@@ -147,6 +156,7 @@ function updaterTargets() {
   return releaseTargets.targets.filter(
     (target) =>
       target.platform === "linux" ||
+      target.platform === "macos" ||
       target.rustTargetTriple === "x86_64-pc-windows-msvc",
   );
 }
@@ -154,6 +164,9 @@ function updaterTargets() {
 function updaterBundle(target) {
   if (target.platform === "linux") {
     return target.bundles.find((bundle) => bundle.kind === "appimage");
+  }
+  if (target.platform === "macos") {
+    return target.bundles.find((bundle) => bundle.kind === "app");
   }
   if (target.rustTargetTriple === "x86_64-pc-windows-msvc") {
     return target.bundles.find((bundle) => bundle.kind === "nsis");

@@ -41,12 +41,10 @@ macOS out of the build and publish paths.
 4. **Publish-path exclusion.** `scripts/verify-release-artifacts.mjs` only
    accepts linux + windows-x64 (`publishedTargets`) and rejects any unexpected
    file, so macOS `.dmg` artifacts cannot currently be published.
-5. **Updater is intentionally macOS-unavailable.**
-   `generate-updater-manifest.mjs` / `verify-updater-manifest.mjs` exclude
-   darwin (`updaterTargets`). This stays as-is: a `dmg` is not a Tauri updater
-   target, so macOS updates remain `unavailable` — consistent with the matrix.
-   But `bootstrap.rs` currently reports the update capability as available on
-   every platform; macOS should report it as unavailable for honesty.
+5. **Updater support requires a separate app archive.**
+   A `.dmg` is a first-install artifact, not a Tauri updater payload. The
+   follow-up updater plan adds signed `.app.tar.gz` artifacts and `darwin-*`
+   updater metadata.
 6. **Menu-bar polish.** Left-click-to-open-panel and click anchoring
    (`TrayIconEvent`) are `#[cfg(target_os = "windows")]` only; the menu-bar
    icon uses the full-color app icon; and the tray-first app does not set an
@@ -62,7 +60,7 @@ This work is split into four execution plans:
      unavailable on macOS, and produce a working local `.dmg` build.
 2. `macos-release-02-release-artifacts.md` (queued)
    - Add macOS to the CI build matrix and the publish/verification path; remove
-     the workflow guardrail; keep updater metadata darwin-free.
+     the workflow guardrail.
 3. `macos-release-03-runtime-evidence.md` (queued)
    - Capture real macOS installed-smoke evidence for the Phase 10D macOS chunk.
 4. `macos-release-04-public-preview-hardening.md` (queued)
@@ -80,8 +78,6 @@ This work is split into four execution plans:
 
 ## Non-Goals
 
-- No macOS auto-update (`dmg` is not an updater target; updates stay
-  `unavailable` on macOS for this preview).
 - No paid Apple Developer ID code signing or Apple notarization in this scope
   (preview ships unsigned/ad-hoc, mirroring the Windows preview decision).
 - No Mac App Store packaging.
@@ -93,7 +89,8 @@ This work is split into four execution plans:
 - Ship per-architecture `.dmg` artifacts (Apple Silicon + Intel), matching
   `release-targets.json`.
 - macOS is an **unsigned preview** at the same bar as the Windows preview.
-- macOS updates remain `unavailable`; the updater manifest stays darwin-free.
+- macOS updater support uses signed `.app.tar.gz` artifacts, not `.dmg`
+  artifacts.
 - Reuse the existing tray-panel open path for dock `Reopen` instead of adding a
   separate "main window" concept (Burnly has no main window).
 - Enable the `macos-private-api` Tauri feature (+ `macOSPrivateApi` config) for
@@ -108,6 +105,8 @@ This work is split into four execution plans:
   gates green, DMG builds, sidecar bundles, app is menu-bar-first.
 - Chunk 02 (release artifacts): implemented and verified — all release/packaging
   harness gates pass; real DMG stages and smokes.
+- Chunk 05 (Tauri updater): implemented locally — release/updater harnesses and
+  `pnpm verify:fast` pass; real macOS updater evidence is still required.
 - Chunk 04 (public preview hardening): docs implemented (README + packaging
   guide); release notes pending at version cut.
 - Chunk 03 (runtime evidence): **outstanding** — needs a human to launch the

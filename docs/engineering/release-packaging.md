@@ -35,10 +35,10 @@ on the target architecture.
 The macOS DMG is an unsigned preview at the same maturity bar as the Windows
 preview. It carries no Apple Developer ID signature or notarization, so
 Gatekeeper quarantines a downloaded build until the user clears the quarantine
-attribute. macOS is intentionally absent from the Tauri updater track: a DMG is
-not an updater artifact, so the updater manifest stays darwin-free and the
-macOS runtime reports updates as unavailable. Per-architecture DMGs are
-promoted only after the DMG smoke passes.
+attribute. The `.dmg` is only the first-install artifact; macOS in-app updates
+use a separate signed `.app.tar.gz` updater archive and `darwin-*` updater
+metadata entries. Per-architecture DMGs and updater archives are promoted only
+after their smoke checks pass.
 
 Canonical artifact names use:
 

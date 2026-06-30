@@ -116,6 +116,9 @@ function sortObject(value) {
 }
 
 function updaterPlatform(target) {
+  if (target.platform === "macos") {
+    return `darwin-${target.architecture}`;
+  }
   return `${target.platform}-${target.architecture}`;
 }
 
@@ -123,12 +126,14 @@ function updaterTargets() {
   return releaseTargets.targets.filter(
     (target) =>
       target.platform === "linux" ||
+      target.platform === "macos" ||
       target.rustTargetTriple === "x86_64-pc-windows-msvc",
   );
 }
 
 function updaterBundleKind(target) {
   if (target.platform === "linux") return "appimage";
+  if (target.platform === "macos") return "app";
   if (target.rustTargetTriple === "x86_64-pc-windows-msvc") return "nsis";
   throw new Error(`unsupported updater target ${target.rustTargetTriple}`);
 }

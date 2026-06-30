@@ -12,8 +12,9 @@ and gives you a quick answer to: "how much have I burned today?"
 - Source and model breakdowns for supported tools.
 - Estimated cost when the upstream usage data includes enough cost information.
 - Launch-at-login and close-to-tray settings.
-- Linux AppImage and Windows x64 installs ship signed update metadata; macOS
-  ships as an unsigned `.dmg` preview (Apple Silicon and Intel).
+- Linux AppImage, Windows x64, and macOS preview installs ship signed update
+  metadata; macOS first install is an unsigned `.dmg` preview (Apple Silicon
+  and Intel).
 
 ## Supported Sources
 
@@ -92,8 +93,9 @@ Burnly release artifacts are signed for the Tauri updater. When an update is
 available, use the Settings tab to check, install, and restart into the new
 version.
 
-In-app updates are available on Linux and Windows. The macOS preview has no
-auto-update track; download a newer `.dmg` from the releases page to upgrade.
+In-app updates are available on Linux, Windows, and macOS. On macOS, the `.dmg`
+is only the first-install artifact; Burnly updates itself from a signed
+`.app.tar.gz` updater archive.
 
 ## Privacy
 

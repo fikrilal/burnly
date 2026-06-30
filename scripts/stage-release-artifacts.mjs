@@ -126,12 +126,18 @@ const manifest = {
   schemaVersion: 1,
   version: packageDocument.version,
   rustTargetTriple: targetTriple,
-  artifacts: staged.sort((left, right) => left.kind.localeCompare(right.kind)),
+  artifacts: staged.sort(
+    (left, right) => bundleIndex(left.kind) - bundleIndex(right.kind),
+  ),
 };
 await writeFile(
   path.join(outputDirectory, `manifest-${targetTriple}.json`),
   `${JSON.stringify(manifest, null, 2)}\n`,
 );
+
+function bundleIndex(kind) {
+  return target.bundles.findIndex((bundle) => bundle.kind === kind);
+}
 
 async function fileExists(file) {
   try {

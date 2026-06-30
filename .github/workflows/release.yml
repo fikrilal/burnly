@@ -141,6 +141,15 @@ jobs:
             exit 1
           }
           pnpm tauri signer sign "$($artifact.FullName)"
+      - name: Create and sign macOS updater artifact
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          artifact="$(pnpm --silent macos-updater:archive ${{ matrix.target }})"
+          pnpm tauri signer sign "$artifact"
       - name: Stage canonical artifact and checksum manifest
         run: pnpm release:stage ${{ matrix.target }}
       - name: Smoke Linux AppImage artifact
@@ -159,8 +168,14 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }})"
+          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }} | grep '\\.dmg$')"
           pnpm macos-smoke:dmg "src-tauri/target/release-artifacts/$artifact"
+      - name: Smoke macOS updater artifact
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }} | grep '\\.app\\.tar\\.gz$')"
+          pnpm macos-smoke:updater "src-tauri/target/release-artifacts/$artifact"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ matrix.artifact }}

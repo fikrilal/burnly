@@ -26,7 +26,9 @@ use crate::application::refresh::{
     RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
-use crate::application::update::{UnavailableUpdateRuntime, UpdateRuntime, UpdateService};
+#[cfg(test)]
+use crate::application::update::UnavailableUpdateRuntime;
+use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
@@ -271,7 +273,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let runtime_capabilities = RuntimeCapabilities::new(
         RuntimeCapabilities::tray_available(),
         launch_at_login_capability(),
-        update_capability(),
+        RuntimeCapabilities::update_available(),
     );
 
     app.manage(
@@ -290,14 +292,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     tray_open_refresh.request_startup_refresh_if_stale();
     app.manage(tray_summary_query.clone());
     app.manage(tray_open_refresh);
-    // macOS ships as an unsigned `.dmg` preview with no Tauri updater target, so
-    // it reports updates as unavailable instead of failing a live update check.
-    let update_runtime: Arc<dyn UpdateRuntime> = if cfg!(target_os = "macos") {
-        Arc::new(UnavailableUpdateRuntime::new())
-    } else {
-        Arc::new(updater::TauriUpdateRuntime::new(app.handle().clone()))
-    };
-    app.manage(UpdateService::new(update_runtime));
+    app.manage(UpdateService::new(Arc::new(
+        updater::TauriUpdateRuntime::new(app.handle().clone()),
+    )));
 
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
@@ -382,14 +379,6 @@ fn launch_at_login_capability() -> Capability {
         RuntimeCapabilities::launch_at_login_available()
     } else {
         RuntimeCapabilities::launch_at_login_not_implemented()
-    }
-}
-
-fn update_capability() -> Capability {
-    if cfg!(target_os = "macos") {
-        RuntimeCapabilities::update_not_implemented()
-    } else {
-        RuntimeCapabilities::update_available()
     }
 }
 

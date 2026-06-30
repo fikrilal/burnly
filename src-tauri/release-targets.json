@@ -6,13 +6,19 @@
       "rustTargetTriple": "aarch64-apple-darwin",
       "platform": "macos",
       "architecture": "aarch64",
-      "bundles": [{ "kind": "dmg", "extension": "dmg" }]
+      "bundles": [
+        { "kind": "dmg", "extension": "dmg" },
+        { "kind": "app", "extension": "app.tar.gz" }
+      ]
     },
     {
       "rustTargetTriple": "x86_64-apple-darwin",
       "platform": "macos",
       "architecture": "x86_64",
-      "bundles": [{ "kind": "dmg", "extension": "dmg" }]
+      "bundles": [
+        { "kind": "dmg", "extension": "dmg" },
+        { "kind": "app", "extension": "app.tar.gz" }
+      ]
     },
     {
       "rustTargetTriple": "aarch64-pc-windows-msvc",

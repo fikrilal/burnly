@@ -1,6 +1,6 @@
 [package]
 name = "burnly"
-version = "0.1.4"
+version = "0.1.5"
 description = "Local desktop app for AI coding-tool token usage."
 authors = ["Burnly contributors"]
 edition = "2021"
