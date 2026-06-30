@@ -12,7 +12,8 @@ and gives you a quick answer to: "how much have I burned today?"
 - Source and model breakdowns for supported tools.
 - Estimated cost when the upstream usage data includes enough cost information.
 - Launch-at-login and close-to-tray settings.
-- Linux AppImage and Windows x64 preview install with signed update metadata.
+- Linux AppImage and Windows x64 installs ship signed update metadata; macOS
+  ships as an unsigned `.dmg` preview (Apple Silicon and Intel).
 
 ## Supported Sources
 
@@ -58,11 +59,41 @@ official GitHub releases page:
 https://github.com/fikrilal/burnly/releases
 ```
 
+### macOS Preview
+
+Download the `.dmg` for your CPU architecture from the official GitHub release:
+
+```text
+burnly-vX.Y.Z-macos-aarch64.dmg   # Apple Silicon
+burnly-vX.Y.Z-macos-x86_64.dmg    # Intel
+```
+
+Open the `.dmg` and drag `Burnly.app` to your Applications folder. Burnly lives
+in the menu bar; it has no Dock icon.
+
+The macOS preview is unsigned and not notarized for the MVP. Because the build
+is not signed with an Apple Developer ID, macOS Gatekeeper quarantines it and
+may report that the app "is damaged" or "cannot be opened". Clear the quarantine
+attribute once after copying the app to Applications:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Burnly.app
+```
+
+Only download Burnly from the official GitHub releases page:
+
+```text
+https://github.com/fikrilal/burnly/releases
+```
+
 ## Updates
 
 Burnly release artifacts are signed for the Tauri updater. When an update is
 available, use the Settings tab to check, install, and restart into the new
 version.
+
+In-app updates are available on Linux and Windows. The macOS preview has no
+auto-update track; download a newer `.dmg` from the releases page to upgrade.
 
 ## Privacy
 
@@ -83,6 +114,12 @@ On Windows, app data lives under:
 
 ```text
 %APPDATA%\app.burnly.desktop
+```
+
+On macOS, app data lives under:
+
+```text
+~/Library/Application Support/app.burnly.desktop
 ```
 
 ## Uninstall
@@ -111,6 +148,13 @@ To erase local Burnly data too, remove:
 
 ```text
 %APPDATA%\app.burnly.desktop
+```
+
+On macOS, remove the app and, optionally, its data:
+
+```bash
+rm -rf /Applications/Burnly.app
+rm -rf ~/Library/Application\ Support/app.burnly.desktop
 ```
 
 ## Troubleshooting

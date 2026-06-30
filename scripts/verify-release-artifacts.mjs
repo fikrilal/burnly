@@ -15,6 +15,7 @@ const releaseTargets = JSON.parse(
 const publishedTargets = releaseTargets.targets.filter(
   (target) =>
     target.platform === "linux" ||
+    target.platform === "macos" ||
     target.rustTargetTriple === "x86_64-pc-windows-msvc",
 );
 const expectedTargets = new Set(

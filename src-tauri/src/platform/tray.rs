@@ -92,7 +92,10 @@ impl<R: Runtime> TrayController<R> {
         let icon = manager.default_window_icon().cloned();
         let mut builder = TrayIconBuilder::with_id(TRAY_ID)
             .menu(&menu)
-            .show_menu_on_left_click(!cfg!(target_os = "windows"))
+            // On Linux the panel is reached through the menu; on macOS and
+            // Windows a left click opens the panel and the menu stays on right
+            // click.
+            .show_menu_on_left_click(cfg!(target_os = "linux"))
             .tooltip(tooltip_label(snapshot));
         if let Some(icon) = icon {
             builder = builder.icon(icon);

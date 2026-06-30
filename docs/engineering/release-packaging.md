@@ -32,6 +32,14 @@ Burnly packages a reviewed sidecar payload and materializes it at runtime after
 checksum verification. AppImage promotion requires the AppImage smoke to pass
 on the target architecture.
 
+The macOS DMG is an unsigned preview at the same maturity bar as the Windows
+preview. It carries no Apple Developer ID signature or notarization, so
+Gatekeeper quarantines a downloaded build until the user clears the quarantine
+attribute. macOS is intentionally absent from the Tauri updater track: a DMG is
+not an updater artifact, so the updater manifest stays darwin-free and the
+macOS runtime reports updates as unavailable. Per-architecture DMGs are
+promoted only after the DMG smoke passes.
+
 Canonical artifact names use:
 
 `burnly-v{version}-{platform}-{architecture}.{extension}`

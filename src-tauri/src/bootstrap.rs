@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use iana_time_zone::GetTimezoneError;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
@@ -26,9 +26,7 @@ use crate::application::refresh::{
     RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
-#[cfg(test)]
-use crate::application::update::UnavailableUpdateRuntime;
-use crate::application::update::UpdateService;
+use crate::application::update::{UnavailableUpdateRuntime, UpdateRuntime, UpdateService};
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
@@ -175,7 +173,7 @@ fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
         RunEvent::MenuEvent(event) => {
             handle_menu_event(app, &event);
         }
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         RunEvent::TrayIconEvent(event) => {
             handle_tray_icon_event(app, event);
         }
@@ -189,13 +187,15 @@ fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
         }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
-            let _ = lifecycle::activate_main_window(app);
+            // Burnly has no main window; re-opening from the Dock reveals the
+            // tray panel, matching the menu-bar interaction model.
+            open_tray_panel(app, None);
         }
         _ => {}
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn handle_tray_icon_event<R: Runtime>(app: &tauri::AppHandle<R>, event: TrayIconEvent) {
     if let TrayIconEvent::Click {
         button: MouseButton::Left,
@@ -210,6 +210,10 @@ fn handle_tray_icon_event<R: Runtime>(app: &tauri::AppHandle<R>, event: TrayIcon
 
 fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError> {
     app.manage(ExitGuard::default());
+    // Burnly is a menu-bar-first app; keep it out of the macOS Dock and app
+    // switcher so the only entry point is the status-bar icon.
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     let database_path = database_path::resolve(app.handle()).map_err(StartupError::DatabasePath)?;
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
@@ -267,7 +271,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let runtime_capabilities = RuntimeCapabilities::new(
         RuntimeCapabilities::tray_available(),
         launch_at_login_capability(),
-        RuntimeCapabilities::update_available(),
+        update_capability(),
     );
 
     app.manage(
@@ -286,9 +290,14 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     tray_open_refresh.request_startup_refresh_if_stale();
     app.manage(tray_summary_query.clone());
     app.manage(tray_open_refresh);
-    app.manage(UpdateService::new(Arc::new(
-        updater::TauriUpdateRuntime::new(app.handle().clone()),
-    )));
+    // macOS ships as an unsigned `.dmg` preview with no Tauri updater target, so
+    // it reports updates as unavailable instead of failing a live update check.
+    let update_runtime: Arc<dyn UpdateRuntime> = if cfg!(target_os = "macos") {
+        Arc::new(UnavailableUpdateRuntime::new())
+    } else {
+        Arc::new(updater::TauriUpdateRuntime::new(app.handle().clone()))
+    };
+    app.manage(UpdateService::new(update_runtime));
 
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
@@ -373,6 +382,14 @@ fn launch_at_login_capability() -> Capability {
         RuntimeCapabilities::launch_at_login_available()
     } else {
         RuntimeCapabilities::launch_at_login_not_implemented()
+    }
+}
+
+fn update_capability() -> Capability {
+    if cfg!(target_os = "macos") {
+        RuntimeCapabilities::update_not_implemented()
+    } else {
+        RuntimeCapabilities::update_available()
     }
 }
 

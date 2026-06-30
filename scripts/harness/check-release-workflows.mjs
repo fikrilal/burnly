@@ -4,13 +4,11 @@ const expectedTargets = [
   "aarch64-unknown-linux-gnu",
   "x86_64-unknown-linux-gnu",
   "x86_64-pc-windows-msvc",
-];
-
-const deferredTargets = [
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
-  "aarch64-pc-windows-msvc",
 ];
+
+const deferredTargets = ["aarch64-pc-windows-msvc"];
 
 function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   const failures = [];
