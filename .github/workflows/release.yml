@@ -85,11 +85,11 @@ jobs:
             artifact: release-windows-x86_64
           - os: macos-15
             target: aarch64-apple-darwin
-            bundle: dmg
+            bundle: app,dmg
             artifact: release-macos-aarch64
           - os: macos-15-intel
             target: x86_64-apple-darwin
-            bundle: dmg
+            bundle: app,dmg
             artifact: release-macos-x86_64
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5

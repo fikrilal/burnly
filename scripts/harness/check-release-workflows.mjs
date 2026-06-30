@@ -76,6 +76,14 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
       failures.push(`release build matrix is missing ${target}.`);
     }
   }
+  for (const macosTarget of ["aarch64-apple-darwin", "x86_64-apple-darwin"]) {
+    const macosMatrixEntry = new RegExp(
+      `target:\\s+${macosTarget}[\\s\\S]*?bundle:\\s+app,dmg`,
+    );
+    if (!macosMatrixEntry.test(releaseWorkflow)) {
+      failures.push(`${macosTarget} must build both app and dmg bundles.`);
+    }
+  }
   for (const target of deferredTargets) {
     if (releaseWorkflow.includes(`target: ${target}`)) {
       failures.push(
