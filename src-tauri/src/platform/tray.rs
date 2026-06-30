@@ -92,7 +92,7 @@ impl<R: Runtime> TrayController<R> {
         let icon = manager.default_window_icon().cloned();
         let mut builder = TrayIconBuilder::with_id(TRAY_ID)
             .menu(&menu)
-            .show_menu_on_left_click(true)
+            .show_menu_on_left_click(!cfg!(target_os = "windows"))
             .tooltip(tooltip_label(snapshot));
         if let Some(icon) = icon {
             builder = builder.icon(icon);

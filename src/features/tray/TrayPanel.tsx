@@ -32,6 +32,9 @@ interface TrayPanelProps {
   capabilities: AppCapabilitiesResponse;
 }
 
+const TRAY_SURFACE_CLASS =
+  "tray-surface min-h-screen overflow-hidden rounded-2xl border border-border bg-background text-foreground";
+
 export function TrayPanel({
   reportingTimezone,
   appVersion,
@@ -105,11 +108,11 @@ function TrayPanelContent({
   const [activeTab, setActiveTab] = useState<string>("overview");
 
   return (
-    <main className="flex min-h-screen flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground">
+    <main className={cn(TRAY_SURFACE_CLASS, "flex flex-col")}>
       <div className="flex flex-1 flex-col gap-6 p-5">
         <header
-          data-tauri-drag-region
-          className="flex items-start justify-between gap-3"
+          data-tauri-drag-region="deep"
+          className="tray-drag-region flex items-start justify-between gap-3"
         >
           <div className="flex flex-col gap-2">
             <MotionTabs
@@ -445,11 +448,11 @@ function TrayShell({
   tone?: "neutral" | "danger";
 }) {
   return (
-    <main className="min-h-screen overflow-hidden rounded-2xl border border-border bg-background text-foreground">
+    <main className={TRAY_SURFACE_CLASS}>
       <div className="flex flex-col gap-4 p-5">
         <div
-          data-tauri-drag-region
-          className="flex items-start justify-between gap-2"
+          data-tauri-drag-region="deep"
+          className="tray-drag-region flex items-start justify-between gap-2"
         >
           <span
             className={cn(

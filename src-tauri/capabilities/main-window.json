@@ -15,6 +15,7 @@
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
     "allow---burnly-contract-probe",
     "allow-app-get-bootstrap",
     "allow-app-get-capabilities",

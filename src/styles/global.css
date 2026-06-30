@@ -159,6 +159,21 @@ select {
 /* The tray panel is a transparent, frameless popover window; the panel itself
    paints a rounded surface, so the window background must be transparent. */
 .tray-window,
-.tray-window body {
+.tray-window body,
+.tray-window #root {
   background-color: transparent;
+  overflow: hidden;
+}
+
+.tray-window #root {
+  min-height: 100vh;
+}
+
+.tray-window.platform-windows .tray-surface {
+  border-color: transparent;
+  border-radius: 0;
+}
+
+.tray-drag-region {
+  cursor: move;
 }

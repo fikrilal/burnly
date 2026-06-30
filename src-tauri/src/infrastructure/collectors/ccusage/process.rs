@@ -223,19 +223,28 @@ fn spawn(request: &ProcessRequest) -> io::Result<Child> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_process_group(&mut command);
+    configure_process(&mut command);
     command.spawn()
 }
 
 #[cfg(unix)]
-fn configure_process_group(command: &mut Command) {
+fn configure_process(command: &mut Command) {
     use std::os::unix::process::CommandExt;
 
     command.process_group(0);
 }
 
-#[cfg(not(unix))]
-fn configure_process_group(_command: &mut Command) {}
+#[cfg(windows)]
+fn configure_process(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(any(unix, windows)))]
+fn configure_process(_command: &mut Command) {}
 
 struct Capture {
     handle: thread::JoinHandle<Vec<u8>>,

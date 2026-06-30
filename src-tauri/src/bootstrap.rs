@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use iana_time_zone::GetTimezoneError;
+#[cfg(target_os = "windows")]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
@@ -173,6 +175,10 @@ fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
         RunEvent::MenuEvent(event) => {
             handle_menu_event(app, &event);
         }
+        #[cfg(target_os = "windows")]
+        RunEvent::TrayIconEvent(event) => {
+            handle_tray_icon_event(app, event);
+        }
         RunEvent::ExitRequested { api, .. } => {
             let explicit_exit_requested = app
                 .try_state::<ExitGuard>()
@@ -186,6 +192,19 @@ fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
             let _ = lifecycle::activate_main_window(app);
         }
         _ => {}
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn handle_tray_icon_event<R: Runtime>(app: &tauri::AppHandle<R>, event: TrayIconEvent) {
+    if let TrayIconEvent::Click {
+        button: MouseButton::Left,
+        button_state: MouseButtonState::Up,
+        rect,
+        ..
+    } = event
+    {
+        open_tray_panel(app, Some(rect));
     }
 }
 
@@ -360,10 +379,7 @@ fn launch_at_login_capability() -> Capability {
 fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuEvent) {
     match tray::TrayAction::from_menu_event(event) {
         Some(tray::TrayAction::OpenPanel) => {
-            if let Some(controller) = app.try_state::<TrayOpenRefreshController>() {
-                controller.request_tray_open_refresh_if_stale();
-            }
-            let _ = lifecycle::open_tray_panel(app);
+            open_tray_panel(app, None);
         }
 
         Some(tray::TrayAction::Refresh) => {
@@ -379,6 +395,17 @@ fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu:
         }
         None => {}
     }
+}
+
+fn open_tray_panel<R: Runtime>(app: &tauri::AppHandle<R>, anchor: Option<tauri::Rect>) {
+    if let Some(controller) = app.try_state::<TrayOpenRefreshController>() {
+        controller.request_tray_open_refresh_if_stale();
+    }
+    let result = match anchor {
+        Some(rect) => lifecycle::open_tray_panel_at_rect(app, rect),
+        None => lifecycle::open_tray_panel(app),
+    };
+    let _ = result;
 }
 
 fn automatic_refresh_policy() -> RefreshPolicy {

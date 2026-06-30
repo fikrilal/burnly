@@ -30,6 +30,9 @@
         if (window.location.hash === "#/tray") {
           document.documentElement.classList.add("tray-window");
         }
+        if (navigator.userAgent.includes("Windows")) {
+          document.documentElement.classList.add("platform-windows");
+        }
       })();
     </script>
   </head>
