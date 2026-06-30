@@ -168,13 +168,13 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }} | grep '\\.dmg$')"
+          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }} | grep '\.dmg$')"
           pnpm macos-smoke:dmg "src-tauri/target/release-artifacts/$artifact"
       - name: Smoke macOS updater artifact
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }} | grep '\\.app\\.tar\\.gz$')"
+          artifact="$(pnpm --silent release:artifacts ${{ matrix.target }} | grep '\.app\.tar\.gz$')"
           pnpm macos-smoke:updater "src-tauri/target/release-artifacts/$artifact"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

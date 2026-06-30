@@ -100,6 +100,8 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "pnpm release:stage ${{ matrix.target }}",
     "pnpm linux-smoke:appimage",
     "pnpm windows-smoke:exe",
+    "grep '\\.dmg$'",
+    "grep '\\.app\\.tar\\.gz$'",
     "pnpm updater:manifest artifacts",
     "pnpm updater:verify artifacts",
     "latest.json",
