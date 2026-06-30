@@ -17,8 +17,9 @@ curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-l
 
 ## Verification
 
-Release artifacts include `SHA256SUMS`. Linux updater metadata is published as
-`latest-linux.json` and is generated from signed AppImage artifacts.
+Release artifacts include `SHA256SUMS`. Updater metadata is published as
+`latest.json`; `latest-linux.json` is kept as a compatibility alias for older
+Linux builds.
 
 ## Notes
 

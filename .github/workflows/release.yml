@@ -120,6 +120,19 @@ jobs:
             exit 1
           fi
           pnpm tauri signer sign "$artifact"
+      - name: Sign Windows NSIS updater artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $artifact = Get-ChildItem -Path "src-tauri/target/${{ matrix.target }}/release/bundle" -Recurse -Filter "*.exe" | Select-Object -First 1
+          if ($null -eq $artifact) {
+            Write-Error "Windows NSIS artifact was not produced."
+            exit 1
+          }
+          pnpm tauri signer sign "$($artifact.FullName)"
       - name: Stage canonical artifact and checksum manifest
         run: pnpm release:stage ${{ matrix.target }}
       - name: Smoke Linux AppImage artifact
@@ -172,12 +185,15 @@ jobs:
           path: artifacts
           merge-multiple: true
       - run: pnpm release:verify artifacts
-      - name: Generate Linux updater metadata
+      - name: Generate updater metadata
         shell: bash
         run: |
           base_url="https://github.com/${{ github.repository }}/releases/download/$RELEASE_TAG"
-          pnpm updater:manifest artifacts "$base_url" artifacts/latest-linux.json
+          pnpm updater:manifest artifacts "$base_url" artifacts/latest.json
+          pnpm updater:verify artifacts artifacts/latest.json "$base_url"
+          cp artifacts/latest.json artifacts/latest-linux.json
           pnpm updater:verify artifacts artifacts/latest-linux.json "$base_url"
+          sha256sum artifacts/latest.json >> artifacts/SHA256SUMS
           sha256sum artifacts/latest-linux.json >> artifacts/SHA256SUMS
           cp scripts/install-linux.sh artifacts/install-linux.sh
           sha256sum artifacts/install-linux.sh >> artifacts/SHA256SUMS
@@ -192,7 +208,7 @@ jobs:
           if [[ -f "$notes_file" ]]; then
             notes_args=(--notes-file "$notes_file")
           else
-            notes_args=(--notes "Release-candidate artifacts with SHA-256 manifests, Linux updater metadata, and GitHub build provenance.")
+            notes_args=(--notes "Release-candidate artifacts with SHA-256 manifests, updater metadata, and GitHub build provenance.")
           fi
           gh release create "$RELEASE_TAG" artifacts/* \
             --draft \

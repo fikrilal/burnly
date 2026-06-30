@@ -49,13 +49,13 @@ updates from the same GitHub release flow that already supports Linux.
 
 ## Checklist
 
-- [ ] Review Tauri updater platform keys for Windows NSIS artifacts.
-- [ ] Decide updater feed naming and backward compatibility path.
-- [ ] Extend updater manifest generation for Windows.
-- [ ] Extend updater manifest verification and harness fixtures.
-- [ ] Update release workflow signing/publish steps for Windows `.exe`.
-- [ ] Update release automation docs.
-- [ ] Run relevant gates.
+- [x] Review Tauri updater platform keys for Windows NSIS artifacts.
+- [x] Decide updater feed naming and backward compatibility path.
+- [x] Extend updater manifest generation for Windows.
+- [x] Extend updater manifest verification and harness fixtures.
+- [x] Update release workflow signing/publish steps for Windows `.exe`.
+- [x] Update release automation docs.
+- [x] Run relevant gates.
 
 ## Test Plan
 
@@ -87,11 +87,23 @@ updates from the same GitHub release flow that already supports Linux.
 
 - Windows auto-update support is required before public Windows release.
 - Preserve Linux updater compatibility while adding Windows.
+- Use `latest.json` as the cross-platform updater endpoint for new builds.
+- Publish `latest-linux.json` as a compatibility alias for existing Linux
+  clients that already shipped with that endpoint.
+- Keep Windows updater support to `x86_64-pc-windows-msvc` in this phase.
+- Use the Tauri updater platform key `windows-x86_64` for the Windows NSIS
+  artifact.
 
 ## Verification
 
+- Command: `pnpm updater-metadata:test`
+- Outcome: passed
+- Command: `pnpm release-artifacts:test`
+- Outcome: passed
+- Command: `pnpm release-workflow:test && pnpm release-workflow:check`
+- Outcome: passed
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed; duplication report printed existing non-failing clones
 
 ## Runtime Evidence
 

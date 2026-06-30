@@ -16,13 +16,16 @@ const baseUrl = "https://github.com/burnly/burnly/releases/download/v0.1.0";
 
 try {
   await mkdir(artifactDirectory);
-  for (const target of releaseTargets.targets.filter(
-    (candidate) => candidate.platform === "linux",
-  )) {
-    const fileName = `burnly-v${packageDocument.version}-linux-${target.architecture}.AppImage`;
+  for (const target of updaterTargets()) {
+    const bundle = updaterBundle(target);
+    const fileName = releaseTargets.artifactNameTemplate
+      .replace("{version}", packageDocument.version)
+      .replace("{platform}", target.platform)
+      .replace("{architecture}", target.architecture)
+      .replace("{extension}", bundle.extension);
     const signatureFileName = `${fileName}.sig`;
-    const contents = Buffer.from(`${target.rustTargetTriple}:appimage`);
-    const signature = `signature-${target.architecture}`;
+    const contents = Buffer.from(`${target.rustTargetTriple}:${bundle.kind}`);
+    const signature = `signature-${target.platform}-${target.architecture}`;
     await writeFile(path.join(artifactDirectory, fileName), contents);
     await writeFile(path.join(artifactDirectory, signatureFileName), signature);
     await writeFile(
@@ -34,7 +37,7 @@ try {
           rustTargetTriple: target.rustTargetTriple,
           artifacts: [
             {
-              kind: "appimage",
+              kind: bundle.kind,
               fileName,
               bytes: contents.length,
               sha256: createHash("sha256").update(contents).digest("hex"),
@@ -57,16 +60,24 @@ try {
     BURNLY_UPDATER_PUB_DATE: "2026-06-29T00:00:00.000Z",
   };
   const outputPath = path.join(artifactDirectory, "latest-linux.json");
+  const crossPlatformOutputPath = path.join(artifactDirectory, "latest.json");
   await execute(
     process.execPath,
     [
       "scripts/generate-updater-manifest.mjs",
       artifactDirectory,
       baseUrl,
-      outputPath,
+      crossPlatformOutputPath,
     ],
     { env },
   );
+  await execute(process.execPath, [
+    "scripts/verify-updater-manifest.mjs",
+    artifactDirectory,
+    crossPlatformOutputPath,
+    baseUrl,
+  ]);
+  await writeFile(outputPath, await readFile(crossPlatformOutputPath, "utf8"));
   await execute(process.execPath, [
     "scripts/verify-updater-manifest.mjs",
     artifactDirectory,
@@ -74,14 +85,20 @@ try {
     baseUrl,
   ]);
 
-  const manifest = JSON.parse(await readFile(outputPath, "utf8"));
+  const manifest = JSON.parse(await readFile(crossPlatformOutputPath, "utf8"));
   if (
-    Object.keys(manifest.platforms).join(",") !== "linux-aarch64,linux-x86_64"
+    Object.keys(manifest.platforms).join(",") !==
+    "linux-aarch64,linux-x86_64,windows-x86_64"
   ) {
     throw new Error("updater manifest platforms are incomplete or unsorted");
   }
   if (!manifest.platforms["linux-x86_64"].signature.includes("x86_64")) {
     throw new Error("updater manifest does not inline signature contents");
+  }
+  if (
+    !manifest.platforms["windows-x86_64"].url.endsWith("windows-x86_64.exe")
+  ) {
+    throw new Error("updater manifest does not include the Windows exe URL");
   }
 
   const tampered = structuredClone(manifest);
@@ -102,7 +119,44 @@ try {
     }
   }
 
+  const windowsSignature = path.join(
+    artifactDirectory,
+    `burnly-v${packageDocument.version}-windows-x86_64.exe.sig`,
+  );
+  await rm(windowsSignature);
+  try {
+    await execute(process.execPath, [
+      "scripts/generate-updater-manifest.mjs",
+      artifactDirectory,
+      baseUrl,
+      path.join(artifactDirectory, "missing-windows-signature.json"),
+    ]);
+    throw new Error("missing Windows signature was accepted");
+  } catch (error) {
+    if (error.message === "missing Windows signature was accepted") {
+      throw error;
+    }
+  }
+
   console.log("Updater manifest generation and verification tests passed.");
 } finally {
   await rm(workspace, { recursive: true, force: true });
+}
+
+function updaterTargets() {
+  return releaseTargets.targets.filter(
+    (target) =>
+      target.platform === "linux" ||
+      target.rustTargetTriple === "x86_64-pc-windows-msvc",
+  );
+}
+
+function updaterBundle(target) {
+  if (target.platform === "linux") {
+    return target.bundles.find((bundle) => bundle.kind === "appimage");
+  }
+  if (target.rustTargetTriple === "x86_64-pc-windows-msvc") {
+    return target.bundles.find((bundle) => bundle.kind === "nsis");
+  }
+  throw new Error(`unsupported updater target ${target.rustTargetTriple}`);
 }

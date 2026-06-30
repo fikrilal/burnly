@@ -80,7 +80,9 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   }
   for (const target of deferredTargets) {
     if (releaseWorkflow.includes(`target: ${target}`)) {
-      failures.push(`release build matrix must stay Linux-only: ${target}.`);
+      failures.push(
+        `release build matrix includes deferred target: ${target}.`,
+      );
     }
   }
   for (const requiredBoundary of [
@@ -94,6 +96,7 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "pnpm windows-smoke:exe",
     "pnpm updater:manifest artifacts",
     "pnpm updater:verify artifacts",
+    "latest.json",
     "latest-linux.json",
     "install-linux.sh",
     "pnpm release:verify artifacts",

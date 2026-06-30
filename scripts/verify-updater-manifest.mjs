@@ -33,23 +33,21 @@ if (typeof manifest.notes !== "string") {
 }
 
 const expectedPlatforms = {};
-for (const target of releaseTargets.targets.filter(
-  (candidate) => candidate.platform === "linux",
-)) {
+for (const target of updaterTargets()) {
   const releaseManifest = targetManifestsByTarget.get(target.rustTargetTriple);
   if (!releaseManifest) {
     failures.push(`missing release manifest for ${target.rustTargetTriple}.`);
     continue;
   }
-  const appImage = releaseManifest.artifacts.find(
-    (artifact) => artifact.kind === "appimage",
-  );
-  if (!appImage) {
-    failures.push(`${target.rustTargetTriple} is missing an AppImage.`);
+  const updaterArtifact = artifactForUpdater(target, releaseManifest);
+  if (!updaterArtifact) {
+    failures.push(
+      `${target.rustTargetTriple} is missing a ${updaterBundleKind(target)} artifact.`,
+    );
     continue;
   }
   const signatureFileName =
-    appImage.signature?.fileName ?? `${appImage.fileName}.sig`;
+    updaterArtifact.signature?.fileName ?? `${updaterArtifact.fileName}.sig`;
   let signature;
   try {
     signature = (
@@ -62,9 +60,12 @@ for (const target of releaseTargets.targets.filter(
   if (!signature) {
     failures.push(`${signatureFileName} is empty.`);
   }
-  expectedPlatforms[`linux-${target.architecture}`] = {
+  expectedPlatforms[updaterPlatform(target)] = {
     signature,
-    url: new URL(encodeURIComponent(appImage.fileName), baseUrl).toString(),
+    url: new URL(
+      encodeURIComponent(updaterArtifact.fileName),
+      baseUrl,
+    ).toString(),
   };
 }
 
@@ -112,4 +113,27 @@ function sortObject(value) {
   return Object.fromEntries(
     Object.entries(value).sort(([left], [right]) => left.localeCompare(right)),
   );
+}
+
+function updaterPlatform(target) {
+  return `${target.platform}-${target.architecture}`;
+}
+
+function updaterTargets() {
+  return releaseTargets.targets.filter(
+    (target) =>
+      target.platform === "linux" ||
+      target.rustTargetTriple === "x86_64-pc-windows-msvc",
+  );
+}
+
+function updaterBundleKind(target) {
+  if (target.platform === "linux") return "appimage";
+  if (target.rustTargetTriple === "x86_64-pc-windows-msvc") return "nsis";
+  throw new Error(`unsupported updater target ${target.rustTargetTriple}`);
+}
+
+function artifactForUpdater(target, manifest) {
+  const kind = updaterBundleKind(target);
+  return manifest.artifacts.find((artifact) => artifact.kind === kind);
 }
