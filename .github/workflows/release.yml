@@ -79,6 +79,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
             bundle: appimage
             artifact: release-linux-x86_64
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
+            artifact: release-windows-x86_64
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -124,6 +128,12 @@ jobs:
         run: |
           artifact="$(pnpm --silent release:artifacts ${{ matrix.target }})"
           pnpm linux-smoke:appimage "src-tauri/target/release-artifacts/$artifact"
+      - name: Smoke Windows NSIS artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $artifact = pnpm --silent release:artifacts ${{ matrix.target }}
+          pnpm windows-smoke:exe "src-tauri/target/release-artifacts/$artifact"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ matrix.artifact }}

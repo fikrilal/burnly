@@ -44,6 +44,7 @@
     "platform-behavior:test": "node scripts/harness/check-platform-behavior.mjs --self-test",
     "linux-smoke:deb": "node scripts/smoke-linux-deb.mjs",
     "linux-smoke:appimage": "node scripts/smoke-linux-appimage.mjs",
+    "windows-smoke:exe": "node scripts/smoke-windows-exe.mjs",
     "release-artifacts:test": "node scripts/harness/check-release-artifact-tools.mjs",
     "release:artifacts": "node scripts/release-artifact-names.mjs",
     "release:version": "node scripts/check-release-version.mjs",

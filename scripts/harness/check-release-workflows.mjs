@@ -3,13 +3,13 @@ import { readFile } from "node:fs/promises";
 const expectedTargets = [
   "aarch64-unknown-linux-gnu",
   "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
 ];
 
 const deferredTargets = [
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
   "aarch64-pc-windows-msvc",
-  "x86_64-pc-windows-msvc",
 ];
 
 function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
@@ -91,6 +91,7 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "pnpm tauri signer sign",
     "pnpm release:stage ${{ matrix.target }}",
     "pnpm linux-smoke:appimage",
+    "pnpm windows-smoke:exe",
     "pnpm updater:manifest artifacts",
     "pnpm updater:verify artifacts",
     "latest-linux.json",

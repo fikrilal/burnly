@@ -13,7 +13,9 @@ const releaseTargets = JSON.parse(
   await readFile("src-tauri/release-targets.json", "utf8"),
 );
 const publishedTargets = releaseTargets.targets.filter(
-  (target) => target.platform === "linux",
+  (target) =>
+    target.platform === "linux" ||
+    target.rustTargetTriple === "x86_64-pc-windows-msvc",
 );
 const expectedTargets = new Set(
   publishedTargets.map((target) => target.rustTargetTriple),

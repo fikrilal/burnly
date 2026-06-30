@@ -12,7 +12,9 @@ const releaseTargets = JSON.parse(
   await readFile("src-tauri/release-targets.json", "utf8"),
 );
 const publishedTargets = releaseTargets.targets.filter(
-  (target) => target.platform === "linux",
+  (target) =>
+    target.platform === "linux" ||
+    target.rustTargetTriple === "x86_64-pc-windows-msvc",
 );
 
 function artifactName(target, bundle) {
@@ -86,6 +88,19 @@ try {
   if (checksums.trim().split("\n").length !== expectedChecksumLines) {
     throw new Error("checksum output is incomplete");
   }
+
+  const windowsTarget = publishedTargets.find(
+    (target) => target.rustTargetTriple === "x86_64-pc-windows-msvc",
+  );
+  const windowsArtifact = artifactName(windowsTarget, windowsTarget.bundles[0]);
+  await writeFile(
+    path.join(fixtureDirectory, windowsArtifact),
+    Buffer.concat([Buffer.from("MZ"), Buffer.alloc(1024 * 1024)]),
+  );
+  await execute(process.execPath, [
+    "scripts/smoke-windows-exe.mjs",
+    path.join(fixtureDirectory, windowsArtifact),
+  ]);
 
   const tamperedName = artifactName(
     publishedTargets[0],
