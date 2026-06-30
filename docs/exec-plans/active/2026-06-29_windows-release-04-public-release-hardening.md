@@ -47,13 +47,13 @@ runtime evidence are in place.
 
 ## Checklist
 
-- [ ] Decide whether Windows MVP ships unsigned or signed.
+- [x] Decide whether Windows MVP ships unsigned or signed.
 - [ ] If signed, configure signing secrets and CI signing steps.
-- [ ] If unsigned, document the user-facing warning and support posture.
-- [ ] Update README install section for Windows.
-- [ ] Update release notes template for Windows assets.
-- [ ] Update release automation docs/checklists.
-- [ ] Run full local and CI gates.
+- [x] If unsigned, document the user-facing warning and support posture.
+- [x] Update README install section for Windows.
+- [x] Update release notes template for Windows assets.
+- [x] Update release automation docs/checklists.
+- [x] Run full local and CI gates.
 - [ ] Publish a release containing Windows artifacts.
 
 ## Test Plan
@@ -81,16 +81,40 @@ runtime evidence are in place.
 
 ## Decisions
 
-- Do not call Windows public-ready until code-signing posture is explicit.
+- Windows MVP ships as an unsigned preview.
+- User-facing docs must say: "Windows preview is unsigned; only download from
+  official GitHub releases."
+- Authenticode code signing is deferred. Tauri updater artifact signing remains
+  required for Windows `.exe` updater metadata.
 
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: not run; Windows-specific local gate was used for this Windows
+  release pass, and CI release validation will run `pnpm verify` on Ubuntu.
+- Command:
+  `pnpm release:version v0.1.3; pnpm release-workflow:test; pnpm release-workflow:check; pnpm packaging:test; pnpm packaging:check; pnpm updater-metadata:test; pnpm release-artifacts:test`
+- Outcome: passed.
+- Command:
+  `cmd --% /d /s /c "call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "PATH=%USERPROFILE%\.cargo\bin;%PATH%" && pnpm verify:windows"`
+- Outcome: passed; lint still reports existing warnings and duplication report
+  still prints existing non-failing clones.
+- Command:
+  `cmd --% /d /s /c "call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "PATH=%USERPROFILE%\.cargo\bin;%PATH%" && set "CI=true" && set "BURNLY_SIDECAR_TARGET=x86_64-pc-windows-msvc" && pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis"`
+- Outcome: passed; produced
+  `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Burnly_0.1.3_x64-setup.exe`.
+- Command:
+  `pnpm release:stage x86_64-pc-windows-msvc "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Burnly_0.1.3_x64-setup.exe"`
+- Outcome: passed; staged
+  `src-tauri/target/release-artifacts/burnly-v0.1.3-windows-x86_64.exe`.
+- Command:
+  `pnpm windows-smoke:exe "src-tauri/target/release-artifacts/burnly-v0.1.3-windows-x86_64.exe"`
+- Outcome: passed; installer size was `6198548` bytes.
 
 ## Runtime Evidence
 
-- Reuse phase 3 evidence unless release artifact behavior changes.
+- Reused frozen phase 3 local evidence for Windows 0.1.2. Rebuilt and smoke
+  checked the local 0.1.3 Windows NSIS artifact before release.
 
 ## Follow-Up Debt
 

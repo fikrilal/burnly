@@ -427,7 +427,7 @@ fn resolve_packaged_resource_directory(resource_directory: PathBuf) -> PathBuf {
 
 fn resolve_packaged_resource_directory_for_appdir(
     resource_directory: PathBuf,
-    appdir: Option<&Path>,
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] appdir: Option<&Path>,
 ) -> PathBuf {
     if packaged_sidecar_manifest_exists(&resource_directory) {
         return resource_directory;

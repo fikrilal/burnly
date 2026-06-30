@@ -38,6 +38,18 @@ creates a draft release.
 Public release promotion remains outside this workflow. A failed, cancelled, or
 missing matrix job cannot publish a partial release.
 
+## Windows Preview Trust Posture
+
+Windows x64 ships as an unsigned preview for the MVP. The release workflow
+builds and publishes the NSIS `.exe`, but it does not Authenticode-sign the
+installer with an OV or EV code-signing certificate. Windows may show an unknown
+publisher or SmartScreen warning, and release notes must tell users to download
+Burnly only from the official GitHub release.
+
+This does not disable updater integrity. Windows updater artifacts still require
+Tauri updater signatures, and `latest.json` verification still fails if the
+Windows `.exe.sig` file is missing or mismatched.
+
 ## Updater Signing
 
 Updater signing uses Tauri's updater signing flow. Release jobs require:

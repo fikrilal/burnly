@@ -12,7 +12,7 @@ and gives you a quick answer to: "how much have I burned today?"
 - Source and model breakdowns for supported tools.
 - Estimated cost when the upstream usage data includes enough cost information.
 - Launch-at-login and close-to-tray settings.
-- Linux AppImage install with signed update metadata.
+- Linux AppImage and Windows x64 preview install with signed update metadata.
 
 ## Supported Sources
 
@@ -24,9 +24,9 @@ Burnly currently reads local usage through the bundled `ccusage` collector for:
 
 Burnly does not read prompts, responses, source code, or file contents.
 
-## Linux Install
+## Install
 
-Linux is the supported MVP install path.
+### Linux
 
 ```bash
 curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-linux.sh | sh
@@ -40,6 +40,22 @@ For a pinned release, pass a version tag:
 
 ```bash
 curl -fsSL https://github.com/fikrilal/burnly/releases/download/vX.Y.Z/install-linux.sh | BURNLY_VERSION=vX.Y.Z sh
+```
+
+### Windows Preview
+
+Download the Windows x64 installer from the official GitHub release:
+
+```text
+burnly-vX.Y.Z-windows-x86_64.exe
+```
+
+The Windows preview installer is unsigned for the MVP. Windows may show an
+unknown publisher or SmartScreen warning. Only download Burnly from the
+official GitHub releases page:
+
+```text
+https://github.com/fikrilal/burnly/releases
 ```
 
 ## Updates
@@ -63,6 +79,12 @@ On Linux, app data lives under:
 ${XDG_DATA_HOME:-~/.local/share}/app.burnly.desktop
 ```
 
+On Windows, app data lives under:
+
+```text
+%APPDATA%\app.burnly.desktop
+```
+
 ## Uninstall
 
 Remove the installed AppImage, launcher, and desktop entry:
@@ -77,6 +99,18 @@ This does not delete your usage database. To erase local Burnly data too:
 
 ```bash
 rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/app.burnly.desktop"
+```
+
+On Windows, uninstall Burnly from Windows Settings or run:
+
+```text
+%LOCALAPPDATA%\Burnly\uninstall.exe
+```
+
+To erase local Burnly data too, remove:
+
+```text
+%APPDATA%\app.burnly.desktop
 ```
 
 ## Troubleshooting
