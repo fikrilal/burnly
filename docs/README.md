@@ -31,6 +31,7 @@ This directory is the source of truth for Burnly product and engineering decisio
 - [Agent PR loop](./engineering/agent-pr-loop.md)
 - [Architecture boundaries](./engineering/architecture-boundaries.md)
 - [Desktop runtime evidence](./engineering/desktop-runtime-evidence.md)
+- [Windows runtime evidence](./engineering/windows-runtime-evidence.md)
 - [Release security baseline](./engineering/release-security-baseline.md)
 - [Packaged sidecars](./engineering/packaged-sidecars.md)
 - [Release packaging](./engineering/release-packaging.md)

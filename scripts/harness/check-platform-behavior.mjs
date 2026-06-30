@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 
 const expectedEnvironmentIds = [
   "windows-x86_64",
-  "windows-aarch64",
   "macos-aarch64",
   "macos-x86_64",
   "linux-gnome-x86_64",
@@ -19,10 +18,12 @@ const requiredEvidence = [
   "reveal_logs",
   "notifications",
   "recovery",
+  "launch_at_login",
+  "updater_update_check",
+  "updater_install_restart",
 ];
 const supportedArtifacts = new Set([
   "release-windows-x86_64",
-  "release-windows-aarch64",
   "release-macos-aarch64",
   "release-macos-x86_64",
   "release-linux-x86_64",
@@ -30,7 +31,6 @@ const supportedArtifacts = new Set([
 ]);
 const expectedChunks = new Map([
   ["windows-x86_64", "10D-Windows"],
-  ["windows-aarch64", "10D-Windows"],
   ["macos-aarch64", "10D-macOS"],
   ["macos-x86_64", "10D-macOS"],
   ["linux-gnome-x86_64", "10D-Linux"],
@@ -87,10 +87,20 @@ function validate({ matrix, guide, packageDocument }) {
     ) {
       failures.push(`${environment.id}: unsupported evidence mode.`);
     }
-    if (environment.expectedCapabilities?.updates !== "unavailable") {
+    if (
+      environment.id === "windows-x86_64" &&
+      environment.expectedCapabilities?.updates !== "evidence_required"
+    ) {
       failures.push(
-        `${environment.id}: updates must remain unavailable in Phase 10D.`,
+        `${environment.id}: updates must require runtime evidence.`,
       );
+    } else if (
+      environment.id !== "windows-x86_64" &&
+      !["available", "unavailable"].includes(
+        environment.expectedCapabilities?.updates,
+      )
+    ) {
+      failures.push(`${environment.id}: updates capability is invalid.`);
     }
     if (environment.expectedCapabilities?.launchAtLogin !== "available") {
       failures.push(
@@ -110,6 +120,7 @@ function validate({ matrix, guide, packageDocument }) {
     "Linux is validated first",
     "Linux tray support is host-dependent",
     "Launch at login is available in packaged builds",
+    "Windows x64 updater support requires installed runtime evidence",
   ]) {
     if (!guide.includes(requiredText)) {
       failures.push(
@@ -140,7 +151,7 @@ if (process.argv.includes("--self-test")) {
   mutated.matrix.requiredEvidence = mutated.matrix.requiredEvidence.filter(
     (evidence) => evidence !== "tray",
   );
-  mutated.matrix.environments[0].expectedCapabilities.updates = "available";
+  mutated.matrix.environments[0].expectedCapabilities.updates = "unavailable";
   if (validate(mutated).length < 3) {
     console.error("Platform behavior harness self-test did not catch drift.");
     process.exit(1);

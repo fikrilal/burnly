@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "environment": {
+    "id": "windows-x86_64",
+    "os": "windows",
+    "architecture": "x86_64",
+    "windowsVersion": ""
+  },
+  "artifact": {
+    "version": "",
+    "installerFileName": "burnly-v0.0.0-windows-x86_64.exe",
+    "source": ""
+  },
+  "install": {
+    "installPath": "",
+    "appDataPath": "",
+    "databasePath": ""
+  },
+  "checks": {
+    "firstLaunch": {
+      "status": "pending",
+      "notes": ""
+    },
+    "trayPanel": {
+      "status": "pending",
+      "notes": ""
+    },
+    "refresh": {
+      "status": "pending",
+      "latestImportStatus": "",
+      "notes": ""
+    },
+    "ccusageSidecar": {
+      "status": "pending",
+      "observedVersion": "",
+      "notes": ""
+    },
+    "sqlite": {
+      "status": "pending",
+      "notes": ""
+    },
+    "launchAtLogin": {
+      "status": "pending",
+      "notes": ""
+    },
+    "manualUpdateCheck": {
+      "status": "pending",
+      "fromVersion": "",
+      "detectedVersion": "",
+      "notes": ""
+    },
+    "updateInstallRestart": {
+      "status": "pending",
+      "finalVersion": "",
+      "notes": ""
+    }
+  }
+}

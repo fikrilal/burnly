@@ -9,15 +9,14 @@ Linux evidence notes: `docs/engineering/linux-platform-behavior.md`.
 
 ## Required environments
 
-| Environment         | Chunk       | Artifact                  | Evidence mode          |
-| ------------------- | ----------- | ------------------------- | ---------------------- |
-| Linux GNOME x64     | 10D-Linux   | `release-linux-x86_64`    | Native installed smoke |
-| Linux GNOME ARM64   | 10D-Linux   | `release-linux-aarch64`   | Native installed smoke |
-| Linux KDE x64       | 10D-Linux   | `release-linux-x86_64`    | Manual installed smoke |
-| Windows x64         | 10D-Windows | `release-windows-x86_64`  | Native installed smoke |
-| Windows ARM64       | 10D-Windows | `release-windows-aarch64` | Native installed smoke |
-| macOS Apple Silicon | 10D-macOS   | `release-macos-aarch64`   | Native installed smoke |
-| macOS Intel         | 10D-macOS   | `release-macos-x86_64`    | Native installed smoke |
+| Environment         | Chunk       | Artifact                 | Evidence mode          |
+| ------------------- | ----------- | ------------------------ | ---------------------- |
+| Linux GNOME x64     | 10D-Linux   | `release-linux-x86_64`   | Native installed smoke |
+| Linux GNOME ARM64   | 10D-Linux   | `release-linux-aarch64`  | Native installed smoke |
+| Linux KDE x64       | 10D-Linux   | `release-linux-x86_64`   | Manual installed smoke |
+| Windows x64         | 10D-Windows | `release-windows-x86_64` | Native installed smoke |
+| macOS Apple Silicon | 10D-macOS   | `release-macos-aarch64`  | Native installed smoke |
+| macOS Intel         | 10D-macOS   | `release-macos-x86_64`   | Native installed smoke |
 
 Phase 10D is intentionally split: Linux is validated first, then Windows and
 macOS follow as separate queued chunks.
@@ -35,6 +34,9 @@ Each environment must record:
 - Reveal logs behavior
 - Notification behavior or denied/unavailable outcome
 - Recovery behavior
+- Launch-at-login behavior
+- Updater update-check behavior
+- Updater install-and-restart behavior
 
 ## Capability expectations
 
@@ -44,7 +46,10 @@ Each environment must record:
   unavailable outcome, not a successful support claim.
 - Native notifications are permission-dependent on every desktop.
 - Launch at login is available in packaged builds.
-- Updates are unavailable until Phase 10F defines the signing/update policy.
+- Windows x64 updater support requires installed runtime evidence before public
+  release.
+- Windows ARM64 remains deferred until a release workflow and runtime evidence
+  exist for that target.
 
 ## Evidence rule
 

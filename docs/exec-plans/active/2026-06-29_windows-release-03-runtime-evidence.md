@@ -59,7 +59,10 @@ storage, and updater execution.
 - [ ] Verify database path and schema health.
 - [ ] Toggle launch-at-login and verify restart/login behavior.
 - [ ] Test updater from an older Windows build to a newer one.
-- [ ] Record evidence and any platform fixes.
+- [x] Add a concrete Windows evidence contract and validator.
+- [x] Correct platform behavior policy for Windows x64 updater evidence and
+      deferred Windows ARM64 support.
+- [ ] Record real Windows evidence and any platform fixes.
 - [ ] Run relevant gates after fixes.
 
 ## Test Plan
@@ -92,15 +95,31 @@ storage, and updater execution.
 
 - Windows public release cannot proceed without real Windows runtime/update
   evidence.
+- Windows x64 is the only Windows release target in this phase.
+- Windows ARM64 remains deferred until it has a release workflow target and
+  runtime evidence.
+- Runtime evidence must be validated by
+  `pnpm windows-runtime:evidence:check <evidence.json>`.
 
 ## Verification
 
+- Command: `pnpm windows-runtime:evidence:check <temporary passing fixture>`
+- Outcome: passed
+- Command:
+  `pnpm windows-runtime:evidence:check docs/engineering/evidence/windows-runtime-evidence.template.json`
+- Outcome: failed as expected because the template contains pending
+  placeholders, not real runtime evidence
+- Command: `pnpm platform-behavior:test && pnpm platform-behavior:check`
+- Outcome: passed
+- Command: `pnpm format:check`
+- Outcome: passed
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed; duplication report printed existing non-failing clones
 
 ## Runtime Evidence
 
-- Required before completing this phase.
+- Required before completing this phase. Not collected in this Linux
+  environment.
 
 ## Follow-Up Debt
 

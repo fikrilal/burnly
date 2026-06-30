@@ -11,7 +11,10 @@
     "export_dialog",
     "reveal_logs",
     "notifications",
-    "recovery"
+    "recovery",
+    "launch_at_login",
+    "updater_update_check",
+    "updater_install_restart"
   ],
   "environments": [
     {
@@ -28,24 +31,7 @@
         "tray": "available",
         "nativeNotifications": "permission_dependent",
         "launchAtLogin": "available",
-        "updates": "unavailable"
-      }
-    },
-    {
-      "id": "windows-aarch64",
-      "chunk": "10D-Windows",
-      "label": "Windows ARM64",
-      "os": "windows",
-      "desktop": "shell",
-      "architecture": "aarch64",
-      "artifact": "release-windows-aarch64",
-      "runner": "windows-11-arm",
-      "evidenceMode": "native_installed_smoke",
-      "expectedCapabilities": {
-        "tray": "available",
-        "nativeNotifications": "permission_dependent",
-        "launchAtLogin": "available",
-        "updates": "unavailable"
+        "updates": "evidence_required"
       }
     },
     {
@@ -136,8 +122,8 @@
   ],
   "unsupportedClaims": [
     {
-      "capability": "auto_updates",
-      "status": "unavailable_until_phase_10f"
+      "capability": "windows_arm64_release",
+      "status": "deferred"
     },
     {
       "capability": "linux_tray_without_status_notifier_host",
