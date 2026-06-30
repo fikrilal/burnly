@@ -292,7 +292,13 @@ async function loadInputs() {
   ]) {
     await access(path.join(root, iconPath));
   }
-  await access(path.join(root, "scripts/stage-release-artifacts.mjs"));
+  for (const scriptPath of [
+    "scripts/install-linux.sh",
+    "scripts/install-macos.sh",
+    "scripts/stage-release-artifacts.mjs",
+  ]) {
+    await access(path.join(root, scriptPath));
+  }
 
   return {
     config: await readJson("src-tauri/tauri.conf.json"),

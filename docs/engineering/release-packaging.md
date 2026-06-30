@@ -15,7 +15,8 @@ desktop category is `DeveloperTool`.
 
 ## Selected Packages
 
-- macOS: one unsigned DMG containing `Burnly.app`.
+- macOS: one unsigned DMG containing `Burnly.app`, plus an `install-macos.sh`
+  preview helper.
 - Windows: one NSIS per-user installer. Downgrades are unsupported and blocked.
 - Linux: one AppImage.
 
@@ -35,10 +36,12 @@ on the target architecture.
 The macOS DMG is an unsigned preview at the same maturity bar as the Windows
 preview. It carries no Apple Developer ID signature or notarization, so
 Gatekeeper quarantines a downloaded build until the user clears the quarantine
-attribute. The `.dmg` is only the first-install artifact; macOS in-app updates
-use a separate signed `.app.tar.gz` updater archive and `darwin-*` updater
-metadata entries. Per-architecture DMGs and updater archives are promoted only
-after their smoke checks pass.
+attribute. `install-macos.sh` automates the preview first install by downloading
+the architecture-matched DMG, verifying `SHA256SUMS`, copying `Burnly.app` to
+`/Applications`, and clearing quarantine. The `.dmg` is only the first-install
+artifact; macOS in-app updates use a separate signed `.app.tar.gz` updater
+archive and `darwin-*` updater metadata entries. Per-architecture DMGs and
+updater archives are promoted only after their smoke checks pass.
 
 Canonical artifact names use:
 
@@ -53,7 +56,7 @@ records byte sizes plus SHA-256 checksums in a target-specific manifest.
 
 | Platform | Package  | Application location or launch model                                                                                                  |
 | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS    | DMG      | User copies `Burnly.app` to `/Applications` or `~/Applications`.                                                                      |
+| macOS    | DMG      | `install-macos.sh` copies `Burnly.app` to `/Applications`; manual DMG copy remains available for preview testing.                     |
 | Windows  | NSIS     | Per-user installation under the current user's local application directory, with Start Menu and uninstall registration owned by NSIS. |
 | Linux    | AppImage | User-owned executable file. Desktop integration and stable launcher ownership are Burnly responsibilities.                            |
 

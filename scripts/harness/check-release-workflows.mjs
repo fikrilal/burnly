@@ -107,6 +107,7 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "latest.json",
     "latest-linux.json",
     "install-linux.sh",
+    "install-macos.sh",
     "pnpm release:verify artifacts",
     "merge-multiple: true",
     "needs:\n      - validate\n      - build",

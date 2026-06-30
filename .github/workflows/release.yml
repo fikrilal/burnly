@@ -226,6 +226,8 @@ jobs:
           sha256sum artifacts/latest-linux.json >> artifacts/SHA256SUMS
           cp scripts/install-linux.sh artifacts/install-linux.sh
           sha256sum artifacts/install-linux.sh >> artifacts/SHA256SUMS
+          cp scripts/install-macos.sh artifacts/install-macos.sh
+          sha256sum artifacts/install-macos.sh >> artifacts/SHA256SUMS
       - name: Publish complete draft release
         shell: bash
         run: |

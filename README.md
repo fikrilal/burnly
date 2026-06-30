@@ -62,7 +62,23 @@ https://github.com/fikrilal/burnly/releases
 
 ### macOS Preview
 
-Download the `.dmg` for your CPU architecture from the official GitHub release:
+```bash
+curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-macos.sh | sh
+```
+
+The installer downloads the matching `.dmg` for your CPU architecture, verifies
+`SHA256SUMS`, copies `Burnly.app` to `/Applications`, and clears the quarantine
+attribute required for unsigned preview builds. If `/Applications` needs
+administrator permission, the installer asks through `sudo`.
+
+For a pinned release, pass a version tag:
+
+```bash
+curl -fsSL https://github.com/fikrilal/burnly/releases/download/vX.Y.Z/install-macos.sh | BURNLY_VERSION=vX.Y.Z sh
+```
+
+Manual install is also available by downloading the `.dmg` for your CPU
+architecture from the official GitHub release:
 
 ```text
 burnly-vX.Y.Z-macos-aarch64.dmg   # Apple Silicon
