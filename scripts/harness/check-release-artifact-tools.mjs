@@ -14,6 +14,7 @@ const releaseTargets = JSON.parse(
 const publishedTargets = releaseTargets.targets.filter(
   (target) =>
     target.platform === "linux" ||
+    target.platform === "macos" ||
     target.rustTargetTriple === "x86_64-pc-windows-msvc",
 );
 
@@ -100,6 +101,21 @@ try {
   await execute(process.execPath, [
     "scripts/smoke-windows-exe.mjs",
     path.join(fixtureDirectory, windowsArtifact),
+  ]);
+
+  const macosTarget = publishedTargets.find(
+    (target) => target.rustTargetTriple === "aarch64-apple-darwin",
+  );
+  const macosArtifact = artifactName(macosTarget, macosTarget.bundles[0]);
+  const kolyTrailer = Buffer.alloc(512);
+  kolyTrailer.write("koly", 0, "ascii");
+  await writeFile(
+    path.join(fixtureDirectory, macosArtifact),
+    Buffer.concat([Buffer.alloc(1024 * 1024), kolyTrailer]),
+  );
+  await execute(process.execPath, [
+    "scripts/smoke-macos-dmg.mjs",
+    path.join(fixtureDirectory, macosArtifact),
   ]);
 
   const tamperedName = artifactName(
