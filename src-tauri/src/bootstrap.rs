@@ -1222,7 +1222,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn tauri_bridge_executes_composed_refresh_and_persists_usage() {
-        use std::{thread, time::Duration};
+        use std::{
+            thread,
+            time::{Duration, Instant},
+        };
 
         let directory = tempfile::TempDir::new().expect("create app data directory");
         let database_path = directory.path().join("burnly.sqlite3");
@@ -1270,21 +1273,20 @@ mod tests {
         assert_eq!(submitted["ok"], true);
         assert_eq!(submitted["data"]["status"], "running");
 
-        let terminal = (0..1_000)
-            .find_map(|_| {
-                let response =
-                    tauri::test::get_ipc_response(&webview, request("refresh_get_state"))
-                        .expect("invoke refresh state")
-                        .deserialize::<Value>()
-                        .expect("deserialize refresh state");
-                if response["data"]["status"] == "running" {
-                    thread::sleep(Duration::from_millis(1));
-                    None
-                } else {
-                    Some(response)
-                }
-            })
-            .expect("refresh reaches terminal state");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let terminal = loop {
+            let response = tauri::test::get_ipc_response(&webview, request("refresh_get_state"))
+                .expect("invoke refresh state")
+                .deserialize::<Value>()
+                .expect("deserialize refresh state");
+            if response["data"]["status"] != "running" {
+                break response;
+            }
+            if Instant::now() >= deadline {
+                panic!("refresh reaches terminal state; last response: {response}");
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
 
         let connection = Connection::open(&database_path).expect("open persisted database");
         assert_eq!(
