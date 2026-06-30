@@ -54,7 +54,7 @@ runtime evidence are in place.
 - [x] Update release notes template for Windows assets.
 - [x] Update release automation docs/checklists.
 - [x] Run full local and CI gates.
-- [ ] Publish a release containing Windows artifacts.
+- [x] Publish a release containing Windows artifacts.
 
 ## Test Plan
 
@@ -110,6 +110,28 @@ runtime evidence are in place.
 - Command:
   `pnpm windows-smoke:exe "src-tauri/target/release-artifacts/burnly-v0.1.3-windows-x86_64.exe"`
 - Outcome: passed; installer size was `6198548` bytes.
+- Command: pushed `development`, fast-forward merged to `main`, pushed `main`,
+  tagged `v0.1.3`, and pushed the tag.
+- Outcome: passed.
+- Command:
+  `gh run watch 28413869564 --repo fikrilal/burnly --exit-status`
+- Outcome: passed; release workflow validated, built Linux and Windows
+  artifacts, signed updater artifacts, generated updater metadata, and created
+  the draft release.
+- Command:
+  `gh release edit v0.1.3 --repo fikrilal/burnly --draft=false --latest`
+- Outcome: passed; published
+  `https://github.com/fikrilal/burnly/releases/tag/v0.1.3`.
+- Command:
+  `gh release view v0.1.3 --repo fikrilal/burnly --json url,isDraft,isPrerelease,tagName,publishedAt,assets`
+- Outcome: passed; release is public, not a prerelease, and includes
+  `burnly-v0.1.3-windows-x86_64.exe`,
+  `burnly-v0.1.3-windows-x86_64.exe.sig`, `latest.json`,
+  `latest-linux.json`, `SHA256SUMS`, Linux artifacts, and manifests.
+- Command: downloaded `latest.json` and `SHA256SUMS` from the `v0.1.3`
+  release.
+- Outcome: passed; `latest.json` reports version `0.1.3` and includes the
+  `windows-x86_64` platform URL for the official Windows `.exe`.
 
 ## Runtime Evidence
 
