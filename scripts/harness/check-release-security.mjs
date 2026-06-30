@@ -5,6 +5,7 @@ const root = process.cwd();
 const allowedCorePermissions = new Set([
   "core:event:allow-listen",
   "core:event:allow-unlisten",
+  "core:window:allow-start-dragging",
 ]);
 const forbiddenPermissionPrefixes = [
   "core:default",

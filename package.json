@@ -1,7 +1,7 @@
 {
   "name": "burnly",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Local desktop app for AI coding-tool token usage.",
   "type": "module",
   "scripts": {
