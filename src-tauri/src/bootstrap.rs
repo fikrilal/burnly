@@ -18,6 +18,7 @@ use crate::application::bootstrap::{
 };
 
 use crate::application::collection::CollectorFailure;
+use crate::application::ports::collector::Collector;
 use crate::application::ports::run_store::RunStoreError;
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
@@ -33,6 +34,8 @@ use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
+use crate::infrastructure::collectors::cline::ClineCollector;
+use crate::infrastructure::collectors::routed::RoutedCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
     SqliteTraySummaryStore,
@@ -437,13 +440,15 @@ fn build_refresh_coordinator<R: Runtime>(
         .resource_dir()
         .map_err(StartupError::ResourceDir)?;
     let packaged_resource_directory = resolve_packaged_resource_directory(resource_directory);
-    let collector = Arc::new(
+    let ccusage_collector = Arc::new(
         match std::env::var_os("BURNLY_CCUSAGE_DEV_BINARY") {
             Some(binary) => CcusageCollector::development(binary),
             None => CcusageCollector::packaged(packaged_resource_directory),
         }
         .map_err(StartupError::Collector)?,
     );
+    let cline_collector = Arc::new(ClineCollector::from_data_dir(default_cline_data_dir()));
+    let collector = Arc::new(RoutedCollector::new(ccusage_collector, cline_collector));
 
     compose_refresh_coordinator(
         database_path,
@@ -451,6 +456,13 @@ fn build_refresh_coordinator<R: Runtime>(
         refresh_event_sink,
         reporting_timezone,
     )
+}
+
+fn default_cline_data_dir() -> PathBuf {
+    std::env::var_os("CLINE_DATA_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cline")))
+        .unwrap_or_else(|| PathBuf::from(".cline"))
 }
 
 fn resolve_packaged_resource_directory(resource_directory: PathBuf) -> PathBuf {
@@ -489,7 +501,7 @@ fn packaged_sidecar_manifest_exists(resource_directory: &Path) -> bool {
 
 fn compose_refresh_coordinator(
     database_path: &Path,
-    collector: Arc<CcusageCollector>,
+    collector: Arc<dyn Collector>,
     refresh_event_sink: Arc<dyn RefreshEventSink>,
     reporting_timezone: String,
 ) -> Result<RefreshCoordinator, StartupError> {
@@ -1175,7 +1187,7 @@ mod tests {
             .expect("seed settings");
 
         let store = Arc::new(SqliteReconciliationStore::new(database));
-        let collector = Arc::new(
+        let ccusage_collector = Arc::new(
             CcusageCollector::development(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
                     .parent()
@@ -1185,7 +1197,7 @@ mod tests {
             .expect("collector"),
         );
         let coordinator = RefreshCoordinator::new(
-            collector,
+            ccusage_collector,
             store.clone(),
             store,
             Arc::new(SystemClock),
@@ -1244,7 +1256,7 @@ mod tests {
             ))
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
-        let collector = Arc::new(
+        let ccusage_collector = Arc::new(
             CcusageCollector::development(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
                     .parent()
@@ -1253,6 +1265,10 @@ mod tests {
             )
             .expect("development collector"),
         );
+        let cline_collector = Arc::new(ClineCollector::from_database_path(
+            directory.path().join("missing-cline-sessions.db"),
+        ));
+        let collector = Arc::new(RoutedCollector::new(ccusage_collector, cline_collector));
         let coordinator = compose_refresh_coordinator(
             &database_path,
             collector,

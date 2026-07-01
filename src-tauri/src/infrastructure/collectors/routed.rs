@@ -1,0 +1,239 @@
+use std::sync::Arc;
+
+use crate::application::collection::{
+    CollectionRequest, CollectionResult, CollectorDescriptor, CollectorFailure, DetectionRequest,
+    DetectionResult,
+};
+use crate::application::ports::collector::{CancellationSignal, Collector};
+use crate::domain::source::SourceKey;
+
+#[derive(Clone)]
+pub(crate) struct RoutedCollector {
+    ccusage: Arc<dyn Collector>,
+    cline: Arc<dyn Collector>,
+}
+
+impl RoutedCollector {
+    pub(crate) fn new(ccusage: Arc<dyn Collector>, cline: Arc<dyn Collector>) -> Self {
+        Self { ccusage, cline }
+    }
+
+    fn collector_for(&self, source: SourceKey) -> Result<&Arc<dyn Collector>, CollectorFailure> {
+        match source {
+            SourceKey::ClaudeCode | SourceKey::Codex | SourceKey::OpenCode => Ok(&self.ccusage),
+            SourceKey::Cline => Ok(&self.cline),
+            #[cfg(test)]
+            SourceKey::TestUnsupported => Err(CollectorFailure::new(
+                crate::application::collection::CollectorFailureCode::UnsupportedSource,
+                Some(source),
+                None,
+            )),
+        }
+    }
+}
+
+impl Collector for RoutedCollector {
+    fn describe(&self) -> Result<CollectorDescriptor, CollectorFailure> {
+        let mut descriptor = self.ccusage.describe()?;
+        descriptor.profiles.extend(self.cline.describe()?.profiles);
+        Ok(descriptor)
+    }
+
+    fn detect(
+        &self,
+        request: DetectionRequest,
+        cancellation: &dyn CancellationSignal,
+    ) -> Result<DetectionResult, CollectorFailure> {
+        self.collector_for(request.source)?
+            .detect(request, cancellation)
+    }
+
+    fn collect(
+        &self,
+        request: CollectionRequest,
+        cancellation: &dyn CancellationSignal,
+    ) -> Result<CollectionResult, CollectorFailure> {
+        self.collector_for(request.source())?
+            .collect(request, cancellation)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use chrono::{TimeZone, Utc};
+
+    use super::*;
+    use crate::application::collection::{
+        CollectionId, CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionScope,
+        CollectorFailureCode, CollectorIntegrity, CollectorKey, DailyUsageCandidate,
+        ModelUsageCandidate, ProcessSummary, ProfileDescriptor,
+    };
+    use crate::domain::usage::{CostKind, CurrencyCode, TokenUsage, UsageCost, ValuedCostStatus};
+
+    #[test]
+    fn routes_collection_by_source() {
+        let ccusage = Arc::new(RecordingCollector::new("ccusage"));
+        let cline = Arc::new(RecordingCollector::new("cline"));
+        let collector = RoutedCollector::new(ccusage.clone(), cline.clone());
+
+        collector
+            .collect(request(SourceKey::Codex), &NeverCancelled)
+            .expect("codex collection");
+        collector
+            .collect(request(SourceKey::Cline), &NeverCancelled)
+            .expect("cline collection");
+
+        assert_eq!(ccusage.sources(), vec![SourceKey::Codex]);
+        assert_eq!(cline.sources(), vec![SourceKey::Cline]);
+    }
+
+    struct NeverCancelled;
+
+    impl CancellationSignal for NeverCancelled {
+        fn is_cancelled(&self) -> bool {
+            false
+        }
+    }
+
+    struct RecordingCollector {
+        key: &'static str,
+        sources: Mutex<Vec<SourceKey>>,
+    }
+
+    impl RecordingCollector {
+        fn new(key: &'static str) -> Self {
+            Self {
+                key,
+                sources: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn sources(&self) -> Vec<SourceKey> {
+            self.sources.lock().expect("sources").clone()
+        }
+    }
+
+    impl Collector for RecordingCollector {
+        fn describe(&self) -> Result<CollectorDescriptor, CollectorFailure> {
+            Ok(CollectorDescriptor {
+                collector: CollectorKey::new(self.key).expect("collector key"),
+                display_name: self.key.to_owned(),
+                runtime_version: "test".to_owned(),
+                expected_version: "test".to_owned(),
+                adapter_version: 1,
+                binary_target: "test".to_owned(),
+                integrity: CollectorIntegrity::UnverifiedDevelopment,
+                profiles: vec![ProfileDescriptor {
+                    source: SourceKey::Cline,
+                    profile_version: 1,
+                    supported_projections: vec![CollectionProjection::Daily],
+                }],
+            })
+        }
+
+        fn detect(
+            &self,
+            request: DetectionRequest,
+            _cancellation: &dyn CancellationSignal,
+        ) -> Result<DetectionResult, CollectorFailure> {
+            self.sources.lock().expect("sources").push(request.source);
+            Ok(DetectionResult {
+                source: request.source,
+                state: crate::application::collection::DetectionState::Available,
+                supported_projections: vec![CollectionProjection::Daily],
+                data_roots_found: 1,
+                usage_artifacts_found: true,
+                checked_at: request.requested_at,
+                issues: Vec::new(),
+            })
+        }
+
+        fn collect(
+            &self,
+            request: CollectionRequest,
+            _cancellation: &dyn CancellationSignal,
+        ) -> Result<CollectionResult, CollectorFailure> {
+            self.sources.lock().expect("sources").push(request.source());
+            CollectionResult::daily(
+                metadata(&request, self.key),
+                vec![daily_candidate(&request)],
+                Vec::new(),
+                Vec::new(),
+                process_summary(),
+            )
+            .map_err(|_| CollectorFailure::new(CollectorFailureCode::Internal, None, None))
+        }
+    }
+
+    fn request(source: SourceKey) -> CollectionRequest {
+        CollectionRequest::daily(
+            CollectionId::new(format!("{}-daily", source.as_str())).expect("collection id"),
+            source,
+            CollectionScope::Full,
+            "UTC",
+            Utc.with_ymd_and_hms(2026, 6, 30, 12, 0, 0)
+                .single()
+                .expect("timestamp"),
+        )
+        .expect("request")
+    }
+
+    fn metadata(request: &CollectionRequest, collector: &str) -> CollectionMetadata {
+        CollectionMetadata::new(
+            request.collection_id().clone(),
+            CollectorKey::new(collector).expect("collector key"),
+            "test".to_owned(),
+            request.source(),
+            request.scope().clone(),
+            1,
+            CollectionPeriod {
+                started_at: *request.requested_at(),
+                finished_at: *request.requested_at(),
+            },
+        )
+        .expect("metadata")
+    }
+
+    fn daily_candidate(request: &CollectionRequest) -> DailyUsageCandidate {
+        let tokens = TokenUsage::new(Some(1), Some(0), Some(0), Some(0), 1).expect("tokens");
+        let cost = UsageCost::Valued {
+            amount_micros: 1,
+            currency: CurrencyCode::new("USD").expect("currency"),
+            kind: CostKind::CollectorCalculated,
+            status: ValuedCostStatus::Estimated,
+        };
+        DailyUsageCandidate {
+            provenance: crate::application::collection::CandidateProvenance {
+                source: request.source(),
+                collector: CollectorKey::new("test").expect("collector key"),
+                collector_version: "test".to_owned(),
+                profile_version: 1,
+                collection_id: request.collection_id().clone(),
+                observed_at: *request.requested_at(),
+                data_quality: crate::domain::usage::DataQuality::Complete,
+                warnings: Vec::new(),
+            },
+            source_key: format!("{}:daily:v1:UTC:2026-06-30", request.source().as_str()),
+            usage_date: chrono::NaiveDate::from_ymd_opt(2026, 6, 30).expect("date"),
+            aggregation_timezone: "UTC".to_owned(),
+            tokens: tokens.clone(),
+            cost: cost.clone(),
+            model_breakdowns: vec![ModelUsageCandidate {
+                raw_model_id: "test".to_owned(),
+                tokens,
+                cost,
+            }],
+        }
+    }
+
+    fn process_summary() -> ProcessSummary {
+        ProcessSummary {
+            runtime_ms: 0,
+            stdout_bytes: 0,
+            stderr_bytes: 0,
+            exit_code: None,
+        }
+    }
+}

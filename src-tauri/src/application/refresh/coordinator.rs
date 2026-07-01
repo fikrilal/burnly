@@ -786,7 +786,7 @@ impl RefreshTarget {
     }
 }
 
-const fn refresh_targets() -> [RefreshTarget; 6] {
+const fn refresh_targets() -> [RefreshTarget; 8] {
     [
         RefreshTarget {
             source: SourceKey::ClaudeCode,
@@ -810,6 +810,14 @@ const fn refresh_targets() -> [RefreshTarget; 6] {
         },
         RefreshTarget {
             source: SourceKey::OpenCode,
+            projection: CollectionProjection::Session,
+        },
+        RefreshTarget {
+            source: SourceKey::Cline,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::Cline,
             projection: CollectionProjection::Session,
         },
     ]
@@ -1707,7 +1715,7 @@ mod tests {
         coordinator.request_refresh(RefreshTrigger::Manual);
         let snapshot = await_terminal(&coordinator);
 
-        assert_eq!(snapshot.last_successful_refresh_at_ms, Some(1_600));
+        assert_eq!(snapshot.last_successful_refresh_at_ms, Some(1_800));
     }
 
     #[test]
@@ -1774,6 +1782,7 @@ mod tests {
         assert_eq!(
             evaluator.calls(),
             vec![
+                ("Asia/Jakarta".to_owned(), 1_000),
                 ("Asia/Jakarta".to_owned(), 1_000),
                 ("Asia/Jakarta".to_owned(), 1_000),
                 ("Asia/Jakarta".to_owned(), 1_000),

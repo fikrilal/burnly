@@ -135,6 +135,9 @@ impl Collector for ClineCollector {
         if cancellation.is_cancelled() {
             return Err(failure(&request, CollectorFailureCode::Cancelled));
         }
+        if !self.database_path.exists() {
+            return empty_result(&request, started, started_at);
+        }
 
         let store = ClineStore::open_read_only(&self.database_path)
             .map_err(|_| failure(&request, missing_or_invalid_code(&self.database_path)))?;
@@ -222,6 +225,51 @@ impl Collector for ClineCollector {
             }
         }
     }
+}
+
+fn empty_result(
+    request: &CollectionRequest,
+    started: Instant,
+    started_at: chrono::DateTime<Utc>,
+) -> Result<CollectionResult, CollectorFailure> {
+    let finished_at = Utc::now();
+    let metadata = CollectionMetadata::new(
+        request.collection_id().clone(),
+        collector_key()?,
+        COLLECTOR_VERSION.to_owned(),
+        SourceKey::Cline,
+        request.scope().clone(),
+        PROFILE_VERSION,
+        CollectionPeriod {
+            started_at,
+            finished_at,
+        },
+    )
+    .map_err(|_| failure(request, CollectorFailureCode::Internal))?;
+    let process_summary = ProcessSummary {
+        runtime_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+        stdout_bytes: 0,
+        stderr_bytes: 0,
+        exit_code: None,
+    };
+
+    match request.projection() {
+        CollectionProjection::Daily => CollectionResult::daily(
+            metadata,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            process_summary,
+        ),
+        CollectionProjection::Session => CollectionResult::session(
+            metadata,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            process_summary,
+        ),
+    }
+    .map_err(|_| failure(request, CollectorFailureCode::Internal))
 }
 
 fn load_session_messages(
