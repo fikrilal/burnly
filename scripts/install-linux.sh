@@ -6,8 +6,24 @@ VERSION="${BURNLY_VERSION:-latest}"
 INSTALL_DIR="${BURNLY_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/burnly}"
 BIN_DIR="${BURNLY_BIN_DIR:-$HOME/.local/bin}"
 APPLICATIONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+OS_NAME="${BURNLY_UNAME_S:-$(uname -s)}"
+ARCH_NAME="${BURNLY_UNAME_M:-$(uname -m)}"
 
-case "$(uname -m)" in
+case "$OS_NAME" in
+  Linux) ;;
+  Darwin)
+    echo "This is the Linux installer, but this machine is running macOS." >&2
+    echo "Use the macOS installer instead:" >&2
+    echo "  curl -fsSL https://github.com/$REPO/releases/latest/download/install-macos.sh | sh" >&2
+    exit 1
+    ;;
+  *)
+    echo "Unsupported operating system for the Linux installer: $OS_NAME" >&2
+    exit 1
+    ;;
+esac
+
+case "$ARCH_NAME" in
   x86_64 | amd64)
     ARCHITECTURE="x86_64"
     ;;
@@ -15,7 +31,7 @@ case "$(uname -m)" in
     ARCHITECTURE="aarch64"
     ;;
   *)
-    echo "Unsupported architecture: $(uname -m)" >&2
+    echo "Unsupported architecture: $ARCH_NAME" >&2
     exit 1
     ;;
 esac
