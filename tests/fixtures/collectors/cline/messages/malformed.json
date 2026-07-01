@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "sessionId": "cline-malformed-session",
+  "messages": [
+    {
+      "id": "msg_bad",
+      "role": "assistant",
+      "ts": "not-a-number",
+      "metrics": {
+        "inputTokens": -1,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "cost": 0.001
+      }
+    }
+  ]
+}

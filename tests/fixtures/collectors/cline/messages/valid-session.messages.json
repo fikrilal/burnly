@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "updated_at": "2026-06-30T01:25:00.000Z",
+  "agent": "lead",
+  "sessionId": "cline-session-1",
+  "system_prompt": "PLACEHOLDER_SYSTEM_PROMPT_MUST_BE_IGNORED",
+  "messages": [
+    {
+      "id": "msg_1",
+      "role": "user",
+      "content": "PLACEHOLDER_USER_CONTENT_MUST_BE_IGNORED",
+      "ts": 1782782100000
+    },
+    {
+      "id": "msg_2",
+      "role": "assistant",
+      "content": "PLACEHOLDER_ASSISTANT_CONTENT_MUST_BE_IGNORED",
+      "ts": 1782782160000,
+      "metrics": {
+        "inputTokens": 5000,
+        "outputTokens": 250,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "cost": 0.00475
+      }
+    },
+    {
+      "id": "msg_3",
+      "role": "assistant",
+      "content": "PLACEHOLDER_ASSISTANT_CONTENT_MUST_BE_IGNORED",
+      "ts": 1782782700000,
+      "metrics": {
+        "inputTokens": 7000,
+        "outputTokens": 550,
+        "cacheReadTokens": 3000,
+        "cacheWriteTokens": 0,
+        "cost": 0.00675
+      }
+    }
+  ]
+}

@@ -52,6 +52,11 @@ pub(crate) fn source_descriptor(
         SourceKey::ClaudeCode => Ok(&CLAUDE_CODE),
         SourceKey::Codex => Ok(&CODEX),
         SourceKey::OpenCode => Ok(&OPENCODE),
+        SourceKey::Cline => Err(CollectorFailure::new(
+            crate::application::collection::CollectorFailureCode::UnsupportedSource,
+            Some(source),
+            None,
+        )),
         #[cfg(test)]
         SourceKey::TestUnsupported => Err(CollectorFailure::new(
             crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -93,5 +98,15 @@ mod tests {
         assert_eq!(descriptor.release_stage, ReleaseStage::Experimental);
         assert!(!descriptor.default_enabled);
         assert_eq!(descriptor.profile_version, 1);
+    }
+
+    #[test]
+    fn cline_is_not_routed_through_ccusage() {
+        let failure = source_descriptor(SourceKey::Cline).expect_err("unsupported source");
+
+        assert_eq!(
+            failure.code,
+            crate::application::collection::CollectorFailureCode::UnsupportedSource
+        );
     }
 }
