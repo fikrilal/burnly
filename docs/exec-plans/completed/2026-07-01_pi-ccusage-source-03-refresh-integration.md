@@ -2,7 +2,7 @@
 
 ## Status
 
-Active.
+Completed.
 
 Implements Chunk 3 of
 `docs/planning/_WIP/pi-ccusage-source-engineering-proposal.md`.

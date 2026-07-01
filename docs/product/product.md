@@ -5,7 +5,7 @@
 Burnly is a tray-first AI coding-tool token tracker.
 
 It runs locally, watches usage from supported tools such as Claude Code, Codex,
-OpenCode, and experimental Cline support, and gives developers a compact view
+OpenCode, Pi, and experimental Cline support, and gives developers a compact view
 of their current token usage without requiring them to open a full desktop
 window.
 
@@ -88,19 +88,20 @@ implied.
 
 Current source status:
 
-| Tool        | Status            | Product note                                       |
-| ----------- | ----------------- | -------------------------------------------------- |
-| Claude Code | Supported         | Collected through the bundled `ccusage` collector. |
-| Codex       | Supported         | Collected through the bundled `ccusage` collector. |
-| OpenCode    | Supported         | Collected through the bundled `ccusage` collector. |
-| Cline CLI   | Experimental      | Collected through Burnly's native local collector. |
-| Antigravity | Not supported yet | No reliable local token usage source found.        |
-| Cursor      | Not supported yet | Roadmap investigation.                             |
-| Windsurf    | Not supported yet | Roadmap investigation.                             |
-| Aider       | Not supported yet | Roadmap investigation.                             |
-| Roo Code    | Not supported yet | Roadmap investigation.                             |
-| Continue    | Not supported yet | Roadmap investigation.                             |
-| Gemini CLI  | Not planned       | Deprecated upstream.                               |
+| Tool        | Status            | Product note                                                                            |
+| ----------- | ----------------- | --------------------------------------------------------------------------------------- |
+| Claude Code | Supported         | Collected through the bundled `ccusage` collector.                                      |
+| Codex       | Supported         | Collected through the bundled `ccusage` collector.                                      |
+| OpenCode    | Supported         | Collected through the bundled `ccusage` collector.                                      |
+| Pi          | Supported         | Collected through the bundled `ccusage` collector. Model labels keep the `[pi]` prefix. |
+| Cline CLI   | Experimental      | Collected through Burnly's native local collector.                                      |
+| Antigravity | Not supported yet | No reliable local token usage source found.                                             |
+| Cursor      | Not supported yet | Roadmap investigation.                                                                  |
+| Windsurf    | Not supported yet | Roadmap investigation.                                                                  |
+| Aider       | Not supported yet | Roadmap investigation.                                                                  |
+| Roo Code    | Not supported yet | Roadmap investigation.                                                                  |
+| Continue    | Not supported yet | Roadmap investigation.                                                                  |
+| Gemini CLI  | Not planned       | Deprecated upstream.                                                                    |
 
 ### Future social features are opt-in
 
