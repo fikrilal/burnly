@@ -20,7 +20,9 @@ impl RoutedCollector {
 
     fn collector_for(&self, source: SourceKey) -> Result<&Arc<dyn Collector>, CollectorFailure> {
         match source {
-            SourceKey::ClaudeCode | SourceKey::Codex | SourceKey::OpenCode => Ok(&self.ccusage),
+            SourceKey::ClaudeCode | SourceKey::Codex | SourceKey::OpenCode | SourceKey::Pi => {
+                Ok(&self.ccusage)
+            }
             SourceKey::Cline => Ok(&self.cline),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
@@ -82,10 +84,13 @@ mod tests {
             .collect(request(SourceKey::Codex), &NeverCancelled)
             .expect("codex collection");
         collector
+            .collect(request(SourceKey::Pi), &NeverCancelled)
+            .expect("pi collection");
+        collector
             .collect(request(SourceKey::Cline), &NeverCancelled)
             .expect("cline collection");
 
-        assert_eq!(ccusage.sources(), vec![SourceKey::Codex]);
+        assert_eq!(ccusage.sources(), vec![SourceKey::Codex, SourceKey::Pi]);
         assert_eq!(cline.sources(), vec![SourceKey::Cline]);
     }
 

@@ -243,6 +243,7 @@ impl Collector for CcusageCollector {
                 .map_err(|_| failure(CollectorFailureCode::Internal))
             }
             (SourceKey::Cline, _) => Err(failure(CollectorFailureCode::UnsupportedSource)),
+            (SourceKey::Pi, _) => Err(failure(CollectorFailureCode::UnsupportedSource)),
             #[cfg(test)]
             _ => Err(failure(CollectorFailureCode::UnsupportedSource)),
         }
