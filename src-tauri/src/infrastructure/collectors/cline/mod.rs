@@ -1,19 +1,21 @@
-#![allow(
-    dead_code,
-    reason = "Cline parser modules are introduced before the collector adapter wires runtime calls"
-)]
-
+mod adapter;
+mod mapper;
 mod messages;
 mod schema;
 mod store;
 
 #[allow(
     unused_imports,
-    reason = "Cline parser surface is wired in later chunks"
+    reason = "Cline collector is wired in the runtime chunk"
+)]
+pub(crate) use adapter::ClineCollector;
+#[allow(
+    unused_imports,
+    reason = "Cline parser surface is used by adapter tests"
 )]
 pub(crate) use messages::{decode_messages, ClineMessageUsage, ClineUsageMetrics};
 #[allow(
     unused_imports,
-    reason = "Cline parser surface is wired in later chunks"
+    reason = "Cline parser surface is used by adapter tests"
 )]
 pub(crate) use store::{ClineSessionRow, ClineStore};
