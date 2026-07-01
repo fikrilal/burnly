@@ -786,7 +786,7 @@ impl RefreshTarget {
     }
 }
 
-const fn refresh_targets() -> [RefreshTarget; 8] {
+const fn refresh_targets() -> [RefreshTarget; 10] {
     [
         RefreshTarget {
             source: SourceKey::ClaudeCode,
@@ -810,6 +810,14 @@ const fn refresh_targets() -> [RefreshTarget; 8] {
         },
         RefreshTarget {
             source: SourceKey::OpenCode,
+            projection: CollectionProjection::Session,
+        },
+        RefreshTarget {
+            source: SourceKey::Pi,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::Pi,
             projection: CollectionProjection::Session,
         },
         RefreshTarget {
@@ -1715,7 +1723,12 @@ mod tests {
         coordinator.request_refresh(RefreshTrigger::Manual);
         let snapshot = await_terminal(&coordinator);
 
-        assert_eq!(snapshot.last_successful_refresh_at_ms, Some(1_800));
+        // AdvancingClock ticks 100 per read; the commit timestamp tracks the
+        // number of refresh targets.
+        assert_eq!(
+            snapshot.last_successful_refresh_at_ms,
+            Some(1_000 + refresh_targets().len() as i64 * 100)
+        );
     }
 
     #[test]
@@ -1779,14 +1792,14 @@ mod tests {
             run_store.refresh_outcomes(),
             repeated_refresh_outcomes(RefreshOutcome::Succeeded)
         );
+        // The budget evaluator runs once per daily commit.
+        let daily_targets = refresh_targets()
+            .iter()
+            .filter(|target| target.projection == CollectionProjection::Daily)
+            .count();
         assert_eq!(
             evaluator.calls(),
-            vec![
-                ("Asia/Jakarta".to_owned(), 1_000),
-                ("Asia/Jakarta".to_owned(), 1_000),
-                ("Asia/Jakarta".to_owned(), 1_000),
-                ("Asia/Jakarta".to_owned(), 1_000),
-            ]
+            vec![("Asia/Jakarta".to_owned(), 1_000); daily_targets]
         );
     }
 

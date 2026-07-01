@@ -1314,7 +1314,7 @@ mod tests {
         let daily_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM daily_usage", [], |row| row.get(0))
             .expect("count daily usage");
-        assert_eq!(daily_count, 6);
+        assert_eq!(daily_count, 8);
         drop(connection);
 
         let summary = tauri::test::get_ipc_response(
