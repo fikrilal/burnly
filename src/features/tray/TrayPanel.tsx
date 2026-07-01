@@ -173,7 +173,10 @@ function OverviewTab({
       <CompactMetric
         label="Today token usage"
         value={
-          <AnimatedNumber value={tokenNumber(summary.today.totalTokens)} />
+          <AnimatedNumber
+            value={tokenNumber(summary.today.totalTokens)}
+            format={formatNumber}
+          />
         }
         caption="tokens today"
       />
