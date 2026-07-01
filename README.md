@@ -18,11 +18,23 @@ and gives you a quick answer to: "how much have I burned today?"
 
 ## Supported Sources
 
-Burnly currently reads local usage through the bundled `ccusage` collector for:
+Burnly reads local usage from supported AI coding tools. Support levels are
+explicit because each tool stores usage differently.
 
-- Claude Code
-- Codex
-- OpenCode
+| Tool        | Status            | Collection path                        | Notes                                                                       |
+| ----------- | ----------------- | -------------------------------------- | --------------------------------------------------------------------------- |
+| Claude Code | Supported         | Bundled `ccusage` collector            | Local usage only.                                                           |
+| Codex       | Supported         | Bundled `ccusage` collector            | Local usage only.                                                           |
+| OpenCode    | Supported         | Bundled `ccusage` collector            | Local usage only.                                                           |
+| Pi          | Supported         | Bundled `ccusage` collector            | Local usage only. Model labels keep the `[pi]` prefix from `ccusage`.       |
+| Cline CLI   | Experimental      | Native Burnly collector for `~/.cline` | Reads local session/message usage metrics. Data format may change upstream. |
+| Antigravity | Not supported yet | Roadmap research                       | Local inspection did not find reliable token usage data.                    |
+| Cursor      | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
+| Windsurf    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
+| Aider       | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
+| Roo Code    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
+| Continue    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
+| Gemini CLI  | Not planned       | Deprecated upstream                    | Reconsider only if a maintained successor exposes reliable local usage.     |
 
 Burnly does not read prompts, responses, source code, or file contents.
 

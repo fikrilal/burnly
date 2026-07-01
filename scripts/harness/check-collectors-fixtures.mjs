@@ -97,6 +97,26 @@ const envelopeMatrices = new Map([
       "valid.json",
     ],
   ],
+  [
+    "pi-daily",
+    [
+      "empty.json",
+      "incompatible-envelope.json",
+      "invalid-json.json",
+      "real-shape.json",
+      "valid.json",
+    ],
+  ],
+  [
+    "pi-session",
+    [
+      "empty.json",
+      "incompatible-envelope.json",
+      "invalid-json.json",
+      "real-shape.json",
+      "valid.json",
+    ],
+  ],
 ]);
 
 for (const [directoryName, expectedFixtures] of envelopeMatrices) {

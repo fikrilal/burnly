@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "session_id": "cline-session-1",
+  "source": "cli",
+  "pid": 12345,
+  "started_at": "2026-06-30T01:15:00.000Z",
+  "ended_at": "2026-06-30T01:25:00.000Z",
+  "exit_code": 0,
+  "status": "idle",
+  "interactive": false,
+  "provider": "cline-pass",
+  "model": "cline-pass/glm-5.2",
+  "cwd": "/fixture/workspace",
+  "workspace_root": "/fixture/workspace",
+  "team_name": null,
+  "enable_tools": true,
+  "enable_spawn": false,
+  "enable_teams": false,
+  "prompt": "PLACEHOLDER_PROMPT_MUST_BE_IGNORED",
+  "metadata": {
+    "source": "cli",
+    "provider": "cline-pass",
+    "model": "cline-pass/glm-5.2",
+    "enableTools": true,
+    "enableSpawn": false,
+    "enableTeams": false,
+    "interactive": false,
+    "mode": "act",
+    "systemPrompt": "PLACEHOLDER_SYSTEM_PROMPT_MUST_BE_IGNORED",
+    "title": "Synthetic fixture session",
+    "totalCost": 0.0115,
+    "aggregatedAgentsCost": 0.0115,
+    "usage": {
+      "inputTokens": 12000,
+      "outputTokens": 800,
+      "cacheReadTokens": 3000,
+      "cacheWriteTokens": 0,
+      "totalCost": 0.0115
+    },
+    "aggregateUsage": {
+      "inputTokens": 12000,
+      "outputTokens": 800,
+      "cacheReadTokens": 3000,
+      "cacheWriteTokens": 0,
+      "totalCost": 0.0115
+    }
+  },
+  "messages_path": "/fixture/cline-session-1.messages.json"
+}

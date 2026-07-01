@@ -20,11 +20,12 @@ use super::{
         codex_daily::decode as decode_codex_daily, codex_session::decode as decode_codex_session,
         opencode_daily::decode as decode_opencode_daily,
         opencode_session::decode as decode_opencode_session,
+        pi_session::decode as decode_pi_session,
     },
     manifest::{development_manifest, BinaryTarget},
     mapper::{
         map_codex_daily, map_codex_session, map_daily, map_opencode_daily, map_opencode_session,
-        map_session, MappingContext, MappingError,
+        map_pi_session, map_session, MappingContext, MappingError,
     },
     process::{execute, ProcessLimits, ProcessOutput},
     sidecar::{verify, SidecarLocation, VerifiedSidecar},
@@ -104,6 +105,7 @@ impl Collector for CcusageCollector {
         if request.source != SourceKey::ClaudeCode
             && request.source != SourceKey::Codex
             && request.source != SourceKey::OpenCode
+            && request.source != SourceKey::Pi
         {
             return Ok(DetectionResult {
                 source: request.source,
@@ -233,6 +235,33 @@ impl Collector for CcusageCollector {
             ) => {
                 let report = decode_opencode_session(&output.stdout)?;
                 let candidates = map_opencode_session(report, context).map_err(mapping_failure)?;
+                CollectionResult::session(
+                    metadata,
+                    candidates,
+                    Vec::new(),
+                    Vec::new(),
+                    process_summary(&output),
+                )
+                .map_err(|_| failure(CollectorFailureCode::Internal))
+            }
+            (SourceKey::Cline, _) => Err(failure(CollectorFailureCode::UnsupportedSource)),
+            (SourceKey::Pi, crate::application::collection::CollectionProjection::Daily) => {
+                // Pi daily reuses the OpenCode-family envelope and mapper; the Pi
+                // identity comes from the mapping context, not the envelope.
+                let report = decode_opencode_daily(&output.stdout)?;
+                let candidates = map_opencode_daily(report, context).map_err(mapping_failure)?;
+                CollectionResult::daily(
+                    metadata,
+                    candidates,
+                    Vec::new(),
+                    Vec::new(),
+                    process_summary(&output),
+                )
+                .map_err(|_| failure(CollectorFailureCode::Internal))
+            }
+            (SourceKey::Pi, crate::application::collection::CollectionProjection::Session) => {
+                let report = decode_pi_session(&output.stdout)?;
+                let candidates = map_pi_session(report, context).map_err(mapping_failure)?;
                 CollectionResult::session(
                     metadata,
                     candidates,
@@ -413,7 +442,12 @@ mod tests {
         assert_eq!(descriptor.collector.as_str(), "ccusage");
         assert_eq!(descriptor.runtime_version, "20.0.14");
 
-        for source in [SourceKey::ClaudeCode, SourceKey::Codex, SourceKey::OpenCode] {
+        for source in [
+            SourceKey::ClaudeCode,
+            SourceKey::Codex,
+            SourceKey::OpenCode,
+            SourceKey::Pi,
+        ] {
             collector
                 .collect(
                     daily_request_with_timezone(source, "Asia/Jakarta"),

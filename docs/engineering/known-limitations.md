@@ -4,15 +4,16 @@ Tracked limitations that are accepted on purpose, with the condition that would
 let us remove them. Each entry records the cause, the current workaround, where
 it lives in the code, and the trigger to revisit it.
 
-## OpenCode per-model daily usage is collapsed to a single row
+## OpenCode-family (OpenCode and Pi) per-model daily usage is collapsed to a single row
 
-Status: active workaround. Opened 2026-06-26.
+Status: active workaround. Opened 2026-06-26. Extended to Pi 2026-07-01.
 
 ### Summary
 
-For OpenCode, multi-model days are shown as one aggregated `Multiple models`
-row instead of one row per model. Single-model days are attributed exactly to
-that model. Codex and Claude Code are unaffected and show real per-model rows.
+For OpenCode and Pi, multi-model days are shown as one aggregated
+`Multiple models` row instead of one row per model. Single-model days are
+attributed exactly to that model. Codex and Claude Code are unaffected and show
+real per-model rows.
 
 ### Cause
 
@@ -27,6 +28,10 @@ The limitation is in `ccusage`, not in OpenCode's data and not in Burnly:
   (a populated `modelBreakdowns` array) both include the split.
 - So OpenCode is the only source where `ccusage` exposes the day total plus a
   bare list of model names, with no per-model token attribution.
+
+Pi shares this shape: `ccusage pi daily` emits the day total plus `modelsUsed`
+but no `modelBreakdowns`, so Pi reuses the same OpenCode-family aggregate-label
+policy.
 
 Because OpenCode aggregates the whole day, the split is all-or-nothing: a day is
 either fully attributable (one model used) or not at all (two or more models, no
@@ -46,7 +51,9 @@ We deliberately do not estimate or evenly split tokens; `ccusage` does not
 provide the data to divide them, and fabricating a split would be misleading.
 
 Code: `opencode_model_breakdowns` and `OPENCODE_MULTIPLE_MODELS` in
-`src-tauri/src/infrastructure/collectors/ccusage/mapper.rs`.
+`src-tauri/src/infrastructure/collectors/ccusage/mapper.rs`. Pi daily
+(`map_opencode_daily`) and Pi session (`map_pi_session`) both route through
+`opencode_model_breakdowns`, so the same policy applies.
 
 ### Trigger to revisit
 
@@ -62,6 +69,8 @@ Once a bundled `ccusage` version emits `modelBreakdowns` for OpenCode:
    before the upgrade; consider a re-collection so historical multi-model days
    gain real per-model rows.
 3. Remove this entry once verified.
+
+The same applies to Pi once `ccusage pi daily` emits `modelBreakdowns`.
 
 ### Alternatives considered
 

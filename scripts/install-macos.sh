@@ -4,8 +4,24 @@ set -eu
 REPO="${BURNLY_REPO:-fikrilal/burnly}"
 VERSION="${BURNLY_VERSION:-latest}"
 APP_PATH="${BURNLY_APP_PATH:-/Applications/Burnly.app}"
+OS_NAME="${BURNLY_UNAME_S:-$(uname -s)}"
+ARCH_NAME="${BURNLY_UNAME_M:-$(uname -m)}"
 
-case "$(uname -m)" in
+case "$OS_NAME" in
+  Darwin) ;;
+  Linux)
+    echo "This is the macOS installer, but this machine is running Linux." >&2
+    echo "Use the Linux installer instead:" >&2
+    echo "  curl -fsSL https://github.com/$REPO/releases/latest/download/install-linux.sh | sh" >&2
+    exit 1
+    ;;
+  *)
+    echo "Unsupported operating system for the macOS installer: $OS_NAME" >&2
+    exit 1
+    ;;
+esac
+
+case "$ARCH_NAME" in
   arm64 | aarch64)
     ARCHITECTURE="aarch64"
     ;;
@@ -13,7 +29,7 @@ case "$(uname -m)" in
     ARCHITECTURE="x86_64"
     ;;
   *)
-    echo "Unsupported architecture: $(uname -m)" >&2
+    echo "Unsupported architecture: $ARCH_NAME" >&2
     exit 1
     ;;
 esac

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "updated_at": "2026-06-30T02:10:00.000Z",
+  "agent": "lead",
+  "sessionId": "cline-active-session",
+  "system_prompt": "PLACEHOLDER_SYSTEM_PROMPT_MUST_BE_IGNORED",
+  "messages": [
+    {
+      "id": "msg_active_1",
+      "role": "assistant",
+      "content": "PLACEHOLDER_ASSISTANT_CONTENT_MUST_BE_IGNORED",
+      "ts": 1782785400000,
+      "metrics": {
+        "inputTokens": 1500,
+        "outputTokens": 120,
+        "cacheReadTokens": 200,
+        "cacheWriteTokens": 0,
+        "cost": 0.00142
+      }
+    }
+  ]
+}

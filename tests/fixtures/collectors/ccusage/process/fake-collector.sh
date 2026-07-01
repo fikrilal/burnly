@@ -3,7 +3,7 @@ script_path="$(readlink -f -- "$0" 2>/dev/null || printf '%s' "$0")"
 fixture_root="$(CDPATH= cd -- "$(dirname -- "$script_path")/.." && pwd)"
 name="$(basename -- "$0")"
 
-if [ "$1" = "claude" ] || [ "$1" = "codex" ] || [ "$1" = "opencode" ]; then
+if [ "$1" = "claude" ] || [ "$1" = "codex" ] || [ "$1" = "opencode" ] || [ "$1" = "pi" ]; then
   fixture_dir="$fixture_root/$1-$2"
   if [ ! -d "$fixture_dir" ]; then
     exit 7

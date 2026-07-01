@@ -5,8 +5,9 @@
 Burnly is a tray-first AI coding-tool token tracker.
 
 It runs locally, watches usage from supported tools such as Claude Code, Codex,
-and OpenCode, and gives developers a compact view of their current token usage
-without requiring them to open a full desktop window.
+OpenCode, Pi, and experimental Cline support, and gives developers a compact view
+of their current token usage without requiring them to open a full desktop
+window.
 
 The entire local experience is a small tray/menu-bar panel. There is no full
 desktop window. Local detail surfaces such as settings live as tabs inside the
@@ -76,6 +77,31 @@ Different tools report usage differently.
 
 Burnly should clearly distinguish measured tokens, estimated cost, unavailable
 cost, and incomplete source data.
+
+### Explicit source status
+
+Every source should have a user-facing support status. Supported sources are
+expected to work from stable local usage data. Experimental sources are usable
+but may need follow-up if an upstream tool changes its local data format.
+Unsupported sources should be visible in the roadmap rather than silently
+implied.
+
+Current source status:
+
+| Tool        | Status            | Product note                                                                            |
+| ----------- | ----------------- | --------------------------------------------------------------------------------------- |
+| Claude Code | Supported         | Collected through the bundled `ccusage` collector.                                      |
+| Codex       | Supported         | Collected through the bundled `ccusage` collector.                                      |
+| OpenCode    | Supported         | Collected through the bundled `ccusage` collector.                                      |
+| Pi          | Supported         | Collected through the bundled `ccusage` collector. Model labels keep the `[pi]` prefix. |
+| Cline CLI   | Experimental      | Collected through Burnly's native local collector.                                      |
+| Antigravity | Not supported yet | No reliable local token usage source found.                                             |
+| Cursor      | Not supported yet | Roadmap investigation.                                                                  |
+| Windsurf    | Not supported yet | Roadmap investigation.                                                                  |
+| Aider       | Not supported yet | Roadmap investigation.                                                                  |
+| Roo Code    | Not supported yet | Roadmap investigation.                                                                  |
+| Continue    | Not supported yet | Roadmap investigation.                                                                  |
+| Gemini CLI  | Not planned       | Deprecated upstream.                                                                    |
 
 ### Future social features are opt-in
 
