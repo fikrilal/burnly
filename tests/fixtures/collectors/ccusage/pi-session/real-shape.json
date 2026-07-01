@@ -1,0 +1,22 @@
+{
+  "sessions": [
+    {
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 400,
+      "inputTokens": 700,
+      "modelsUsed": ["[pi] gpt-5.4-mini"],
+      "outputTokens": 100,
+      "sessionId": "session-1",
+      "totalCost": 12.34,
+      "totalTokens": 1200
+    }
+  ],
+  "totals": {
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 400,
+    "inputTokens": 700,
+    "outputTokens": 100,
+    "totalCost": 12.34,
+    "totalTokens": 1200
+  }
+}

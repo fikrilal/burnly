@@ -1,0 +1,32 @@
+{
+  "daily": [
+    {
+      "date": "2026-06-13",
+      "inputTokens": 100,
+      "outputTokens": 50,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 400,
+      "totalTokens": 550,
+      "totalCost": 0.42,
+      "modelsUsed": ["[pi] gpt-5.4-mini"]
+    },
+    {
+      "date": "2026-06-14",
+      "inputTokens": 200,
+      "outputTokens": 100,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 800,
+      "totalTokens": 1100,
+      "totalCost": 0.8,
+      "modelsUsed": ["[pi] gpt-5.4-mini", "[pi] gpt-5.4"]
+    }
+  ],
+  "totals": {
+    "inputTokens": 300,
+    "outputTokens": 150,
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 1200,
+    "totalTokens": 1650,
+    "totalCost": 1.22
+  }
+}

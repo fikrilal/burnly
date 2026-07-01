@@ -1,0 +1,24 @@
+{
+  "sessions": [
+    {
+      "sessionId": "session-1",
+      "firstActivity": "2026-07-01T00:57:01.464Z",
+      "lastActivity": "2026-07-01T00:58:07.225Z",
+      "inputTokens": 100,
+      "outputTokens": 50,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 400,
+      "totalTokens": 550,
+      "totalCost": 0.42,
+      "modelsUsed": ["[pi] gpt-5.4-mini"]
+    }
+  ],
+  "totals": {
+    "inputTokens": 100,
+    "outputTokens": 50,
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 400,
+    "totalTokens": 550,
+    "totalCost": 0.42
+  }
+}

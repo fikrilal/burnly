@@ -8,3 +8,5 @@ tests/fixtures/collectors/ccusage/codex-daily/invalid-json.json
 tests/fixtures/collectors/ccusage/codex-session/invalid-json.json
 tests/fixtures/collectors/ccusage/opencode-daily/invalid-json.json
 tests/fixtures/collectors/ccusage/opencode-session/invalid-json.json
+tests/fixtures/collectors/ccusage/pi-daily/invalid-json.json
+tests/fixtures/collectors/ccusage/pi-session/invalid-json.json

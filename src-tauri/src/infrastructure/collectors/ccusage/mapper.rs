@@ -27,6 +27,7 @@ use super::envelopes::opencode_daily::{
     ModelBreakdown as OpenCodeModelBreakdown, OpenCodeDailyReport, OpenCodeDailyRow,
 };
 use super::envelopes::opencode_session::{OpenCodeSessionReport, OpenCodeSessionRow};
+use super::envelopes::pi_session::{PiSessionReport, PiSessionRow};
 
 const COST_MICROS_PER_UNIT: f64 = 1_000_000.0;
 
@@ -389,6 +390,62 @@ fn map_opencode_session_row(
     })
 }
 
+/// Pi daily reports share the OpenCode-family shape and reuse
+/// [`map_opencode_daily`]; only Pi sessions need a dedicated mapper because
+/// their activity fields differ. Pi sessions carry only `modelsUsed` (no
+/// per-model split), so they reuse the OpenCode-family aggregate-label policy.
+/// Pi `projectPath` is intentionally not persisted, matching OpenCode-family
+/// sessions and the fixture privacy harness.
+pub(crate) fn map_pi_session(
+    report: PiSessionReport,
+    context: MappingContext,
+) -> Result<Vec<SessionUsageCandidate>, MappingError> {
+    report
+        .sessions
+        .into_iter()
+        .map(|row| map_pi_session_row(row, &context))
+        .collect()
+}
+
+fn map_pi_session_row(
+    row: PiSessionRow,
+    context: &MappingContext,
+) -> Result<SessionUsageCandidate, MappingError> {
+    let tokens = TokenUsage::new(
+        Some(row.input_tokens),
+        Some(row.output_tokens),
+        row.cache_creation_tokens,
+        row.cache_read_tokens,
+        row.total_tokens,
+    )?;
+    let cost = map_cost(row.total_cost, row.total_tokens)?;
+    let model_breakdowns = opencode_model_breakdowns(Vec::new(), row.models_used, &tokens, &cost)?;
+
+    let first_activity_at = row
+        .first_activity
+        .as_deref()
+        .map(parse_timestamp)
+        .transpose()?;
+
+    let last_activity_at = row
+        .last_activity
+        .as_deref()
+        .map(parse_timestamp)
+        .transpose()?;
+
+    Ok(SessionUsageCandidate {
+        provenance: context.provenance(),
+        source_key: session_source_key(context.source, &row.session_id)?,
+        source_session_id: row.session_id,
+        project_path: None,
+        first_activity_at,
+        last_activity_at,
+        tokens,
+        cost,
+        model_breakdowns,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MappingContext {
     source: SourceKey,
@@ -542,11 +599,13 @@ mod tests {
     use chrono::{TimeZone, Utc};
 
     use super::*;
+    use crate::application::collection::CollectorFailureCode;
     use crate::infrastructure::collectors::ccusage::envelopes::claude_daily::decode;
     use crate::infrastructure::collectors::ccusage::envelopes::codex_daily::decode as decode_codex_daily;
     use crate::infrastructure::collectors::ccusage::envelopes::codex_session::decode as decode_codex_session;
     use crate::infrastructure::collectors::ccusage::envelopes::opencode_daily::decode as decode_opencode_daily;
     use crate::infrastructure::collectors::ccusage::envelopes::opencode_session::decode as decode_opencode_session;
+    use crate::infrastructure::collectors::ccusage::envelopes::pi_session::decode as decode_pi_session;
 
     const VALID: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -591,6 +650,38 @@ mod tests {
     const OPENCODE_SESSION_REAL_SHAPE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/fixtures/collectors/ccusage/opencode-session/real-shape.json"
+    ));
+    const PI_DAILY_VALID: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/pi-daily/valid.json"
+    ));
+    const PI_DAILY_EMPTY: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/pi-daily/empty.json"
+    ));
+    const PI_DAILY_REAL_SHAPE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/pi-daily/real-shape.json"
+    ));
+    const PI_DAILY_INVALID_JSON: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/pi-daily/invalid-json.json"
+    ));
+    const PI_DAILY_INCOMPATIBLE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/pi-daily/incompatible-envelope.json"
+    ));
+    const PI_SESSION_VALID: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/pi-session/valid.json"
+    ));
+    const PI_SESSION_EMPTY: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/pi-session/empty.json"
+    ));
+    const PI_SESSION_REAL_SHAPE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/pi-session/real-shape.json"
     ));
 
     #[test]
@@ -952,6 +1043,135 @@ mod tests {
         assert_eq!(first.first_activity_at, None);
         assert_eq!(first.last_activity_at, None);
         assert_eq!(first.tokens.cache_read_tokens(), Some(400));
+    }
+
+    #[test]
+    fn maps_pi_daily_usage_with_deterministic_identity_and_preserved_label() {
+        let context = build_context(SourceKey::Pi, "20.0.14", 1, "Asia/Jakarta").expect("context");
+        let candidates = map_opencode_daily(
+            decode_opencode_daily(PI_DAILY_VALID).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 2);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "pi:daily:v1:Asia/Jakarta:2026-06-13");
+        assert_eq!(first.aggregation_timezone, "Asia/Jakarta");
+        assert_eq!(first.tokens.total_tokens(), 550);
+        assert_eq!(first.tokens.cache_read_tokens(), Some(400));
+        assert_eq!(first.model_breakdowns.len(), 1);
+        // The `[pi]`-prefixed label is preserved exactly as ccusage emits it.
+        assert_eq!(first.model_breakdowns[0].raw_model_id, "[pi] gpt-5.4-mini");
+
+        // The second day used several models with no per-model split, so the
+        // tokens stay together under the shared aggregate-label policy.
+        let second = &candidates[1];
+        assert_eq!(second.source_key, "pi:daily:v1:Asia/Jakarta:2026-06-14");
+        assert_eq!(second.tokens.total_tokens(), 1_100);
+        assert_eq!(second.model_breakdowns.len(), 1);
+        assert_eq!(second.model_breakdowns[0].raw_model_id, "Multiple models");
+    }
+
+    #[test]
+    fn maps_real_pi_daily_shape_with_single_model() {
+        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        let candidates = map_opencode_daily(
+            decode_opencode_daily(PI_DAILY_REAL_SHAPE).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "pi:daily:v1:UTC:2026-07-01");
+        assert_eq!(first.tokens.total_tokens(), 1_200);
+        assert_eq!(first.tokens.cache_read_tokens(), Some(400));
+        assert_eq!(first.tokens.unclassified_tokens(), Some(0));
+        assert_eq!(first.model_breakdowns.len(), 1);
+        assert_eq!(first.model_breakdowns[0].raw_model_id, "[pi] gpt-5.4-mini");
+    }
+
+    #[test]
+    fn preserves_empty_pi_daily_collection() {
+        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        assert!(map_opencode_daily(
+            decode_opencode_daily(PI_DAILY_EMPTY).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped empty report")
+        .is_empty());
+    }
+
+    #[test]
+    fn rejects_malformed_pi_daily_json() {
+        assert_eq!(
+            decode_opencode_daily(PI_DAILY_INVALID_JSON)
+                .expect_err("invalid json")
+                .code,
+            CollectorFailureCode::InvalidJson
+        );
+        assert_eq!(
+            decode_opencode_daily(PI_DAILY_INCOMPATIBLE)
+                .expect_err("incompatible envelope")
+                .code,
+            CollectorFailureCode::IncompatibleEnvelope
+        );
+    }
+
+    #[test]
+    fn maps_pi_session_usage_with_deterministic_identity_and_preserved_label() {
+        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        let candidates = map_pi_session(
+            decode_pi_session(PI_SESSION_VALID).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "pi:session:v1:session-1");
+        assert_eq!(first.source_session_id, "session-1");
+        // Pi `projectPath` is intentionally not persisted.
+        assert_eq!(first.project_path, None);
+        assert_eq!(first.tokens.total_tokens(), 550);
+        assert_eq!(first.tokens.cache_read_tokens(), Some(400));
+        assert_eq!(first.model_breakdowns.len(), 1);
+        assert_eq!(first.model_breakdowns[0].raw_model_id, "[pi] gpt-5.4-mini");
+        assert_eq!(
+            first
+                .first_activity_at
+                .map(|timestamp| timestamp.to_rfc3339()),
+            Some("2026-07-01T00:57:01.464+00:00".to_owned())
+        );
+    }
+
+    #[test]
+    fn maps_real_pi_session_shape_with_nullable_activity_bounds() {
+        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        let candidates = map_pi_session(
+            decode_pi_session(PI_SESSION_REAL_SHAPE).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "pi:session:v1:session-1");
+        assert_eq!(first.first_activity_at, None);
+        assert_eq!(first.last_activity_at, None);
+        assert_eq!(first.tokens.cache_read_tokens(), Some(400));
+    }
+
+    #[test]
+    fn preserves_empty_pi_session_collection() {
+        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        assert!(map_pi_session(
+            decode_pi_session(PI_SESSION_EMPTY).expect("decoded fixture"),
+            context,
+        )
+        .expect("mapped empty report")
+        .is_empty());
     }
 
     fn context(timezone: &str) -> MappingContext {

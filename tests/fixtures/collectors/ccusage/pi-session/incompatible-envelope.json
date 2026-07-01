@@ -1,0 +1,24 @@
+{
+  "sessions": [
+    {
+      "sessionId": "session-1",
+      "firstActivity": "2026-07-01T00:57:01.464Z",
+      "lastActivity": "2026-07-01T00:58:07.225Z",
+      "inputTokens": 1000,
+      "outputTokens": 400,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 100,
+      "totalTokens": 1500,
+      "totalCost": 0.42,
+      "modelsUsed": []
+    }
+  ],
+  "totals": {
+    "inputTokens": 9999,
+    "outputTokens": 600,
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 100,
+    "totalTokens": 2500,
+    "totalCost": 0.63
+  }
+}
