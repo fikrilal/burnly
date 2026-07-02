@@ -165,6 +165,8 @@ Manual evidence:
 
 ### Chunk 03 - Runtime Client And Usage Extraction
 
+Status: completed on July 2, 2026.
+
 Objective:
 
 - Call Antigravity's local RPC service and extract usage-only counters.
@@ -195,9 +197,27 @@ Work:
 Verification:
 
 ```text
+cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity --lib
+pnpm rust:check
 pnpm verify:fast
 pnpm architecture:check
 ```
+
+Outcome:
+
+- Added a bounded local HTTP runtime client for `RetrieveUserQuotaSummary`.
+- Added Connect JSON request/response framing for `StreamAgentStateUpdates`.
+- Added usage-only recursive extraction for model labels, raw model IDs,
+  provider diagnostics, response IDs, token counters, and optional credit
+  diagnostics.
+- Dedupe is implemented by `responseId` across frames.
+- `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity --lib`
+  passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed.
+- `pnpm verify:fast` passed.
+- `pnpm rust:check` passed without warnings.
+- Mapping extracted usage into Burnly collection envelopes is intentionally
+  deferred to chunk 4.
 
 Manual evidence:
 
