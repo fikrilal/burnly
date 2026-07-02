@@ -8,6 +8,7 @@ BIN_DIR="${BURNLY_BIN_DIR:-$HOME/.local/bin}"
 APPLICATIONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 ICON_THEME_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
 ICON_DIR="$ICON_THEME_DIR/256x256/apps"
+ICON_FILE="$ICON_DIR/burnly.png"
 OS_NAME="${BURNLY_UNAME_S:-$(uname -s)}"
 ARCH_NAME="${BURNLY_UNAME_M:-$(uname -m)}"
 
@@ -122,7 +123,7 @@ select_checksum "$ICON_ASSET_NAME"
 mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$APPLICATIONS_DIR" "$ICON_DIR"
 cp "$TMP_DIR/$ASSET_NAME" "$INSTALL_DIR/Burnly.AppImage"
 chmod 755 "$INSTALL_DIR/Burnly.AppImage"
-cp "$TMP_DIR/$ICON_ASSET_NAME" "$ICON_DIR/burnly.png"
+cp "$TMP_DIR/$ICON_ASSET_NAME" "$ICON_FILE"
 
 cat >"$BIN_DIR/burnly" <<EOF
 #!/bin/sh
@@ -136,7 +137,7 @@ Type=Application
 Name=Burnly
 Comment=Local AI coding-tool usage tracker
 Exec=$INSTALL_DIR/Burnly.AppImage
-Icon=burnly
+Icon=$ICON_FILE
 Terminal=false
 Categories=Development;Utility;
 StartupWMClass=burnly
@@ -154,7 +155,7 @@ echo "Burnly installed:"
 echo "  AppImage: $INSTALL_DIR/Burnly.AppImage"
 echo "  Command:  $BIN_DIR/burnly"
 echo "  Desktop:  $APPLICATIONS_DIR/burnly.desktop"
-echo "  Icon:     $ICON_DIR/burnly.png"
+echo "  Icon:     $ICON_FILE"
 
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;

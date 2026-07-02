@@ -268,8 +268,8 @@ Codex                  ↗ 8.5% vs yesterday
 Claude Sonnet          12.0k tokens
 Claude Code            ↘ 3.2% vs yesterday
 
-Other                   3.0k tokens
-Multiple agents         → 0.0% vs yesterday
+GLM-5.2                 3.0k tokens
+ZCode                   → 0.0% vs yesterday
 
 [Open details]
 ```
