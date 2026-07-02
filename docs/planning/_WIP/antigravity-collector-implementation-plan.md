@@ -108,6 +108,8 @@ Outcome:
 
 ### Chunk 02 - Conversation Index And Runtime Discovery
 
+Status: completed on July 2, 2026.
+
 Objective:
 
 - Discover local Antigravity data roots and running RPC endpoints safely.
@@ -132,15 +134,25 @@ Work:
 - Implement Antigravity CLI endpoint discovery:
   - find running `agy`,
   - inspect process-owned listeners,
-  - probe quota endpoint,
+  - prepare endpoint candidates for quota probing in chunk 3,
   - tolerate missing CSRF token.
 
 Verification:
 
 ```text
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 pnpm verify:fast
 pnpm architecture:check
 ```
+
+Outcome:
+
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed.
+- `pnpm verify:fast` passed.
+- `pnpm rust:check` passed without warnings.
+- `pnpm architecture:check` passed.
+- Runtime quota probing is intentionally deferred to chunk 3 with the Connect
+  runtime client.
 
 Manual evidence:
 

@@ -11,18 +11,54 @@ use crate::application::collection::{
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
+use super::{ConversationIndex, RuntimeDiscovery};
+
 const COLLECTOR_KEY: &str = "antigravity";
 const DISPLAY_NAME: &str = "Antigravity";
 const COLLECTOR_VERSION: &str = "local-rpc";
 const ADAPTER_VERSION: u16 = 1;
 const PROFILE_VERSION: u16 = 1;
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct AntigravityCollector;
+#[derive(Debug, Clone)]
+pub(crate) struct AntigravityCollector {
+    conversation_index: ConversationIndex,
+    runtime_discovery: RuntimeDiscoverySource,
+}
 
 impl AntigravityCollector {
-    pub(crate) const fn new() -> Self {
-        Self
+    pub(crate) fn new() -> Self {
+        Self {
+            conversation_index: ConversationIndex::default(),
+            runtime_discovery: RuntimeDiscoverySource::Current,
+        }
+    }
+
+    #[cfg(test)]
+    fn from_parts(
+        conversation_index: ConversationIndex,
+        runtime_discovery: RuntimeDiscovery,
+    ) -> Self {
+        Self {
+            conversation_index,
+            runtime_discovery: RuntimeDiscoverySource::Fixed(runtime_discovery),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum RuntimeDiscoverySource {
+    Current,
+    #[cfg(test)]
+    Fixed(RuntimeDiscovery),
+}
+
+impl RuntimeDiscoverySource {
+    fn discover(&self) -> Vec<super::RuntimeEndpoint> {
+        match self {
+            Self::Current => RuntimeDiscovery::current().discover(),
+            #[cfg(test)]
+            Self::Fixed(discovery) => discovery.discover(),
+        }
     }
 }
 
@@ -62,17 +98,45 @@ impl Collector for AntigravityCollector {
             });
         }
 
+        let endpoints = self.runtime_discovery.discover();
+        let conversations = self
+            .conversation_index
+            .list(
+                &crate::application::collection::CollectionScope::Full,
+                "UTC",
+            )
+            .unwrap_or_default();
+        let data_roots_found = conversations
+            .iter()
+            .map(|conversation| conversation.variant)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            .try_into()
+            .unwrap_or(u16::MAX);
+        let state = if !endpoints.is_empty() {
+            DetectionState::Available
+        } else if !conversations.is_empty() {
+            DetectionState::AvailableNoData
+        } else {
+            DetectionState::NotFound
+        };
+        let issues = if endpoints.is_empty() {
+            vec![issue(
+                "antigravity.runtime_unavailable",
+                "Antigravity local runtime endpoint was not found.",
+            )]
+        } else {
+            Vec::new()
+        };
+
         Ok(DetectionResult {
             source: SourceKey::Antigravity,
-            state: DetectionState::NotFound,
+            state,
             supported_projections: supported_projections(),
-            data_roots_found: 0,
-            usage_artifacts_found: false,
+            data_roots_found,
+            usage_artifacts_found: !conversations.is_empty(),
             checked_at: request.requested_at,
-            issues: vec![issue(
-                "antigravity.runtime_discovery_pending",
-                "Antigravity runtime discovery is not implemented yet.",
-            )],
+            issues,
         })
     }
 
@@ -183,11 +247,17 @@ fn issue(code: &str, message: &str) -> DetectionIssue {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use chrono::{TimeZone, Utc};
+    use tempfile::TempDir;
 
     use super::*;
     use crate::application::collection::{
         CollectionId, CollectionOutcome, CollectionScope, DetectionReason,
+    };
+    use crate::infrastructure::collectors::antigravity::discovery::{
+        LocalListener, ProcessSnapshot,
     };
 
     #[test]
@@ -207,7 +277,7 @@ mod tests {
 
     #[test]
     fn detects_pending_runtime_discovery_as_not_found() {
-        let collector = AntigravityCollector::new();
+        let collector = collector_with_discovery(RuntimeDiscovery::from_processes(Vec::new()));
 
         let result = collector
             .detect(detection_request(SourceKey::Antigravity), &NeverCancelled)
@@ -216,10 +286,26 @@ mod tests {
         assert_eq!(result.state, DetectionState::NotFound);
         assert_eq!(result.supported_projections, supported_projections());
         assert!(!result.usage_artifacts_found);
-        assert_eq!(
-            result.issues[0].code,
-            "antigravity.runtime_discovery_pending"
-        );
+        assert_eq!(result.issues[0].code, "antigravity.runtime_unavailable");
+    }
+
+    #[test]
+    fn detects_available_runtime_endpoint() {
+        let collector = collector_with_discovery(RuntimeDiscovery::from_processes(vec![
+            ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            ),
+        ]));
+
+        let result = collector
+            .detect(detection_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("detection");
+
+        assert_eq!(result.state, DetectionState::Available);
+        assert!(result.issues.is_empty());
     }
 
     #[test]
@@ -263,6 +349,14 @@ mod tests {
         fn is_cancelled(&self) -> bool {
             false
         }
+    }
+
+    fn collector_with_discovery(runtime_discovery: RuntimeDiscovery) -> AntigravityCollector {
+        let data_root = TempDir::new().expect("tempdir");
+        AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            runtime_discovery,
+        )
     }
 
     fn detection_request(source: SourceKey) -> DetectionRequest {
