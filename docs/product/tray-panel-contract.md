@@ -38,7 +38,7 @@ Model usage allocation:
   Model A              tokens / agent / change
   Model B              tokens / agent / change
   Model C              tokens / agent / change
-  Other                tokens / agent / change
+  Model D              tokens / agent / change
 
 Actions:
   Settings / Sessions tabs (sessions later)
@@ -61,8 +61,8 @@ MODEL USAGE
 | GPT-5              5,678 tokens
 | Codex              ↗ 22.1%
 
-| Other              3,000 tokens
-| Multiple agents    ↗ 0.5%
+| GLM-5.2            3,000 tokens
+| ZCode              ↗ 0.5%
 ```
 
 Each row should include:
@@ -137,10 +137,12 @@ Default ranking:
 
 Default row count:
 
-- top 3 models,
-- aggregate all remaining models into `Other`.
+- all models with usage today.
 
-If there are three or fewer models, do not show `Other`.
+Do not aggregate tray rows into a generic `Other` bucket. If an upstream source
+cannot provide per-model splits, represent that limitation at collection time
+with the source-specific model label, for example OpenCode-family
+`Multiple models`.
 
 Each model row should show:
 

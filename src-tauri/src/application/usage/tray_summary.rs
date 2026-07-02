@@ -226,7 +226,7 @@ fn read_model(
         .collect::<HashMap<_, _>>();
     let has_partial_data = result.has_partial_data;
     let latest_refresh_status = result.latest_refresh_status;
-    let models = top_model_rows(result.today_models, &yesterday_models);
+    let models = model_rows(result.today_models, &yesterday_models);
     let data_status = data_status(
         result.today_total_tokens,
         has_partial_data,
@@ -257,7 +257,7 @@ fn read_model(
     }
 }
 
-fn top_model_rows(
+fn model_rows(
     mut today_models: Vec<TraySummaryStoreModelUsage>,
     yesterday_models: &HashMap<String, u64>,
 ) -> Vec<TraySummaryModelRow> {
@@ -268,27 +268,10 @@ fn top_model_rows(
             .then_with(|| left.model_name.cmp(&right.model_name))
     });
 
-    let mut rows = today_models
+    today_models
         .iter()
-        .take(3)
         .map(|model| model_row(model, yesterday_models))
-        .collect::<Vec<_>>();
-    if today_models.len() > 3 {
-        let other_total = today_models[3..].iter().fold(0_u64, |total, model| {
-            total.saturating_add(model.total_tokens)
-        });
-        let other_yesterday = today_models[3..]
-            .iter()
-            .filter_map(|model| yesterday_models.get(&model.model_name).copied())
-            .fold(0_u64, |total, tokens| total.saturating_add(tokens));
-        rows.push(TraySummaryModelRow {
-            model_name: "Other".to_owned(),
-            agent_label: "Multiple agents".to_owned(),
-            total_tokens: other_total,
-            trend: trend(other_total, other_yesterday),
-        });
-    }
-    rows
+        .collect::<Vec<_>>()
 }
 
 fn model_row(
@@ -423,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn maps_top_models_other_agent_labels_and_trends() {
+    fn maps_all_models_agent_labels_and_trends() {
         let query = TraySummaryQuery::new(
             Arc::new(FakeStore(Mutex::new(TraySummaryStoreResult {
                 today_total_tokens: 1_000,
@@ -455,7 +438,7 @@ mod tests {
         assert_eq!(model.today.total_tokens, 1_000);
         assert_eq!(model.week.total_tokens, 2_000);
         assert_eq!(model.month.total_tokens, 3_000);
-        assert_eq!(model.models.len(), 4);
+        assert_eq!(model.models.len(), 5);
         assert_eq!(model.models[0].model_name, "gpt-5.1");
         assert_eq!(model.models[0].agent_label, "Codex");
         assert_eq!(
@@ -475,9 +458,19 @@ mod tests {
             model.models[2].trend.map(|trend| trend.direction),
             Some(TraySummaryTrendDirection::Flat)
         );
-        assert_eq!(model.models[3].model_name, "Other");
+        assert_eq!(model.models[3].model_name, "shared");
         assert_eq!(model.models[3].agent_label, "Multiple agents");
-        assert_eq!(model.models[3].total_tokens, 100);
+        assert_eq!(model.models[3].total_tokens, 80);
+        assert_eq!(
+            model.models[3].trend,
+            Some(TraySummaryTrend {
+                direction: TraySummaryTrendDirection::Increased,
+                basis_points: 10_000,
+            })
+        );
+        assert_eq!(model.models[4].model_name, "small");
+        assert_eq!(model.models[4].agent_label, "Codex");
+        assert_eq!(model.models[4].total_tokens, 20);
     }
 
     #[test]
