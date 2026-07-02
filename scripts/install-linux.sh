@@ -6,6 +6,8 @@ VERSION="${BURNLY_VERSION:-latest}"
 INSTALL_DIR="${BURNLY_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/burnly}"
 BIN_DIR="${BURNLY_BIN_DIR:-$HOME/.local/bin}"
 APPLICATIONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+ICON_THEME_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+ICON_DIR="$ICON_THEME_DIR/256x256/apps"
 OS_NAME="${BURNLY_UNAME_S:-$(uname -s)}"
 ARCH_NAME="${BURNLY_UNAME_M:-$(uname -m)}"
 
@@ -76,6 +78,7 @@ case "$VERSION" in
 esac
 
 ASSET_NAME="burnly-v$RELEASE_VERSION-linux-$ARCHITECTURE.AppImage"
+ICON_ASSET_NAME="burnly.png"
 
 if [ -z "$RELEASE_VERSION" ] || [ "$RELEASE_VERSION" = "$VERSION" ]; then
   echo "Could not parse Burnly release version from $VERSION" >&2
@@ -90,18 +93,24 @@ trap cleanup EXIT INT TERM
 
 echo "Downloading Burnly $VERSION for linux-$ARCHITECTURE..."
 curl -fL "$RELEASE_BASE_URL/$ASSET_NAME" -o "$TMP_DIR/$ASSET_NAME"
+curl -fL "$RELEASE_BASE_URL/$ICON_ASSET_NAME" -o "$TMP_DIR/$ICON_ASSET_NAME"
 curl -fL "$RELEASE_BASE_URL/SHA256SUMS" -o "$TMP_DIR/SHA256SUMS"
 
 if ! grep "  $ASSET_NAME\$" "$TMP_DIR/SHA256SUMS" >"$TMP_DIR/SHA256SUMS.selected"; then
   echo "SHA256SUMS does not contain $ASSET_NAME" >&2
   exit 1
 fi
+if ! grep "  $ICON_ASSET_NAME\$" "$TMP_DIR/SHA256SUMS" >>"$TMP_DIR/SHA256SUMS.selected"; then
+  echo "SHA256SUMS does not contain $ICON_ASSET_NAME" >&2
+  exit 1
+fi
 
 (cd "$TMP_DIR" && sha256sum -c SHA256SUMS.selected)
 
-mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$APPLICATIONS_DIR"
+mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$APPLICATIONS_DIR" "$ICON_DIR"
 cp "$TMP_DIR/$ASSET_NAME" "$INSTALL_DIR/Burnly.AppImage"
 chmod 755 "$INSTALL_DIR/Burnly.AppImage"
+cp "$TMP_DIR/$ICON_ASSET_NAME" "$ICON_DIR/burnly.png"
 
 cat >"$BIN_DIR/burnly" <<EOF
 #!/bin/sh
@@ -115,19 +124,25 @@ Type=Application
 Name=Burnly
 Comment=Local AI coding-tool usage tracker
 Exec=$INSTALL_DIR/Burnly.AppImage
+Icon=burnly
 Terminal=false
 Categories=Development;Utility;
+StartupWMClass=burnly
 StartupNotify=false
 EOF
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$APPLICATIONS_DIR" >/dev/null 2>&1 || true
 fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q "$ICON_THEME_DIR" >/dev/null 2>&1 || true
+fi
 
 echo "Burnly installed:"
 echo "  AppImage: $INSTALL_DIR/Burnly.AppImage"
 echo "  Command:  $BIN_DIR/burnly"
 echo "  Desktop:  $APPLICATIONS_DIR/burnly.desktop"
+echo "  Icon:     $ICON_DIR/burnly.png"
 
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
