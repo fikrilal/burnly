@@ -228,6 +228,8 @@ Manual evidence:
 
 ### Chunk 04 - Collector Integration And Refresh Policy
 
+Status: completed on July 2, 2026.
+
 Objective:
 
 - Produce Burnly usage envelopes from Antigravity runtime data.
@@ -256,10 +258,37 @@ Work:
 Verification:
 
 ```text
+cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity --lib
+pnpm rust:check
 pnpm verify:fast
-pnpm architecture:check
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 pnpm verify:runtime
 ```
+
+Outcome:
+
+- Wired runtime discovery, conversation indexing, stream usage extraction, and
+  Burnly collection mapping into `AntigravityCollector`.
+- Added daily and session mapping with deterministic Burnly source keys.
+- Bounded first-pass collection to the newest 100 conversation databases.
+- Mapped model breakdowns with the preferred Antigravity model label because
+  the current Burnly candidate schema does not expose arbitrary collector
+  diagnostics. The usage extractor still retains raw model/provider/credit
+  fields for future schema work.
+- Preserved previous persisted usage when no runtime endpoint is available by
+  returning a source-not-found collector failure instead of a misleading empty
+  success.
+- Dedupe is applied per conversation by `responseId`, with a deterministic
+  fallback key for records that do not include one.
+- Daily bucketing uses the conversation DB modified timestamp as the first
+  implementation timestamp fallback. Response-level timestamps remain future
+  hardening once we verify a stable usage-only field.
+- `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity --lib`
+  passed.
+- `pnpm rust:check` passed without warnings.
+- `pnpm verify:fast` passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed.
+- `pnpm verify:runtime` passed.
 
 Manual evidence:
 
