@@ -224,7 +224,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
     let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
     recover_interrupted_runs(&database_path, created_at_ms)?;
-    let (_, close_behavior) = database
+    let (launch_at_login, close_behavior) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
     let refresh_policy = automatic_refresh_policy();
@@ -309,6 +309,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         app: app.handle().clone(),
         runtime_settings,
     });
+    if let Err(error) = runtime.reconcile_launch_at_login_on_startup(launch_at_login) {
+        eprintln!("Burnly launch-at-login reconciliation failed: {error:?}");
+    }
     app.manage(SettingsService::new(
         settings_store.clone(),
         runtime,
@@ -355,6 +358,17 @@ impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
 }
 
 impl<R: Runtime> DesktopSettingsRuntime<R> {
+    fn reconcile_launch_at_login_on_startup(
+        &self,
+        enabled: bool,
+    ) -> Result<(), RuntimeSettingError> {
+        if !should_reconcile_launch_at_login_on_startup(enabled, launch_at_login_supported()) {
+            return Ok(());
+        }
+
+        self.apply_launch_at_login(true)
+    }
+
     fn apply_launch_at_login(&self, enabled: bool) -> Result<(), RuntimeSettingError> {
         use tauri_plugin_autostart::ManagerExt;
 
@@ -371,6 +385,10 @@ impl<R: Runtime> DesktopSettingsRuntime<R> {
 
         result.map_err(|_| RuntimeSettingError::LaunchAtLoginApplyFailed)
     }
+}
+
+fn should_reconcile_launch_at_login_on_startup(persisted_enabled: bool, supported: bool) -> bool {
+    persisted_enabled && supported
 }
 
 fn launch_at_login_supported() -> bool {
@@ -834,6 +852,14 @@ mod tests {
             RuntimeCapabilities::launch_at_login_not_implemented(),
             RuntimeCapabilities::update_not_implemented(),
         )
+    }
+
+    #[test]
+    fn launch_at_login_startup_reconciliation_policy_requires_enabled_and_supported() {
+        assert!(should_reconcile_launch_at_login_on_startup(true, true));
+        assert!(!should_reconcile_launch_at_login_on_startup(true, false));
+        assert!(!should_reconcile_launch_at_login_on_startup(false, true));
+        assert!(!should_reconcile_launch_at_login_on_startup(false, false));
     }
 
     #[test]
