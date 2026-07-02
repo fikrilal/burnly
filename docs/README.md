@@ -32,6 +32,7 @@ This directory is the source of truth for Burnly product and engineering decisio
 - [Architecture boundaries](./engineering/architecture-boundaries.md)
 - [Desktop runtime evidence](./engineering/desktop-runtime-evidence.md)
 - [Windows runtime evidence](./engineering/windows-runtime-evidence.md)
+- [Antigravity runtime evidence](./runtime-evidence/2026-07-02-antigravity-runtime/README.md)
 - [Release security baseline](./engineering/release-security-baseline.md)
 - [Packaged sidecars](./engineering/packaged-sidecars.md)
 - [Release packaging](./engineering/release-packaging.md)

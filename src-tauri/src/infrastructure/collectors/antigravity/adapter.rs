@@ -11,6 +11,8 @@ use crate::application::collection::{
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
+#[cfg(test)]
+use super::discovery::{LocalListener, ProcessSnapshot};
 use super::mapper::{self, AntigravityMappingContext, ConversationUsage};
 use super::{
     extract_usage_records, ConversationDatabase, ConversationIndex, RuntimeClient,
@@ -37,6 +39,20 @@ impl AntigravityCollector {
             runtime_discovery: RuntimeDiscoverySource::Current,
             runtime_usage: RuntimeUsageSource::Current(RuntimeClient::new()),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn empty_from_data_root(data_root: impl Into<std::path::PathBuf>) -> Self {
+        Self::from_parts(
+            ConversationIndex::from_data_root(data_root),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(std::path::PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            )]),
+            RuntimeUsageSource::Fixed(Vec::new()),
+        )
     }
 
     #[cfg(test)]

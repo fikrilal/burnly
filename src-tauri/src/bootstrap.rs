@@ -1313,7 +1313,9 @@ mod tests {
         let zcode_collector = Arc::new(ZCodeCollector::from_database_path(
             directory.path().join("missing-zcode-usage.db"),
         ));
-        let antigravity_collector = Arc::new(AntigravityCollector::new());
+        let antigravity_collector = Arc::new(AntigravityCollector::empty_from_data_root(
+            directory.path().join("empty-antigravity"),
+        ));
         let collector = Arc::new(RoutedCollector::new(
             ccusage_collector,
             cline_collector,

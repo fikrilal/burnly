@@ -300,6 +300,8 @@ Manual evidence:
 
 ### Chunk 05 - Product Surface, Docs, And Runtime Evidence
 
+Status: completed on July 2, 2026.
+
 Objective:
 
 - Make the experimental support understandable and verifiable.
@@ -318,10 +320,35 @@ Work:
 Verification:
 
 ```text
+pnpm prettier --check README.md docs/product/product.md docs/engineering/known-limitations.md docs/README.md docs/planning/_WIP/antigravity-collector-implementation-plan.md docs/runtime-evidence/2026-07-02-antigravity-runtime/README.md
+cargo test --manifest-path src-tauri/Cargo.toml bootstrap::tests::tauri_bridge_executes_composed_refresh_and_persists_usage --lib
+cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity --lib
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 pnpm verify:fast
 pnpm verify:runtime
 pnpm evidence:desktop
 ```
+
+Outcome:
+
+- Updated README source support status for ZCode and Antigravity.
+- Updated the product source-status table to mark Antigravity experimental.
+- Added Antigravity runtime dependency to known limitations.
+- Added sanitized Antigravity runtime evidence notes.
+- Added Antigravity daily and session targets to automatic refresh.
+- Removed stale staged-implementation comments from the Antigravity module.
+- Added deterministic Antigravity test construction so Tauri bridge refresh
+  tests do not depend on live local Antigravity runtime processes.
+- `pnpm prettier --check README.md docs/product/product.md docs/engineering/known-limitations.md docs/README.md docs/planning/_WIP/antigravity-collector-implementation-plan.md docs/runtime-evidence/2026-07-02-antigravity-runtime/README.md`
+  passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml bootstrap::tests::tauri_bridge_executes_composed_refresh_and_persists_usage --lib`
+  passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity --lib`
+  passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed.
+- `pnpm verify:fast` passed.
+- `pnpm verify:runtime` passed. This runs `pnpm evidence:desktop`, which
+  also passed.
 
 ## Future Work - Offline CLI SQLite/Protobuf Decoder
 
