@@ -109,10 +109,10 @@ function TrayPanelContent({
 
   return (
     <main className={cn(TRAY_SURFACE_CLASS, "flex flex-col")}>
-      <div className="flex flex-1 flex-col gap-6 p-5">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 p-5">
         <header
           data-tauri-drag-region="deep"
-          className="tray-drag-region flex items-start justify-between gap-3"
+          className="tray-drag-region flex shrink-0 items-start justify-between gap-3"
         >
           <div className="flex flex-col gap-2">
             <MotionTabs
@@ -137,16 +137,48 @@ function TrayPanelContent({
           <PanelCloseButton />
         </header>
 
-        {activeTab === "overview" ? (
-          <OverviewTab summary={summary} isError={isError} error={error} />
-        ) : (
-          <SettingsTab
-            appVersion={appVersion}
-            launchAtLoginCapability={capabilities.launchAtLogin}
-          />
-        )}
+        <TrayTabContent
+          activeTab={activeTab}
+          summary={summary}
+          isError={isError}
+          error={error}
+          appVersion={appVersion}
+          launchAtLoginCapability={capabilities.launchAtLogin}
+        />
       </div>
     </main>
+  );
+}
+
+function TrayTabContent({
+  activeTab,
+  summary,
+  isError,
+  error,
+  appVersion,
+  launchAtLoginCapability,
+}: {
+  activeTab: string;
+  summary: TraySummaryResponse;
+  isError: boolean;
+  error: Error | null;
+  appVersion: string;
+  launchAtLoginCapability: AppCapabilitiesResponse["launchAtLogin"];
+}) {
+  return (
+    <section
+      aria-label={activeTab === "overview" ? "Overview" : "Settings"}
+      className="min-h-0 flex-1 overflow-y-auto pr-1"
+    >
+      {activeTab === "overview" ? (
+        <OverviewTab summary={summary} isError={isError} error={error} />
+      ) : (
+        <SettingsTab
+          appVersion={appVersion}
+          launchAtLoginCapability={launchAtLoginCapability}
+        />
+      )}
+    </section>
   );
 }
 

@@ -116,6 +116,27 @@ describe("TrayPanel overview", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps overview content in a scrollable tab region", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(
+      traySummaryResult({
+        ...summary,
+        models: Array.from({ length: 12 }, (_, index) => ({
+          modelName: `Model ${index + 1}`,
+          agentLabel: "Agent",
+          totalTokens: `${1000 + index}`,
+          trend: null,
+        })),
+      }),
+    );
+
+    renderTrayPanel();
+
+    const overview = await screen.findByRole("region", { name: "Overview" });
+
+    expect(overview).toHaveClass("overflow-y-auto");
+    expect(screen.getByText("Model 12")).toBeInTheDocument();
+  });
+
   it("renders empty usage without a refresh button", async () => {
     vi.mocked(getTraySummary).mockResolvedValue(
       traySummaryResult({
