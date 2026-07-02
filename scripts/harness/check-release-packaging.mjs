@@ -285,7 +285,7 @@ function validateLinuxInstaller(installLinux, releaseWorkflow, failures) {
 
   for (const requiredText of [
     "cp src-tauri/icons/128x128@2x.png artifacts/burnly.png",
-    "sha256sum artifacts/burnly.png >> artifacts/SHA256SUMS",
+    "(cd artifacts && sha256sum burnly.png >> SHA256SUMS)",
   ]) {
     if (!releaseWorkflow.includes(requiredText)) {
       failures.push(

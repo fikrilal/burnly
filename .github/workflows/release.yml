@@ -222,14 +222,14 @@ jobs:
           pnpm updater:verify artifacts artifacts/latest.json "$base_url"
           cp artifacts/latest.json artifacts/latest-linux.json
           pnpm updater:verify artifacts artifacts/latest-linux.json "$base_url"
-          sha256sum artifacts/latest.json >> artifacts/SHA256SUMS
-          sha256sum artifacts/latest-linux.json >> artifacts/SHA256SUMS
+          (cd artifacts && sha256sum latest.json >> SHA256SUMS)
+          (cd artifacts && sha256sum latest-linux.json >> SHA256SUMS)
           cp scripts/install-linux.sh artifacts/install-linux.sh
-          sha256sum artifacts/install-linux.sh >> artifacts/SHA256SUMS
+          (cd artifacts && sha256sum install-linux.sh >> SHA256SUMS)
           cp src-tauri/icons/128x128@2x.png artifacts/burnly.png
-          sha256sum artifacts/burnly.png >> artifacts/SHA256SUMS
+          (cd artifacts && sha256sum burnly.png >> SHA256SUMS)
           cp scripts/install-macos.sh artifacts/install-macos.sh
-          sha256sum artifacts/install-macos.sh >> artifacts/SHA256SUMS
+          (cd artifacts && sha256sum install-macos.sh >> SHA256SUMS)
       - name: Publish complete draft release
         shell: bash
         run: |

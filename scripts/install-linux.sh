@@ -96,14 +96,26 @@ curl -fL "$RELEASE_BASE_URL/$ASSET_NAME" -o "$TMP_DIR/$ASSET_NAME"
 curl -fL "$RELEASE_BASE_URL/$ICON_ASSET_NAME" -o "$TMP_DIR/$ICON_ASSET_NAME"
 curl -fL "$RELEASE_BASE_URL/SHA256SUMS" -o "$TMP_DIR/SHA256SUMS"
 
-if ! grep "  $ASSET_NAME\$" "$TMP_DIR/SHA256SUMS" >"$TMP_DIR/SHA256SUMS.selected"; then
-  echo "SHA256SUMS does not contain $ASSET_NAME" >&2
-  exit 1
-fi
-if ! grep "  $ICON_ASSET_NAME\$" "$TMP_DIR/SHA256SUMS" >>"$TMP_DIR/SHA256SUMS.selected"; then
-  echo "SHA256SUMS does not contain $ICON_ASSET_NAME" >&2
-  exit 1
-fi
+select_checksum() {
+  asset_name="$1"
+  if ! awk -v asset_name="$asset_name" '
+    $2 == asset_name || $2 == "artifacts/" asset_name {
+      print $1 "  " asset_name
+      found = 1
+      exit
+    }
+    END {
+      exit found ? 0 : 1
+    }
+  ' "$TMP_DIR/SHA256SUMS" >>"$TMP_DIR/SHA256SUMS.selected"; then
+    echo "SHA256SUMS does not contain $asset_name" >&2
+    exit 1
+  fi
+}
+
+: >"$TMP_DIR/SHA256SUMS.selected"
+select_checksum "$ASSET_NAME"
+select_checksum "$ICON_ASSET_NAME"
 
 (cd "$TMP_DIR" && sha256sum -c SHA256SUMS.selected)
 
