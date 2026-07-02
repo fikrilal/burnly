@@ -6,6 +6,7 @@ pub(crate) enum SourceKey {
     Pi,
     Cline,
     ZCode,
+    Antigravity,
     #[cfg(test)]
     TestUnsupported,
 }
@@ -19,6 +20,7 @@ impl SourceKey {
             Self::Pi => "pi",
             Self::Cline => "cline",
             Self::ZCode => "zcode",
+            Self::Antigravity => "antigravity",
             #[cfg(test)]
             Self::TestUnsupported => "test-unsupported",
         }
@@ -32,6 +34,7 @@ impl SourceKey {
             "pi" => Some(Self::Pi),
             "cline" => Some(Self::Cline),
             "zcode" => Some(Self::ZCode),
+            "antigravity" => Some(Self::Antigravity),
             _ => None,
         }
     }
@@ -49,6 +52,7 @@ mod tests {
         assert_eq!(SourceKey::Pi.as_str(), "pi");
         assert_eq!(SourceKey::Cline.as_str(), "cline");
         assert_eq!(SourceKey::ZCode.as_str(), "zcode");
+        assert_eq!(SourceKey::Antigravity.as_str(), "antigravity");
     }
 
     #[test]
@@ -76,6 +80,10 @@ mod tests {
         assert_eq!(
             SourceKey::from_storage(SourceKey::ZCode.as_str()),
             Some(SourceKey::ZCode)
+        );
+        assert_eq!(
+            SourceKey::from_storage(SourceKey::Antigravity.as_str()),
+            Some(SourceKey::Antigravity)
         );
         assert_eq!(SourceKey::from_storage("unknown"), None);
     }

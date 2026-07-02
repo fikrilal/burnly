@@ -62,7 +62,7 @@ pub(crate) fn source_descriptor(
         SourceKey::Codex => Ok(&CODEX),
         SourceKey::OpenCode => Ok(&OPENCODE),
         SourceKey::Pi => Ok(&PI),
-        SourceKey::Cline | SourceKey::ZCode => Err(CollectorFailure::new(
+        SourceKey::Cline | SourceKey::ZCode | SourceKey::Antigravity => Err(CollectorFailure::new(
             crate::application::collection::CollectorFailureCode::UnsupportedSource,
             Some(source),
             None,
@@ -125,6 +125,8 @@ mod tests {
     fn native_sources_are_not_routed_through_ccusage() {
         let cline = source_descriptor(SourceKey::Cline).expect_err("unsupported source");
         let zcode = source_descriptor(SourceKey::ZCode).expect_err("unsupported source");
+        let antigravity =
+            source_descriptor(SourceKey::Antigravity).expect_err("unsupported source");
 
         assert_eq!(
             cline.code,
@@ -132,6 +134,10 @@ mod tests {
         );
         assert_eq!(
             zcode.code,
+            crate::application::collection::CollectorFailureCode::UnsupportedSource
+        );
+        assert_eq!(
+            antigravity.code,
             crate::application::collection::CollectorFailureCode::UnsupportedSource
         );
     }
