@@ -28,6 +28,7 @@ explicit because each tool stores usage differently.
 | OpenCode    | Supported         | Bundled `ccusage` collector            | Local usage only.                                                           |
 | Pi          | Supported         | Bundled `ccusage` collector            | Local usage only. Model labels keep the `[pi]` prefix from `ccusage`.       |
 | Cline CLI   | Experimental      | Native Burnly collector for `~/.cline` | Reads local session/message usage metrics. Data format may change upstream. |
+| ZCode       | Experimental      | Planned native Burnly collector        | Local SQLite usage data found. Collector implementation is next.            |
 | Antigravity | Not supported yet | Roadmap research                       | Local inspection did not find reliable token usage data.                    |
 | Cursor      | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
 | Windsurf    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |

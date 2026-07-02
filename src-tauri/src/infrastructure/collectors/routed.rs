@@ -24,6 +24,11 @@ impl RoutedCollector {
                 Ok(&self.ccusage)
             }
             SourceKey::Cline => Ok(&self.cline),
+            SourceKey::ZCode => Err(CollectorFailure::new(
+                crate::application::collection::CollectorFailureCode::UnsupportedSource,
+                Some(source),
+                None,
+            )),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -89,9 +94,13 @@ mod tests {
         collector
             .collect(request(SourceKey::Cline), &NeverCancelled)
             .expect("cline collection");
+        let zcode = collector
+            .collect(request(SourceKey::ZCode), &NeverCancelled)
+            .expect_err("zcode is not wired until native collector chunk");
 
         assert_eq!(ccusage.sources(), vec![SourceKey::Codex, SourceKey::Pi]);
         assert_eq!(cline.sources(), vec![SourceKey::Cline]);
+        assert_eq!(zcode.code, CollectorFailureCode::UnsupportedSource);
     }
 
     struct NeverCancelled;

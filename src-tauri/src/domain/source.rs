@@ -5,6 +5,7 @@ pub(crate) enum SourceKey {
     OpenCode,
     Pi,
     Cline,
+    ZCode,
     #[cfg(test)]
     TestUnsupported,
 }
@@ -17,6 +18,7 @@ impl SourceKey {
             Self::OpenCode => "opencode",
             Self::Pi => "pi",
             Self::Cline => "cline",
+            Self::ZCode => "zcode",
             #[cfg(test)]
             Self::TestUnsupported => "test-unsupported",
         }
@@ -29,6 +31,7 @@ impl SourceKey {
             "opencode" => Some(Self::OpenCode),
             "pi" => Some(Self::Pi),
             "cline" => Some(Self::Cline),
+            "zcode" => Some(Self::ZCode),
             _ => None,
         }
     }
@@ -45,6 +48,7 @@ mod tests {
         assert_eq!(SourceKey::OpenCode.as_str(), "opencode");
         assert_eq!(SourceKey::Pi.as_str(), "pi");
         assert_eq!(SourceKey::Cline.as_str(), "cline");
+        assert_eq!(SourceKey::ZCode.as_str(), "zcode");
     }
 
     #[test]
@@ -68,6 +72,10 @@ mod tests {
         assert_eq!(
             SourceKey::from_storage(SourceKey::Cline.as_str()),
             Some(SourceKey::Cline)
+        );
+        assert_eq!(
+            SourceKey::from_storage(SourceKey::ZCode.as_str()),
+            Some(SourceKey::ZCode)
         );
         assert_eq!(SourceKey::from_storage("unknown"), None);
     }

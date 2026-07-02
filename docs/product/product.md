@@ -5,9 +5,9 @@
 Burnly is a tray-first AI coding-tool token tracker.
 
 It runs locally, watches usage from supported tools such as Claude Code, Codex,
-OpenCode, Pi, and experimental Cline support, and gives developers a compact view
-of their current token usage without requiring them to open a full desktop
-window.
+OpenCode, Pi, and experimental native collector sources such as Cline and ZCode,
+and gives developers a compact view of their current token usage without
+requiring them to open a full desktop window.
 
 The entire local experience is a small tray/menu-bar panel. There is no full
 desktop window. Local detail surfaces such as settings live as tabs inside the
@@ -95,6 +95,7 @@ Current source status:
 | OpenCode    | Supported         | Collected through the bundled `ccusage` collector.                                      |
 | Pi          | Supported         | Collected through the bundled `ccusage` collector. Model labels keep the `[pi]` prefix. |
 | Cline CLI   | Experimental      | Collected through Burnly's native local collector.                                      |
+| ZCode       | Experimental      | Native collector planned for local SQLite usage data.                                   |
 | Antigravity | Not supported yet | No reliable local token usage source found.                                             |
 | Cursor      | Not supported yet | Roadmap investigation.                                                                  |
 | Windsurf    | Not supported yet | Roadmap investigation.                                                                  |

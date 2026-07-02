@@ -244,7 +244,9 @@ impl Collector for CcusageCollector {
                 )
                 .map_err(|_| failure(CollectorFailureCode::Internal))
             }
-            (SourceKey::Cline, _) => Err(failure(CollectorFailureCode::UnsupportedSource)),
+            (SourceKey::Cline | SourceKey::ZCode, _) => {
+                Err(failure(CollectorFailureCode::UnsupportedSource))
+            }
             (SourceKey::Pi, crate::application::collection::CollectionProjection::Daily) => {
                 // Pi daily reuses the OpenCode-family envelope and mapper; the Pi
                 // identity comes from the mapping context, not the envelope.
