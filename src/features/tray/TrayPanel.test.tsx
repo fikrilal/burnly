@@ -120,19 +120,17 @@ describe("TrayPanel overview", () => {
     vi.mocked(getTraySummary).mockResolvedValue(
       traySummaryResult({
         ...summary,
-        models: Array.from({ length: 12 }, (_, index) => ({
-          modelName: `Model ${index + 1}`,
-          agentLabel: "Agent",
-          totalTokens: `${1000 + index}`,
-          trend: null,
-        })),
+        models: longModelList(),
       }),
     );
 
     renderTrayPanel();
 
     const overview = await screen.findByRole("region", { name: "Overview" });
+    const surface = overview.closest(".tray-surface");
 
+    expect(surface).toHaveClass("h-screen");
+    expect(surface).not.toHaveClass("min-h-screen");
     expect(overview).toHaveClass("overflow-y-auto");
     expect(screen.getByText("Model 12")).toBeInTheDocument();
   });
@@ -368,6 +366,15 @@ function updateResult(
     },
     meta: responseMeta,
   };
+}
+
+function longModelList(): TraySummaryResponse["models"] {
+  return Array.from({ length: 12 }, (_, index) => ({
+    modelName: `Model ${index + 1}`,
+    agentLabel: "Agent",
+    totalTokens: `${1000 + index}`,
+    trend: null,
+  }));
 }
 
 describe("TrayPanel update check and install actions", () => {

@@ -33,7 +33,7 @@ interface TrayPanelProps {
 }
 
 const TRAY_SURFACE_CLASS =
-  "tray-surface min-h-screen overflow-hidden rounded-2xl border border-border bg-background text-foreground";
+  "tray-surface h-screen overflow-hidden rounded-2xl border border-border bg-background text-foreground";
 
 export function TrayPanel({
   reportingTimezone,
