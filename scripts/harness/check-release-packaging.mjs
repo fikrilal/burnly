@@ -267,6 +267,34 @@ function validateTauriRunner(tauriRunner, failures) {
   }
 }
 
+function validateLinuxInstaller(installLinux, releaseWorkflow, failures) {
+  for (const requiredText of [
+    'ICON_ASSET_NAME="burnly.png"',
+    'ICON_DIR="$ICON_THEME_DIR/256x256/apps"',
+    'cp "$TMP_DIR/$ICON_ASSET_NAME" "$ICON_DIR/burnly.png"',
+    "Icon=burnly",
+    "StartupWMClass=burnly",
+    "gtk-update-icon-cache",
+  ]) {
+    if (!installLinux.includes(requiredText)) {
+      failures.push(
+        `scripts/install-linux.sh: missing launcher icon integration ${requiredText}.`,
+      );
+    }
+  }
+
+  for (const requiredText of [
+    "cp src-tauri/icons/128x128@2x.png artifacts/burnly.png",
+    "sha256sum artifacts/burnly.png >> artifacts/SHA256SUMS",
+  ]) {
+    if (!releaseWorkflow.includes(requiredText)) {
+      failures.push(
+        `.github/workflows/release.yml: missing Linux installer icon artifact step ${requiredText}.`,
+      );
+    }
+  }
+}
+
 function validate(inputs) {
   const failures = [];
   validateIdentity(inputs, failures);
@@ -274,6 +302,7 @@ function validate(inputs) {
   validateReleaseTargets(inputs, failures);
   validateGuide(inputs.packagingGuide, failures);
   validateTauriRunner(inputs.tauriRunner, failures);
+  validateLinuxInstaller(inputs.installLinux, inputs.releaseWorkflow, failures);
   return failures;
 }
 
@@ -322,6 +351,14 @@ async function loadInputs() {
       path.join(root, "scripts/run-tauri.mjs"),
       "utf8",
     ),
+    installLinux: await readFile(
+      path.join(root, "scripts/install-linux.sh"),
+      "utf8",
+    ),
+    releaseWorkflow: await readFile(
+      path.join(root, ".github/workflows/release.yml"),
+      "utf8",
+    ),
     iconSha256: createHash("sha256").update(icon).digest("hex"),
   };
 }
@@ -336,7 +373,12 @@ if (process.argv.includes("--self-test")) {
   mutated.releaseTargets.targets.pop();
   mutated.iconSha256 = placeholderIconSha256;
   mutated.tauriRunner = 'spawn(executable, args, { stdio: "inherit" });';
-  if (validate(mutated).length < 4) {
+  mutated.installLinux = mutated.installLinux.replace("Icon=burnly", "");
+  mutated.releaseWorkflow = mutated.releaseWorkflow.replace(
+    "cp src-tauri/icons/128x128@2x.png artifacts/burnly.png",
+    "",
+  );
+  if (validate(mutated).length < 6) {
     console.error("Release packaging harness self-test did not catch drift.");
     process.exit(1);
   }
