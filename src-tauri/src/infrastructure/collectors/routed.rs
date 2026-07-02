@@ -11,11 +11,20 @@ use crate::domain::source::SourceKey;
 pub(crate) struct RoutedCollector {
     ccusage: Arc<dyn Collector>,
     cline: Arc<dyn Collector>,
+    zcode: Arc<dyn Collector>,
 }
 
 impl RoutedCollector {
-    pub(crate) fn new(ccusage: Arc<dyn Collector>, cline: Arc<dyn Collector>) -> Self {
-        Self { ccusage, cline }
+    pub(crate) fn new(
+        ccusage: Arc<dyn Collector>,
+        cline: Arc<dyn Collector>,
+        zcode: Arc<dyn Collector>,
+    ) -> Self {
+        Self {
+            ccusage,
+            cline,
+            zcode,
+        }
     }
 
     fn collector_for(&self, source: SourceKey) -> Result<&Arc<dyn Collector>, CollectorFailure> {
@@ -24,11 +33,7 @@ impl RoutedCollector {
                 Ok(&self.ccusage)
             }
             SourceKey::Cline => Ok(&self.cline),
-            SourceKey::ZCode => Err(CollectorFailure::new(
-                crate::application::collection::CollectorFailureCode::UnsupportedSource,
-                Some(source),
-                None,
-            )),
+            SourceKey::ZCode => Ok(&self.zcode),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -43,6 +48,7 @@ impl Collector for RoutedCollector {
     fn describe(&self) -> Result<CollectorDescriptor, CollectorFailure> {
         let mut descriptor = self.ccusage.describe()?;
         descriptor.profiles.extend(self.cline.describe()?.profiles);
+        descriptor.profiles.extend(self.zcode.describe()?.profiles);
         Ok(descriptor)
     }
 
@@ -83,7 +89,8 @@ mod tests {
     fn routes_collection_by_source() {
         let ccusage = Arc::new(RecordingCollector::new("ccusage"));
         let cline = Arc::new(RecordingCollector::new("cline"));
-        let collector = RoutedCollector::new(ccusage.clone(), cline.clone());
+        let zcode = Arc::new(RecordingCollector::new("zcode"));
+        let collector = RoutedCollector::new(ccusage.clone(), cline.clone(), zcode.clone());
 
         collector
             .collect(request(SourceKey::Codex), &NeverCancelled)
@@ -94,13 +101,13 @@ mod tests {
         collector
             .collect(request(SourceKey::Cline), &NeverCancelled)
             .expect("cline collection");
-        let zcode = collector
+        collector
             .collect(request(SourceKey::ZCode), &NeverCancelled)
-            .expect_err("zcode is not wired until native collector chunk");
+            .expect("zcode collection");
 
         assert_eq!(ccusage.sources(), vec![SourceKey::Codex, SourceKey::Pi]);
         assert_eq!(cline.sources(), vec![SourceKey::Cline]);
-        assert_eq!(zcode.code, CollectorFailureCode::UnsupportedSource);
+        assert_eq!(zcode.sources(), vec![SourceKey::ZCode]);
     }
 
     struct NeverCancelled;

@@ -36,6 +36,7 @@ use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
 use crate::infrastructure::collectors::routed::RoutedCollector;
+use crate::infrastructure::collectors::zcode::ZCodeCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
     SqliteTraySummaryStore,
@@ -448,7 +449,12 @@ fn build_refresh_coordinator<R: Runtime>(
         .map_err(StartupError::Collector)?,
     );
     let cline_collector = Arc::new(ClineCollector::from_data_dir(default_cline_data_dir()));
-    let collector = Arc::new(RoutedCollector::new(ccusage_collector, cline_collector));
+    let zcode_collector = Arc::new(ZCodeCollector::from_data_dir(default_zcode_data_dir()));
+    let collector = Arc::new(RoutedCollector::new(
+        ccusage_collector,
+        cline_collector,
+        zcode_collector,
+    ));
 
     compose_refresh_coordinator(
         database_path,
@@ -463,6 +469,13 @@ fn default_cline_data_dir() -> PathBuf {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cline")))
         .unwrap_or_else(|| PathBuf::from(".cline"))
+}
+
+fn default_zcode_data_dir() -> PathBuf {
+    std::env::var_os("ZCODE_DATA_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".zcode")))
+        .unwrap_or_else(|| PathBuf::from(".zcode"))
 }
 
 fn resolve_packaged_resource_directory(resource_directory: PathBuf) -> PathBuf {
@@ -1268,7 +1281,14 @@ mod tests {
         let cline_collector = Arc::new(ClineCollector::from_database_path(
             directory.path().join("missing-cline-sessions.db"),
         ));
-        let collector = Arc::new(RoutedCollector::new(ccusage_collector, cline_collector));
+        let zcode_collector = Arc::new(ZCodeCollector::from_database_path(
+            directory.path().join("missing-zcode-usage.db"),
+        ));
+        let collector = Arc::new(RoutedCollector::new(
+            ccusage_collector,
+            cline_collector,
+            zcode_collector,
+        ));
         let coordinator = compose_refresh_coordinator(
             &database_path,
             collector,
