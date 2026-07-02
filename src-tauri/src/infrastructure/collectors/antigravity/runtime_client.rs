@@ -3,6 +3,7 @@
     reason = "Antigravity runtime client is introduced before collection mapping in chunk 4"
 )]
 
+use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::time::Duration;
@@ -15,6 +16,7 @@ use super::RuntimeEndpoint;
 const QUOTA_PATH: &str = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary";
 const STREAM_PATH: &str = "/exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates";
 const TIMEOUT: Duration = Duration::from_secs(3);
+const STREAM_IDLE_TIMEOUT: Duration = Duration::from_millis(750);
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CONNECT_FRAME_BYTES: usize = 2 * 1024 * 1024;
 
@@ -53,7 +55,7 @@ impl RuntimeClient {
         let body = encode_connect_frame(
             &serde_json::to_vec(&request).map_err(|_| RuntimeClientError::InvalidJson)?,
         )?;
-        let response = post_json(endpoint, STREAM_PATH, &body, ContentType::ConnectJson)?;
+        let response = post_connect_stream(endpoint, STREAM_PATH, &body)?;
         decode_connect_frames(&response)
     }
 }
@@ -79,16 +81,7 @@ fn post_json(
     body: &[u8],
     content_type: ContentType,
 ) -> Result<Vec<u8>, RuntimeClientError> {
-    let mut stream =
-        TcpStream::connect_timeout(&SocketAddr::new(endpoint.host, endpoint.port), TIMEOUT)
-            .map_err(|_| RuntimeClientError::ConnectionFailed)?;
-    stream
-        .set_read_timeout(Some(TIMEOUT))
-        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
-    stream
-        .set_write_timeout(Some(TIMEOUT))
-        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
-
+    let mut stream = connect(endpoint)?;
     let mut request = format!(
         "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         host_header(endpoint.host, endpoint.port),
@@ -108,12 +101,63 @@ fn post_json(
         request.push_str("\r\n");
     }
     request.push_str("\r\n");
+    write_request_body(&mut stream, &request, body)?;
+    read_http_response(stream)
+}
 
+fn post_connect_stream(
+    endpoint: &RuntimeEndpoint,
+    path: &str,
+    body: &[u8],
+) -> Result<Vec<u8>, RuntimeClientError> {
+    let mut stream = connect(endpoint)?;
+    let request = connect_request(endpoint, path, body.len());
+    write_request_body(&mut stream, &request, body)?;
+    read_connect_stream_response(stream)
+}
+
+fn connect(endpoint: &RuntimeEndpoint) -> Result<TcpStream, RuntimeClientError> {
+    let stream =
+        TcpStream::connect_timeout(&SocketAddr::new(endpoint.host, endpoint.port), TIMEOUT)
+            .map_err(|_| RuntimeClientError::ConnectionFailed)?;
+    stream
+        .set_read_timeout(Some(TIMEOUT))
+        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
+    stream
+        .set_write_timeout(Some(TIMEOUT))
+        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
+    Ok(stream)
+}
+
+fn write_request_body(
+    stream: &mut TcpStream,
+    request: &str,
+    body: &[u8],
+) -> Result<(), RuntimeClientError> {
     stream
         .write_all(request.as_bytes())
         .and_then(|_| stream.write_all(body))
-        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
-    read_http_response(stream)
+        .map_err(|_| RuntimeClientError::ConnectionFailed)
+}
+
+fn connect_request(endpoint: &RuntimeEndpoint, path: &str, content_length: usize) -> String {
+    let mut request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nConnect-Protocol-Version: 1\r\n",
+        host_header(endpoint.host, endpoint.port),
+        ContentType::ConnectJson.as_header(),
+        content_length,
+    );
+    if let Some(token) = endpoint
+        .csrf_token
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        request.push_str("x-codeium-csrf-token: ");
+        request.push_str(token);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    request
 }
 
 fn host_header(host: IpAddr, port: u16) -> String {
@@ -153,6 +197,157 @@ fn read_http_response(stream: TcpStream) -> Result<Vec<u8>, RuntimeClientError> 
         decode_chunked(body)
     } else {
         Ok(body.to_vec())
+    }
+}
+
+fn read_connect_stream_response(mut stream: TcpStream) -> Result<Vec<u8>, RuntimeClientError> {
+    let (headers, body_prefix) = read_response_head(&mut stream)?;
+    validate_success_status(&headers)?;
+    let chunked = is_chunked(&headers);
+    if !chunked {
+        return read_non_chunked_stream_body(stream, body_prefix);
+    }
+    stream
+        .set_read_timeout(Some(STREAM_IDLE_TIMEOUT))
+        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
+    read_chunked_stream_body(stream, body_prefix)
+}
+
+fn read_response_head(stream: &mut TcpStream) -> Result<(String, Vec<u8>), RuntimeClientError> {
+    let mut raw = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let read = stream
+            .read(&mut buffer)
+            .map_err(|_| RuntimeClientError::ConnectionFailed)?;
+        if read == 0 {
+            return Err(RuntimeClientError::MalformedHttp);
+        }
+        raw.extend_from_slice(&buffer[..read]);
+        if raw.len() > MAX_RESPONSE_BYTES {
+            return Err(RuntimeClientError::ResponseTooLarge);
+        }
+        if let Some(header_end) = raw.windows(4).position(|window| window == b"\r\n\r\n") {
+            let headers = std::str::from_utf8(&raw[..header_end])
+                .map_err(|_| RuntimeClientError::MalformedHttp)?
+                .to_owned();
+            return Ok((headers, raw[header_end + 4..].to_vec()));
+        }
+    }
+}
+
+fn validate_success_status(headers: &str) -> Result<(), RuntimeClientError> {
+    let status = headers
+        .lines()
+        .next()
+        .ok_or(RuntimeClientError::MalformedHttp)?;
+    if status.contains(" 200 ") {
+        Ok(())
+    } else {
+        Err(RuntimeClientError::HttpStatus)
+    }
+}
+
+fn is_chunked(headers: &str) -> bool {
+    headers.lines().any(|line| {
+        line.to_ascii_lowercase()
+            .starts_with("transfer-encoding: chunked")
+    })
+}
+
+fn read_non_chunked_stream_body(
+    mut stream: TcpStream,
+    mut body: Vec<u8>,
+) -> Result<Vec<u8>, RuntimeClientError> {
+    let mut buffer = [0_u8; 4096];
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => return Ok(body),
+            Ok(read) => {
+                body.extend_from_slice(&buffer[..read]);
+                if body.len() > MAX_RESPONSE_BYTES {
+                    return Err(RuntimeClientError::ResponseTooLarge);
+                }
+            }
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                if body.is_empty() {
+                    return Err(RuntimeClientError::ConnectionFailed);
+                }
+                return Ok(body);
+            }
+            Err(_) => return Err(RuntimeClientError::ConnectionFailed),
+        }
+    }
+}
+
+fn read_chunked_stream_body(
+    mut stream: TcpStream,
+    mut input: Vec<u8>,
+) -> Result<Vec<u8>, RuntimeClientError> {
+    let mut output = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        match drain_available_chunks(&mut input, &mut output)? {
+            ChunkDrain::Complete => return Ok(output),
+            ChunkDrain::NeedMore => {}
+        }
+        match stream.read(&mut buffer) {
+            Ok(0) => return Ok(output),
+            Ok(read) => {
+                input.extend_from_slice(&buffer[..read]);
+                if input.len() + output.len() > MAX_RESPONSE_BYTES {
+                    return Err(RuntimeClientError::ResponseTooLarge);
+                }
+            }
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                if output.is_empty() {
+                    return Err(RuntimeClientError::ConnectionFailed);
+                }
+                return Ok(output);
+            }
+            Err(_) => return Err(RuntimeClientError::ConnectionFailed),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChunkDrain {
+    Complete,
+    NeedMore,
+}
+
+fn drain_available_chunks(
+    input: &mut Vec<u8>,
+    output: &mut Vec<u8>,
+) -> Result<ChunkDrain, RuntimeClientError> {
+    loop {
+        let Some(line_end) = find_crlf(input) else {
+            return Ok(ChunkDrain::NeedMore);
+        };
+        let size_line = std::str::from_utf8(&input[..line_end])
+            .map_err(|_| RuntimeClientError::MalformedHttp)?;
+        let size_hex = size_line.split(';').next().unwrap_or(size_line);
+        let size = usize::from_str_radix(size_hex.trim(), 16)
+            .map_err(|_| RuntimeClientError::MalformedHttp)?;
+        let chunk_start = line_end + 2;
+        if size == 0 {
+            return Ok(ChunkDrain::Complete);
+        }
+        let chunk_end = chunk_start
+            .checked_add(size)
+            .ok_or(RuntimeClientError::ResponseTooLarge)?;
+        let next_chunk = chunk_end + 2;
+        if input.len() < next_chunk {
+            return Ok(ChunkDrain::NeedMore);
+        }
+        if &input[chunk_end..next_chunk] != b"\r\n" {
+            return Err(RuntimeClientError::MalformedHttp);
+        }
+        output.extend_from_slice(&input[chunk_start..chunk_end]);
+        if output.len() > MAX_RESPONSE_BYTES {
+            return Err(RuntimeClientError::ResponseTooLarge);
+        }
+        input.drain(..next_chunk);
     }
 }
 
@@ -297,6 +492,30 @@ mod tests {
     }
 
     #[test]
+    fn streams_agent_state_updates_from_open_chunked_stream() {
+        let server = TestServer::start_streaming(|request, stream| {
+            assert!(request.contains("Content-Type: application/connect+json"));
+            let payload = encode_connect_frame(br#"{"response":{"open":true}}"#).expect("frame");
+            let response = [
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec(),
+                format!("{:x}\r\n", payload.len()).into_bytes(),
+                payload,
+                b"\r\n".to_vec(),
+            ]
+            .concat();
+            stream.write_all(&response).expect("write response");
+            thread::sleep(STREAM_IDLE_TIMEOUT + Duration::from_millis(250));
+        });
+
+        let client = RuntimeClient::new();
+        let frames = client
+            .stream_agent_state_updates(&endpoint(server.port(), None), "conversation-1")
+            .expect("agent state");
+
+        assert_eq!(frames, vec![json!({"response": {"open": true}})]);
+    }
+
+    #[test]
     fn rejects_malformed_connect_frames() {
         let error = decode_connect_frames(&[0, 0, 0, 0, 10, b'{']).expect_err("malformed frame");
 
@@ -338,14 +557,20 @@ mod tests {
 
     impl TestServer {
         fn start(handler: fn(String) -> Vec<u8>) -> Self {
+            Self::start_streaming(move |request, stream| {
+                let response = handler(request);
+                stream.write_all(&response).expect("write response");
+            })
+        }
+
+        fn start_streaming(handler: impl FnOnce(String, &mut TcpStream) + Send + 'static) -> Self {
             let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("listener");
             let port = listener.local_addr().expect("addr").port();
             let handle = thread::spawn(move || {
                 let (mut stream, _) = listener.accept().expect("accept");
                 let request = read_http_request(&mut stream);
                 let request = String::from_utf8_lossy(&request).into_owned();
-                let response = handler(request);
-                stream.write_all(&response).expect("write response");
+                handler(request, &mut stream);
             });
             Self { port, handle }
         }

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -73,13 +74,13 @@ impl ConversationIndex {
             return Ok(Vec::new());
         }
 
-        let mut databases = Vec::new();
+        let mut databases: BTreeMap<String, ConversationDatabase> = BTreeMap::new();
         let entries =
             fs::read_dir(&conversations_dir).map_err(|_| ConversationIndexError::UnreadableRoot)?;
         for entry in entries {
             let entry = entry.map_err(|_| ConversationIndexError::UnreadableRoot)?;
             let path = entry.path();
-            if path.extension().and_then(|extension| extension.to_str()) != Some("db") {
+            if !is_conversation_artifact(&path) {
                 continue;
             }
             let Some(conversation_id) = path
@@ -116,15 +117,28 @@ impl ConversationIndex {
                 continue;
             }
 
-            databases.push(ConversationDatabase {
+            let database = ConversationDatabase {
                 variant,
-                conversation_id,
+                conversation_id: conversation_id.clone(),
                 path,
                 modified_at,
-            });
+            };
+            match databases.get(&conversation_id) {
+                Some(existing) if existing.modified_at >= database.modified_at => {}
+                _ => {
+                    databases.insert(conversation_id, database);
+                }
+            }
         }
-        Ok(databases)
+        Ok(databases.into_values().collect())
     }
+}
+
+fn is_conversation_artifact(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("db" | "pb")
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,6 +239,48 @@ mod tests {
     }
 
     #[test]
+    fn lists_proto_conversation_artifacts() {
+        let directory = TempDir::new().expect("tempdir");
+        create_pb(
+            directory.path(),
+            AntigravityProductVariant::Ide,
+            "proto-session",
+        );
+
+        let index = ConversationIndex::from_data_root(directory.path());
+        let databases = index
+            .list(&CollectionScope::Full, "UTC")
+            .expect("conversation index");
+
+        assert_eq!(databases.len(), 1);
+        assert_eq!(databases[0].conversation_id, "proto-session");
+        assert_eq!(databases[0].variant, AntigravityProductVariant::Ide);
+    }
+
+    #[test]
+    fn deduplicates_conversation_artifacts_with_the_same_id() {
+        let directory = TempDir::new().expect("tempdir");
+        create_db(
+            directory.path(),
+            AntigravityProductVariant::App,
+            "same-session",
+        );
+        create_pb(
+            directory.path(),
+            AntigravityProductVariant::App,
+            "same-session",
+        );
+
+        let index = ConversationIndex::from_data_root(directory.path());
+        let databases = index
+            .list(&CollectionScope::Full, "UTC")
+            .expect("conversation index");
+
+        assert_eq!(databases.len(), 1);
+        assert_eq!(databases[0].conversation_id, "same-session");
+    }
+
+    #[test]
     fn filters_incremental_scope_by_database_modified_date() {
         let in_window = Utc
             .with_ymd_and_hms(2026, 7, 2, 4, 0, 0)
@@ -264,6 +320,12 @@ mod tests {
         let directory = root.join(variant.data_dir_name()).join("conversations");
         fs::create_dir_all(&directory).expect("conversation dir");
         File::create(directory.join(format!("{name}.db"))).expect("db file");
+    }
+
+    fn create_pb(root: &Path, variant: AntigravityProductVariant, name: &str) {
+        let directory = root.join(variant.data_dir_name()).join("conversations");
+        fs::create_dir_all(&directory).expect("conversation dir");
+        File::create(directory.join(format!("{name}.pb"))).expect("pb file");
     }
 
     fn create_ignored_file(root: &Path, variant: AntigravityProductVariant, name: &str) {
