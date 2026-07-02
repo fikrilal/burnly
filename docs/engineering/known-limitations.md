@@ -4,6 +4,47 @@ Tracked limitations that are accepted on purpose, with the condition that would
 let us remove them. Each entry records the cause, the current workaround, where
 it lives in the code, and the trigger to revisit it.
 
+## Antigravity collection requires a running local runtime
+
+Status: active experimental limitation. Opened 2026-07-02.
+
+### Summary
+
+Burnly's first Antigravity collector reads usage counters from Antigravity's
+local runtime RPC service. Antigravity 2.0, Antigravity IDE, or `agy` must be
+running when Burnly refreshes. If the runtime is closed, Burnly leaves previously
+persisted usage intact instead of writing an empty zero-usage result.
+
+### Cause
+
+The reliable usage counters discovered locally are exposed through the running
+Antigravity local runtime. Completed Antigravity CLI conversations remain on
+disk, but the offline SQLite/protobuf payloads are not decoded yet because they
+may contain prompt-bearing and response-bearing data. Shipping an offline
+decoder requires a separate privacy review and sanitized fixture strategy.
+
+### Current workaround
+
+Burnly collects Antigravity usage opportunistically while the relevant runtime is
+alive:
+
+- Antigravity 2.0 and Antigravity IDE usually keep runtime endpoints open while
+  the app is running.
+- Antigravity CLI collection is best-effort because `agy` can exit shortly after
+  a command completes.
+- Refresh failures caused by a closed runtime are treated as source unavailable,
+  so existing stored usage is preserved.
+
+Code: `src-tauri/src/infrastructure/collectors/antigravity`.
+
+### Trigger to revisit
+
+Build an offline Antigravity CLI SQLite/protobuf decoder only if live runtime
+collection misses enough real usage to justify the maintenance and privacy risk.
+That decoder must extract only usage-bearing fields and must never decode, log,
+store, or fixture prompt, response, system prompt, tool input, or tool result
+content.
+
 ## OpenCode-family (OpenCode and Pi) per-model daily usage is collapsed to a single row
 
 Status: active workaround. Opened 2026-06-26. Extended to Pi 2026-07-01.

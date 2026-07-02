@@ -12,6 +12,7 @@ pub(crate) struct RoutedCollector {
     ccusage: Arc<dyn Collector>,
     cline: Arc<dyn Collector>,
     zcode: Arc<dyn Collector>,
+    antigravity: Arc<dyn Collector>,
 }
 
 impl RoutedCollector {
@@ -19,11 +20,13 @@ impl RoutedCollector {
         ccusage: Arc<dyn Collector>,
         cline: Arc<dyn Collector>,
         zcode: Arc<dyn Collector>,
+        antigravity: Arc<dyn Collector>,
     ) -> Self {
         Self {
             ccusage,
             cline,
             zcode,
+            antigravity,
         }
     }
 
@@ -34,6 +37,7 @@ impl RoutedCollector {
             }
             SourceKey::Cline => Ok(&self.cline),
             SourceKey::ZCode => Ok(&self.zcode),
+            SourceKey::Antigravity => Ok(&self.antigravity),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -49,6 +53,9 @@ impl Collector for RoutedCollector {
         let mut descriptor = self.ccusage.describe()?;
         descriptor.profiles.extend(self.cline.describe()?.profiles);
         descriptor.profiles.extend(self.zcode.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.antigravity.describe()?.profiles);
         Ok(descriptor)
     }
 
@@ -90,7 +97,13 @@ mod tests {
         let ccusage = Arc::new(RecordingCollector::new("ccusage"));
         let cline = Arc::new(RecordingCollector::new("cline"));
         let zcode = Arc::new(RecordingCollector::new("zcode"));
-        let collector = RoutedCollector::new(ccusage.clone(), cline.clone(), zcode.clone());
+        let antigravity = Arc::new(RecordingCollector::new("antigravity"));
+        let collector = RoutedCollector::new(
+            ccusage.clone(),
+            cline.clone(),
+            zcode.clone(),
+            antigravity.clone(),
+        );
 
         collector
             .collect(request(SourceKey::Codex), &NeverCancelled)
@@ -104,10 +117,14 @@ mod tests {
         collector
             .collect(request(SourceKey::ZCode), &NeverCancelled)
             .expect("zcode collection");
+        collector
+            .collect(request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("antigravity collection");
 
         assert_eq!(ccusage.sources(), vec![SourceKey::Codex, SourceKey::Pi]);
         assert_eq!(cline.sources(), vec![SourceKey::Cline]);
         assert_eq!(zcode.sources(), vec![SourceKey::ZCode]);
+        assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
     }
 
     struct NeverCancelled;

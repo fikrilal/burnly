@@ -28,8 +28,8 @@ explicit because each tool stores usage differently.
 | OpenCode    | Supported         | Bundled `ccusage` collector            | Local usage only.                                                           |
 | Pi          | Supported         | Bundled `ccusage` collector            | Local usage only. Model labels keep the `[pi]` prefix from `ccusage`.       |
 | Cline CLI   | Experimental      | Native Burnly collector for `~/.cline` | Reads local session/message usage metrics. Data format may change upstream. |
-| ZCode       | Experimental      | Planned native Burnly collector        | Local SQLite usage data found. Collector implementation is next.            |
-| Antigravity | Not supported yet | Roadmap research                       | Local inspection did not find reliable token usage data.                    |
+| ZCode       | Experimental      | Native Burnly collector                | Reads local SQLite usage data. Data format may change upstream.             |
+| Antigravity | Experimental      | Native Burnly local runtime collector  | Requires Antigravity 2.0, IDE, or CLI to be running during refresh.         |
 | Cursor      | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
 | Windsurf    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
 | Aider       | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
@@ -199,6 +199,11 @@ need an AppIndicator or tray extension enabled.
 
 Open the tray panel and use the refresh action. If the status still fails, check
 that at least one supported tool has local usage data available.
+
+For Antigravity, keep the relevant Antigravity app running while Burnly
+refreshes. The first experimental collector reads usage counters from
+Antigravity's local runtime service; completed CLI sessions may be missed if
+`agy` exits before Burnly refreshes.
 
 ### The `burnly` command is not found
 

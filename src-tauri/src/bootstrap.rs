@@ -33,6 +33,7 @@ use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
 use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
+use crate::infrastructure::collectors::antigravity::AntigravityCollector;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
 use crate::infrastructure::collectors::routed::RoutedCollector;
@@ -468,10 +469,12 @@ fn build_refresh_coordinator<R: Runtime>(
     );
     let cline_collector = Arc::new(ClineCollector::from_data_dir(default_cline_data_dir()));
     let zcode_collector = Arc::new(ZCodeCollector::from_data_dir(default_zcode_data_dir()));
+    let antigravity_collector = Arc::new(AntigravityCollector::new());
     let collector = Arc::new(RoutedCollector::new(
         ccusage_collector,
         cline_collector,
         zcode_collector,
+        antigravity_collector,
     ));
 
     compose_refresh_coordinator(
@@ -1310,10 +1313,14 @@ mod tests {
         let zcode_collector = Arc::new(ZCodeCollector::from_database_path(
             directory.path().join("missing-zcode-usage.db"),
         ));
+        let antigravity_collector = Arc::new(AntigravityCollector::empty_from_data_root(
+            directory.path().join("empty-antigravity"),
+        ));
         let collector = Arc::new(RoutedCollector::new(
             ccusage_collector,
             cline_collector,
             zcode_collector,
+            antigravity_collector,
         ));
         let coordinator = compose_refresh_coordinator(
             &database_path,

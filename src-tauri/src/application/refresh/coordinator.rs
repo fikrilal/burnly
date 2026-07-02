@@ -786,7 +786,7 @@ impl RefreshTarget {
     }
 }
 
-const fn refresh_targets() -> [RefreshTarget; 12] {
+const fn refresh_targets() -> [RefreshTarget; 14] {
     [
         RefreshTarget {
             source: SourceKey::ClaudeCode,
@@ -834,6 +834,14 @@ const fn refresh_targets() -> [RefreshTarget; 12] {
         },
         RefreshTarget {
             source: SourceKey::ZCode,
+            projection: CollectionProjection::Session,
+        },
+        RefreshTarget {
+            source: SourceKey::Antigravity,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::Antigravity,
             projection: CollectionProjection::Session,
         },
     ]
