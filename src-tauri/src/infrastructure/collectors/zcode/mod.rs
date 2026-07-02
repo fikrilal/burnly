@@ -1,7 +1,12 @@
-#[allow(dead_code, reason = "ZCode adapter is added in a later chunk")]
+mod adapter;
+mod mapper;
 mod schema;
-#[allow(dead_code, reason = "ZCode adapter is added in a later chunk")]
 mod store;
 
-#[allow(unused_imports, reason = "ZCode adapter is added in a later chunk")]
+#[allow(
+    unused_imports,
+    reason = "ZCode collector is wired in the runtime chunk"
+)]
+pub(crate) use adapter::ZCodeCollector;
+#[allow(unused_imports, reason = "ZCode mapper is used by adapter tests")]
 pub(crate) use store::{ZCodeModelUsageRow, ZCodeStore};
