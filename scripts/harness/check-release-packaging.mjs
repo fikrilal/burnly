@@ -271,8 +271,9 @@ function validateLinuxInstaller(installLinux, releaseWorkflow, failures) {
   for (const requiredText of [
     'ICON_ASSET_NAME="burnly.png"',
     'ICON_DIR="$ICON_THEME_DIR/256x256/apps"',
-    'cp "$TMP_DIR/$ICON_ASSET_NAME" "$ICON_DIR/burnly.png"',
-    "Icon=burnly",
+    'ICON_FILE="$ICON_DIR/burnly.png"',
+    'cp "$TMP_DIR/$ICON_ASSET_NAME" "$ICON_FILE"',
+    "Icon=$ICON_FILE",
     "StartupWMClass=burnly",
     "gtk-update-icon-cache",
   ]) {
