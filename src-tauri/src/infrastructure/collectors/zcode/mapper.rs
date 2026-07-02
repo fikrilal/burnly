@@ -69,36 +69,42 @@ pub(crate) fn map_daily(
     let timezone = timezone
         .parse::<Tz>()
         .map_err(|_| ZCodeMappingError::InvalidTimezone)?;
-    let mut buckets = BTreeMap::<(NaiveDate, String), ZCodeUsageAccumulator>::new();
+    let mut buckets = BTreeMap::<NaiveDate, ZCodeDailyBucket>::new();
 
     for row in rows.into_iter().filter(is_completed) {
         let usage_date = usage_date(row.started_at_ms, timezone)?;
         if !date_in_scope(usage_date, scope) {
             continue;
         }
-        buckets
-            .entry((usage_date, row.model_id.clone()))
-            .or_default()
-            .add(row)?;
+        buckets.entry(usage_date).or_default().add(&row)?;
     }
 
     buckets
         .into_iter()
-        .map(|((usage_date, model), usage)| {
-            let tokens = usage.tokens()?;
-            let cost = cost(tokens.total_tokens());
+        .map(|(usage_date, usage)| {
+            let tokens = usage.total.tokens()?;
+            let aggregate_cost = cost(tokens.total_tokens());
+            let model_breakdowns = usage
+                .models
+                .into_iter()
+                .map(|(model, usage)| {
+                    let tokens = usage.tokens()?;
+                    let cost = cost(tokens.total_tokens());
+                    Ok(ModelUsageCandidate {
+                        raw_model_id: model,
+                        tokens,
+                        cost,
+                    })
+                })
+                .collect::<Result<Vec<_>, ZCodeMappingError>>()?;
             Ok(DailyUsageCandidate {
                 provenance: context.provenance(),
                 source_key: daily_source_key(SourceKey::ZCode, usage_date, timezone.name())?,
                 usage_date,
                 aggregation_timezone: timezone.name().to_owned(),
-                tokens: tokens.clone(),
-                cost: cost.clone(),
-                model_breakdowns: vec![ModelUsageCandidate {
-                    raw_model_id: model,
-                    tokens,
-                    cost,
-                }],
+                tokens,
+                cost: aggregate_cost,
+                model_breakdowns,
             })
         })
         .collect()
@@ -116,13 +122,29 @@ pub(crate) fn map_sessions(
             .or_insert_with(|| {
                 ZCodeSessionAccumulator::new(row.session_id.clone(), row.model_id.clone())
             })
-            .add(row)?;
+            .add(&row)?;
     }
 
     buckets
         .into_values()
         .map(|usage| usage.candidate(context))
         .collect()
+}
+
+#[derive(Debug, Default)]
+struct ZCodeDailyBucket {
+    total: ZCodeUsageAccumulator,
+    models: BTreeMap<String, ZCodeUsageAccumulator>,
+}
+
+impl ZCodeDailyBucket {
+    fn add(&mut self, row: &ZCodeModelUsageRow) -> Result<(), ZCodeMappingError> {
+        self.total.add(row)?;
+        self.models
+            .entry(row.model_id.clone())
+            .or_default()
+            .add(row)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -136,7 +158,7 @@ struct ZCodeUsageAccumulator {
 }
 
 impl ZCodeUsageAccumulator {
-    fn add(&mut self, row: ZCodeModelUsageRow) -> Result<(), ZCodeMappingError> {
+    fn add(&mut self, row: &ZCodeModelUsageRow) -> Result<(), ZCodeMappingError> {
         self.input_tokens = checked_add(self.input_tokens, row.input_tokens)?;
         self.output_tokens = checked_add(self.output_tokens, row.output_tokens)?;
         self.reasoning_tokens = checked_add(self.reasoning_tokens, row.reasoning_tokens)?;
@@ -187,7 +209,7 @@ impl ZCodeSessionAccumulator {
         }
     }
 
-    fn add(&mut self, row: ZCodeModelUsageRow) -> Result<(), ZCodeMappingError> {
+    fn add(&mut self, row: &ZCodeModelUsageRow) -> Result<(), ZCodeMappingError> {
         self.first_activity_ms = self.first_activity_ms.min(row.started_at_ms);
         self.last_activity_ms = self
             .last_activity_ms
@@ -296,17 +318,32 @@ mod tests {
         let candidates =
             map_daily(rows(), "Asia/Jakarta", &CollectionScope::Full, &context).expect("daily");
 
-        assert_eq!(candidates.len(), 2);
-        let glm_52 = candidates
+        assert_eq!(candidates.len(), 1);
+        let candidate = &candidates[0];
+        assert_eq!(
+            candidate.source_key,
+            "zcode:daily:v1:Asia/Jakarta:2026-07-02"
+        );
+        assert_eq!(candidate.tokens.input_tokens(), Some(14_224));
+        assert_eq!(candidate.tokens.output_tokens(), Some(3_299));
+        assert_eq!(candidate.tokens.cache_read_tokens(), Some(7_360));
+        assert_eq!(candidate.tokens.cache_creation_tokens(), Some(0));
+        assert_eq!(candidate.tokens.total_tokens(), 24_883);
+        assert_eq!(candidate.model_breakdowns.len(), 2);
+
+        let glm_52 = candidate
+            .model_breakdowns
             .iter()
-            .find(|candidate| candidate.model_breakdowns[0].raw_model_id == "GLM-5.2")
+            .find(|model| model.raw_model_id == "GLM-5.2")
             .expect("glm 5.2");
-        assert_eq!(glm_52.source_key, "zcode:daily:v1:Asia/Jakarta:2026-07-02");
-        assert_eq!(glm_52.tokens.input_tokens(), Some(1_128));
-        assert_eq!(glm_52.tokens.output_tokens(), Some(122));
-        assert_eq!(glm_52.tokens.cache_read_tokens(), Some(7_360));
-        assert_eq!(glm_52.tokens.cache_creation_tokens(), Some(0));
         assert_eq!(glm_52.tokens.total_tokens(), 8_610);
+
+        let glm_turbo = candidate
+            .model_breakdowns
+            .iter()
+            .find(|model| model.raw_model_id == "GLM-5-Turbo")
+            .expect("glm turbo");
+        assert_eq!(glm_turbo.tokens.total_tokens(), 16_273);
     }
 
     #[test]

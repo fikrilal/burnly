@@ -414,16 +414,21 @@ mod tests {
             .expect("daily collection");
 
         assert_eq!(result.outcome(), CollectionOutcome::Complete);
-        assert_eq!(result.daily_candidates().len(), 2);
-        let glm_52 = result
-            .daily_candidates()
+        assert_eq!(result.daily_candidates().len(), 1);
+        let daily = &result.daily_candidates()[0];
+        assert_eq!(daily.source_key, "zcode:daily:v1:Asia/Jakarta:2026-07-02");
+        assert_eq!(daily.tokens.input_tokens(), Some(14_224));
+        assert_eq!(daily.tokens.cache_read_tokens(), Some(7_360));
+        assert_eq!(daily.tokens.total_tokens(), 24_883);
+        assert_eq!(daily.model_breakdowns.len(), 2);
+        assert!(daily
+            .model_breakdowns
             .iter()
-            .find(|candidate| candidate.model_breakdowns[0].raw_model_id == "GLM-5.2")
-            .expect("glm 5.2");
-        assert_eq!(glm_52.source_key, "zcode:daily:v1:Asia/Jakarta:2026-07-02");
-        assert_eq!(glm_52.tokens.input_tokens(), Some(1_128));
-        assert_eq!(glm_52.tokens.cache_read_tokens(), Some(7_360));
-        assert_eq!(glm_52.tokens.total_tokens(), 8_610);
+            .any(|model| model.raw_model_id == "GLM-5.2"));
+        assert!(daily
+            .model_breakdowns
+            .iter()
+            .any(|model| model.raw_model_id == "GLM-5-Turbo"));
     }
 
     #[test]
