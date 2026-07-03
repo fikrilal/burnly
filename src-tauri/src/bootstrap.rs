@@ -488,15 +488,31 @@ fn build_refresh_coordinator<R: Runtime>(
 fn default_cline_data_dir() -> PathBuf {
     std::env::var_os("CLINE_DATA_DIR")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cline")))
+        .or_else(|| default_home_data_dir(".cline"))
         .unwrap_or_else(|| PathBuf::from(".cline"))
 }
 
 fn default_zcode_data_dir() -> PathBuf {
     std::env::var_os("ZCODE_DATA_DIR")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".zcode")))
+        .or_else(|| default_home_data_dir(".zcode"))
         .unwrap_or_else(|| PathBuf::from(".zcode"))
+}
+
+fn default_home_data_dir(name: &str) -> Option<PathBuf> {
+    home_data_dir(
+        std::env::var_os("HOME").map(PathBuf::from),
+        std::env::var_os("USERPROFILE").map(PathBuf::from),
+        name,
+    )
+}
+
+fn home_data_dir(
+    home: Option<PathBuf>,
+    userprofile: Option<PathBuf>,
+    name: &str,
+) -> Option<PathBuf> {
+    home.or(userprofile).map(|directory| directory.join(name))
 }
 
 fn resolve_packaged_resource_directory(resource_directory: PathBuf) -> PathBuf {
@@ -876,6 +892,26 @@ mod tests {
         assert!(!should_reconcile_launch_at_login_on_startup(true, false));
         assert!(!should_reconcile_launch_at_login_on_startup(false, true));
         assert!(!should_reconcile_launch_at_login_on_startup(false, false));
+    }
+
+    #[test]
+    fn home_data_dir_prefers_home_when_available() {
+        assert_eq!(
+            home_data_dir(
+                Some(PathBuf::from("/home/dante")),
+                Some(PathBuf::from("C:/Users/fikrilal")),
+                ".zcode",
+            ),
+            Some(PathBuf::from("/home/dante").join(".zcode"))
+        );
+    }
+
+    #[test]
+    fn home_data_dir_falls_back_to_userprofile_on_windows() {
+        assert_eq!(
+            home_data_dir(None, Some(PathBuf::from("C:/Users/fikrilal")), ".cline"),
+            Some(PathBuf::from("C:/Users/fikrilal").join(".cline"))
+        );
     }
 
     #[test]

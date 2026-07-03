@@ -15,9 +15,9 @@ use crate::application::collection::{CollectorFailure, CollectorFailureCode};
 /// harness and the OpenCode-family sessions.
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PiSessionReport {
-    pub sessions: Vec<PiSessionRow>,
-    pub totals: TokenTotals,
+struct RawPiSessionReport {
+    sessions: Vec<PiSessionRow>,
+    totals: Option<TokenTotals>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -36,10 +36,37 @@ pub(crate) struct PiSessionRow {
     pub models_used: Vec<String>,
 }
 
+#[derive(Debug, PartialEq)]
+pub(crate) struct PiSessionReport {
+    pub sessions: Vec<PiSessionRow>,
+    pub totals: TokenTotals,
+}
+
 pub(crate) fn decode(input: &str) -> Result<PiSessionReport, CollectorFailure> {
-    let report = serde_json::from_str::<PiSessionReport>(input).map_err(decode_failure)?;
+    let report = serde_json::from_str::<RawPiSessionReport>(input).map_err(decode_failure)?;
+    let totals = match report.totals {
+        Some(totals) => totals,
+        None if report.sessions.is_empty() => empty_totals(),
+        None => return Err(incompatible()),
+    };
+
+    let report = PiSessionReport {
+        sessions: report.sessions,
+        totals,
+    };
     validate(&report)?;
     Ok(report)
+}
+
+fn empty_totals() -> TokenTotals {
+    TokenTotals {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_tokens: Some(0),
+        cache_read_tokens: Some(0),
+        total_tokens: 0,
+        total_cost: 0.0,
+    }
 }
 
 fn decode_failure(error: serde_json::Error) -> CollectorFailure {
@@ -159,6 +186,47 @@ mod tests {
         let empty = decode(fixture("empty.json")).expect("empty report");
         assert!(empty.sessions.is_empty());
         assert_eq!(empty.totals.total_tokens, 0);
+    }
+
+    #[test]
+    fn accepts_empty_pi_session_output_with_null_totals() {
+        let report = decode(
+            r#"{
+              "sessions": [],
+              "totals": null
+            }"#,
+        )
+        .expect("empty pi session report");
+
+        assert!(report.sessions.is_empty());
+        assert_eq!(report.totals.total_tokens, 0);
+        assert_eq!(report.totals.total_cost, 0.0);
+    }
+
+    #[test]
+    fn rejects_non_empty_pi_session_output_with_null_totals() {
+        let error = decode(
+            r#"{
+              "sessions": [
+                {
+                  "sessionId": "session-1",
+                  "firstActivity": null,
+                  "lastActivity": null,
+                  "inputTokens": 10,
+                  "outputTokens": 5,
+                  "cacheCreationTokens": 0,
+                  "cacheReadTokens": 0,
+                  "totalTokens": 15,
+                  "totalCost": 0.01,
+                  "modelsUsed": ["[pi] gpt-5.4-mini"]
+                }
+              ],
+              "totals": null
+            }"#,
+        )
+        .expect_err("incompatible pi session report");
+
+        assert_eq!(error.code, CollectorFailureCode::IncompatibleEnvelope);
     }
 
     #[test]
