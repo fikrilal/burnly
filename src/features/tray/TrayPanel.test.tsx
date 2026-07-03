@@ -132,6 +132,7 @@ describe("TrayPanel overview", () => {
     expect(surface).toHaveClass("h-screen");
     expect(surface).not.toHaveClass("min-h-screen");
     expect(overview).toHaveClass("overflow-y-auto");
+    expect(overview).toHaveClass("tray-scroll-area");
     expect(screen.getByText("Model 12")).toBeInTheDocument();
   });
 

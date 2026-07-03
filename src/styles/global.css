@@ -174,6 +174,54 @@ select {
   border-radius: 0;
 }
 
+.tray-scroll-area {
+  scrollbar-width: none;
+}
+
+.tray-scroll-area::-webkit-scrollbar {
+  display: none;
+}
+
+.tray-scroll-track {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  opacity: 0;
+  width: 8px;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.tray-scroll-shell:hover .tray-scroll-track,
+.tray-scroll-track[data-active="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tray-scroll-thumb {
+  width: 4px;
+  min-height: 32px;
+  margin-inline: auto;
+  background-color: color-mix(
+    in oklch,
+    var(--muted-foreground) 44%,
+    transparent
+  );
+  border-radius: 999px;
+  cursor: default;
+  pointer-events: auto;
+  transition: background-color 120ms ease;
+}
+
+.tray-scroll-thumb:hover,
+.tray-scroll-thumb:active {
+  background-color: color-mix(
+    in oklch,
+    var(--muted-foreground) 64%,
+    transparent
+  );
+}
+
 .tray-drag-region {
   cursor: move;
 }
