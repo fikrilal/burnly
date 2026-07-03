@@ -122,10 +122,10 @@ fn read_recent_events(
                 .transpose()
                 .map_err(invalid_diagnostic_value)?;
             let area = DiagnosticArea::from_storage(row.get::<_, String>(1)?.as_str())
-                .ok_or(DiagnosticValidationError::InvalidContext)
+                .ok_or(DiagnosticValidationError::Context)
                 .map_err(invalid_diagnostic_value)?;
             let severity = DiagnosticSeverity::from_storage(row.get::<_, String>(2)?.as_str())
-                .ok_or(DiagnosticValidationError::InvalidContext)
+                .ok_or(DiagnosticValidationError::Context)
                 .map_err(invalid_diagnostic_value)?;
             let event = DiagnosticEvent::new(
                 area,

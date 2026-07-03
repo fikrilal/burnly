@@ -200,6 +200,7 @@ function capabilitiesResult(): CommandResult<AppCapabilitiesResponse> {
       exportFormats: [],
       diagnostics: {
         desktopEvidence: true,
+        sendReport: capability,
       },
     },
     meta,

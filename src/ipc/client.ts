@@ -129,6 +129,7 @@ const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
   exportFormats: z.array(z.string()),
   diagnostics: z.object({
     desktopEvidence: z.boolean(),
+    sendReport: capabilitySchema,
   }),
 });
 

@@ -152,7 +152,7 @@ function TrayPanelContent({
           isError={isError}
           error={error}
           appVersion={appVersion}
-          launchAtLoginCapability={capabilities.launchAtLogin}
+          capabilities={capabilities}
         />
       </div>
     </main>
@@ -165,14 +165,14 @@ function TrayTabContent({
   isError,
   error,
   appVersion,
-  launchAtLoginCapability,
+  capabilities,
 }: {
   activeTab: string;
   summary: TraySummaryResponse;
   isError: boolean;
   error: Error | null;
   appVersion: string;
-  launchAtLoginCapability: AppCapabilitiesResponse["launchAtLogin"];
+  capabilities: AppCapabilitiesResponse;
 }) {
   return (
     <TrayScrollArea label={activeTab === "overview" ? "Overview" : "Settings"}>
@@ -181,7 +181,8 @@ function TrayTabContent({
       ) : (
         <SettingsTab
           appVersion={appVersion}
-          launchAtLoginCapability={launchAtLoginCapability}
+          launchAtLoginCapability={capabilities.launchAtLogin}
+          diagnosticsCapabilities={capabilities.diagnostics}
         />
       )}
     </TrayScrollArea>
@@ -458,9 +459,11 @@ function OverviewTab({
 function SettingsTab({
   appVersion,
   launchAtLoginCapability,
+  diagnosticsCapabilities,
 }: {
   appVersion: string;
   launchAtLoginCapability: AppCapabilitiesResponse["launchAtLogin"];
+  diagnosticsCapabilities: AppCapabilitiesResponse["diagnostics"];
 }) {
   const settings = useSettings();
   const updateSettings = useUpdateSettings();
@@ -485,6 +488,7 @@ function SettingsTab({
       settings={settings.data}
       appVersion={appVersion}
       launchAtLoginCapability={launchAtLoginCapability}
+      diagnosticsCapabilities={diagnosticsCapabilities}
       isSaving={updateSettings.isPending}
       saveError={updateSettings.error}
       onUpdate={(request) => {
@@ -498,6 +502,7 @@ function SettingsForm({
   settings,
   appVersion,
   launchAtLoginCapability,
+  diagnosticsCapabilities,
   isSaving,
   saveError,
   onUpdate,
@@ -505,6 +510,7 @@ function SettingsForm({
   settings: SettingsResponse;
   appVersion: string;
   launchAtLoginCapability: AppCapabilitiesResponse["launchAtLogin"];
+  diagnosticsCapabilities: AppCapabilitiesResponse["diagnostics"];
   isSaving: boolean;
   saveError: Error | null;
   onUpdate: (request: {
@@ -550,6 +556,7 @@ function SettingsForm({
           />
           <ThemeSetting />
           <UpdateSetting />
+          <DiagnosticsSetting capabilities={diagnosticsCapabilities} />
         </div>
         <SettingsSaveError error={saveError} />
       </div>
@@ -592,6 +599,34 @@ function ThemeSetting() {
         </span>
       </div>
       <ThemeToggle />
+    </div>
+  );
+}
+
+function DiagnosticsSetting({
+  capabilities,
+}: {
+  capabilities: AppCapabilitiesResponse["diagnostics"];
+}) {
+  const description = capabilities.sendReport.supported
+    ? "Sending reports needs a frontend upload command before it can be enabled."
+    : "Diagnostic reports stay local. Sending reports is coming later.";
+
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Diagnostics</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          {description}
+        </span>
+      </div>
+      <button
+        type="button"
+        disabled
+        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground opacity-50"
+      >
+        Send
+      </button>
     </div>
   );
 }

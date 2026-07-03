@@ -90,6 +90,7 @@ pub(crate) enum ExportFormat {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DiagnosticCapabilities {
     pub desktop_evidence: bool,
+    pub send_report: Capability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +199,10 @@ impl BootstrapService {
             export_formats: vec![ExportFormat::Csv],
             diagnostics: DiagnosticCapabilities {
                 desktop_evidence: true,
+                send_report: Capability {
+                    supported: false,
+                    status: CapabilityStatus::NotImplemented,
+                },
             },
         }
     }
@@ -382,6 +387,11 @@ mod tests {
         assert_eq!(capabilities.update.status, CapabilityStatus::NotImplemented);
         assert_eq!(capabilities.export_formats, vec![ExportFormat::Csv]);
         assert!(capabilities.diagnostics.desktop_evidence);
+        assert!(!capabilities.diagnostics.send_report.supported);
+        assert_eq!(
+            capabilities.diagnostics.send_report.status,
+            CapabilityStatus::NotImplemented
+        );
     }
 
     #[test]

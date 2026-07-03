@@ -87,7 +87,7 @@ pub(crate) struct DiagnosticCode(String);
 impl DiagnosticCode {
     pub(crate) fn new(value: impl Into<String>) -> Result<Self, DiagnosticValidationError> {
         let value = value.into();
-        validate_bounded_text(&value, MAX_CODE_LEN, DiagnosticValidationError::InvalidCode)?;
+        validate_bounded_text(&value, MAX_CODE_LEN, DiagnosticValidationError::Code)?;
         Ok(Self(value))
     }
 
@@ -102,11 +102,7 @@ pub(crate) struct DiagnosticSummary(String);
 impl DiagnosticSummary {
     pub(crate) fn new(value: impl Into<String>) -> Result<Self, DiagnosticValidationError> {
         let value = value.into();
-        validate_bounded_text(
-            &value,
-            MAX_SUMMARY_LEN,
-            DiagnosticValidationError::InvalidSummary,
-        )?;
+        validate_bounded_text(&value, MAX_SUMMARY_LEN, DiagnosticValidationError::Summary)?;
         Ok(Self(value))
     }
 
@@ -122,7 +118,7 @@ impl DiagnosticContext {
     pub(crate) fn new(value: impl Into<String>) -> Result<Self, DiagnosticValidationError> {
         let value = value.into();
         if value.trim().is_empty() || value.len() > MAX_CONTEXT_JSON_LEN {
-            return Err(DiagnosticValidationError::InvalidContext);
+            return Err(DiagnosticValidationError::Context);
         }
         Ok(Self(value))
     }
@@ -152,7 +148,7 @@ impl DiagnosticEvent {
         created_at_ms: i64,
     ) -> Result<Self, DiagnosticValidationError> {
         if created_at_ms < 0 {
-            return Err(DiagnosticValidationError::InvalidCreatedAt);
+            return Err(DiagnosticValidationError::CreatedAt);
         }
 
         Ok(Self {
@@ -175,7 +171,7 @@ pub(crate) struct StoredDiagnosticEvent {
 impl StoredDiagnosticEvent {
     pub(crate) fn new(id: i64, event: DiagnosticEvent) -> Result<Self, DiagnosticValidationError> {
         if id <= 0 {
-            return Err(DiagnosticValidationError::InvalidId);
+            return Err(DiagnosticValidationError::Id);
         }
         Ok(Self { id, event })
     }
@@ -184,15 +180,15 @@ impl StoredDiagnosticEvent {
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DiagnosticValidationError {
     #[error("diagnostic event id must be positive")]
-    InvalidId,
+    Id,
     #[error("diagnostic event code must be non-empty and bounded")]
-    InvalidCode,
+    Code,
     #[error("diagnostic event summary must be non-empty and bounded")]
-    InvalidSummary,
+    Summary,
     #[error("diagnostic event context must be a bounded JSON object")]
-    InvalidContext,
+    Context,
     #[error("diagnostic event created_at_ms must be non-negative")]
-    InvalidCreatedAt,
+    CreatedAt,
 }
 
 fn validate_bounded_text(
@@ -230,15 +226,15 @@ mod tests {
     fn diagnostic_event_validates_bounded_safe_fields() {
         assert_eq!(
             DiagnosticCode::new(" ").expect_err("blank code"),
-            DiagnosticValidationError::InvalidCode
+            DiagnosticValidationError::Code
         );
         assert_eq!(
             DiagnosticSummary::new(" ").expect_err("blank summary"),
-            DiagnosticValidationError::InvalidSummary
+            DiagnosticValidationError::Summary
         );
         assert_eq!(
             DiagnosticContext::new(" ").expect_err("blank context"),
-            DiagnosticValidationError::InvalidContext
+            DiagnosticValidationError::Context
         );
 
         let context = DiagnosticContext::new(r#"{"source":"antigravity","status":"failed"}"#)

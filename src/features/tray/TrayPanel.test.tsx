@@ -86,6 +86,7 @@ const capabilities: AppCapabilitiesResponse = {
   exportFormats: ["csv"],
   diagnostics: {
     desktopEvidence: true,
+    sendReport: { supported: false, status: "not_implemented" },
   },
 };
 

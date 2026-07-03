@@ -1253,6 +1253,14 @@ mod tests {
         assert_eq!(response["data"]["update"]["supported"], false);
         assert_eq!(response["data"]["update"]["status"], "not_implemented");
         assert_eq!(response["data"]["diagnostics"]["desktopEvidence"], true);
+        assert_eq!(
+            response["data"]["diagnostics"]["sendReport"]["supported"],
+            false
+        );
+        assert_eq!(
+            response["data"]["diagnostics"]["sendReport"]["status"],
+            "not_implemented"
+        );
         assert_eq!(response["meta"]["contractVersion"], CONTRACT_VERSION);
     }
 

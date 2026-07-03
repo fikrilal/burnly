@@ -99,6 +99,7 @@ struct CapabilityResponse {
 #[serde(rename_all = "camelCase")]
 struct DiagnosticCapabilitiesResponse {
     desktop_evidence: bool,
+    send_report: CapabilityResponse,
 }
 
 #[tauri::command]
@@ -216,6 +217,7 @@ impl From<AppCapabilities> for AppCapabilitiesResponse {
                 .collect(),
             diagnostics: DiagnosticCapabilitiesResponse {
                 desktop_evidence: value.diagnostics.desktop_evidence,
+                send_report: value.diagnostics.send_report.into(),
             },
         }
     }

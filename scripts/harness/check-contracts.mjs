@@ -269,6 +269,7 @@ export interface AppCapabilitiesResponse {
   exportFormats: string[];
   diagnostics: {
     desktopEvidence: boolean;
+    sendReport: DesktopCapability;
   };
 }
 

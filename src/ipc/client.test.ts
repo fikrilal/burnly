@@ -51,6 +51,7 @@ describe("IPC command responses", () => {
     expect(result.data.tray.status).toBe("not_implemented");
     expect(result.data.exportFormats).toEqual([]);
     expect(result.data.diagnostics.desktopEvidence).toBe(true);
+    expect(result.data.diagnostics.sendReport.supported).toBe(false);
   });
 
   it("hides the tray panel through the dedicated app command", async () => {
@@ -155,6 +156,7 @@ function capabilities(): IpcResponse<AppCapabilitiesResponse> {
       exportFormats: [],
       diagnostics: {
         desktopEvidence: true,
+        sendReport: capability,
       },
     },
     meta,
