@@ -8,6 +8,7 @@ import {
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
   invokeAppHideTrayPanel,
+  invokeAppOpenExternalUrl,
   invokeDiagnosticsCopyReport,
   invokeDiagnosticsExportReport,
   invokeDiagnosticsGetHealth,
@@ -31,6 +32,7 @@ import {
   type DiagnosticsExportResponse,
   type DiagnosticsHealthResponse,
   type HideTrayPanelResponse,
+  type OpenExternalUrlResponse,
   type FieldError,
   type IpcError,
   type IpcResponse,
@@ -141,6 +143,10 @@ const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
 
 const hideTrayPanelDataSchema = z.object({
   status: z.literal("hidden"),
+});
+
+const openExternalUrlDataSchema: z.ZodType<OpenExternalUrlResponse> = z.object({
+  status: z.literal("opened"),
 });
 
 const diagnosticsHealthDataSchema: z.ZodType<DiagnosticsHealthResponse> =
@@ -307,6 +313,26 @@ export async function hideTrayPanel(
   try {
     const response = await invokeAppHideTrayPanel(invoker);
     return unwrapResponse(validateResponse(response, hideTrayPanelDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function openExternalUrl(
+  url: string,
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<OpenExternalUrlResponse>> {
+  try {
+    const parsedUrl = z.url().parse(url);
+    const response = await invokeAppOpenExternalUrl(invoker, {
+      request: {
+        url: parsedUrl,
+      },
+    });
+    return unwrapResponse(
+      validateResponse(response, openExternalUrlDataSchema),
+    );
   } catch (error) {
     if (error instanceof BurnlyClientError) throw error;
     throw transportError(error);

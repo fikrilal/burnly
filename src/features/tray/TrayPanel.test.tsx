@@ -16,6 +16,7 @@ import {
   restartForUpdate,
   type CommandResult,
 } from "../../ipc/client";
+import { openExternalLink } from "../../ipc/external-links";
 import type { UpdateStatusResponse } from "../../ipc/generated/contracts";
 import { subscribeToEvent } from "../../ipc/events";
 import type {
@@ -27,6 +28,7 @@ import { createTestQueryWrapper } from "../../test/query";
 import { ThemeProvider } from "../../lib/theme";
 
 vi.mock("../../ipc/client");
+vi.mock("../../ipc/external-links");
 
 function createTestWrapper() {
   const QueryWrapper = createTestQueryWrapper();
@@ -349,12 +351,23 @@ describe("TrayPanel diagnostics settings", () => {
     await user.click(await screen.findByRole("button", { name: "Settings" }));
 
     expect(await screen.findByText("Diagnostics")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Diagnostics problem detected"),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open diagnostics" }));
     expect(
       screen.getByText(
-        "Burnly detected a problem. Export diagnostics if support asks for details.",
+        /Burnly detected a problem. Export or copy diagnostics before reporting it./,
       ),
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "GitHub issue" })).toHaveAttribute(
+      "href",
+      "https://github.com/fikrilal/burnly/issues",
+    );
+    await user.click(screen.getByRole("link", { name: "GitHub issue" }));
+    expect(openExternalLink).toHaveBeenCalledWith(
+      "https://github.com/fikrilal/burnly/issues",
+    );
     await user.click(screen.getByRole("button", { name: "Export" }));
     expect(exportDiagnosticsReport).toHaveBeenCalled();
     expect(

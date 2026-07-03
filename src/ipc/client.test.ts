@@ -7,6 +7,7 @@ import {
   exportDiagnosticsReport,
   getDiagnosticsHealth,
   hideTrayPanel,
+  openExternalUrl,
   getTraySummary,
   probeContract,
   validateInt64String,
@@ -71,6 +72,29 @@ describe("IPC command responses", () => {
     const result = await hideTrayPanel(invoker);
 
     expect(result.data.status).toBe("hidden");
+  });
+
+  it("opens external URLs through the dedicated app command", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.appOpenExternalUrl);
+      expect(request).toEqual({
+        request: {
+          url: "https://github.com/fikrilal/burnly/issues",
+        },
+      });
+      return Promise.resolve({
+        ok: true,
+        data: { status: "opened" },
+        meta,
+      });
+    };
+
+    const result = await openExternalUrl(
+      "https://github.com/fikrilal/burnly/issues",
+      invoker,
+    );
+
+    expect(result.data.status).toBe("opened");
   });
 
   it("validates diagnostics health responses", async () => {

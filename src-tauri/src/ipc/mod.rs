@@ -27,6 +27,7 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::app_get_bootstrap,
         commands::app_get_capabilities,
         commands::app_hide_tray_panel,
+        commands::app_open_external_url,
         diagnostics::diagnostics_get_health,
         diagnostics::diagnostics_export_report,
         diagnostics::diagnostics_copy_report,

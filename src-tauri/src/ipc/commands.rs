@@ -1,7 +1,8 @@
 use chrono::DateTime;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::application::bootstrap::{
     AppBootstrap, AppCapabilities, BootstrapError, BootstrapErrorKind, BootstrapService,
@@ -146,6 +147,54 @@ pub(super) fn app_hide_tray_panel(
             true,
         )),
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OpenExternalUrlCommandRequest {
+    request: OpenExternalUrlRequest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenExternalUrlRequest {
+    url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OpenExternalUrlResponse {
+    status: &'static str,
+}
+
+#[tauri::command]
+pub(super) fn app_open_external_url<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    request: OpenExternalUrlCommandRequest,
+) -> IpcResponse<OpenExternalUrlResponse> {
+    if !is_supported_external_url(&request.request.url) {
+        return IpcResponse::failure(IpcError::new(
+            "app.invalid_external_url",
+            "Burnly could not open that link.",
+            ErrorCategory::Validation,
+            false,
+        ));
+    }
+
+    match app.opener().open_url(&request.request.url, None::<&str>) {
+        Ok(()) => IpcResponse::success(OpenExternalUrlResponse { status: "opened" }),
+        Err(_) => IpcResponse::failure(IpcError::new(
+            "app.open_external_url_failed",
+            "Burnly could not open the link in your browser.",
+            ErrorCategory::Platform,
+            true,
+        )),
+    }
+}
+
+fn is_supported_external_url(url: &str) -> bool {
+    (url.starts_with("https://") || url.starts_with("http://"))
+        && !url.chars().any(char::is_control)
 }
 
 impl From<AppBootstrap> for AppBootstrapResponse {

@@ -61,6 +61,16 @@ export interface HideTrayPanelResponse {
   status: "hidden";
 }
 
+export interface OpenExternalUrlCommandRequest extends Record<string, unknown> {
+  request: {
+    url: string;
+  };
+}
+
+export interface OpenExternalUrlResponse {
+  status: "opened";
+}
+
 export interface AppBootstrapResponse {
   appVersion: string;
   contractVersion: number;
@@ -638,6 +648,7 @@ export const COMMAND_NAMES = {
   appGetBootstrap: "app_get_bootstrap",
   appGetCapabilities: "app_get_capabilities",
   appHideTrayPanel: "app_hide_tray_panel",
+  appOpenExternalUrl: "app_open_external_url",
   diagnosticsGetHealth: "diagnostics_get_health",
   diagnosticsExportReport: "diagnostics_export_report",
   diagnosticsCopyReport: "diagnostics_copy_report",
@@ -660,6 +671,7 @@ export interface CommandRequests {
   [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
   [COMMAND_NAMES.appHideTrayPanel]: Record<string, never>;
+  [COMMAND_NAMES.appOpenExternalUrl]: OpenExternalUrlCommandRequest;
   [COMMAND_NAMES.diagnosticsGetHealth]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsExportReport]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsCopyReport]: Record<string, never>;
@@ -680,6 +692,7 @@ export interface CommandResponses {
   [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
   [COMMAND_NAMES.appHideTrayPanel]: IpcResponse<HideTrayPanelResponse>;
+  [COMMAND_NAMES.appOpenExternalUrl]: IpcResponse<OpenExternalUrlResponse>;
   [COMMAND_NAMES.diagnosticsGetHealth]: IpcResponse<DiagnosticsHealthResponse>;
   [COMMAND_NAMES.diagnosticsExportReport]: IpcResponse<DiagnosticsExportResponse>;
   [COMMAND_NAMES.diagnosticsCopyReport]: IpcResponse<DiagnosticsCopyResponse>;
@@ -720,6 +733,13 @@ export function invokeAppHideTrayPanel(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.appHideTrayPanel, {});
+}
+
+export function invokeAppOpenExternalUrl(
+  invoke: CommandInvoker,
+  request: OpenExternalUrlCommandRequest,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.appOpenExternalUrl, request);
 }
 
 export function invokeDiagnosticsGetHealth(

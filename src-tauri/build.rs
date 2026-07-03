@@ -5,6 +5,7 @@ fn main() {
             "app_get_bootstrap",
             "app_get_capabilities",
             "app_hide_tray_panel",
+            "app_open_external_url",
             "diagnostics_get_health",
             "diagnostics_export_report",
             "diagnostics_copy_report",

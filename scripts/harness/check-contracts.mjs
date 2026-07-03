@@ -234,6 +234,16 @@ export interface HideTrayPanelResponse {
   status: "hidden";
 }
 
+export interface OpenExternalUrlCommandRequest extends Record<string, unknown> {
+  request: {
+    url: string;
+  };
+}
+
+export interface OpenExternalUrlResponse {
+  status: "opened";
+}
+
 export interface AppBootstrapResponse {
   appVersion: string;
   contractVersion: number;
