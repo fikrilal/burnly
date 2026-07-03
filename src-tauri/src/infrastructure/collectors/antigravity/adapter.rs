@@ -1,6 +1,8 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
+use serde_json::json;
 
 use crate::application::collection::{
     CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
@@ -8,7 +10,12 @@ use crate::application::collection::{
     CollectorIntegrity, CollectorKey, DetectionIssue, DetectionRequest, DetectionResult,
     DetectionState, ProcessSummary, ProfileDescriptor,
 };
+use crate::application::diagnostics::{
+    DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
+    DiagnosticSummary,
+};
 use crate::application::ports::collector::{CancellationSignal, Collector};
+use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::domain::source::SourceKey;
 
 #[cfg(test)]
@@ -25,11 +32,12 @@ const COLLECTOR_VERSION: &str = "local-rpc";
 const ADAPTER_VERSION: u16 = 1;
 const PROFILE_VERSION: u16 = 1;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct AntigravityCollector {
     conversation_index: ConversationIndex,
     runtime_discovery: RuntimeDiscoverySource,
     runtime_usage: RuntimeUsageSource,
+    diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
 }
 
 impl AntigravityCollector {
@@ -38,6 +46,14 @@ impl AntigravityCollector {
             conversation_index: ConversationIndex::default(),
             runtime_discovery: RuntimeDiscoverySource::Current,
             runtime_usage: RuntimeUsageSource::Current(RuntimeClient::new()),
+            diagnostics: None,
+        }
+    }
+
+    pub(crate) fn with_diagnostic_recorder(diagnostics: Arc<dyn DiagnosticRecorder>) -> Self {
+        Self {
+            diagnostics: Some(diagnostics),
+            ..Self::new()
         }
     }
 
@@ -69,7 +85,14 @@ impl AntigravityCollector {
             conversation_index,
             runtime_discovery: RuntimeDiscoverySource::Fixed(runtime_discovery),
             runtime_usage,
+            diagnostics: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_test_diagnostics(mut self, diagnostics: Arc<dyn DiagnosticRecorder>) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self
     }
 }
 
@@ -102,11 +125,11 @@ impl RuntimeUsageSource {
         &self,
         endpoints: &[RuntimeEndpoint],
         conversations: &[ConversationDatabase],
-    ) -> Result<Vec<ConversationUsage>, RuntimeClientError> {
+    ) -> Result<RuntimeUsageReport, RuntimeClientError> {
         match self {
             Self::Current(client) => collect_runtime_usage(client, endpoints, conversations),
             #[cfg(test)]
-            Self::Fixed(usage) => Ok(usage.clone()),
+            Self::Fixed(usage) => Ok(RuntimeUsageReport::from_usage(usage.clone())),
         }
     }
 }
@@ -202,7 +225,19 @@ impl Collector for AntigravityCollector {
         }
 
         let endpoints = self.runtime_discovery.discover();
+        let mut diagnostics = AntigravityDiagnosticCounters {
+            endpoints_found: endpoints.len(),
+            ..AntigravityDiagnosticCounters::default()
+        };
         if endpoints.is_empty() {
+            self.record_diagnostic(
+                &request,
+                DiagnosticSeverity::Warning,
+                "antigravity.collection_failed",
+                "Antigravity collection failed.",
+                &diagnostics,
+                Some(CollectorFailureCode::SourceNotFound.code()),
+            );
             return Err(failure(&request, CollectorFailureCode::SourceNotFound));
         }
         let conversations = self
@@ -211,20 +246,120 @@ impl Collector for AntigravityCollector {
                 request.scope(),
                 request.aggregation_timezone().unwrap_or("UTC"),
             )
-            .map_err(|_| failure(&request, CollectorFailureCode::ScopeNotRepresentable))?;
+            .map_err(|_| {
+                self.record_diagnostic(
+                    &request,
+                    DiagnosticSeverity::Warning,
+                    "antigravity.collection_failed",
+                    "Antigravity collection failed.",
+                    &diagnostics,
+                    Some(CollectorFailureCode::ScopeNotRepresentable.code()),
+                );
+                failure(&request, CollectorFailureCode::ScopeNotRepresentable)
+            })?;
         let conversations = bounded_conversations(conversations);
+        diagnostics.conversations_found = conversations.len();
         if conversations.is_empty() {
+            self.record_diagnostic(
+                &request,
+                DiagnosticSeverity::Info,
+                "antigravity.collection_empty",
+                "Antigravity collection found no conversation artifacts.",
+                &diagnostics,
+                None,
+            );
             return empty_result(&request, started, started_at);
         }
-        let usage = self
+        let report = self
             .runtime_usage
             .collect(&endpoints, &conversations)
-            .map_err(|_| failure(&request, CollectorFailureCode::SourceNotFound))?;
+            .map_err(|_| {
+                self.record_diagnostic(
+                    &request,
+                    DiagnosticSeverity::Warning,
+                    "antigravity.collection_failed",
+                    "Antigravity collection failed.",
+                    &diagnostics,
+                    Some(CollectorFailureCode::SourceNotFound.code()),
+                );
+                failure(&request, CollectorFailureCode::SourceNotFound)
+            })?;
+        diagnostics.stream_calls_attempted = report.stream_calls_attempted;
+        diagnostics.streams_succeeded = report.streams_succeeded;
+        diagnostics.records_extracted = report.records_extracted;
         if cancellation.is_cancelled() {
+            self.record_diagnostic(
+                &request,
+                DiagnosticSeverity::Warning,
+                "antigravity.collection_cancelled",
+                "Antigravity collection was cancelled.",
+                &diagnostics,
+                Some(CollectorFailureCode::Cancelled.code()),
+            );
             return Err(failure(&request, CollectorFailureCode::Cancelled));
         }
 
-        result_from_usage(&request, started, started_at, usage)
+        let result = result_from_usage(&request, started, started_at, report.usage);
+        if result.is_ok() {
+            self.record_diagnostic(
+                &request,
+                DiagnosticSeverity::Info,
+                "antigravity.collection_completed",
+                "Antigravity collection completed.",
+                &diagnostics,
+                None,
+            );
+        }
+        result
+    }
+}
+
+impl AntigravityCollector {
+    fn record_diagnostic(
+        &self,
+        request: &CollectionRequest,
+        severity: DiagnosticSeverity,
+        code: &str,
+        summary: &str,
+        counters: &AntigravityDiagnosticCounters,
+        failure_code: Option<&str>,
+    ) {
+        let Some(recorder) = &self.diagnostics else {
+            return;
+        };
+        let Ok(code) = DiagnosticCode::new(code) else {
+            return;
+        };
+        let Ok(summary) = DiagnosticSummary::new(summary) else {
+            return;
+        };
+        let Ok(context) = DiagnosticContext::new(
+            json!({
+                "source": "antigravity",
+                "projection": projection_name(request.projection()),
+                "failureCode": failure_code,
+                "endpointsFound": counters.endpoints_found,
+                "conversationArtifactsFound": counters.conversations_found,
+                "streamCallsAttempted": counters.stream_calls_attempted,
+                "streamsSucceeded": counters.streams_succeeded,
+                "recordsExtracted": counters.records_extracted,
+                "recordsRejected": counters.records_rejected,
+            })
+            .to_string(),
+        ) else {
+            return;
+        };
+        let Ok(event) = DiagnosticEvent::new(
+            DiagnosticArea::Collector,
+            severity,
+            code,
+            summary,
+            Some(context),
+            Utc::now().timestamp_millis(),
+        ) else {
+            return;
+        };
+        recorder.record(event);
     }
 }
 
@@ -232,10 +367,12 @@ fn collect_runtime_usage(
     client: &RuntimeClient,
     endpoints: &[RuntimeEndpoint],
     conversations: &[ConversationDatabase],
-) -> Result<Vec<ConversationUsage>, RuntimeClientError> {
+) -> Result<RuntimeUsageReport, RuntimeClientError> {
     let mut collected = Vec::new();
     let mut attempted = false;
+    let mut stream_calls_attempted = 0_u32;
     let mut successful_streams = 0_u32;
+    let mut records_extracted = 0_u32;
     for conversation in conversations {
         let mut records = Vec::new();
         for endpoint in endpoints
@@ -243,6 +380,7 @@ fn collect_runtime_usage(
             .filter(|endpoint| endpoint.variant == conversation.variant)
         {
             attempted = true;
+            stream_calls_attempted = stream_calls_attempted.saturating_add(1);
             let frames =
                 match client.stream_agent_state_updates(endpoint, &conversation.conversation_id) {
                     Ok(frames) => frames,
@@ -254,6 +392,8 @@ fn collect_runtime_usage(
             else {
                 continue;
             };
+            records_extracted =
+                records_extracted.saturating_add(extracted.len().try_into().unwrap_or(u32::MAX));
             records.append(&mut extracted);
         }
         let records = dedupe_records(records);
@@ -270,7 +410,48 @@ fn collect_runtime_usage(
     if successful_streams == 0 {
         return Err(RuntimeClientError::ConnectionFailed);
     }
-    Ok(collected)
+    Ok(RuntimeUsageReport {
+        usage: collected,
+        stream_calls_attempted,
+        streams_succeeded: successful_streams,
+        records_extracted,
+    })
+}
+
+#[derive(Debug, Clone, Default)]
+struct RuntimeUsageReport {
+    usage: Vec<ConversationUsage>,
+    stream_calls_attempted: u32,
+    streams_succeeded: u32,
+    records_extracted: u32,
+}
+
+impl RuntimeUsageReport {
+    #[cfg(test)]
+    fn from_usage(usage: Vec<ConversationUsage>) -> Self {
+        let records_extracted = usage
+            .iter()
+            .map(|conversation| conversation.records.len())
+            .sum::<usize>()
+            .try_into()
+            .unwrap_or(u32::MAX);
+        Self {
+            streams_succeeded: usage.len().try_into().unwrap_or(u32::MAX),
+            stream_calls_attempted: usage.len().try_into().unwrap_or(u32::MAX),
+            usage,
+            records_extracted,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct AntigravityDiagnosticCounters {
+    endpoints_found: usize,
+    conversations_found: usize,
+    stream_calls_attempted: u32,
+    streams_succeeded: u32,
+    records_extracted: u32,
+    records_rejected: u32,
 }
 
 fn dedupe_records(
@@ -445,6 +626,13 @@ fn failure(request: &CollectionRequest, code: CollectorFailureCode) -> Collector
     CollectorFailure::new(code, Some(request.source()), Some(request.projection()))
 }
 
+fn projection_name(projection: CollectionProjection) -> &'static str {
+    match projection {
+        CollectionProjection::Daily => "daily",
+        CollectionProjection::Session => "session",
+    }
+}
+
 fn issue(code: &str, message: &str) -> DetectionIssue {
     DetectionIssue {
         code: code.to_owned(),
@@ -456,6 +644,7 @@ fn issue(code: &str, message: &str) -> DetectionIssue {
 mod tests {
     use std::fs::{self, File};
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
     use chrono::{TimeZone, Utc};
     use tempfile::TempDir;
@@ -464,6 +653,7 @@ mod tests {
     use crate::application::collection::{
         CollectionId, CollectionOutcome, CollectionScope, DetectionReason,
     };
+    use crate::application::diagnostics::{DiagnosticEvent, DiagnosticSeverity};
     use crate::infrastructure::collectors::antigravity::discovery::{
         LocalListener, ProcessSnapshot,
     };
@@ -540,6 +730,33 @@ mod tests {
     }
 
     #[test]
+    fn records_diagnostic_when_runtime_endpoint_is_missing() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = collector_with_discovery(RuntimeDiscovery::from_processes(Vec::new()))
+            .with_test_diagnostics(diagnostics.clone());
+
+        let error = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect_err("missing runtime");
+
+        assert_eq!(error.code, CollectorFailureCode::SourceNotFound);
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].area, DiagnosticArea::Collector);
+        assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
+        assert_eq!(events[0].code.as_str(), "antigravity.collection_failed");
+        let context = events[0]
+            .context
+            .as_ref()
+            .expect("context")
+            .as_str()
+            .to_owned();
+        assert!(context.contains(r#""endpointsFound":0"#));
+        assert!(context.contains(r#""failureCode":"source.not_found""#));
+        assert!(context.contains(r#""projection":"daily""#));
+    }
+
+    #[test]
     fn collects_daily_usage_from_runtime_records() {
         let (_directory, collector) = collector_with_usage();
 
@@ -556,6 +773,26 @@ mod tests {
         assert_eq!(candidate.tokens.cache_read_tokens(), Some(12));
         assert_eq!(candidate.tokens.cache_creation_tokens(), Some(3));
         assert_eq!(candidate.tokens.total_tokens(), 245);
+    }
+
+    #[test]
+    fn records_diagnostic_when_collection_completes() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (_directory, collector) = collector_with_usage();
+        let collector = collector.with_test_diagnostics(diagnostics.clone());
+
+        collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection");
+
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].severity, DiagnosticSeverity::Info);
+        assert_eq!(events[0].code.as_str(), "antigravity.collection_completed");
+        let context = events[0].context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""conversationArtifactsFound":2"#));
+        assert!(context.contains(r#""recordsExtracted":2"#));
+        assert!(context.contains(r#""streamsSucceeded":2"#));
     }
 
     #[test]
@@ -580,6 +817,23 @@ mod tests {
     impl CancellationSignal for NeverCancelled {
         fn is_cancelled(&self) -> bool {
             false
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingDiagnostics {
+        events: Mutex<Vec<DiagnosticEvent>>,
+    }
+
+    impl RecordingDiagnostics {
+        fn events(&self) -> Vec<DiagnosticEvent> {
+            self.events.lock().expect("diagnostics").clone()
+        }
+    }
+
+    impl DiagnosticRecorder for RecordingDiagnostics {
+        fn record(&self, event: DiagnosticEvent) {
+            self.events.lock().expect("diagnostics").push(event);
         }
     }
 
