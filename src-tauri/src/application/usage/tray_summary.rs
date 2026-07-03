@@ -21,8 +21,13 @@ pub(crate) enum PersistedRefreshStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OverviewDataStatus {
     Current,
+    #[allow(
+        dead_code,
+        reason = "reserved for age-based summary freshness once the UI distinguishes stale from failed"
+    )]
     Stale,
     Partial,
+    Failed,
     Empty,
 }
 
@@ -341,9 +346,6 @@ fn data_status(
     latest_refresh_status: Option<PersistedRefreshStatus>,
     models: &[TraySummaryModelRow],
 ) -> OverviewDataStatus {
-    if today_total_tokens == 0 && models.is_empty() {
-        return OverviewDataStatus::Empty;
-    }
     if has_partial_data || matches!(latest_refresh_status, Some(PersistedRefreshStatus::Partial)) {
         return OverviewDataStatus::Partial;
     }
@@ -351,7 +353,10 @@ fn data_status(
         latest_refresh_status,
         Some(PersistedRefreshStatus::Failed | PersistedRefreshStatus::Cancelled)
     ) {
-        return OverviewDataStatus::Stale;
+        return OverviewDataStatus::Failed;
+    }
+    if today_total_tokens == 0 && models.is_empty() {
+        return OverviewDataStatus::Empty;
     }
     OverviewDataStatus::Current
 }
@@ -477,6 +482,30 @@ mod tests {
     #[test]
     fn missing_yesterday_model_has_no_trend() {
         assert_eq!(trend(100, 0), None);
+    }
+
+    #[test]
+    fn failed_refresh_status_is_not_flattened_to_empty_or_stale() {
+        assert_eq!(
+            data_status(0, false, Some(PersistedRefreshStatus::Failed), &[]),
+            OverviewDataStatus::Failed
+        );
+        assert_eq!(
+            data_status(100, false, Some(PersistedRefreshStatus::Cancelled), &[]),
+            OverviewDataStatus::Failed
+        );
+    }
+
+    #[test]
+    fn partial_refresh_status_takes_precedence_over_failed_data_flags() {
+        assert_eq!(
+            data_status(0, true, Some(PersistedRefreshStatus::Failed), &[]),
+            OverviewDataStatus::Partial
+        );
+        assert_eq!(
+            data_status(100, false, Some(PersistedRefreshStatus::Partial), &[]),
+            OverviewDataStatus::Partial
+        );
     }
 
     #[test]

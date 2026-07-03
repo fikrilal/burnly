@@ -68,7 +68,7 @@ fn decode_failure(error: serde_json::Error) -> CollectorFailure {
     CollectorFailure::new(code, None, None)
 }
 
-fn validate(report: &OpenCodeDailyReport) -> Result<(), CollectorFailure> {
+pub(super) fn validate(report: &OpenCodeDailyReport) -> Result<(), CollectorFailure> {
     if !valid_totals(&report.totals) || !totals_match_rows(report) {
         return Err(incompatible());
     }

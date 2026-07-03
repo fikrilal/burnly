@@ -503,7 +503,7 @@ export interface UsageOverviewResponse {
   }[];
   asOf: string;
   lastSuccessfulRefreshAt: string | null;
-  dataStatus: "current" | "stale" | "partial" | "empty";
+  dataStatus: "current" | "stale" | "partial" | "failed" | "empty";
 }
 
 export interface TraySummaryRequest {
@@ -539,7 +539,7 @@ export interface TraySummaryResponse {
   models: TraySummaryModelResponse[];
   asOf: string;
   lastSuccessfulRefreshAt: string | null;
-  dataStatus: "current" | "stale" | "partial" | "empty";
+  dataStatus: "current" | "stale" | "partial" | "failed" | "empty";
 }
 
 export interface ActivityCalendarRequest {
@@ -565,7 +565,7 @@ export interface ActivityCalendarDayResponse {
 
 export interface ActivityCalendarResponse {
   days: ActivityCalendarDayResponse[];
-  dataStatus: "current" | "stale" | "partial" | "empty";
+  dataStatus: "current" | "stale" | "partial" | "failed" | "empty";
 }
 
 export interface DayDetailRequest {

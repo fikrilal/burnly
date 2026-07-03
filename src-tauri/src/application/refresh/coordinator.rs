@@ -361,7 +361,8 @@ impl RefreshCoordinator {
         let requested_at = DateTime::from_timestamp_millis(started_at_ms)
             .ok_or_else(|| self.failure("refresh.time", "Refresh time is invalid."))?;
 
-        let mut aggregate = RunOutcome::Succeeded;
+        let mut aggregate = TargetRunAccumulator::default();
+        let mut first_error = None;
         let mut usage_changed = false;
         let mut finished_at_ms = started_at_ms;
         let aggregation_timezone = self.aggregation_timezone();
@@ -382,15 +383,17 @@ impl RefreshCoordinator {
                 requested_at,
                 &aggregation_timezone,
             )?;
-            let collection =
-                self.collector
-                    .collect(request, &NeverCancelled)
-                    .map_err(|failure| {
-                        self.failure(
-                            failure.code.code(),
-                            "The collector could not complete the refresh.",
-                        )
-                    })?;
+            let collection = match self.collector.collect(request, &NeverCancelled) {
+                Ok(collection) => collection,
+                Err(failure) => {
+                    aggregate.record(RunOutcome::Failed);
+                    finished_at_ms = self.clock.now_epoch_ms();
+                    if first_error.is_none() {
+                        first_error = run_error(failure.code.code(), failure.to_string());
+                    }
+                    continue;
+                }
+            };
             let result = self.persist(
                 refresh_run_id,
                 source_id,
@@ -398,18 +401,22 @@ impl RefreshCoordinator {
                 &aggregation_timezone,
                 &collection,
             )?;
-            aggregate = aggregate.combine(result.outcome);
+            aggregate.record(result.outcome);
             usage_changed = usage_changed || result.usage_changed;
             finished_at_ms = result.finished_at_ms;
         }
 
+        let outcome = aggregate.outcome();
         self.run_store
             .complete_refresh_run(
                 refresh_run_id,
                 RefreshRunCompletion {
-                    outcome: aggregate.refresh_outcome(),
+                    outcome: outcome.refresh_outcome(),
                     finished_at_ms,
-                    error: None,
+                    error: match outcome {
+                        RunOutcome::Succeeded => None,
+                        RunOutcome::Partial | RunOutcome::Failed => first_error,
+                    },
                 },
             )
             .map_err(|_| ExecutionFailure {
@@ -423,7 +430,7 @@ impl RefreshCoordinator {
             })?;
 
         Ok(ExecutionResult {
-            outcome: aggregate,
+            outcome,
             finished_at_ms,
             usage_changed,
         })
@@ -711,13 +718,32 @@ impl RunOutcome {
             Self::Failed => ImportOutcome::Failed,
         }
     }
+}
 
-    const fn combine(self, next: Self) -> Self {
-        match (self, next) {
-            (Self::Failed, _) | (_, Self::Failed) => Self::Failed,
-            (Self::Partial, _) | (_, Self::Partial) => Self::Partial,
-            (Self::Succeeded, Self::Succeeded) => Self::Succeeded,
+#[derive(Default)]
+struct TargetRunAccumulator {
+    succeeded: u16,
+    partial: u16,
+    failed: u16,
+}
+
+impl TargetRunAccumulator {
+    const fn record(&mut self, outcome: RunOutcome) {
+        match outcome {
+            RunOutcome::Succeeded => self.succeeded += 1,
+            RunOutcome::Partial => self.partial += 1,
+            RunOutcome::Failed => self.failed += 1,
         }
+    }
+
+    const fn outcome(&self) -> RunOutcome {
+        if self.failed == 0 && self.partial == 0 {
+            return RunOutcome::Succeeded;
+        }
+        if self.succeeded == 0 && self.partial == 0 {
+            return RunOutcome::Failed;
+        }
+        RunOutcome::Partial
     }
 }
 
@@ -744,7 +770,7 @@ enum RefreshScopePolicy {
     Freshness,
 }
 
-fn run_error(code: &'static str, summary: &'static str) -> Option<RunError> {
+fn run_error(code: impl Into<String>, summary: impl Into<String>) -> Option<RunError> {
     RunError::new(code, summary).ok()
 }
 
@@ -1887,6 +1913,38 @@ mod tests {
         assert!(usage_store.reconciled_outcomes().is_empty());
         assert!(run_store.import_outcomes().is_empty());
         assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
+    }
+
+    #[test]
+    fn collector_failure_for_one_target_keeps_later_targets_and_marks_partial() {
+        let collector = Arc::new(ScriptedCollector::new(|request| {
+            if request.source() == SourceKey::Pi
+                && request.projection() == CollectionProjection::Daily
+            {
+                return Err(CollectorFailure::new(
+                    CollectorFailureCode::IncompatibleEnvelope,
+                    Some(request.source()),
+                    Some(request.projection()),
+                ));
+            }
+            Ok(empty_collection_for_request(&request))
+        }));
+        let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        let snapshot = await_terminal(&coordinator);
+
+        assert_eq!(snapshot.status, RefreshStatus::Partial);
+        assert_eq!(collector.calls(), refresh_targets().len());
+        assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Partial]);
+        assert_eq!(
+            run_store.import_outcomes(),
+            vec![ImportOutcome::Succeeded; refresh_targets().len() - 1]
+        );
+        assert_eq!(
+            usage_store.reconciled_outcomes(),
+            vec![CollectionOutcome::Empty; refresh_targets().len() - 1]
+        );
     }
 
     #[test]

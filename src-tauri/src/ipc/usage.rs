@@ -178,6 +178,7 @@ const fn data_status(value: OverviewDataStatus) -> &'static str {
         OverviewDataStatus::Current => "current",
         OverviewDataStatus::Stale => "stale",
         OverviewDataStatus::Partial => "partial",
+        OverviewDataStatus::Failed => "failed",
         OverviewDataStatus::Empty => "empty",
     }
 }

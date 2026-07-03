@@ -19,7 +19,7 @@ use super::{
         claude_daily::decode as decode_daily, claude_session::decode as decode_session,
         codex_daily::decode as decode_codex_daily, codex_session::decode as decode_codex_session,
         opencode_daily::decode as decode_opencode_daily,
-        opencode_session::decode as decode_opencode_session,
+        opencode_session::decode as decode_opencode_session, pi_daily::decode as decode_pi_daily,
         pi_session::decode as decode_pi_session,
     },
     manifest::{development_manifest, BinaryTarget},
@@ -248,9 +248,10 @@ impl Collector for CcusageCollector {
                 Err(failure(CollectorFailureCode::UnsupportedSource))
             }
             (SourceKey::Pi, crate::application::collection::CollectionProjection::Daily) => {
-                // Pi daily reuses the OpenCode-family envelope and mapper; the Pi
-                // identity comes from the mapping context, not the envelope.
-                let report = decode_opencode_daily(&output.stdout)?;
+                // Pi daily is OpenCode-family data, but ccusage can emit
+                // `totals: null` for unused Pi sources. Keep that contract
+                // reviewed separately from OpenCode.
+                let report = decode_pi_daily(&output.stdout)?;
                 let candidates = map_opencode_daily(report, context).map_err(mapping_failure)?;
                 CollectionResult::daily(
                     metadata,
