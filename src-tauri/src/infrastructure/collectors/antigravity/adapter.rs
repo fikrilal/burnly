@@ -42,6 +42,10 @@ impl AntigravityCollector {
     }
 
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "bootstrap tests use this helper in cfg-specific builds"
+    )]
     pub(crate) fn empty_from_data_root(data_root: impl Into<std::path::PathBuf>) -> Self {
         Self::from_parts(
             ConversationIndex::from_data_root(data_root),

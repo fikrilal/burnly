@@ -35,8 +35,7 @@ impl ConversationIndex {
     }
 
     pub(crate) fn default() -> Self {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
+        default_home_directory()
             .map(Self::from_home)
             .unwrap_or_else(|| Self::from_home("."))
     }
@@ -132,6 +131,12 @@ impl ConversationIndex {
         }
         Ok(databases.into_values().collect())
     }
+}
+
+fn default_home_directory() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
 }
 
 fn is_conversation_artifact(path: &Path) -> bool {
@@ -314,6 +319,16 @@ mod tests {
             .expect("conversation index");
 
         assert!(databases.is_empty());
+    }
+
+    #[test]
+    fn builds_index_from_home_directory() {
+        let index = ConversationIndex::from_home(r"C:\Users\burnly");
+
+        assert_eq!(
+            index.data_root,
+            PathBuf::from(r"C:\Users\burnly").join(".gemini")
+        );
     }
 
     fn create_db(root: &Path, variant: AntigravityProductVariant, name: &str) {

@@ -1,6 +1,6 @@
 [package]
 name = "burnly"
-version = "0.1.12"
+version = "0.1.13"
 description = "Local desktop app for AI coding-tool token usage."
 authors = ["Burnly contributors"]
 edition = "2021"
@@ -41,6 +41,17 @@ tauri-plugin-updater = "=2.10.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.186"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Kernel",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

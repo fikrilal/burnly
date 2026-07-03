@@ -325,4 +325,3 @@ Suggested release note:
 
 Do not intercept or proxy Antigravity network traffic. The accepted approach is
 local runtime discovery + local RPC + local conversation artifact IDs only.
-
