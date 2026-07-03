@@ -14,6 +14,12 @@ pub(crate) struct RuntimeEndpoint {
     pub(crate) csrf_token: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RuntimeDiscoveryReport {
+    pub(crate) process_candidates_found: usize,
+    pub(crate) endpoints: Vec<RuntimeEndpoint>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RuntimeDiscovery {
     processes: Vec<ProcessSnapshot>,
@@ -31,12 +37,19 @@ impl RuntimeDiscovery {
         Self { processes }
     }
 
+    #[cfg(test)]
     pub(crate) fn discover(&self) -> Vec<RuntimeEndpoint> {
+        self.discover_report().endpoints
+    }
+
+    pub(crate) fn discover_report(&self) -> RuntimeDiscoveryReport {
         let mut endpoints = Vec::new();
+        let mut process_candidates_found = 0;
         for process in &self.processes {
             let Some(variant) = classify_variant(process) else {
                 continue;
             };
+            process_candidates_found += 1;
             let csrf_token = csrf_token(process);
             for listener in &process.listeners {
                 if !listener.host.is_loopback() {
@@ -65,7 +78,10 @@ impl RuntimeDiscovery {
                 && left.host == right.host
                 && left.port == right.port
         });
-        endpoints
+        RuntimeDiscoveryReport {
+            process_candidates_found,
+            endpoints,
+        }
     }
 }
 

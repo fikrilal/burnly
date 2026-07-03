@@ -23,7 +23,7 @@ use super::discovery::{LocalListener, ProcessSnapshot};
 use super::mapper::{self, AntigravityMappingContext, ConversationUsage};
 use super::{
     extract_usage_records, ConversationDatabase, ConversationIndex, RuntimeClient,
-    RuntimeClientError, RuntimeDiscovery, RuntimeEndpoint,
+    RuntimeClientError, RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
 };
 
 const COLLECTOR_KEY: &str = "antigravity";
@@ -104,11 +104,11 @@ enum RuntimeDiscoverySource {
 }
 
 impl RuntimeDiscoverySource {
-    fn discover(&self) -> Vec<RuntimeEndpoint> {
+    fn discover(&self) -> RuntimeDiscoveryReport {
         match self {
-            Self::Current => RuntimeDiscovery::current().discover(),
+            Self::Current => RuntimeDiscovery::current().discover_report(),
             #[cfg(test)]
-            Self::Fixed(discovery) => discovery.discover(),
+            Self::Fixed(discovery) => discovery.discover_report(),
         }
     }
 }
@@ -170,7 +170,8 @@ impl Collector for AntigravityCollector {
             });
         }
 
-        let endpoints = self.runtime_discovery.discover();
+        let discovery = self.runtime_discovery.discover();
+        let endpoints = discovery.endpoints;
         let conversations = self
             .conversation_index
             .list(
@@ -224,11 +225,13 @@ impl Collector for AntigravityCollector {
             return Err(failure(&request, CollectorFailureCode::Cancelled));
         }
 
-        let endpoints = self.runtime_discovery.discover();
+        let discovery = self.runtime_discovery.discover();
         let mut diagnostics = AntigravityDiagnosticCounters {
-            endpoints_found: endpoints.len(),
+            process_candidates_found: discovery.process_candidates_found,
+            endpoints_found: discovery.endpoints.len(),
             ..AntigravityDiagnosticCounters::default()
         };
+        let endpoints = discovery.endpoints;
         if endpoints.is_empty() {
             self.record_diagnostic(
                 &request,
@@ -287,6 +290,7 @@ impl Collector for AntigravityCollector {
         diagnostics.stream_calls_attempted = report.stream_calls_attempted;
         diagnostics.streams_succeeded = report.streams_succeeded;
         diagnostics.records_extracted = report.records_extracted;
+        diagnostics.records_rejected = report.records_rejected;
         if cancellation.is_cancelled() {
             self.record_diagnostic(
                 &request,
@@ -338,6 +342,7 @@ impl AntigravityCollector {
                 "source": "antigravity",
                 "projection": projection_name(request.projection()),
                 "failureCode": failure_code,
+                "processCandidatesFound": counters.process_candidates_found,
                 "endpointsFound": counters.endpoints_found,
                 "conversationArtifactsFound": counters.conversations_found,
                 "streamCallsAttempted": counters.stream_calls_attempted,
@@ -373,6 +378,7 @@ fn collect_runtime_usage(
     let mut stream_calls_attempted = 0_u32;
     let mut successful_streams = 0_u32;
     let mut records_extracted = 0_u32;
+    let mut records_rejected = 0_u32;
     for conversation in conversations {
         let mut records = Vec::new();
         for endpoint in endpoints
@@ -387,16 +393,29 @@ fn collect_runtime_usage(
                     Err(_) => continue,
                 };
             successful_streams = successful_streams.saturating_add(1);
-            let Ok(mut extracted) =
-                extract_usage_records(conversation.variant, &conversation.conversation_id, &frames)
-            else {
-                continue;
+            let mut extracted = match extract_usage_records(
+                conversation.variant,
+                &conversation.conversation_id,
+                &frames,
+            ) {
+                Ok(extracted) => extracted,
+                Err(_) => {
+                    records_rejected = records_rejected.saturating_add(1);
+                    continue;
+                }
             };
             records_extracted =
                 records_extracted.saturating_add(extracted.len().try_into().unwrap_or(u32::MAX));
             records.append(&mut extracted);
         }
+        let records_before_dedupe = records.len();
         let records = dedupe_records(records);
+        records_rejected = records_rejected.saturating_add(
+            records_before_dedupe
+                .saturating_sub(records.len())
+                .try_into()
+                .unwrap_or(u32::MAX),
+        );
         if !records.is_empty() {
             collected.push(ConversationUsage {
                 database: conversation.clone(),
@@ -415,6 +434,7 @@ fn collect_runtime_usage(
         stream_calls_attempted,
         streams_succeeded: successful_streams,
         records_extracted,
+        records_rejected,
     })
 }
 
@@ -424,6 +444,7 @@ struct RuntimeUsageReport {
     stream_calls_attempted: u32,
     streams_succeeded: u32,
     records_extracted: u32,
+    records_rejected: u32,
 }
 
 impl RuntimeUsageReport {
@@ -440,12 +461,14 @@ impl RuntimeUsageReport {
             stream_calls_attempted: usage.len().try_into().unwrap_or(u32::MAX),
             usage,
             records_extracted,
+            records_rejected: 0,
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
 struct AntigravityDiagnosticCounters {
+    process_candidates_found: usize,
     endpoints_found: usize,
     conversations_found: usize,
     stream_calls_attempted: u32,
@@ -790,8 +813,10 @@ mod tests {
         assert_eq!(events[0].severity, DiagnosticSeverity::Info);
         assert_eq!(events[0].code.as_str(), "antigravity.collection_completed");
         let context = events[0].context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""processCandidatesFound":1"#));
         assert!(context.contains(r#""conversationArtifactsFound":2"#));
         assert!(context.contains(r#""recordsExtracted":2"#));
+        assert!(context.contains(r#""recordsRejected":0"#));
         assert!(context.contains(r#""streamsSucceeded":2"#));
     }
 
