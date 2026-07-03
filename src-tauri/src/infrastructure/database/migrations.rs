@@ -10,6 +10,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
     ))
     .foreign_key_check(),
     M::up(include_str!("../../../migrations/0003_budget_revision.sql")).foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0004_diagnostic_events.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -46,8 +50,8 @@ mod tests {
             .migrate_to_latest()
             .expect("migrate database");
 
-        assert_eq!(schema_version(test_database.database()), 3);
-        assert_eq!(table_count(test_database.database()), 13);
+        assert_eq!(schema_version(test_database.database()), 4);
+        assert_eq!(table_count(test_database.database()), 14);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
         assert_integrity_ok(test_database.database());
@@ -66,8 +70,8 @@ mod tests {
             .migrate_to_latest()
             .expect("second migration");
 
-        assert_eq!(schema_version(test_database.database()), 3);
-        assert_eq!(table_count(test_database.database()), 13);
+        assert_eq!(schema_version(test_database.database()), 4);
+        assert_eq!(table_count(test_database.database()), 14);
     }
 
     #[test]
@@ -138,7 +142,7 @@ mod tests {
         test_database
             .database()
             .connection
-            .pragma_update(None, "user_version", 4)
+            .pragma_update(None, "user_version", 5)
             .expect("set newer schema version");
 
         let error = test_database
@@ -147,7 +151,7 @@ mod tests {
             .expect_err("newer schema must fail");
 
         assert_eq!(error.kind(), PersistenceErrorKind::Migration);
-        assert_eq!(schema_version(test_database.database()), 4);
+        assert_eq!(schema_version(test_database.database()), 5);
     }
 
     #[test]

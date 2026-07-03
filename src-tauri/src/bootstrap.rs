@@ -18,7 +18,12 @@ use crate::application::bootstrap::{
 };
 
 use crate::application::collection::CollectorFailure;
+use crate::application::diagnostics::{
+    DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
+    DiagnosticSummary,
+};
 use crate::application::ports::collector::Collector;
+use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::application::ports::run_store::RunStoreError;
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
@@ -42,6 +47,7 @@ use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
     SqliteTraySummaryStore,
 };
+use crate::infrastructure::diagnostics_store::SqliteDiagnosticStore;
 use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
@@ -790,11 +796,60 @@ fn initialize(
 
 fn recover_interrupted_runs(database_path: &Path, now_ms: i64) -> Result<(), StartupError> {
     let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    SqliteReconciliationStore::new(database)
+    let recovery = SqliteReconciliationStore::new(database)
         .recover_interrupted_runs(now_ms)
         .map_err(StartupError::RunRecovery)?;
+    record_recovery_diagnostic(
+        database_path,
+        now_ms,
+        recovery.refresh_runs,
+        recovery.import_runs,
+    );
 
     Ok(())
+}
+
+fn record_recovery_diagnostic(
+    database_path: &Path,
+    now_ms: i64,
+    refresh_runs: usize,
+    import_runs: usize,
+) {
+    if refresh_runs == 0 && import_runs == 0 {
+        return;
+    }
+
+    let Ok(database) = Database::open(database_path) else {
+        return;
+    };
+    let Ok(code) = DiagnosticCode::new("refresh.interrupted_recovered") else {
+        return;
+    };
+    let Ok(summary) = DiagnosticSummary::new("Recovered interrupted refresh state at startup.")
+    else {
+        return;
+    };
+    let Ok(context) = DiagnosticContext::new(
+        serde_json::json!({
+            "refreshRuns": refresh_runs,
+            "importRuns": import_runs
+        })
+        .to_string(),
+    ) else {
+        return;
+    };
+    let Ok(event) = DiagnosticEvent::new(
+        DiagnosticArea::Refresh,
+        DiagnosticSeverity::Warning,
+        code,
+        summary,
+        Some(context),
+        now_ms,
+    ) else {
+        return;
+    };
+
+    SqliteDiagnosticStore::new(database).record(event);
 }
 
 #[cfg(test)]
@@ -980,7 +1035,7 @@ mod tests {
         drop(initialize(&database_path, "Asia/Jakarta", 100).expect("initialize application"));
 
         let connection = Connection::open(database_path).expect("reopen database");
-        assert_eq!(pragma_i64(&connection, "user_version"), 3);
+        assert_eq!(pragma_i64(&connection, "user_version"), 4);
         assert_eq!(settings_count(&connection), 1);
         assert_eq!(
             setting_text(&connection, "reporting_timezone"),
@@ -1076,6 +1131,23 @@ mod tests {
                 Some("import.interrupted".to_owned())
             )
         );
+        let diagnostic: (String, String, String, i64) = connection
+            .query_row(
+                "SELECT area, severity, code, created_at_ms
+                 FROM diagnostic_events",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("read recovery diagnostic");
+        assert_eq!(
+            diagnostic,
+            (
+                "refresh".to_owned(),
+                "warning".to_owned(),
+                "refresh.interrupted_recovered".to_owned(),
+                200,
+            )
+        );
     }
 
     #[test]
@@ -1084,7 +1156,7 @@ mod tests {
         let database_path = directory.path().join("burnly.sqlite3");
         let connection = Connection::open(&database_path).expect("create database");
         connection
-            .pragma_update(None, "user_version", 4)
+            .pragma_update(None, "user_version", 5)
             .expect("set newer version");
         drop(connection);
 
@@ -1098,7 +1170,7 @@ mod tests {
             StartupErrorKind::Persistence(PersistenceErrorKind::Migration)
         );
         let connection = Connection::open(database_path).expect("reopen database");
-        assert_eq!(pragma_i64(&connection, "user_version"), 4);
+        assert_eq!(pragma_i64(&connection, "user_version"), 5);
     }
 
     #[test]
