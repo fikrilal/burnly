@@ -80,7 +80,10 @@ impl SqliteReconciliationStore {
             .execute(
                 "UPDATE import_runs
                 SET status = 'failed',
-                    finished_at_ms = ?1,
+                    finished_at_ms = CASE
+                        WHEN started_at_ms > ?1 THEN started_at_ms
+                        ELSE ?1
+                    END,
                     error_code = ?2,
                     error_detail = ?3
                 WHERE status = 'running'",
@@ -96,7 +99,10 @@ impl SqliteReconciliationStore {
             .execute(
                 "UPDATE refresh_runs
                 SET status = 'failed',
-                    finished_at_ms = ?1,
+                    finished_at_ms = CASE
+                        WHEN started_at_ms IS NOT NULL AND started_at_ms > ?1 THEN started_at_ms
+                        ELSE ?1
+                    END,
                     error_code = ?2,
                     error_summary = ?3
                 WHERE status IN ('queued', 'running', 'cancelling')",
@@ -1607,6 +1613,48 @@ mod tests {
                 "failed".to_owned(),
                 Some(500),
                 Some(INTERRUPTED_REFRESH_ERROR_CODE.to_owned())
+            )
+        );
+    }
+
+    #[test]
+    fn interrupted_run_recovery_handles_future_started_rows() {
+        let (_directory, store) = migrated_store();
+        let source_id = store
+            .resolve_source(SourceKey::ClaudeCode, 100)
+            .expect("resolve source");
+        let refresh_run_id = store
+            .begin_refresh_run(refresh_spec("refresh-future"), 500)
+            .expect("begin future refresh");
+        let import_run_id = store
+            .begin_import_run(daily_import_spec(refresh_run_id, source_id), 600)
+            .expect("begin future import");
+
+        let recovery = store
+            .recover_interrupted_runs(100)
+            .expect("recover future interrupted runs");
+
+        assert_eq!(
+            recovery,
+            InterruptedRunRecovery {
+                refresh_runs: 1,
+                import_runs: 1,
+            }
+        );
+        assert_eq!(
+            refresh_status(&store, refresh_run_id),
+            (
+                "failed".to_owned(),
+                Some(500),
+                Some(INTERRUPTED_REFRESH_ERROR_CODE.to_owned())
+            )
+        );
+        assert_eq!(
+            import_status(&store, import_run_id),
+            (
+                "failed".to_owned(),
+                Some(600),
+                Some(INTERRUPTED_IMPORT_ERROR_CODE.to_owned())
             )
         );
     }
