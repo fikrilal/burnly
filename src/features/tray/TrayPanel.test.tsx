@@ -9,6 +9,9 @@ import {
   updateSettings,
   getUpdateState,
   checkForUpdate,
+  copyDiagnosticsReport,
+  exportDiagnosticsReport,
+  getDiagnosticsHealth,
   downloadUpdate,
   restartForUpdate,
   type CommandResult,
@@ -95,6 +98,7 @@ beforeEach(() => {
   vi.mocked(subscribeToEvent).mockResolvedValue(() => {
     /* no-op */
   });
+  vi.mocked(getDiagnosticsHealth).mockResolvedValue(diagnosticsHealthResult());
 });
 
 describe("TrayPanel overview", () => {
@@ -315,10 +319,79 @@ describe("TrayPanel settings failures", () => {
   });
 });
 
+describe("TrayPanel diagnostics settings", () => {
+  it("renders diagnostics health and local actions", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getDiagnosticsHealth).mockResolvedValue(
+      diagnosticsHealthResult({
+        status: "warning",
+        reasons: [
+          {
+            code: "diagnostics.sources_failed",
+            message: "Some sources failed during the last refresh.",
+          },
+        ],
+      }),
+    );
+    vi.mocked(exportDiagnosticsReport).mockResolvedValue({
+      data: { status: "exported" },
+      meta: responseMeta,
+    });
+    vi.mocked(copyDiagnosticsReport).mockResolvedValue({
+      data: { status: "copied" },
+      meta: responseMeta,
+    });
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText("Diagnostics")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open diagnostics" }));
+    expect(
+      screen.getByText(
+        "Burnly detected a problem. Export diagnostics if support asks for details.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Export" }));
+    expect(exportDiagnosticsReport).toHaveBeenCalled();
+    expect(
+      await screen.findByText("Diagnostics report exported."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(copyDiagnosticsReport).toHaveBeenCalled();
+    expect(
+      await screen.findByText("Diagnostics report copied."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+});
+
 function traySummaryResult(
   data: TraySummaryResponse = summary,
 ): CommandResult<TraySummaryResponse> {
   return { data, meta: responseMeta };
+}
+
+function diagnosticsHealthResult(
+  overrides: Partial<{
+    status: "ok" | "warning" | "error";
+    reasons: { code: string; message: string }[];
+    generatedAt: string;
+  }> = {},
+) {
+  return {
+    data: {
+      status: "ok" as const,
+      reasons: [],
+      generatedAt: "2026-06-25T00:00:00Z",
+      ...overrides,
+    },
+    meta: responseMeta,
+  };
 }
 
 function renderTrayPanel(

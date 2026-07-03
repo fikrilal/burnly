@@ -100,32 +100,25 @@ export interface AppCapabilitiesResponse {
   };
 }
 
-export type DiagnosticHealthStatus =
-  | "healthy"
-  | "degraded"
-  | "unavailable"
-  | "unknown";
+export type DiagnosticsHealthStatus = "ok" | "warning" | "error";
 
-export interface DiagnosticComponentResponse {
-  component: "database" | "settings" | "sources" | "collector" | "runtime";
-  status: DiagnosticHealthStatus;
-  summary: string;
-  details: string[];
-}
-
-export interface DiagnosticsStatusResponse {
-  status: DiagnosticHealthStatus;
-  contractVersion: number;
-  components: DiagnosticComponentResponse[];
-  logs: {
-    status: "available" | "missing" | "unsupported";
-    label: string;
-  };
-}
-
-export interface RevealLogsResponse {
-  status: "revealed" | "missing" | "unsupported";
+export interface DiagnosticsHealthReason {
+  code: string;
   message: string;
+}
+
+export interface DiagnosticsHealthResponse {
+  status: DiagnosticsHealthStatus;
+  reasons: DiagnosticsHealthReason[];
+  generatedAt: string;
+}
+
+export interface DiagnosticsExportResponse {
+  status: "exported" | "cancelled";
+}
+
+export interface DiagnosticsCopyResponse {
+  status: "copied";
 }
 
 export interface DatabaseMaintenanceStatusResponse {
@@ -645,6 +638,9 @@ export const COMMAND_NAMES = {
   appGetBootstrap: "app_get_bootstrap",
   appGetCapabilities: "app_get_capabilities",
   appHideTrayPanel: "app_hide_tray_panel",
+  diagnosticsGetHealth: "diagnostics_get_health",
+  diagnosticsExportReport: "diagnostics_export_report",
+  diagnosticsCopyReport: "diagnostics_copy_report",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
   refreshGetState: "refresh_get_state",
@@ -664,6 +660,9 @@ export interface CommandRequests {
   [COMMAND_NAMES.appGetBootstrap]: Record<string, never>;
   [COMMAND_NAMES.appGetCapabilities]: Record<string, never>;
   [COMMAND_NAMES.appHideTrayPanel]: Record<string, never>;
+  [COMMAND_NAMES.diagnosticsGetHealth]: Record<string, never>;
+  [COMMAND_NAMES.diagnosticsExportReport]: Record<string, never>;
+  [COMMAND_NAMES.diagnosticsCopyReport]: Record<string, never>;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
@@ -681,6 +680,9 @@ export interface CommandResponses {
   [COMMAND_NAMES.appGetBootstrap]: IpcResponse<AppBootstrapResponse>;
   [COMMAND_NAMES.appGetCapabilities]: IpcResponse<AppCapabilitiesResponse>;
   [COMMAND_NAMES.appHideTrayPanel]: IpcResponse<HideTrayPanelResponse>;
+  [COMMAND_NAMES.diagnosticsGetHealth]: IpcResponse<DiagnosticsHealthResponse>;
+  [COMMAND_NAMES.diagnosticsExportReport]: IpcResponse<DiagnosticsExportResponse>;
+  [COMMAND_NAMES.diagnosticsCopyReport]: IpcResponse<DiagnosticsCopyResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
@@ -718,6 +720,24 @@ export function invokeAppHideTrayPanel(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.appHideTrayPanel, {});
+}
+
+export function invokeDiagnosticsGetHealth(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.diagnosticsGetHealth, {});
+}
+
+export function invokeDiagnosticsExportReport(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.diagnosticsExportReport, {});
+}
+
+export function invokeDiagnosticsCopyReport(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.diagnosticsCopyReport, {});
 }
 
 export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {

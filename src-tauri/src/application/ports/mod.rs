@@ -1,6 +1,7 @@
 pub(crate) mod clock;
 pub(crate) mod collector;
 pub(crate) mod diagnostic_recorder;
+pub(crate) mod diagnostics_report_store;
 pub(crate) mod run_store;
 pub(crate) mod settings_store;
 pub(crate) mod tray_summary_store;

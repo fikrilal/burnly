@@ -34,6 +34,24 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "HideTrayPanelResponse",
     },
     CommandSpec {
+        name: "diagnostics_get_health",
+        export_name: "invokeDiagnosticsGetHealth",
+        request_type: "Record<string, never>",
+        response_type: "DiagnosticsHealthResponse",
+    },
+    CommandSpec {
+        name: "diagnostics_export_report",
+        export_name: "invokeDiagnosticsExportReport",
+        request_type: "Record<string, never>",
+        response_type: "DiagnosticsExportResponse",
+    },
+    CommandSpec {
+        name: "diagnostics_copy_report",
+        export_name: "invokeDiagnosticsCopyReport",
+        request_type: "Record<string, never>",
+        response_type: "DiagnosticsCopyResponse",
+    },
+    CommandSpec {
         name: "settings_get",
         export_name: "invokeSettingsGet",
         request_type: "Record<string, never>",

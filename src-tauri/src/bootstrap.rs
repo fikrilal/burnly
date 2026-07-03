@@ -20,7 +20,7 @@ use crate::application::bootstrap::{
 use crate::application::collection::CollectorFailure;
 use crate::application::diagnostics::{
     DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
-    DiagnosticSummary,
+    DiagnosticSummary, DiagnosticsService,
 };
 use crate::application::ports::collector::Collector;
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
@@ -148,6 +148,7 @@ pub(crate) fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -306,6 +307,12 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(UpdateService::new(Arc::new(
         updater::TauriUpdateRuntime::new(app.handle().clone()),
     )));
+    let diagnostics_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
+    app.manage(DiagnosticsService::new(
+        Arc::new(SqliteDiagnosticStore::new(diagnostics_database)),
+        env!("CARGO_PKG_VERSION").to_owned(),
+        reporting_timezone.clone(),
+    ));
 
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),

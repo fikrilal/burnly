@@ -273,32 +273,25 @@ export interface AppCapabilitiesResponse {
   };
 }
 
-export type DiagnosticHealthStatus =
-  | "healthy"
-  | "degraded"
-  | "unavailable"
-  | "unknown";
+export type DiagnosticsHealthStatus = "ok" | "warning" | "error";
 
-export interface DiagnosticComponentResponse {
-  component: "database" | "settings" | "sources" | "collector" | "runtime";
-  status: DiagnosticHealthStatus;
-  summary: string;
-  details: string[];
-}
-
-export interface DiagnosticsStatusResponse {
-  status: DiagnosticHealthStatus;
-  contractVersion: number;
-  components: DiagnosticComponentResponse[];
-  logs: {
-    status: "available" | "missing" | "unsupported";
-    label: string;
-  };
-}
-
-export interface RevealLogsResponse {
-  status: "revealed" | "missing" | "unsupported";
+export interface DiagnosticsHealthReason {
+  code: string;
   message: string;
+}
+
+export interface DiagnosticsHealthResponse {
+  status: DiagnosticsHealthStatus;
+  reasons: DiagnosticsHealthReason[];
+  generatedAt: string;
+}
+
+export interface DiagnosticsExportResponse {
+  status: "exported" | "cancelled";
+}
+
+export interface DiagnosticsCopyResponse {
+  status: "copied";
 }
 
 export interface DatabaseMaintenanceStatusResponse {

@@ -8,7 +8,13 @@
     reason = "The diagnostics event vocabulary is introduced before every area is wired"
 )]
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use serde::Serialize;
 use thiserror::Error;
+
+use crate::application::ports::diagnostics_report_store::DiagnosticsReportStore;
 
 const MAX_CODE_LEN: usize = 128;
 const MAX_SUMMARY_LEN: usize = 240;
@@ -60,6 +66,229 @@ pub(crate) enum DiagnosticSeverity {
     Info,
     Warning,
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DiagnosticsHealthStatus {
+    Ok,
+    Warning,
+    Error,
+}
+
+impl DiagnosticsHealthStatus {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsHealthReason {
+    pub code: String,
+    pub message: String,
+}
+
+impl DiagnosticsHealthReason {
+    pub(crate) fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsHealth {
+    pub status: DiagnosticsHealthStatus,
+    pub reasons: Vec<DiagnosticsHealthReason>,
+    pub generated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DiagnosticsReportRequest {
+    pub generated_at_ms: i64,
+    pub app_version: String,
+    pub platform: String,
+    pub arch: String,
+    pub debug: bool,
+    pub timezone: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsReport {
+    pub schema_version: u16,
+    pub generated_at: String,
+    pub app: DiagnosticsAppReport,
+    pub environment: DiagnosticsEnvironmentReport,
+    pub health: DiagnosticsHealth,
+    pub database: DiagnosticsDatabaseReport,
+    pub refresh: DiagnosticsRefreshReport,
+    pub imports: DiagnosticsImportsReport,
+    pub sources: DiagnosticsSourcesReport,
+    pub usage_integrity: DiagnosticsUsageIntegrityReport,
+    pub diagnostic_events: Vec<DiagnosticsEventReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsAppReport {
+    pub version: String,
+    pub platform: String,
+    pub arch: String,
+    pub debug: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsEnvironmentReport {
+    pub timezone: String,
+    pub locale: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsDatabaseReport {
+    pub schema_version: i64,
+    pub tables_present: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsRefreshReport {
+    pub latest_runs: Vec<DiagnosticsRefreshRunReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsRefreshRunReport {
+    pub id: String,
+    pub trigger: String,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub requested_by_app_version: String,
+    pub error: Option<DiagnosticsRunErrorReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsImportsReport {
+    pub latest_runs: Vec<DiagnosticsImportRunReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsImportRunReport {
+    pub id: String,
+    pub refresh_run_id: String,
+    pub source_id: String,
+    pub collector_key: String,
+    pub collector_version: String,
+    pub profile_version: i64,
+    pub projection: String,
+    pub scope_kind: String,
+    pub scope_start_date: Option<String>,
+    pub scope_end_date: Option<String>,
+    pub status: String,
+    pub records_seen: String,
+    pub records_rejected: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub error: Option<DiagnosticsRunErrorReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsRunErrorReport {
+    pub code: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsSourcesReport {
+    pub recent: Vec<DiagnosticsSourceReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsSourceReport {
+    pub source_id: String,
+    pub status: String,
+    pub latest_import_status: Option<String>,
+    pub latest_projection: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsUsageIntegrityReport {
+    pub today_daily_usage_rows: i64,
+    pub today_daily_model_usage_rows: i64,
+    pub today_daily_usage_token_sum: String,
+    pub today_daily_model_usage_token_sum: String,
+    pub orphan_daily_model_rows: i64,
+    pub model_rows_without_total_tokens: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticsEventReport {
+    pub id: String,
+    pub area: String,
+    pub severity: String,
+    pub code: String,
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<BTreeMap<String, String>>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum DiagnosticsReportError {
+    #[error("failed to read diagnostics report data")]
+    Store,
+}
+
+pub(crate) struct DiagnosticsService {
+    store: Arc<dyn DiagnosticsReportStore>,
+    app_version: String,
+    timezone: String,
+}
+
+impl DiagnosticsService {
+    pub(crate) fn new(
+        store: Arc<dyn DiagnosticsReportStore>,
+        app_version: String,
+        timezone: String,
+    ) -> Self {
+        Self {
+            store,
+            app_version,
+            timezone,
+        }
+    }
+
+    pub(crate) fn health(&self) -> Result<DiagnosticsHealth, DiagnosticsReportError> {
+        Ok(self.report()?.health)
+    }
+
+    pub(crate) fn report(&self) -> Result<DiagnosticsReport, DiagnosticsReportError> {
+        self.store.report(DiagnosticsReportRequest {
+            generated_at_ms: chrono::Utc::now().timestamp_millis(),
+            app_version: self.app_version.clone(),
+            platform: std::env::consts::OS.to_owned(),
+            arch: std::env::consts::ARCH.to_owned(),
+            debug: cfg!(debug_assertions),
+            timezone: self.timezone.clone(),
+        })
+    }
 }
 
 impl DiagnosticSeverity {

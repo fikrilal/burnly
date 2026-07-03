@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   getAppBootstrap,
   getAppCapabilities,
+  copyDiagnosticsReport,
+  exportDiagnosticsReport,
+  getDiagnosticsHealth,
   hideTrayPanel,
   getTraySummary,
   probeContract,
@@ -68,6 +71,62 @@ describe("IPC command responses", () => {
     const result = await hideTrayPanel(invoker);
 
     expect(result.data.status).toBe("hidden");
+  });
+
+  it("validates diagnostics health responses", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsGetHealth);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        data: {
+          status: "warning",
+          reasons: [
+            {
+              code: "diagnostics.sources_failed",
+              message: "Some sources failed during the last refresh.",
+            },
+          ],
+          generatedAt: "2026-06-25T07:30:00.000Z",
+        },
+        meta,
+      });
+    };
+
+    const result = await getDiagnosticsHealth(invoker);
+
+    expect(result.data.status).toBe("warning");
+    expect(result.data.reasons[0]?.code).toBe("diagnostics.sources_failed");
+  });
+
+  it("validates diagnostics export and copy responses", async () => {
+    const exportInvoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsExportReport);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        data: { status: "exported" },
+        meta,
+      });
+    };
+    const copyInvoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.diagnosticsCopyReport);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        data: { status: "copied" },
+        meta,
+      });
+    };
+
+    await expect(exportDiagnosticsReport(exportInvoker)).resolves.toMatchObject(
+      {
+        data: { status: "exported" },
+      },
+    );
+    await expect(copyDiagnosticsReport(copyInvoker)).resolves.toMatchObject({
+      data: { status: "copied" },
+    });
   });
 
   it("validates tray summary from the desktop runtime", async () => {

@@ -8,6 +8,9 @@ import {
   invokeAppGetBootstrap,
   invokeAppGetCapabilities,
   invokeAppHideTrayPanel,
+  invokeDiagnosticsCopyReport,
+  invokeDiagnosticsExportReport,
+  invokeDiagnosticsGetHealth,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeRefreshCancel,
@@ -24,6 +27,9 @@ import {
   type CommandName,
   type CommandRequests,
   type ContractProbeResponse,
+  type DiagnosticsCopyResponse,
+  type DiagnosticsExportResponse,
+  type DiagnosticsHealthResponse,
   type HideTrayPanelResponse,
   type FieldError,
   type IpcError,
@@ -135,6 +141,27 @@ const capabilitiesDataSchema: z.ZodType<AppCapabilitiesResponse> = z.object({
 
 const hideTrayPanelDataSchema = z.object({
   status: z.literal("hidden"),
+});
+
+const diagnosticsHealthDataSchema: z.ZodType<DiagnosticsHealthResponse> =
+  z.object({
+    status: z.enum(["ok", "warning", "error"]),
+    reasons: z.array(
+      z.object({
+        code: z.string().min(1),
+        message: z.string().min(1),
+      }),
+    ),
+    generatedAt: z.iso.datetime({ offset: true }),
+  });
+
+const diagnosticsExportDataSchema: z.ZodType<DiagnosticsExportResponse> =
+  z.object({
+    status: z.enum(["exported", "cancelled"]),
+  });
+
+const diagnosticsCopyDataSchema: z.ZodType<DiagnosticsCopyResponse> = z.object({
+  status: z.literal("copied"),
 });
 
 const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
@@ -280,6 +307,48 @@ export async function hideTrayPanel(
   try {
     const response = await invokeAppHideTrayPanel(invoker);
     return unwrapResponse(validateResponse(response, hideTrayPanelDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function getDiagnosticsHealth(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DiagnosticsHealthResponse>> {
+  try {
+    const response = await invokeDiagnosticsGetHealth(invoker);
+    return unwrapResponse(
+      validateResponse(response, diagnosticsHealthDataSchema),
+    );
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function exportDiagnosticsReport(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DiagnosticsExportResponse>> {
+  try {
+    const response = await invokeDiagnosticsExportReport(invoker);
+    return unwrapResponse(
+      validateResponse(response, diagnosticsExportDataSchema),
+    );
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function copyDiagnosticsReport(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<DiagnosticsCopyResponse>> {
+  try {
+    const response = await invokeDiagnosticsCopyReport(invoker);
+    return unwrapResponse(
+      validateResponse(response, diagnosticsCopyDataSchema),
+    );
   } catch (error) {
     if (error instanceof BurnlyClientError) throw error;
     throw transportError(error);

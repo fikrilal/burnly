@@ -8,11 +8,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { RefreshCw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
 
 import { hideTrayPanel } from "../../ipc/client";
 import type {
   AppCapabilitiesResponse,
+  DiagnosticsHealthResponse,
   SettingsResponse,
   TraySummaryResponse,
 } from "../../ipc/generated/contracts";
@@ -26,11 +27,17 @@ import {
   type ModelUsage,
 } from "../../components/burnly";
 import { AnimatedNumber } from "../../components/ui/animated-number";
+import { Button } from "../../components/ui/button";
 import { MotionTabs } from "../../components/ui/motion-tabs";
 import { Switch } from "../../components/ui/switch";
 import { ThemeToggle } from "../../components/ui/theme-toggle";
 import { cn } from "../../lib/cn";
 import { formatCompactNumber, formatNumber } from "../../lib/format";
+import {
+  useCopyDiagnosticsReport,
+  useDiagnosticsHealth,
+  useExportDiagnosticsReport,
+} from "../diagnostics/use-diagnostics";
 import { useSettings, useUpdateSettings } from "../settings/use-settings";
 import { UpdateSetting } from "../update/UpdateSetting";
 import { useTraySummary } from "./use-tray-summary";
@@ -519,6 +526,60 @@ function SettingsForm({
     expectedRevision: number;
   }) => void;
 }) {
+  const [settingsPage, setSettingsPage] = useState<"list" | "diagnostics">(
+    "list",
+  );
+  const { changeCloseBehavior, changeLaunchAtLogin } = useSettingsFormActions({
+    settings,
+    launchAtLoginCapability,
+    onUpdate,
+  });
+
+  if (settingsPage === "diagnostics") {
+    return (
+      <SettingsPageShell appVersion={appVersion}>
+        <DiagnosticsPage
+          capabilities={diagnosticsCapabilities}
+          onBack={() => {
+            setSettingsPage("list");
+          }}
+        />
+      </SettingsPageShell>
+    );
+  }
+
+  return (
+    <SettingsPageShell appVersion={appVersion}>
+      <div className="flex flex-col">
+        <SettingsList
+          settings={settings}
+          launchAtLoginCapability={launchAtLoginCapability}
+          isSaving={isSaving}
+          onChangeLaunchAtLogin={changeLaunchAtLogin}
+          onChangeCloseBehavior={changeCloseBehavior}
+          onOpenDiagnostics={() => {
+            setSettingsPage("diagnostics");
+          }}
+        />
+        <SettingsSaveError error={saveError} />
+      </div>
+    </SettingsPageShell>
+  );
+}
+
+function useSettingsFormActions({
+  settings,
+  launchAtLoginCapability,
+  onUpdate,
+}: {
+  settings: SettingsResponse;
+  launchAtLoginCapability: AppCapabilitiesResponse["launchAtLogin"];
+  onUpdate: (request: {
+    launchAtLogin: boolean;
+    closeBehavior: SettingsResponse["closeBehavior"];
+    expectedRevision: number;
+  }) => void;
+}) {
   const changeCloseBehavior = (
     closeBehavior: SettingsResponse["closeBehavior"],
   ) => {
@@ -540,27 +601,54 @@ function SettingsForm({
     });
   };
 
+  return { changeCloseBehavior, changeLaunchAtLogin };
+}
+
+function SettingsPageShell({
+  appVersion,
+  children,
+}: {
+  appVersion: string;
+  children: ReactNode;
+}) {
   return (
     <div className="flex flex-1 flex-col justify-between gap-4">
-      <div className="flex flex-col">
-        <div className="flex flex-col divide-y divide-border">
-          <LaunchAtLoginSetting
-            value={settings.launchAtLogin}
-            isDisabled={isSaving || !launchAtLoginCapability.supported}
-            onChange={changeLaunchAtLogin}
-          />
-          <CloseBehaviorSetting
-            value={settings.closeBehavior}
-            isSaving={isSaving}
-            onChange={changeCloseBehavior}
-          />
-          <ThemeSetting />
-          <UpdateSetting />
-          <DiagnosticsSetting capabilities={diagnosticsCapabilities} />
-        </div>
-        <SettingsSaveError error={saveError} />
-      </div>
+      {children}
       <SettingsVersion appVersion={appVersion} />
+    </div>
+  );
+}
+
+function SettingsList({
+  settings,
+  launchAtLoginCapability,
+  isSaving,
+  onChangeLaunchAtLogin,
+  onChangeCloseBehavior,
+  onOpenDiagnostics,
+}: {
+  settings: SettingsResponse;
+  launchAtLoginCapability: AppCapabilitiesResponse["launchAtLogin"];
+  isSaving: boolean;
+  onChangeLaunchAtLogin: (value: boolean) => void;
+  onChangeCloseBehavior: (value: SettingsResponse["closeBehavior"]) => void;
+  onOpenDiagnostics: () => void;
+}) {
+  return (
+    <div className="flex flex-col divide-y divide-border">
+      <LaunchAtLoginSetting
+        value={settings.launchAtLogin}
+        isDisabled={isSaving || !launchAtLoginCapability.supported}
+        onChange={onChangeLaunchAtLogin}
+      />
+      <CloseBehaviorSetting
+        value={settings.closeBehavior}
+        isSaving={isSaving}
+        onChange={onChangeCloseBehavior}
+      />
+      <ThemeSetting />
+      <UpdateSetting />
+      <DiagnosticsEntrySetting onOpen={onOpenDiagnostics} />
     </div>
   );
 }
@@ -603,32 +691,199 @@ function ThemeSetting() {
   );
 }
 
-function DiagnosticsSetting({
-  capabilities,
-}: {
-  capabilities: AppCapabilitiesResponse["diagnostics"];
-}) {
-  const description = capabilities.sendReport.supported
-    ? "Sending reports needs a frontend upload command before it can be enabled."
-    : "Diagnostic reports stay local. Sending reports is coming later.";
-
+function DiagnosticsEntrySetting({ onOpen }: { onOpen: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
+    <button
+      type="button"
+      aria-label="Open diagnostics"
+      className="flex items-center justify-between gap-4 py-3 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      onClick={onOpen}
+    >
       <div className="flex flex-col gap-1">
         <span className="text-sm font-medium">Diagnostics</span>
         <span className="text-xs text-muted-foreground leading-normal">
-          {description}
+          View app health and export a local report.
         </span>
       </div>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+    </button>
+  );
+}
+
+function DiagnosticsPage({
+  capabilities,
+  onBack,
+}: {
+  capabilities: AppCapabilitiesResponse["diagnostics"];
+  onBack: () => void;
+}) {
+  const health = useDiagnosticsHealth();
+  const exportReport = useExportDiagnosticsReport();
+  const copyReport = useCopyDiagnosticsReport();
+  const helper = getDiagnosticsHelper(health.data);
+  const mutationError = exportReport.error ?? copyReport.error;
+  const isMutating = exportReport.isPending || copyReport.isPending;
+
+  return (
+    <div className="flex flex-col gap-4 py-1">
       <button
         type="button"
-        disabled
-        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground opacity-50"
+        className="flex w-fit items-center gap-1 rounded-md py-1 pr-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        onClick={onBack}
       >
-        Send
+        <ChevronLeft className="size-4" />
+        <span>Settings</span>
       </button>
+      <div className="flex flex-col gap-1">
+        <span className="text-base font-semibold">Diagnostics</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          Export or copy a local report when support asks for details.
+        </span>
+      </div>
+      <DiagnosticsSummary helper={helper} />
+      <DiagnosticsActions
+        isBusy={isMutating || health.isPending}
+        canSend={capabilities.sendReport.supported}
+        onExport={() => {
+          copyReport.reset();
+          exportReport.mutate();
+        }}
+        onCopy={() => {
+          exportReport.reset();
+          copyReport.mutate();
+        }}
+      />
+      <DiagnosticsActionStatus
+        exportStatus={exportReport.data?.status}
+        copyStatus={copyReport.data?.status}
+      />
+      {mutationError ? <DiagnosticsActionError error={mutationError} /> : null}
     </div>
   );
+}
+
+function DiagnosticsSummary({
+  helper,
+}: {
+  helper: { message: string; className: string };
+}) {
+  return (
+    <span className={cn("text-xs leading-normal", helper.className)}>
+      {helper.message}
+    </span>
+  );
+}
+
+function DiagnosticsActions({
+  isBusy,
+  canSend,
+  onExport,
+  onCopy,
+}: {
+  isBusy: boolean;
+  canSend: boolean;
+  onExport: () => void;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={isBusy}
+        onClick={onExport}
+      >
+        <span className="text-xs leading-none">Export</span>
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={isBusy}
+        onClick={onCopy}
+      >
+        <span className="text-xs leading-none">Copy</span>
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled
+        title={
+          canSend
+            ? "Report sending needs a backend endpoint."
+            : "Report sending is coming later."
+        }
+      >
+        <span className="text-xs leading-none">Send</span>
+      </Button>
+    </div>
+  );
+}
+
+function DiagnosticsActionStatus({
+  exportStatus,
+  copyStatus,
+}: {
+  exportStatus: "exported" | "cancelled" | undefined;
+  copyStatus: "copied" | undefined;
+}) {
+  const statusText =
+    exportStatus === "exported"
+      ? "Diagnostics report exported."
+      : copyStatus === "copied"
+        ? "Diagnostics report copied."
+        : null;
+
+  if (!statusText) return null;
+
+  return <span className="text-xs text-muted-foreground">{statusText}</span>;
+}
+
+function DiagnosticsActionError({ error }: { error: unknown }) {
+  return (
+    <ErrorState
+      title="Diagnostics failed"
+      description={userSafeErrorMessage(
+        error,
+        "Burnly could not create the diagnostics report.",
+      )}
+    />
+  );
+}
+
+function getDiagnosticsHelper(health: DiagnosticsHealthResponse | undefined): {
+  message: string;
+  className: string;
+} {
+  if (!health) {
+    return {
+      message: "Checking diagnostics status...",
+      className: "text-muted-foreground",
+    };
+  }
+
+  if (health.status === "error") {
+    return {
+      message:
+        "Burnly detected an error. Export diagnostics to help troubleshoot it.",
+      className: "text-destructive",
+    };
+  }
+
+  if (health.status === "warning") {
+    return {
+      message:
+        "Burnly detected a problem. Export diagnostics if support asks for details.",
+      className: "text-muted-foreground",
+    };
+  }
+
+  return {
+    message: "No problems detected.",
+    className: "text-muted-foreground",
+  };
 }
 
 function SettingsLoading() {

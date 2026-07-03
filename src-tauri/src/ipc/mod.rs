@@ -5,6 +5,7 @@
 
 mod commands;
 mod contract;
+mod diagnostics;
 #[cfg_attr(
     not(test),
     expect(
@@ -26,6 +27,9 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::app_get_bootstrap,
         commands::app_get_capabilities,
         commands::app_hide_tray_panel,
+        diagnostics::diagnostics_get_health,
+        diagnostics::diagnostics_export_report,
+        diagnostics::diagnostics_copy_report,
         settings::settings_get,
         settings::settings_update,
         commands::refresh_get_state,
