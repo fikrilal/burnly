@@ -37,18 +37,15 @@ use crate::application::update::UnavailableUpdateRuntime;
 use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
-use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::antigravity::AntigravityCollector;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
 use crate::infrastructure::collectors::routed::RoutedCollector;
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
-    SqliteTraySummaryStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteBootstrapStore, SqliteDiagnosticStore,
+    SqliteReconciliationStore, SqliteSettingsStore, SqliteTraySummaryStore,
 };
-use crate::infrastructure::diagnostics_store::SqliteDiagnosticStore;
-use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle;
@@ -480,12 +477,19 @@ fn build_refresh_coordinator<R: Runtime>(
         }
         .map_err(StartupError::Collector)?,
     );
-    let cline_collector = Arc::new(ClineCollector::from_data_dir(default_cline_data_dir()));
-    let zcode_collector = Arc::new(ZCodeCollector::from_data_dir(default_zcode_data_dir()));
     let diagnostics_database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(Arc::new(
-        SqliteDiagnosticStore::new(diagnostics_database),
-    )));
+    let diagnostic_recorder = Arc::new(SqliteDiagnosticStore::new(diagnostics_database));
+    let cline_collector = Arc::new(
+        ClineCollector::from_data_dir(default_cline_data_dir())
+            .with_diagnostic_recorder(diagnostic_recorder.clone()),
+    );
+    let zcode_collector = Arc::new(
+        ZCodeCollector::from_data_dir(default_zcode_data_dir())
+            .with_diagnostic_recorder(diagnostic_recorder.clone()),
+    );
+    let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(
+        diagnostic_recorder,
+    ));
     let collector = Arc::new(RoutedCollector::new(
         ccusage_collector,
         cline_collector,

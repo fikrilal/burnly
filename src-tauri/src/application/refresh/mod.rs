@@ -1,9 +1,16 @@
 //! The refresh coordinator: single owner of refresh concurrency.
 
 mod coordinator;
+mod execution;
+mod outcome;
 mod planner;
+mod request_plan;
 mod scheduler;
 mod state;
+mod target;
+
+#[cfg(test)]
+mod tests;
 
 #[allow(
     unused_imports,

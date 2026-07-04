@@ -257,6 +257,57 @@ function runRustBoundarySelfTest() {
     process.exit(1);
   }
 
+  const ownershipCases = [
+    {
+      name: "database store may use rusqlite",
+      path: "src-tauri/src/infrastructure/database/connection.rs",
+      content: "use rusqlite::Connection;",
+      expectFailure: false,
+    },
+    {
+      name: "cline collector may use rusqlite for external tool database",
+      path: "src-tauri/src/infrastructure/collectors/cline/store.rs",
+      content: "use rusqlite::Connection;",
+      expectFailure: false,
+    },
+    {
+      name: "zcode collector may use rusqlite for external tool database",
+      path: "src-tauri/src/infrastructure/collectors/zcode/store.rs",
+      content: "use rusqlite::Connection;",
+      expectFailure: false,
+    },
+    {
+      name: "collector SQLite support may use rusqlite for external tool database opening",
+      path: "src-tauri/src/infrastructure/collectors/support/sqlite.rs",
+      content: "use rusqlite::Connection;",
+      expectFailure: false,
+    },
+    {
+      name: "infrastructure outside database may not use rusqlite",
+      path: "src-tauri/src/infrastructure/leaked_store.rs",
+      content: "use rusqlite::Connection;",
+      expectFailure: true,
+    },
+    {
+      name: "non-infrastructure file is not checked by ownership rule",
+      path: "src-tauri/src/application/example.rs",
+      content: "use rusqlite::Connection;",
+      expectFailure: false,
+    },
+  ];
+
+  const beforeLength = failures.length;
+  for (const testCase of ownershipCases) {
+    failures.length = beforeLength;
+    checkDatabaseOwnership(testCase.path, testCase.content);
+    const triggered = failures.length > beforeLength;
+    if (triggered !== testCase.expectFailure) {
+      console.error(`Rust architecture self-test failed: ${testCase.name}`);
+      process.exit(1);
+    }
+  }
+  failures.length = beforeLength;
+
   console.log("Rust architecture self-test passed.");
 }
 
@@ -383,6 +434,33 @@ async function checkFrontendBoundaries() {
   }
 }
 
+const allowedRusqlitePaths = [
+  "src-tauri/src/infrastructure/database/",
+  "src-tauri/src/infrastructure/collectors/cline/",
+  "src-tauri/src/infrastructure/collectors/zcode/",
+  "src-tauri/src/infrastructure/collectors/support/sqlite.rs",
+];
+
+function checkDatabaseOwnership(relativePath, content) {
+  if (!relativePath.startsWith("src-tauri/src/infrastructure/")) {
+    return;
+  }
+
+  if (!content.includes("rusqlite")) {
+    return;
+  }
+
+  const isAllowed = allowedRusqlitePaths.some((prefix) =>
+    relativePath.startsWith(prefix),
+  );
+
+  if (!isAllowed) {
+    failures.push(
+      `${relativePath}: rusqlite may only be used inside infrastructure/database (production stores), infrastructure/collectors/{cline,zcode} (external tool database reads), or collectors/support/sqlite.rs (shared external database opening).`,
+    );
+  }
+}
+
 async function checkRustBoundaries() {
   await checkRequiredRustStructure();
   const rustFiles = await collectFiles(path.join(root, "src-tauri", "src"), [
@@ -394,6 +472,7 @@ async function checkRustBoundaries() {
     const content = await readFile(file, "utf8");
     checkGenericName(file);
     failures.push(...rustLayerViolations(rel, content));
+    checkDatabaseOwnership(rel, content);
   }
 }
 

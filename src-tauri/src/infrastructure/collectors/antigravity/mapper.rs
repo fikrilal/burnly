@@ -12,10 +12,11 @@ use crate::{
     domain::{
         identity::{daily_source_key, session_source_key, IdentityError},
         source::SourceKey,
-        usage::{CostKind, DataQuality, TokenUsage, UsageCost, UsageValidationError},
+        usage::{CostKind, TokenUsage, UsageCost, UsageValidationError},
     },
 };
 
+use super::super::support::{checked_add_u64, date_in_scope, provenance, MappingIdentity};
 use super::{AntigravityUsageRecord, ConversationDatabase};
 
 const PROFILE_VERSION: u16 = 1;
@@ -47,16 +48,14 @@ impl AntigravityMappingContext {
     }
 
     fn provenance(&self) -> CandidateProvenance {
-        CandidateProvenance {
+        provenance(&MappingIdentity {
             source: SourceKey::Antigravity,
             collector: self.collector.clone(),
             collector_version: self.collector_version.clone(),
             profile_version: PROFILE_VERSION,
             collection_id: self.collection_id.clone(),
             observed_at: self.observed_at,
-            data_quality: DataQuality::Complete,
-            warnings: Vec::new(),
-        }
+        })
     }
 }
 
@@ -237,8 +236,7 @@ impl AntigravityUsageAccumulator {
 }
 
 fn checked_add(left: u64, right: u64) -> Result<u64, AntigravityMappingError> {
-    left.checked_add(right)
-        .ok_or(AntigravityMappingError::TokenOverflow)
+    checked_add_u64(left, right, AntigravityMappingError::TokenOverflow)
 }
 
 fn cost(total_tokens: u64) -> UsageCost {
@@ -249,15 +247,6 @@ fn cost(total_tokens: u64) -> UsageCost {
     } else {
         UsageCost::Unavailable {
             kind: CostKind::SourceReported,
-        }
-    }
-}
-
-fn date_in_scope(usage_date: NaiveDate, scope: &CollectionScope) -> bool {
-    match scope {
-        CollectionScope::Full => true,
-        CollectionScope::Incremental(scope) => {
-            scope.start_date() <= usage_date && usage_date <= scope.end_date()
         }
     }
 }

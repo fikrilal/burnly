@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use thiserror::Error;
 
@@ -12,10 +12,14 @@ use crate::{
     domain::{
         identity::{daily_source_key, session_source_key, IdentityError},
         source::SourceKey,
-        usage::{CostKind, DataQuality, TokenUsage, UsageCost, UsageValidationError},
+        usage::{CostKind, TokenUsage, UsageCost, UsageValidationError},
     },
 };
 
+use super::super::support::{
+    checked_add_u64, date_in_scope, local_date_from_millis, provenance, utc_from_millis,
+    MappingIdentity,
+};
 use super::ZCodeModelUsageRow;
 
 const PROFILE_VERSION: u16 = 1;
@@ -47,16 +51,14 @@ impl ZCodeMappingContext {
     }
 
     fn provenance(&self) -> CandidateProvenance {
-        CandidateProvenance {
+        provenance(&MappingIdentity {
             source: SourceKey::ZCode,
             collector: self.collector.clone(),
             collector_version: self.collector_version.clone(),
             profile_version: PROFILE_VERSION,
             collection_id: self.collection_id.clone(),
             observed_at: self.observed_at,
-            data_quality: DataQuality::Complete,
-            warnings: Vec::new(),
-        }
+        })
     }
 }
 
@@ -72,7 +74,11 @@ pub(crate) fn map_daily(
     let mut buckets = BTreeMap::<NaiveDate, ZCodeDailyBucket>::new();
 
     for row in rows.into_iter().filter(is_completed) {
-        let usage_date = usage_date(row.started_at_ms, timezone)?;
+        let usage_date = local_date_from_millis(
+            row.started_at_ms,
+            timezone,
+            ZCodeMappingError::InvalidTimestamp,
+        )?;
         if !date_in_scope(usage_date, scope) {
             continue;
         }
@@ -249,8 +255,7 @@ fn is_completed(row: &ZCodeModelUsageRow) -> bool {
 }
 
 fn checked_add(left: u64, right: u64) -> Result<u64, ZCodeMappingError> {
-    left.checked_add(right)
-        .ok_or(ZCodeMappingError::TokenOverflow)
+    checked_add_u64(left, right, ZCodeMappingError::TokenOverflow)
 }
 
 fn cost(total_tokens: u64) -> UsageCost {
@@ -265,25 +270,8 @@ fn cost(total_tokens: u64) -> UsageCost {
     }
 }
 
-fn usage_date(timestamp_ms: i64, timezone: Tz) -> Result<NaiveDate, ZCodeMappingError> {
-    Ok(timestamp(timestamp_ms)?
-        .with_timezone(&timezone)
-        .date_naive())
-}
-
 fn timestamp(timestamp_ms: i64) -> Result<DateTime<Utc>, ZCodeMappingError> {
-    Utc.timestamp_millis_opt(timestamp_ms)
-        .single()
-        .ok_or(ZCodeMappingError::InvalidTimestamp)
-}
-
-fn date_in_scope(usage_date: NaiveDate, scope: &CollectionScope) -> bool {
-    match scope {
-        CollectionScope::Full => true,
-        CollectionScope::Incremental(scope) => {
-            scope.start_date() <= usage_date && usage_date <= scope.end_date()
-        }
-    }
+    utc_from_millis(timestamp_ms, ZCodeMappingError::InvalidTimestamp)
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
