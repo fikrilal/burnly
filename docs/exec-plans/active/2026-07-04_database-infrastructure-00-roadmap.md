@@ -53,7 +53,7 @@ behavior, schema semantics, or application-visible contracts.
 
 - [x] Complete chunk 01: connection module split.
 - [x] Complete chunk 02: SQLite store placement.
-- [ ] Complete chunk 03: reconciliation module split.
+- [x] Complete chunk 03: reconciliation module split.
 - [ ] Complete chunk 04: database architecture harness checks.
 - [ ] Re-run the full local gate after all chunks are complete.
 - [ ] Update `docs/planning/_WIP/database-infrastructure-audit.md` with any

@@ -55,21 +55,21 @@ transaction flow, while preserving `SqliteReconciliationStore` behavior.
 
 ## Checklist
 
-- [ ] Create `database/reconciliation/mod.rs`.
-- [ ] Create a shared store module for `SqliteReconciliationStore` and database
+- [x] Create `database/reconciliation/mod.rs`.
+- [x] Create a shared store module for `SqliteReconciliationStore` and database
       locking helpers.
-- [ ] Move `RunStore` implementation and helpers into a run-focused module.
-- [ ] Move daily reconciliation transaction and helpers into a daily-focused
+- [x] Move `RunStore` implementation and helpers into a run-focused module.
+- [x] Move daily reconciliation transaction and helpers into a daily-focused
       module.
-- [ ] Move session reconciliation transaction and helpers into a session-focused
+- [x] Move session reconciliation transaction and helpers into a session-focused
       module.
-- [ ] Move source model/project identity helpers into a private identity module.
-- [ ] Move token/cost/status/scope/outcome mapping helpers into a private
+- [x] Move source model/project identity helpers into a private identity module.
+- [x] Move token/cost/status/scope/outcome mapping helpers into a private
       mapping module.
-- [ ] Preserve or split tests without weakening coverage.
-- [ ] Run focused Rust formatting and tests.
-- [ ] Run the full gate before completing this chunk.
-- [ ] Record verification outcomes before completing the plan.
+- [x] Preserve or split tests without weakening coverage.
+- [x] Run focused Rust formatting and tests.
+- [x] Run the full gate before completing this chunk.
+- [x] Record verification outcomes before completing the plan.
 
 ## Test Plan
 
@@ -105,15 +105,42 @@ transaction flow, while preserving `SqliteReconciliationStore` behavior.
 - Do not introduce one repository per table.
 - Keep one `SqliteReconciliationStore` facade unless a later review approves a
   contract change.
+- `impl UsageStore` stays in `store.rs` alongside the struct; both
+  `reconcile_daily` and `reconcile_session` delegate to free functions in
+  `daily.rs` and `session.rs`. Rust does not allow splitting a trait impl across
+  files, so the trait impl lives where the struct is defined.
+- `SqliteReconciliationStore::database` field is `pub(super)` within
+  `reconciliation` so `runs.rs`, `daily.rs`, `session.rs`, and `tests.rs` can
+  access it. `with_connection` is `pub(super)` so `runs.rs` can call it.
+- `INTERRUPTED_REFRESH_ERROR_CODE` and `INTERRUPTED_IMPORT_ERROR_CODE` are
+  `pub(super)` in `runs.rs` so tests can assert on the persisted error codes.
+- `InterruptedRunRecovery` is `pub(crate)` to match `recover_interrupted_runs`
+  visibility; `bootstrap.rs` uses it via type inference without naming it.
+- Run-specific mapping helpers (`refresh_trigger_value`, `refresh_outcome_value`,
+  `import_outcome_value`, `projection_value`) stay in `runs.rs` rather than
+  `mapping.rs` because they are only used by run lifecycle code. `mapping.rs`
+  holds only helpers shared by daily and session reconciliation.
+- `model_cost_columns` is imported from `mapping.rs` by both `daily.rs` and
+  `session.rs` directly (not re-exported through `mod.rs`) to keep the
+  dependency graph flat.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- `pnpm rust:fmt` — passed (exit 0)
+- `pnpm rust:check` — passed (exit 0, no warnings)
+- `pnpm rust:test` — 323 passed, 0 failed, 1 ignored
+- `pnpm rust:clippy` — passed, no warnings (`-D warnings`)
+- `pnpm architecture:check` — passed
+- `pnpm architecture:test` — passed (self-test)
+- `pnpm migrations:check` — passed
+- `pnpm contracts:check` — passed
+- `pnpm public-api:check` — passed
+- `pnpm format:check` — passed
+- `pnpm verify:fast` — passed (exit 0, all sub-checks green)
 
 ## Runtime Evidence
 
-- Not required yet.
+- Not required.
 
 ## Follow-Up Debt
 
