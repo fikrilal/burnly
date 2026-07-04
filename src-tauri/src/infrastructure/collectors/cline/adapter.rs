@@ -7,12 +7,17 @@ use chrono::Utc;
 use crate::application::collection::{
     CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
     CollectionResult, CollectorDescriptor, CollectorFailure, CollectorFailureCode,
-    CollectorIntegrity, CollectorKey, DetectionIssue, DetectionRequest, DetectionResult,
-    DetectionState, ProcessSummary, ProfileDescriptor, RejectedRecord,
+    CollectorIntegrity, DetectionIssue, DetectionRequest, DetectionResult, DetectionState,
+    ProcessSummary, RejectedRecord,
 };
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
+use super::super::support::{
+    collector_key, daily_session_projections, missing_or_invalid_location_code, request_failure,
+    single_source_descriptor, validate_source, validation_failure_as_internal,
+    validation_failure_preserving_all_rejected, CollectorIdentity,
+};
 use super::mapper::{self, ClineMappingContext, ClineSessionMessages};
 use super::{decode_messages, ClineStore};
 
@@ -21,6 +26,14 @@ const DISPLAY_NAME: &str = "Cline";
 const COLLECTOR_VERSION: &str = "local";
 const ADAPTER_VERSION: u16 = 1;
 const PROFILE_VERSION: u16 = 1;
+const IDENTITY: CollectorIdentity = CollectorIdentity {
+    key: COLLECTOR_KEY,
+    display_name: DISPLAY_NAME,
+    runtime_version: COLLECTOR_VERSION,
+    adapter_version: ADAPTER_VERSION,
+    source: SourceKey::Cline,
+    profile_version: PROFILE_VERSION,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ClineCollector {
@@ -133,26 +146,30 @@ impl Collector for ClineCollector {
         let started_at = Utc::now();
         validate_request(&request)?;
         if cancellation.is_cancelled() {
-            return Err(failure(&request, CollectorFailureCode::Cancelled));
+            return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
         if !self.database_path.exists() {
             return empty_result(&request, started, started_at);
         }
 
-        let store = ClineStore::open_read_only(&self.database_path)
-            .map_err(|_| failure(&request, missing_or_invalid_code(&self.database_path)))?;
+        let store = ClineStore::open_read_only(&self.database_path).map_err(|_| {
+            request_failure(
+                &request,
+                missing_or_invalid_location_code(&self.database_path),
+            )
+        })?;
         let sessions = store
             .read_sessions()
-            .map_err(|_| failure(&request, CollectorFailureCode::IncompatibleEnvelope))?;
+            .map_err(|_| request_failure(&request, CollectorFailureCode::IncompatibleEnvelope))?;
         let (sessions, rejections) = load_session_messages(sessions);
         if cancellation.is_cancelled() {
-            return Err(failure(&request, CollectorFailureCode::Cancelled));
+            return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
 
         let finished_at = Utc::now();
         let metadata = CollectionMetadata::new(
             request.collection_id().clone(),
-            collector_key()?,
+            collector_key(IDENTITY)?,
             COLLECTOR_VERSION.to_owned(),
             SourceKey::Cline,
             request.scope().clone(),
@@ -162,14 +179,14 @@ impl Collector for ClineCollector {
                 finished_at,
             },
         )
-        .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
+        .map_err(|error| validation_failure_as_internal(&request, error))?;
         let context = ClineMappingContext::new(
-            collector_key()?,
+            collector_key(IDENTITY)?,
             COLLECTOR_VERSION.to_owned(),
             request.collection_id().clone(),
             finished_at,
         )
-        .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
+        .map_err(|_| request_failure(&request, CollectorFailureCode::Internal))?;
         let process_summary = ProcessSummary {
             runtime_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
             stdout_bytes: 0,
@@ -180,11 +197,11 @@ impl Collector for ClineCollector {
         match request.projection() {
             CollectionProjection::Daily => {
                 let timezone = request.aggregation_timezone().ok_or_else(|| {
-                    failure(&request, CollectorFailureCode::ScopeNotRepresentable)
+                    request_failure(&request, CollectorFailureCode::ScopeNotRepresentable)
                 })?;
                 let candidates = mapper::map_daily(sessions, timezone, request.scope(), &context)
                     .map_err(|_| {
-                    failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                    request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
                 })?;
                 CollectionResult::daily(
                     metadata,
@@ -193,19 +210,12 @@ impl Collector for ClineCollector {
                     Vec::new(),
                     process_summary,
                 )
-                .map_err(|error| {
-                    if error
-                        == crate::application::collection::ResultValidationError::AllRecordsRejected
-                    {
-                        failure(&request, CollectorFailureCode::AllRecordsRejected)
-                    } else {
-                        failure(&request, CollectorFailureCode::Internal)
-                    }
-                })
+                .map_err(|error| validation_failure_preserving_all_rejected(&request, error))
             }
             CollectionProjection::Session => {
-                let candidates = mapper::map_sessions(sessions, &context)
-                    .map_err(|_| failure(&request, CollectorFailureCode::IncompatibleEnvelope))?;
+                let candidates = mapper::map_sessions(sessions, &context).map_err(|_| {
+                    request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                })?;
                 CollectionResult::session(
                     metadata,
                     candidates,
@@ -213,15 +223,7 @@ impl Collector for ClineCollector {
                     Vec::new(),
                     process_summary,
                 )
-                .map_err(|error| {
-                    if error
-                        == crate::application::collection::ResultValidationError::AllRecordsRejected
-                    {
-                        failure(&request, CollectorFailureCode::AllRecordsRejected)
-                    } else {
-                        failure(&request, CollectorFailureCode::Internal)
-                    }
-                })
+                .map_err(|error| validation_failure_preserving_all_rejected(&request, error))
             }
         }
     }
@@ -235,7 +237,7 @@ fn empty_result(
     let finished_at = Utc::now();
     let metadata = CollectionMetadata::new(
         request.collection_id().clone(),
-        collector_key()?,
+        collector_key(IDENTITY)?,
         COLLECTOR_VERSION.to_owned(),
         SourceKey::Cline,
         request.scope().clone(),
@@ -245,7 +247,7 @@ fn empty_result(
             finished_at,
         },
     )
-    .map_err(|_| failure(request, CollectorFailureCode::Internal))?;
+    .map_err(|error| validation_failure_as_internal(request, error))?;
     let process_summary = ProcessSummary {
         runtime_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
         stdout_bytes: 0,
@@ -269,7 +271,7 @@ fn empty_result(
             process_summary,
         ),
     }
-    .map_err(|_| failure(request, CollectorFailureCode::Internal))
+    .map_err(|error| validation_failure_as_internal(request, error))
 }
 
 fn load_session_messages(
@@ -293,48 +295,19 @@ fn load_session_messages(
 }
 
 fn validate_request(request: &CollectionRequest) -> Result<(), CollectorFailure> {
-    if request.source() != SourceKey::Cline {
-        return Err(failure(request, CollectorFailureCode::UnsupportedSource));
-    }
-    Ok(())
+    validate_source(request, SourceKey::Cline)
 }
 
 fn descriptor() -> Result<CollectorDescriptor, CollectorFailure> {
-    Ok(CollectorDescriptor {
-        collector: collector_key()?,
-        display_name: DISPLAY_NAME.to_owned(),
-        runtime_version: COLLECTOR_VERSION.to_owned(),
-        expected_version: COLLECTOR_VERSION.to_owned(),
-        adapter_version: ADAPTER_VERSION,
-        binary_target: std::env::consts::OS.to_owned(),
-        integrity: CollectorIntegrity::UnverifiedDevelopment,
-        profiles: vec![ProfileDescriptor {
-            source: SourceKey::Cline,
-            profile_version: PROFILE_VERSION,
-            supported_projections: supported_projections(),
-        }],
-    })
+    single_source_descriptor(
+        IDENTITY,
+        supported_projections(),
+        CollectorIntegrity::UnverifiedDevelopment,
+    )
 }
 
 fn supported_projections() -> Vec<CollectionProjection> {
-    vec![CollectionProjection::Daily, CollectionProjection::Session]
-}
-
-fn collector_key() -> Result<CollectorKey, CollectorFailure> {
-    CollectorKey::new(COLLECTOR_KEY)
-        .map_err(|_| CollectorFailure::new(CollectorFailureCode::Internal, None, None))
-}
-
-fn missing_or_invalid_code(path: &Path) -> CollectorFailureCode {
-    if path.exists() {
-        CollectorFailureCode::SourceInvalidLocation
-    } else {
-        CollectorFailureCode::SourceNotFound
-    }
-}
-
-fn failure(request: &CollectionRequest, code: CollectorFailureCode) -> CollectorFailure {
-    CollectorFailure::new(code, Some(request.source()), Some(request.projection()))
+    daily_session_projections()
 }
 
 fn issue(code: &str, message: &str) -> DetectionIssue {

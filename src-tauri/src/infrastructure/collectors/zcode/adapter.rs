@@ -7,12 +7,16 @@ use chrono_tz::Tz;
 use crate::application::collection::{
     CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
     CollectionResult, CollectionScope, CollectorDescriptor, CollectorFailure, CollectorFailureCode,
-    CollectorIntegrity, CollectorKey, DetectionIssue, DetectionRequest, DetectionResult,
-    DetectionState, ProcessSummary, ProfileDescriptor,
+    CollectorIntegrity, DetectionIssue, DetectionRequest, DetectionResult, DetectionState,
+    ProcessSummary,
 };
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
+use super::super::support::{
+    collector_key, daily_session_projections, missing_or_invalid_location_code, request_failure,
+    single_source_descriptor, validate_source, validation_failure_as_internal, CollectorIdentity,
+};
 use super::mapper::{self, ZCodeMappingContext};
 use super::ZCodeStore;
 
@@ -21,6 +25,14 @@ const DISPLAY_NAME: &str = "ZCode";
 const COLLECTOR_VERSION: &str = "local";
 const ADAPTER_VERSION: u16 = 1;
 const PROFILE_VERSION: u16 = 1;
+const IDENTITY: CollectorIdentity = CollectorIdentity {
+    key: COLLECTOR_KEY,
+    display_name: DISPLAY_NAME,
+    runtime_version: COLLECTOR_VERSION,
+    adapter_version: ADAPTER_VERSION,
+    source: SourceKey::ZCode,
+    profile_version: PROFILE_VERSION,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ZCodeCollector {
@@ -127,31 +139,35 @@ impl Collector for ZCodeCollector {
         let started_at = Utc::now();
         validate_request(&request)?;
         if cancellation.is_cancelled() {
-            return Err(failure(&request, CollectorFailureCode::Cancelled));
+            return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
         if !self.database_path.exists() {
             return empty_result(&request, started, started_at);
         }
 
-        let store = ZCodeStore::open_read_only(&self.database_path)
-            .map_err(|_| failure(&request, missing_or_invalid_code(&self.database_path)))?;
+        let store = ZCodeStore::open_read_only(&self.database_path).map_err(|_| {
+            request_failure(
+                &request,
+                missing_or_invalid_location_code(&self.database_path),
+            )
+        })?;
         let (start_ms, end_ms) = collection_window(&request)?;
         let rows = store
             .read_model_usage_between(start_ms, end_ms)
-            .map_err(|_| failure(&request, CollectorFailureCode::IncompatibleEnvelope))?;
+            .map_err(|_| request_failure(&request, CollectorFailureCode::IncompatibleEnvelope))?;
         if cancellation.is_cancelled() {
-            return Err(failure(&request, CollectorFailureCode::Cancelled));
+            return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
 
         let finished_at = Utc::now();
         let metadata = metadata(&request, started_at, finished_at)?;
         let context = ZCodeMappingContext::new(
-            collector_key()?,
+            collector_key(IDENTITY)?,
             COLLECTOR_VERSION.to_owned(),
             request.collection_id().clone(),
             finished_at,
         )
-        .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
+        .map_err(|_| request_failure(&request, CollectorFailureCode::Internal))?;
         let process_summary = ProcessSummary {
             runtime_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
             stdout_bytes: 0,
@@ -162,10 +178,12 @@ impl Collector for ZCodeCollector {
         match request.projection() {
             CollectionProjection::Daily => {
                 let timezone = request.aggregation_timezone().ok_or_else(|| {
-                    failure(&request, CollectorFailureCode::ScopeNotRepresentable)
+                    request_failure(&request, CollectorFailureCode::ScopeNotRepresentable)
                 })?;
                 let candidates = mapper::map_daily(rows, timezone, request.scope(), &context)
-                    .map_err(|_| failure(&request, CollectorFailureCode::IncompatibleEnvelope))?;
+                    .map_err(|_| {
+                        request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                    })?;
                 CollectionResult::daily(
                     metadata,
                     candidates,
@@ -173,11 +191,12 @@ impl Collector for ZCodeCollector {
                     Vec::new(),
                     process_summary,
                 )
-                .map_err(|_| failure(&request, CollectorFailureCode::Internal))
+                .map_err(|error| validation_failure_as_internal(&request, error))
             }
             CollectionProjection::Session => {
-                let candidates = mapper::map_sessions(rows, &context)
-                    .map_err(|_| failure(&request, CollectorFailureCode::IncompatibleEnvelope))?;
+                let candidates = mapper::map_sessions(rows, &context).map_err(|_| {
+                    request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                })?;
                 CollectionResult::session(
                     metadata,
                     candidates,
@@ -185,7 +204,7 @@ impl Collector for ZCodeCollector {
                     Vec::new(),
                     process_summary,
                 )
-                .map_err(|_| failure(&request, CollectorFailureCode::Internal))
+                .map_err(|error| validation_failure_as_internal(&request, error))
             }
         }
     }
@@ -199,19 +218,27 @@ fn collection_window(request: &CollectionRequest) -> Result<(i64, i64), Collecto
                 .aggregation_timezone()
                 .unwrap_or("UTC")
                 .parse::<Tz>()
-                .map_err(|_| failure(request, CollectorFailureCode::ScopeNotRepresentable))?;
+                .map_err(|_| {
+                    request_failure(request, CollectorFailureCode::ScopeNotRepresentable)
+                })?;
             let start = timezone
                 .from_local_datetime(&scope.start_date().and_time(NaiveTime::MIN))
                 .single()
-                .ok_or_else(|| failure(request, CollectorFailureCode::ScopeNotRepresentable))?;
+                .ok_or_else(|| {
+                    request_failure(request, CollectorFailureCode::ScopeNotRepresentable)
+                })?;
             let end_date = scope
                 .end_date()
                 .checked_add_days(Days::new(1))
-                .ok_or_else(|| failure(request, CollectorFailureCode::ScopeNotRepresentable))?;
+                .ok_or_else(|| {
+                    request_failure(request, CollectorFailureCode::ScopeNotRepresentable)
+                })?;
             let end = timezone
                 .from_local_datetime(&end_date.and_time(NaiveTime::MIN))
                 .single()
-                .ok_or_else(|| failure(request, CollectorFailureCode::ScopeNotRepresentable))?;
+                .ok_or_else(|| {
+                    request_failure(request, CollectorFailureCode::ScopeNotRepresentable)
+                })?;
             Ok((start.timestamp_millis(), end.timestamp_millis()))
         }
     }
@@ -247,7 +274,7 @@ fn empty_result(
             process_summary,
         ),
     }
-    .map_err(|_| failure(request, CollectorFailureCode::Internal))
+    .map_err(|error| validation_failure_as_internal(request, error))
 }
 
 fn metadata(
@@ -257,7 +284,7 @@ fn metadata(
 ) -> Result<CollectionMetadata, CollectorFailure> {
     CollectionMetadata::new(
         request.collection_id().clone(),
-        collector_key()?,
+        collector_key(IDENTITY)?,
         COLLECTOR_VERSION.to_owned(),
         SourceKey::ZCode,
         request.scope().clone(),
@@ -267,52 +294,23 @@ fn metadata(
             finished_at,
         },
     )
-    .map_err(|_| failure(request, CollectorFailureCode::Internal))
+    .map_err(|error| validation_failure_as_internal(request, error))
 }
 
 fn validate_request(request: &CollectionRequest) -> Result<(), CollectorFailure> {
-    if request.source() != SourceKey::ZCode {
-        return Err(failure(request, CollectorFailureCode::UnsupportedSource));
-    }
-    Ok(())
+    validate_source(request, SourceKey::ZCode)
 }
 
 fn descriptor() -> Result<CollectorDescriptor, CollectorFailure> {
-    Ok(CollectorDescriptor {
-        collector: collector_key()?,
-        display_name: DISPLAY_NAME.to_owned(),
-        runtime_version: COLLECTOR_VERSION.to_owned(),
-        expected_version: COLLECTOR_VERSION.to_owned(),
-        adapter_version: ADAPTER_VERSION,
-        binary_target: std::env::consts::OS.to_owned(),
-        integrity: CollectorIntegrity::UnverifiedDevelopment,
-        profiles: vec![ProfileDescriptor {
-            source: SourceKey::ZCode,
-            profile_version: PROFILE_VERSION,
-            supported_projections: supported_projections(),
-        }],
-    })
+    single_source_descriptor(
+        IDENTITY,
+        supported_projections(),
+        CollectorIntegrity::UnverifiedDevelopment,
+    )
 }
 
 fn supported_projections() -> Vec<CollectionProjection> {
-    vec![CollectionProjection::Daily, CollectionProjection::Session]
-}
-
-fn collector_key() -> Result<CollectorKey, CollectorFailure> {
-    CollectorKey::new(COLLECTOR_KEY)
-        .map_err(|_| CollectorFailure::new(CollectorFailureCode::Internal, None, None))
-}
-
-fn missing_or_invalid_code(path: &Path) -> CollectorFailureCode {
-    if path.exists() {
-        CollectorFailureCode::SourceInvalidLocation
-    } else {
-        CollectorFailureCode::SourceNotFound
-    }
-}
-
-fn failure(request: &CollectionRequest, code: CollectorFailureCode) -> CollectorFailure {
-    CollectorFailure::new(code, Some(request.source()), Some(request.projection()))
+    daily_session_projections()
 }
 
 fn issue(code: &str, message: &str) -> DetectionIssue {
