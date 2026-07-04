@@ -5,18 +5,16 @@
 
 mod collectors;
 mod resources;
+mod runtime_events;
 mod settings_runtime;
 mod startup;
 mod tray_runtime;
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use iana_time_zone::GetTimezoneError;
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
-use tauri::{Manager, RunEvent, Runtime, WindowEvent};
+use tauri::{Manager, Runtime, WindowEvent};
 use thiserror::Error;
 
 use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
@@ -26,7 +24,6 @@ use crate::application::diagnostics::DiagnosticsService;
 use crate::application::ports::collector::Collector;
 use crate::application::ports::run_store::RunStoreError;
 use crate::application::ports::window_actions::WindowActions;
-use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
 };
@@ -46,21 +43,6 @@ use crate::platform::lifecycle;
 use crate::platform::single_instance;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{database_path, system_clock, system_timezone, tray, updater};
-
-#[derive(Default)]
-struct ExitGuard {
-    explicit_exit_requested: AtomicBool,
-}
-
-impl ExitGuard {
-    fn request_explicit_exit(&self) {
-        self.explicit_exit_requested.store(true, Ordering::SeqCst);
-    }
-
-    fn allows_exit(&self) -> bool {
-        self.explicit_exit_requested.load(Ordering::SeqCst)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupErrorKind {
@@ -161,56 +143,11 @@ pub(crate) fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    app.run(handle_run_event);
-}
-
-fn handle_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
-    match event {
-        RunEvent::Resumed => {
-            if let Some(coordinator) = app.try_state::<RefreshCoordinator>() {
-                coordinator.request_refresh(RefreshTrigger::Resume);
-            }
-        }
-        RunEvent::MenuEvent(event) => {
-            handle_menu_event(app, &event);
-        }
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
-        RunEvent::TrayIconEvent(event) => {
-            handle_tray_icon_event(app, event);
-        }
-        RunEvent::ExitRequested { api, .. } => {
-            let explicit_exit_requested = app
-                .try_state::<ExitGuard>()
-                .is_some_and(|guard| guard.allows_exit());
-            if !explicit_exit_requested {
-                api.prevent_exit();
-            }
-        }
-        #[cfg(target_os = "macos")]
-        RunEvent::Reopen { .. } => {
-            // Burnly has no main window; re-opening from the Dock reveals the
-            // tray panel, matching the menu-bar interaction model.
-            open_tray_panel(app, None);
-        }
-        _ => {}
-    }
-}
-
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-fn handle_tray_icon_event<R: Runtime>(app: &tauri::AppHandle<R>, event: TrayIconEvent) {
-    if let TrayIconEvent::Click {
-        button: MouseButton::Left,
-        button_state: MouseButtonState::Up,
-        rect,
-        ..
-    } = event
-    {
-        open_tray_panel(app, Some(rect));
-    }
+    app.run(runtime_events::handle_run_event);
 }
 
 fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError> {
-    app.manage(ExitGuard::default());
+    app.manage(runtime_events::ExitGuard::default());
     // Burnly is a menu-bar-first app; keep it out of the macOS Dock and app
     // switcher so the only entry point is the status-bar icon.
     #[cfg(target_os = "macos")]
@@ -327,38 +264,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     Ok(())
 }
 
-fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuEvent) {
-    match tray::TrayAction::from_menu_event(event) {
-        Some(tray::TrayAction::OpenPanel) => {
-            open_tray_panel(app, None);
-        }
-
-        Some(tray::TrayAction::Refresh) => {
-            if let Some(coordinator) = app.try_state::<RefreshCoordinator>() {
-                coordinator.request_refresh(RefreshTrigger::Manual);
-            }
-        }
-        Some(tray::TrayAction::Quit) => {
-            if let Some(exit_guard) = app.try_state::<ExitGuard>() {
-                exit_guard.request_explicit_exit();
-            }
-            app.exit(0);
-        }
-        None => {}
-    }
-}
-
-fn open_tray_panel<R: Runtime>(app: &tauri::AppHandle<R>, anchor: Option<tauri::Rect>) {
-    if let Some(controller) = app.try_state::<tray_runtime::TrayOpenRefreshController>() {
-        controller.request_tray_open_refresh_if_stale();
-    }
-    let result = match anchor {
-        Some(rect) => lifecycle::open_tray_panel_at_rect(app, rect),
-        None => lifecycle::open_tray_panel(app),
-    };
-    let _ = result;
-}
-
 fn automatic_refresh_policy() -> RefreshPolicy {
     RefreshPolicy::enabled_minutes(15)
 }
@@ -427,6 +332,7 @@ mod tests {
     use crate::infrastructure::collectors::cline::ClineCollector;
     use crate::infrastructure::collectors::routed::RoutedCollector;
     use crate::infrastructure::collectors::zcode::ZCodeCollector;
+    use crate::ipc::refresh_event_sink;
 
     use rusqlite::Connection;
     use serde_json::{json, Value};

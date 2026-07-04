@@ -70,7 +70,7 @@ persistence semantics, IPC contracts, or user-visible behavior.
 - [x] Complete chunk 02: resource and collector composition.
 - [x] Complete chunk 03: settings runtime module.
 - [x] Complete chunk 04: tray runtime module.
-- [ ] Complete chunk 05: runtime event module.
+- [x] Complete chunk 05: runtime event module.
 - [ ] Complete chunk 06: setup composition cleanup.
 - [ ] Re-run the full local gate after all chunks are complete.
 - [ ] Update `docs/planning/_WIP/bootstrap-runtime-composition-audit.md` with

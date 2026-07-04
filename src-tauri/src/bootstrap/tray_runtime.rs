@@ -8,6 +8,7 @@ use crate::application::refresh::{
 };
 use crate::application::usage::TraySummaryQuery;
 use crate::ipc::refresh_event_sink;
+use crate::platform::lifecycle;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{system_clock, system_timezone, tray};
 
@@ -65,6 +66,17 @@ pub(super) fn install_tray_invalidation_listener<R: Runtime>(
             ));
         }
     });
+}
+
+pub(super) fn open_tray_panel<R: Runtime>(app: &tauri::AppHandle<R>, anchor: Option<tauri::Rect>) {
+    if let Some(controller) = app.try_state::<TrayOpenRefreshController>() {
+        controller.request_tray_open_refresh_if_stale();
+    }
+    let result = match anchor {
+        Some(rect) => lifecycle::open_tray_panel_at_rect(app, rect),
+        None => lifecycle::open_tray_panel(app),
+    };
+    let _ = result;
 }
 
 pub(super) fn tray_snapshot(

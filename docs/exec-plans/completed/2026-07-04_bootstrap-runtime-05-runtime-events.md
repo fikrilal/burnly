@@ -50,15 +50,15 @@ changing desktop lifecycle behavior.
 
 ## Checklist
 
-- [ ] Create `src-tauri/src/bootstrap/runtime_events.rs`.
-- [ ] Move `ExitGuard` if visibility remains clean.
-- [ ] Move run-event handler.
-- [ ] Move tray icon click handler.
-- [ ] Move menu event handler.
-- [ ] Move tray panel open helper or delegate to tray runtime.
-- [ ] Preserve platform cfg gates.
-- [ ] Run bootstrap/lifecycle tests and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Create `src-tauri/src/bootstrap/runtime_events.rs`.
+- [x] Move `ExitGuard` if visibility remains clean.
+- [x] Move run-event handler.
+- [x] Move tray icon click handler.
+- [x] Move menu event handler.
+- [x] Move tray panel open helper or delegate to tray runtime.
+- [x] Preserve platform cfg gates.
+- [x] Run bootstrap/lifecycle tests and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -90,8 +90,13 @@ changing desktop lifecycle behavior.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml platform::lifecycle::`
+- Outcome: passed; 6 passed, 0 failed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml bootstrap::`
+- Outcome: passed; 23 passed, 0 failed.
+- Command: `pnpm verify:fast`
+- Outcome: passed; existing ESLint warnings and duplication report remain
+  non-fatal.
 
 ## Runtime Evidence
 
