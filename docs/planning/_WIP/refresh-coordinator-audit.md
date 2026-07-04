@@ -4,6 +4,8 @@
 
 Drafted on July 4, 2026.
 
+Implemented on July 4, 2026 through the refresh coordinator execution plans.
+
 This audit focuses on `src-tauri/src/application/refresh/coordinator.rs`.
 
 The goal is to reduce review risk in the refresh pipeline without changing the
@@ -61,6 +63,25 @@ Current refresh application files:
 
 `coordinator.rs` is the clear hotspot. It contains both production orchestration
 and the test harness/fakes that prove its behavior.
+
+Implemented refresh application files after the refactor:
+
+```text
+src-tauri/src/application/refresh/
+  coordinator.rs          # public facade, request submission, worker spawn
+  execution.rs            # refresh execution flow and terminal cleanup
+  target.rs               # supported targets and target-level helpers
+  outcome.rs              # run outcome and failure bookkeeping
+  request_plan.rs         # collection request planning from refresh policy
+  planner.rs              # existing refresh policy planner
+  scheduler.rs            # existing refresh scheduler
+  state.rs                # refresh snapshot/status
+  tests.rs                # coordinator behavior tests and fakes
+```
+
+`coordinator.rs` is now small enough to review facade behavior without scrolling
+through execution internals or fakes. The static target list and execution
+terminalization are reviewable in their owning modules.
 
 ## Current Responsibility Map
 
@@ -256,6 +277,11 @@ src-tauri/src/application/refresh/
 This is a suggested end state, not a mandate. If implementation shows that
 `hooks.rs` is too small to justify a file, it can stay in `coordinator.rs`.
 
+Implementation decision: `RefreshEventSink`, `BudgetEvaluationRunner`, and
+`RefreshCoordinatorHooks` stayed in `coordinator.rs`. They are part of the
+coordinator facade surface and did not justify a separate `hooks.rs` module
+after execution and tests moved out.
+
 ## Recommended Execution Chunks
 
 ### Chunk 1: Move Outcome And Target Helpers
@@ -331,6 +357,12 @@ Scope:
 Why last:
 
 - Harness rules should encode proven patterns, not speculative structure.
+
+Result:
+
+- No new architecture harness rule was added. Chunks 1-4 did not reveal a
+  repeated boundary mistake worth encoding. The only notable compile fallout was
+  normal test import cleanup after moving the test module.
 
 ## Risks
 

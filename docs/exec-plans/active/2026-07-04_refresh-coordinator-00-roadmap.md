@@ -63,9 +63,9 @@ contracts.
 - [x] Complete chunk 02: request planning extraction.
 - [x] Complete chunk 03: execution flow extraction.
 - [x] Complete chunk 04: tests and fakes relocation.
-- [ ] Complete chunk 05: optional harness guardrails.
-- [ ] Re-run the full local gate after all chunks are complete.
-- [ ] Update `docs/planning/_WIP/refresh-coordinator-audit.md` with important
+- [x] Complete chunk 05: optional harness guardrails.
+- [x] Re-run the full local gate after all chunks are complete.
+- [x] Update `docs/planning/_WIP/refresh-coordinator-audit.md` with important
       implementation decisions or deviations.
 
 ## Test Plan
@@ -117,8 +117,8 @@ contracts.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `pnpm verify`
+- Outcome: passed after all five chunks.
 
 ## Runtime Evidence
 

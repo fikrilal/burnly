@@ -45,14 +45,14 @@ if the implementation reveals a repeatable boundary mistake worth encoding.
 
 ## Checklist
 
-- [ ] Review chunks 01-04 implementation notes for repeated boundary mistakes.
-- [ ] Decide whether a harness guardrail is justified.
-- [ ] If justified, add the smallest architecture harness rule.
-- [ ] Add self-test coverage for pass and fail cases.
-- [ ] Update harness engineering docs if a new rule is added.
-- [ ] Run architecture self-test and architecture check.
-- [ ] Run fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Review chunks 01-04 implementation notes for repeated boundary mistakes.
+- [x] Decide whether a harness guardrail is justified.
+- [x] If justified, add the smallest architecture harness rule. Not needed.
+- [x] Add self-test coverage for pass and fail cases. Not needed.
+- [x] Update harness engineering docs if a new rule is added. Not needed.
+- [x] Run architecture self-test and architecture check.
+- [x] Run fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -80,11 +80,23 @@ if the implementation reveals a repeatable boundary mistake worth encoding.
 - Do not add speculative harness rules.
 - It is acceptable for this chunk to complete as "no code change" if the
   refactor does not reveal a repeatable mistake.
+- No new harness rule is justified for this refactor. Chunks 1-4 did not reveal
+  a repeated architecture-boundary mistake. The only correction needed during
+  test relocation was explicit test imports after removing `use super::*`.
+- `RefreshEventSink`, `BudgetEvaluationRunner`, and `RefreshCoordinatorHooks`
+  remain in `coordinator.rs` because they are part of the coordinator facade
+  surface and do not currently justify a separate `hooks.rs` module.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `pnpm architecture:test`
+- Outcome: passed.
+- Command: `pnpm architecture:check`
+- Outcome: passed.
+- Command: `pnpm verify:fast`
+- Outcome: passed; ESLint warnings and duplication report remain non-fatal.
+- Command: `pnpm verify`
+- Outcome: passed; ESLint warnings and duplication report remain non-fatal.
 
 ## Runtime Evidence
 
