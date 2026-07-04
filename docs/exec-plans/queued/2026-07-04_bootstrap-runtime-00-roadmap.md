@@ -67,7 +67,7 @@ persistence semantics, IPC contracts, or user-visible behavior.
 ## Checklist
 
 - [x] Complete chunk 01: startup persistence module.
-- [ ] Complete chunk 02: resource and collector composition.
+- [x] Complete chunk 02: resource and collector composition.
 - [ ] Complete chunk 03: settings runtime module.
 - [ ] Complete chunk 04: tray runtime module.
 - [ ] Complete chunk 05: runtime event module.

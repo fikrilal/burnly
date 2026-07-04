@@ -51,15 +51,15 @@ routing and resource lookup behavior.
 
 ## Checklist
 
-- [ ] Create `src-tauri/src/bootstrap/resources.rs`.
-- [ ] Move packaged resource resolution helpers.
-- [ ] Move default Cline/ZCode data-dir resolution helpers.
-- [ ] Add or move resource resolver tests.
-- [ ] Add a bootstrap-owned collector builder.
-- [ ] Keep diagnostic recorder wiring for native collectors.
-- [ ] Update refresh coordinator construction to accept built collector graph.
-- [ ] Run packaged resource, routed collector, bootstrap, and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Create `src-tauri/src/bootstrap/resources.rs`.
+- [x] Move packaged resource resolution helpers.
+- [x] Move default Cline/ZCode data-dir resolution helpers.
+- [x] Add or move resource resolver tests.
+- [x] Add a bootstrap-owned collector builder.
+- [x] Keep diagnostic recorder wiring for native collectors.
+- [x] Update refresh coordinator construction to accept built collector graph.
+- [x] Run packaged resource, routed collector, bootstrap, and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -93,8 +93,13 @@ routing and resource lookup behavior.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml bootstrap::`
+- Outcome: passed; 23 passed, 0 failed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::routed::`
+- Outcome: passed; 2 passed, 0 failed.
+- Command: `pnpm verify:fast`
+- Outcome: passed; existing ESLint warnings and duplication report remain
+  non-fatal.
 
 ## Runtime Evidence
 

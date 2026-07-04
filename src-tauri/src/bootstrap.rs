@@ -3,9 +3,11 @@
 //! This module selects concrete infrastructure and platform integrations. Other
 //! modules receive constructed dependencies instead of constructing their own.
 
+mod collectors;
+mod resources;
 mod startup;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -35,11 +37,6 @@ use crate::application::update::UnavailableUpdateRuntime;
 use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
-use crate::infrastructure::collectors::antigravity::AntigravityCollector;
-use crate::infrastructure::collectors::ccusage::CcusageCollector;
-use crate::infrastructure::collectors::cline::ClineCollector;
-use crate::infrastructure::collectors::routed::RoutedCollector;
-use crate::infrastructure::collectors::zcode::ZCodeCollector;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBootstrapStore, SqliteDiagnosticStore,
     SqliteReconciliationStore, SqliteSettingsStore, SqliteTraySummaryStore,
@@ -468,33 +465,7 @@ fn build_refresh_coordinator<R: Runtime>(
         .path()
         .resource_dir()
         .map_err(StartupError::ResourceDir)?;
-    let packaged_resource_directory = resolve_packaged_resource_directory(resource_directory);
-    let ccusage_collector = Arc::new(
-        match std::env::var_os("BURNLY_CCUSAGE_DEV_BINARY") {
-            Some(binary) => CcusageCollector::development(binary),
-            None => CcusageCollector::packaged(packaged_resource_directory),
-        }
-        .map_err(StartupError::Collector)?,
-    );
-    let diagnostics_database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let diagnostic_recorder = Arc::new(SqliteDiagnosticStore::new(diagnostics_database));
-    let cline_collector = Arc::new(
-        ClineCollector::from_data_dir(default_cline_data_dir())
-            .with_diagnostic_recorder(diagnostic_recorder.clone()),
-    );
-    let zcode_collector = Arc::new(
-        ZCodeCollector::from_data_dir(default_zcode_data_dir())
-            .with_diagnostic_recorder(diagnostic_recorder.clone()),
-    );
-    let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(
-        diagnostic_recorder,
-    ));
-    let collector = Arc::new(RoutedCollector::new(
-        ccusage_collector,
-        cline_collector,
-        zcode_collector,
-        antigravity_collector,
-    ));
+    let collector = collectors::build_collector_graph(resource_directory, database_path)?;
 
     compose_refresh_coordinator(
         database_path,
@@ -502,70 +473,6 @@ fn build_refresh_coordinator<R: Runtime>(
         refresh_event_sink,
         reporting_timezone,
     )
-}
-
-fn default_cline_data_dir() -> PathBuf {
-    std::env::var_os("CLINE_DATA_DIR")
-        .map(PathBuf::from)
-        .or_else(|| default_home_data_dir(".cline"))
-        .unwrap_or_else(|| PathBuf::from(".cline"))
-}
-
-fn default_zcode_data_dir() -> PathBuf {
-    std::env::var_os("ZCODE_DATA_DIR")
-        .map(PathBuf::from)
-        .or_else(|| default_home_data_dir(".zcode"))
-        .unwrap_or_else(|| PathBuf::from(".zcode"))
-}
-
-fn default_home_data_dir(name: &str) -> Option<PathBuf> {
-    home_data_dir(
-        std::env::var_os("HOME").map(PathBuf::from),
-        std::env::var_os("USERPROFILE").map(PathBuf::from),
-        name,
-    )
-}
-
-fn home_data_dir(
-    home: Option<PathBuf>,
-    userprofile: Option<PathBuf>,
-    name: &str,
-) -> Option<PathBuf> {
-    home.or(userprofile).map(|directory| directory.join(name))
-}
-
-fn resolve_packaged_resource_directory(resource_directory: PathBuf) -> PathBuf {
-    let appdir = std::env::var_os("APPDIR").map(PathBuf::from);
-    resolve_packaged_resource_directory_for_appdir(resource_directory, appdir.as_deref())
-}
-
-fn resolve_packaged_resource_directory_for_appdir(
-    resource_directory: PathBuf,
-    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] appdir: Option<&Path>,
-) -> PathBuf {
-    if packaged_sidecar_manifest_exists(&resource_directory) {
-        return resource_directory;
-    }
-
-    #[cfg(target_os = "linux")]
-    if let Some(appdir) = appdir {
-        let product_resource_directory = appdir.join("usr").join("lib").join("Burnly");
-        if product_resource_directory != resource_directory
-            && packaged_sidecar_manifest_exists(&product_resource_directory)
-        {
-            return product_resource_directory;
-        }
-    }
-
-    resource_directory
-}
-
-fn packaged_sidecar_manifest_exists(resource_directory: &Path) -> bool {
-    resource_directory
-        .join("sidecars")
-        .join("ccusage")
-        .join("manifest.json")
-        .is_file()
 }
 
 fn compose_refresh_coordinator(
@@ -782,11 +689,18 @@ fn tray_open_refresh_decision(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::application::bootstrap::{
         BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
     };
     use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
     use crate::domain::settings::{Settings, SettingsDocument};
+    use crate::infrastructure::collectors::antigravity::AntigravityCollector;
+    use crate::infrastructure::collectors::ccusage::CcusageCollector;
+    use crate::infrastructure::collectors::cline::ClineCollector;
+    use crate::infrastructure::collectors::routed::RoutedCollector;
+    use crate::infrastructure::collectors::zcode::ZCodeCollector;
 
     use rusqlite::Connection;
     use serde_json::{json, Value};
@@ -880,7 +794,7 @@ mod tests {
     #[test]
     fn home_data_dir_prefers_home_when_available() {
         assert_eq!(
-            home_data_dir(
+            resources::home_data_dir(
                 Some(PathBuf::from("/home/dante")),
                 Some(PathBuf::from("C:/Users/fikrilal")),
                 ".zcode",
@@ -892,7 +806,7 @@ mod tests {
     #[test]
     fn home_data_dir_falls_back_to_userprofile_on_windows() {
         assert_eq!(
-            home_data_dir(None, Some(PathBuf::from("C:/Users/fikrilal")), ".cline"),
+            resources::home_data_dir(None, Some(PathBuf::from("C:/Users/fikrilal")), ".cline"),
             Some(PathBuf::from("C:/Users/fikrilal").join(".cline"))
         );
     }
@@ -903,8 +817,10 @@ mod tests {
         let resource_directory = workspace.path().join("usr").join("lib").join("burnly");
         write_packaged_sidecar_manifest(&resource_directory);
 
-        let resolved =
-            resolve_packaged_resource_directory_for_appdir(resource_directory.clone(), None);
+        let resolved = resources::resolve_packaged_resource_directory_for_appdir(
+            resource_directory.clone(),
+            None,
+        );
 
         assert_eq!(resolved, resource_directory);
     }
@@ -918,8 +834,10 @@ mod tests {
         let product_resource_directory = appdir.join("usr").join("lib").join("Burnly");
         write_packaged_sidecar_manifest(&product_resource_directory);
 
-        let resolved =
-            resolve_packaged_resource_directory_for_appdir(tauri_resource_directory, Some(&appdir));
+        let resolved = resources::resolve_packaged_resource_directory_for_appdir(
+            tauri_resource_directory,
+            Some(&appdir),
+        );
 
         assert_eq!(resolved, product_resource_directory);
     }
