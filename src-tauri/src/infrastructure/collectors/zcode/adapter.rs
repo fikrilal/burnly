@@ -1,22 +1,22 @@
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
-use chrono::{DateTime, Days, NaiveTime, TimeZone, Utc};
+use chrono::{Days, NaiveTime, TimeZone, Utc};
 use chrono_tz::Tz;
 
 use crate::application::collection::{
-    CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
-    CollectionResult, CollectionScope, CollectorDescriptor, CollectorFailure, CollectorFailureCode,
-    CollectorIntegrity, DetectionRequest, DetectionResult, ProcessSummary,
+    CollectionProjection, CollectionRequest, CollectionResult, CollectionScope,
+    CollectorDescriptor, CollectorFailure, CollectorFailureCode, CollectorIntegrity,
+    DetectionRequest, DetectionResult,
 };
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
 use super::super::support::{
-    available_detection, cancelled_detection, collector_key, daily_session_projections,
-    detection_issue, invalid_configuration_detection, missing_or_invalid_location_code,
-    not_found_detection, request_failure, single_source_descriptor, unsupported_detection,
-    validate_source, validation_failure_as_internal, CollectorIdentity,
+    available_detection, cancelled_detection, collection_metadata, collector_key,
+    daily_session_projections, detection_issue, empty_collection_result,
+    invalid_configuration_detection, missing_or_invalid_location_code, not_found_detection,
+    request_failure, single_source_descriptor, unsupported_detection, validate_source,
+    validation_failure_as_internal, CollectorIdentity, LocalCollectionRun,
 };
 use super::mapper::{self, ZCodeMappingContext};
 use super::ZCodeStore;
@@ -110,14 +110,13 @@ impl Collector for ZCodeCollector {
         request: CollectionRequest,
         cancellation: &dyn CancellationSignal,
     ) -> Result<CollectionResult, CollectorFailure> {
-        let started = Instant::now();
-        let started_at = Utc::now();
+        let run = LocalCollectionRun::start();
         validate_request(&request)?;
         if cancellation.is_cancelled() {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
         if !self.database_path.exists() {
-            return empty_result(&request, started, started_at);
+            return empty_collection_result(IDENTITY, &request, &run);
         }
 
         let store = ZCodeStore::open_read_only(&self.database_path).map_err(|_| {
@@ -135,7 +134,7 @@ impl Collector for ZCodeCollector {
         }
 
         let finished_at = Utc::now();
-        let metadata = metadata(&request, started_at, finished_at)?;
+        let metadata = collection_metadata(IDENTITY, &request, run.started_at(), finished_at)?;
         let context = ZCodeMappingContext::new(
             collector_key(IDENTITY)?,
             COLLECTOR_VERSION.to_owned(),
@@ -143,12 +142,7 @@ impl Collector for ZCodeCollector {
             finished_at,
         )
         .map_err(|_| request_failure(&request, CollectorFailureCode::Internal))?;
-        let process_summary = ProcessSummary {
-            runtime_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
-            stdout_bytes: 0,
-            stderr_bytes: 0,
-            exit_code: None,
-        };
+        let process_summary = run.process_summary();
 
         match request.projection() {
             CollectionProjection::Daily => {
@@ -219,59 +213,6 @@ fn collection_window(request: &CollectionRequest) -> Result<(i64, i64), Collecto
     }
 }
 
-fn empty_result(
-    request: &CollectionRequest,
-    started: Instant,
-    started_at: DateTime<Utc>,
-) -> Result<CollectionResult, CollectorFailure> {
-    let finished_at = Utc::now();
-    let metadata = metadata(request, started_at, finished_at)?;
-    let process_summary = ProcessSummary {
-        runtime_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
-        stdout_bytes: 0,
-        stderr_bytes: 0,
-        exit_code: None,
-    };
-
-    match request.projection() {
-        CollectionProjection::Daily => CollectionResult::daily(
-            metadata,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            process_summary,
-        ),
-        CollectionProjection::Session => CollectionResult::session(
-            metadata,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            process_summary,
-        ),
-    }
-    .map_err(|error| validation_failure_as_internal(request, error))
-}
-
-fn metadata(
-    request: &CollectionRequest,
-    started_at: DateTime<Utc>,
-    finished_at: DateTime<Utc>,
-) -> Result<CollectionMetadata, CollectorFailure> {
-    CollectionMetadata::new(
-        request.collection_id().clone(),
-        collector_key(IDENTITY)?,
-        COLLECTOR_VERSION.to_owned(),
-        SourceKey::ZCode,
-        request.scope().clone(),
-        PROFILE_VERSION,
-        CollectionPeriod {
-            started_at,
-            finished_at,
-        },
-    )
-    .map_err(|error| validation_failure_as_internal(request, error))
-}
-
 fn validate_request(request: &CollectionRequest) -> Result<(), CollectorFailure> {
     validate_source(request, SourceKey::ZCode)
 }
@@ -290,7 +231,7 @@ fn supported_projections() -> Vec<CollectionProjection> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{NaiveDate, TimeZone};
+    use chrono::{DateTime, NaiveDate, TimeZone};
     use rusqlite::Connection;
     use tempfile::NamedTempFile;
 

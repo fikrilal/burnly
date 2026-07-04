@@ -46,17 +46,17 @@ first.
 
 ## Checklist
 
-- [ ] Add `support/run.rs`.
-- [ ] Add collection timer type or functions.
-- [ ] Add local zero-output `ProcessSummary` helper.
-- [ ] Add metadata helper from collector identity and request.
-- [ ] Add empty result helper for daily/session projection.
-- [ ] Add focused support unit tests.
-- [ ] Adopt in ZCode adapter.
-- [ ] Adopt in Cline adapter.
-- [ ] Evaluate Antigravity adoption and adopt only if it stays clear.
-- [ ] Run focused collector tests and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Add `support/run.rs`.
+- [x] Add collection timer type or functions.
+- [x] Add local zero-output `ProcessSummary` helper.
+- [x] Add metadata helper from collector identity and request.
+- [x] Add empty result helper for daily/session projection.
+- [x] Add focused support unit tests.
+- [x] Adopt in ZCode adapter.
+- [x] Adopt in Cline adapter.
+- [x] Evaluate Antigravity adoption and adopt only if it stays clear.
+- [x] Run focused collector tests and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -92,8 +92,19 @@ first.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::support::`
+- Outcome: passed; 13 passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::cline::`
+- Outcome: passed; 12 passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::zcode::`
+- Outcome: passed; 17 passed.
+- Command: `pnpm rust:test`
+- Outcome: passed; 351 passed, 1 ignored.
+- Command: `pnpm verify:fast`
+- Outcome: passed; lint emitted existing warnings only.
 
 ## Runtime Evidence
 

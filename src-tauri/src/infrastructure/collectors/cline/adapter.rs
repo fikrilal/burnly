@@ -1,23 +1,22 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 use chrono::Utc;
 
 use crate::application::collection::{
-    CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
-    CollectionResult, CollectorDescriptor, CollectorFailure, CollectorFailureCode,
-    CollectorIntegrity, DetectionRequest, DetectionResult, ProcessSummary, RejectedRecord,
+    CollectionProjection, CollectionRequest, CollectionResult, CollectorDescriptor,
+    CollectorFailure, CollectorFailureCode, CollectorIntegrity, DetectionRequest, DetectionResult,
+    RejectedRecord,
 };
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
 use super::super::support::{
-    available_detection, cancelled_detection, collector_key, daily_session_projections,
-    detection_issue, invalid_configuration_detection, missing_or_invalid_location_code,
-    not_found_detection, request_failure, single_source_descriptor, unsupported_detection,
-    validate_source, validation_failure_as_internal, validation_failure_preserving_all_rejected,
-    CollectorIdentity,
+    available_detection, cancelled_detection, collection_metadata, collector_key,
+    daily_session_projections, detection_issue, empty_collection_result,
+    invalid_configuration_detection, missing_or_invalid_location_code, not_found_detection,
+    request_failure, single_source_descriptor, unsupported_detection, validate_source,
+    validation_failure_preserving_all_rejected, CollectorIdentity, LocalCollectionRun,
 };
 use super::mapper::{self, ClineMappingContext, ClineSessionMessages};
 use super::{decode_messages, ClineStore};
@@ -117,14 +116,13 @@ impl Collector for ClineCollector {
         request: CollectionRequest,
         cancellation: &dyn CancellationSignal,
     ) -> Result<CollectionResult, CollectorFailure> {
-        let started = Instant::now();
-        let started_at = Utc::now();
+        let run = LocalCollectionRun::start();
         validate_request(&request)?;
         if cancellation.is_cancelled() {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
         if !self.database_path.exists() {
-            return empty_result(&request, started, started_at);
+            return empty_collection_result(IDENTITY, &request, &run);
         }
 
         let store = ClineStore::open_read_only(&self.database_path).map_err(|_| {
@@ -142,19 +140,7 @@ impl Collector for ClineCollector {
         }
 
         let finished_at = Utc::now();
-        let metadata = CollectionMetadata::new(
-            request.collection_id().clone(),
-            collector_key(IDENTITY)?,
-            COLLECTOR_VERSION.to_owned(),
-            SourceKey::Cline,
-            request.scope().clone(),
-            PROFILE_VERSION,
-            CollectionPeriod {
-                started_at,
-                finished_at,
-            },
-        )
-        .map_err(|error| validation_failure_as_internal(&request, error))?;
+        let metadata = collection_metadata(IDENTITY, &request, run.started_at(), finished_at)?;
         let context = ClineMappingContext::new(
             collector_key(IDENTITY)?,
             COLLECTOR_VERSION.to_owned(),
@@ -162,12 +148,7 @@ impl Collector for ClineCollector {
             finished_at,
         )
         .map_err(|_| request_failure(&request, CollectorFailureCode::Internal))?;
-        let process_summary = ProcessSummary {
-            runtime_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
-            stdout_bytes: 0,
-            stderr_bytes: 0,
-            exit_code: None,
-        };
+        let process_summary = run.process_summary();
 
         match request.projection() {
             CollectionProjection::Daily => {
@@ -202,51 +183,6 @@ impl Collector for ClineCollector {
             }
         }
     }
-}
-
-fn empty_result(
-    request: &CollectionRequest,
-    started: Instant,
-    started_at: chrono::DateTime<Utc>,
-) -> Result<CollectionResult, CollectorFailure> {
-    let finished_at = Utc::now();
-    let metadata = CollectionMetadata::new(
-        request.collection_id().clone(),
-        collector_key(IDENTITY)?,
-        COLLECTOR_VERSION.to_owned(),
-        SourceKey::Cline,
-        request.scope().clone(),
-        PROFILE_VERSION,
-        CollectionPeriod {
-            started_at,
-            finished_at,
-        },
-    )
-    .map_err(|error| validation_failure_as_internal(request, error))?;
-    let process_summary = ProcessSummary {
-        runtime_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
-        stdout_bytes: 0,
-        stderr_bytes: 0,
-        exit_code: None,
-    };
-
-    match request.projection() {
-        CollectionProjection::Daily => CollectionResult::daily(
-            metadata,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            process_summary,
-        ),
-        CollectionProjection::Session => CollectionResult::session(
-            metadata,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            process_summary,
-        ),
-    }
-    .map_err(|error| validation_failure_as_internal(request, error))
 }
 
 fn load_session_messages(
