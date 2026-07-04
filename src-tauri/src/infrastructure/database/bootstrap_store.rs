@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use crate::application::bootstrap::{BootstrapError, BootstrapStorage, BootstrapStore};
 
-use super::database::{Database, PersistenceError};
+use super::{Database, PersistenceError};
 
 pub(crate) struct SqliteBootstrapStore {
     database: Mutex<Database>,

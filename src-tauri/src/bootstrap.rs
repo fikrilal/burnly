@@ -37,18 +37,15 @@ use crate::application::update::UnavailableUpdateRuntime;
 use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::{CloseBehavior, Settings};
-use crate::infrastructure::bootstrap_store::SqliteBootstrapStore;
 use crate::infrastructure::collectors::antigravity::AntigravityCollector;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
 use crate::infrastructure::collectors::routed::RoutedCollector;
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
 use crate::infrastructure::database::{
-    Database, PersistenceError, PersistenceErrorKind, SqliteReconciliationStore,
-    SqliteTraySummaryStore,
+    Database, PersistenceError, PersistenceErrorKind, SqliteBootstrapStore, SqliteDiagnosticStore,
+    SqliteReconciliationStore, SqliteSettingsStore, SqliteTraySummaryStore,
 };
-use crate::infrastructure::diagnostics_store::SqliteDiagnosticStore;
-use crate::infrastructure::settings_store::SqliteSettingsStore;
 use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle;

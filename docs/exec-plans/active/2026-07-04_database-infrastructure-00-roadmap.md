@@ -52,7 +52,7 @@ behavior, schema semantics, or application-visible contracts.
 ## Checklist
 
 - [x] Complete chunk 01: connection module split.
-- [ ] Complete chunk 02: SQLite store placement.
+- [x] Complete chunk 02: SQLite store placement.
 - [ ] Complete chunk 03: reconciliation module split.
 - [ ] Complete chunk 04: database architecture harness checks.
 - [ ] Re-run the full local gate after all chunks are complete.

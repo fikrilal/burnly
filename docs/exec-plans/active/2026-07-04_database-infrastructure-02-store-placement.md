@@ -47,15 +47,15 @@ so database ownership is explicit and consistent.
 
 ## Checklist
 
-- [ ] Move `bootstrap_store.rs` to `database/bootstrap_store.rs`.
-- [ ] Move `settings_store.rs` to `database/settings_store.rs`.
-- [ ] Move `diagnostics_store.rs` to `database/diagnostics_store.rs`.
-- [ ] Update module declarations and re-exports.
-- [ ] Update imports in bootstrap/tests.
-- [ ] Keep `ProjectPathIdentity` in `infrastructure/project_identity.rs`
+- [x] Move `bootstrap_store.rs` to `database/bootstrap_store.rs`.
+- [x] Move `settings_store.rs` to `database/settings_store.rs`.
+- [x] Move `diagnostics_store.rs` to `database/diagnostics_store.rs`.
+- [x] Update module declarations and re-exports.
+- [x] Update imports in bootstrap/tests.
+- [x] Keep `ProjectPathIdentity` in `infrastructure/project_identity.rs`
       unless there is a concrete reason to move it.
-- [ ] Run focused Rust formatting and tests.
-- [ ] Record verification outcomes before completing the plan.
+- [x] Run focused Rust formatting and tests.
+- [x] Record verification outcomes before completing the plan.
 
 ## Test Plan
 
@@ -82,15 +82,35 @@ so database ownership is explicit and consistent.
 ## Decisions
 
 - This chunk is a move-only refactor. Do not split store internals here.
+- `super::database::{Database, PersistenceError}` imports in the moved stores
+  changed to `super::{Database, PersistenceError}` since the stores are now
+  descendants of `database/`, where `Database` and `PersistenceError` are
+  re-exported.
+- `settings_store.rs` `super::project_identity::ProjectPathIdentity` changed to
+  `crate::infrastructure::project_identity::ProjectPathIdentity` since
+  `project_identity` is now a sibling of `database/`, not a sibling of the store.
+  This matches the pattern already used by `reconciliation_store.rs`.
+- `bootstrap.rs` imports consolidated: the three separate store import lines
+  (`bootstrap_store`, `diagnostics_store`, `settings_store`) merged into the
+  existing `crate::infrastructure::database::{...}` use block.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- `pnpm rust:fmt` — passed (exit 0)
+- `pnpm rust:check` — passed (exit 0)
+- `pnpm rust:test` — 323 passed, 0 failed, 1 ignored
+- `pnpm rust:clippy` — passed, no warnings (`-D warnings`)
+- `pnpm architecture:check` — passed
+- `pnpm architecture:test` — passed (self-test)
+- `pnpm migrations:check` — passed
+- `pnpm contracts:check` — passed
+- `pnpm public-api:check` — passed
+- `pnpm format:check` — passed
+- `pnpm verify:fast` — passed (exit 0, all sub-checks green)
 
 ## Runtime Evidence
 
-- Not required yet.
+- Not required.
 
 ## Follow-Up Debt
 

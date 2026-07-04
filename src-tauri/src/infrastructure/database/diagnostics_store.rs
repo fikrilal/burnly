@@ -19,7 +19,7 @@ use crate::application::diagnostics::{
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::application::ports::diagnostics_report_store::DiagnosticsReportStore;
 
-use super::database::{Database, PersistenceError};
+use super::{Database, PersistenceError};
 
 const MAX_DIAGNOSTIC_EVENTS: i64 = 500;
 const DIAGNOSTIC_EVENT_RETENTION_MS: i64 = 14 * 24 * 60 * 60 * 1_000;

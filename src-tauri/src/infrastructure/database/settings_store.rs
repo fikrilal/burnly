@@ -5,8 +5,8 @@ use rusqlite::{params, Transaction};
 use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
 use crate::domain::settings::{Settings, SettingsDocument};
 
-use super::database::Database;
-use super::project_identity::ProjectPathIdentity;
+use super::Database;
+use crate::infrastructure::project_identity::ProjectPathIdentity;
 
 pub(crate) struct SqliteSettingsStore {
     database: Mutex<Database>,
