@@ -3,6 +3,8 @@
 //! This module selects concrete infrastructure and platform integrations. Other
 //! modules receive constructed dependencies instead of constructing their own.
 
+mod startup;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,12 +20,8 @@ use crate::application::bootstrap::{
 };
 
 use crate::application::collection::CollectorFailure;
-use crate::application::diagnostics::{
-    DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
-    DiagnosticSummary, DiagnosticsService,
-};
+use crate::application::diagnostics::DiagnosticsService;
 use crate::application::ports::collector::Collector;
-use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::application::ports::run_store::RunStoreError;
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
@@ -228,8 +226,9 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let database_path = database_path::resolve(app.handle()).map_err(StartupError::DatabasePath)?;
     let reporting_timezone = system_timezone::resolve().map_err(StartupError::Timezone)?;
     let created_at_ms = system_clock::now_epoch_ms().map_err(StartupError::Clock)?;
-    let database = initialize(&database_path, &reporting_timezone, created_at_ms)?;
-    recover_interrupted_runs(&database_path, created_at_ms)?;
+    let database =
+        startup::initialize_database(&database_path, &reporting_timezone, created_at_ms)?;
+    startup::recover_interrupted_runs(&database_path, created_at_ms)?;
     let (launch_at_login, close_behavior) = database
         .read_settings()
         .map_err(StartupError::Persistence)?;
@@ -781,91 +780,6 @@ fn tray_open_refresh_decision(
     TrayOpenRefreshDecision::Request
 }
 
-fn initialize(
-    database_path: &Path,
-    reporting_timezone: &str,
-    created_at_ms: i64,
-) -> Result<Database, StartupError> {
-    let mut database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    if database
-        .needs_migration()
-        .map_err(StartupError::Persistence)?
-    {
-        database
-            .create_verified_migration_backup(database_path)
-            .map_err(StartupError::Persistence)?;
-    }
-    database
-        .migrate_to_latest()
-        .map_err(StartupError::Persistence)?;
-    database
-        .verify_health()
-        .map_err(StartupError::Persistence)?;
-    database
-        .ensure_app_settings(reporting_timezone, created_at_ms)
-        .map_err(StartupError::Persistence)?;
-
-    Ok(database)
-}
-
-fn recover_interrupted_runs(database_path: &Path, now_ms: i64) -> Result<(), StartupError> {
-    let database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let recovery = SqliteReconciliationStore::new(database)
-        .recover_interrupted_runs(now_ms)
-        .map_err(StartupError::RunRecovery)?;
-    record_recovery_diagnostic(
-        database_path,
-        now_ms,
-        recovery.refresh_runs,
-        recovery.import_runs,
-    );
-
-    Ok(())
-}
-
-fn record_recovery_diagnostic(
-    database_path: &Path,
-    now_ms: i64,
-    refresh_runs: usize,
-    import_runs: usize,
-) {
-    if refresh_runs == 0 && import_runs == 0 {
-        return;
-    }
-
-    let Ok(database) = Database::open(database_path) else {
-        return;
-    };
-    let Ok(code) = DiagnosticCode::new("refresh.interrupted_recovered") else {
-        return;
-    };
-    let Ok(summary) = DiagnosticSummary::new("Recovered interrupted refresh state at startup.")
-    else {
-        return;
-    };
-    let Ok(context) = DiagnosticContext::new(
-        serde_json::json!({
-            "refreshRuns": refresh_runs,
-            "importRuns": import_runs
-        })
-        .to_string(),
-    ) else {
-        return;
-    };
-    let Ok(event) = DiagnosticEvent::new(
-        DiagnosticArea::Refresh,
-        DiagnosticSeverity::Warning,
-        code,
-        summary,
-        Some(context),
-        now_ms,
-    ) else {
-        return;
-    };
-
-    SqliteDiagnosticStore::new(database).record(event);
-}
-
 #[cfg(test)]
 mod tests {
     use crate::application::bootstrap::{
@@ -1046,7 +960,10 @@ mod tests {
         let directory = tempfile::TempDir::new().expect("create app data directory");
         let database_path = directory.path().join("nested").join("burnly.sqlite3");
 
-        drop(initialize(&database_path, "Asia/Jakarta", 100).expect("initialize application"));
+        drop(
+            startup::initialize_database(&database_path, "Asia/Jakarta", 100)
+                .expect("initialize application"),
+        );
 
         let connection = Connection::open(database_path).expect("reopen database");
         assert_eq!(pragma_i64(&connection, "user_version"), 4);
@@ -1063,8 +980,11 @@ mod tests {
         let directory = tempfile::TempDir::new().expect("create app data directory");
         let database_path = directory.path().join("burnly.sqlite3");
 
-        drop(initialize(&database_path, "UTC", 100).expect("first startup"));
-        drop(initialize(&database_path, "Asia/Jakarta", 200).expect("second startup"));
+        drop(startup::initialize_database(&database_path, "UTC", 100).expect("first startup"));
+        drop(
+            startup::initialize_database(&database_path, "Asia/Jakarta", 200)
+                .expect("second startup"),
+        );
 
         let connection = Connection::open(database_path).expect("reopen database");
         assert_eq!(settings_count(&connection), 1);
@@ -1077,7 +997,10 @@ mod tests {
         let directory = tempfile::TempDir::new().expect("create app data directory");
         let database_path = directory.path().join("burnly.sqlite3");
 
-        drop(initialize(&database_path, "UTC", 100).expect("initialize application"));
+        drop(
+            startup::initialize_database(&database_path, "UTC", 100)
+                .expect("initialize application"),
+        );
         let connection = Connection::open(&database_path).expect("open database");
         connection
             .execute(
@@ -1111,7 +1034,7 @@ mod tests {
             .expect("insert import run");
         drop(connection);
 
-        recover_interrupted_runs(&database_path, 200).expect("recover interrupted runs");
+        startup::recover_interrupted_runs(&database_path, 200).expect("recover interrupted runs");
 
         let connection = Connection::open(database_path).expect("reopen database");
         let refresh: (String, Option<i64>, Option<String>) = connection
@@ -1175,7 +1098,7 @@ mod tests {
         drop(connection);
 
         let error = expect_startup_error(
-            initialize(&database_path, "UTC", 100),
+            startup::initialize_database(&database_path, "UTC", 100),
             "newer schema must prevent startup",
         );
 
@@ -1191,7 +1114,7 @@ mod tests {
     fn foreign_key_violation_prevents_startup() {
         let directory = tempfile::TempDir::new().expect("create app data directory");
         let database_path = directory.path().join("burnly.sqlite3");
-        drop(initialize(&database_path, "UTC", 100).expect("initial startup"));
+        drop(startup::initialize_database(&database_path, "UTC", 100).expect("initial startup"));
 
         let connection = Connection::open(&database_path).expect("open database");
         connection
@@ -1207,7 +1130,7 @@ mod tests {
         drop(connection);
 
         let error = expect_startup_error(
-            initialize(&database_path, "UTC", 100),
+            startup::initialize_database(&database_path, "UTC", 100),
             "unhealthy database must prevent startup",
         );
 
@@ -1223,7 +1146,7 @@ mod tests {
         let database_path = directory.path().join("burnly.sqlite3");
 
         let error = expect_startup_error(
-            initialize(&database_path, "", 100),
+            startup::initialize_database(&database_path, "", 100),
             "invalid settings seed must prevent startup",
         );
 
@@ -1413,7 +1336,10 @@ mod tests {
 
         let directory = tempfile::TempDir::new().expect("create app data directory");
         let database_path = directory.path().join("burnly.sqlite3");
-        drop(initialize(&database_path, "UTC", 100).expect("initialize application"));
+        drop(
+            startup::initialize_database(&database_path, "UTC", 100)
+                .expect("initialize application"),
+        );
 
         let app = tauri::test::mock_builder()
             .invoke_handler(crate::ipc::invoke_handler())
