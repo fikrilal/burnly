@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use chrono::Utc;
 
@@ -8,15 +9,18 @@ use crate::application::collection::{
     CollectorFailure, CollectorFailureCode, CollectorIntegrity, DetectionRequest, DetectionResult,
     RejectedRecord,
 };
+use crate::application::diagnostics::DiagnosticSeverity;
 use crate::application::ports::collector::{CancellationSignal, Collector};
+use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::domain::source::SourceKey;
 
 use super::super::support::{
     available_detection, cancelled_detection, collection_metadata, collector_key,
     daily_session_projections, detection_issue, empty_collection_result,
     invalid_configuration_detection, missing_or_invalid_location_code, not_found_detection,
-    request_failure, single_source_descriptor, unsupported_detection, validate_source,
-    validation_failure_preserving_all_rejected, CollectorIdentity, LocalCollectionRun,
+    record_collector_diagnostic, request_failure, single_source_descriptor, unsupported_detection,
+    validate_source, validation_failure_preserving_all_rejected, CollectorDiagnosticCounter,
+    CollectorIdentity, LocalCollectionRun,
 };
 use super::mapper::{self, ClineMappingContext, ClineSessionMessages};
 use super::{decode_messages, ClineStore};
@@ -35,15 +39,17 @@ const IDENTITY: CollectorIdentity = CollectorIdentity {
     profile_version: PROFILE_VERSION,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct ClineCollector {
     database_path: PathBuf,
+    diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
 }
 
 impl ClineCollector {
     pub(crate) fn from_database_path(path: impl Into<PathBuf>) -> Self {
         Self {
             database_path: path.into(),
+            diagnostics: None,
         }
     }
 
@@ -56,6 +62,14 @@ impl ClineCollector {
                 .join("db")
                 .join("sessions.db"),
         )
+    }
+
+    pub(crate) fn with_diagnostic_recorder(
+        mut self,
+        diagnostics: Arc<dyn DiagnosticRecorder>,
+    ) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self
     }
 }
 
@@ -122,19 +136,44 @@ impl Collector for ClineCollector {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
         if !self.database_path.exists() {
+            self.record_failure(
+                &request,
+                CollectorFailureCode::SourceNotFound,
+                &[CollectorDiagnosticCounter::new("sessionsFound", 0)],
+            );
             return empty_collection_result(IDENTITY, &request, &run);
         }
 
         let store = ClineStore::open_read_only(&self.database_path).map_err(|_| {
-            request_failure(
+            let code = missing_or_invalid_location_code(&self.database_path);
+            self.record_failure(
                 &request,
-                missing_or_invalid_location_code(&self.database_path),
-            )
+                code,
+                &[CollectorDiagnosticCounter::new("sessionsFound", 0)],
+            );
+            request_failure(&request, code)
         })?;
-        let sessions = store
-            .read_sessions()
-            .map_err(|_| request_failure(&request, CollectorFailureCode::IncompatibleEnvelope))?;
+        let sessions = store.read_sessions().map_err(|_| {
+            self.record_failure(
+                &request,
+                CollectorFailureCode::IncompatibleEnvelope,
+                &[CollectorDiagnosticCounter::new("sessionsFound", 0)],
+            );
+            request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+        })?;
         let (sessions, rejections) = load_session_messages(sessions);
+        let sessions_found = u64::try_from(sessions.len()).unwrap_or(u64::MAX);
+        let records_rejected = u64::try_from(rejections.len()).unwrap_or(u64::MAX);
+        if records_rejected > 0 && sessions_found > 0 {
+            self.record_failure(
+                &request,
+                CollectorFailureCode::IncompatibleEnvelope,
+                &[
+                    CollectorDiagnosticCounter::new("sessionsFound", sessions_found),
+                    CollectorDiagnosticCounter::new("recordsRejected", records_rejected),
+                ],
+            );
+        }
         if cancellation.is_cancelled() {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
@@ -157,6 +196,14 @@ impl Collector for ClineCollector {
                 })?;
                 let candidates = mapper::map_daily(sessions, timezone, request.scope(), &context)
                     .map_err(|_| {
+                    self.record_failure(
+                        &request,
+                        CollectorFailureCode::IncompatibleEnvelope,
+                        &[
+                            CollectorDiagnosticCounter::new("sessionsFound", sessions_found),
+                            CollectorDiagnosticCounter::new("recordsRejected", records_rejected),
+                        ],
+                    );
                     request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
                 })?;
                 CollectionResult::daily(
@@ -166,10 +213,29 @@ impl Collector for ClineCollector {
                     Vec::new(),
                     process_summary,
                 )
-                .map_err(|error| validation_failure_preserving_all_rejected(&request, error))
+                .map_err(|error| {
+                    let failure = validation_failure_preserving_all_rejected(&request, error);
+                    self.record_failure(
+                        &request,
+                        failure.code,
+                        &[
+                            CollectorDiagnosticCounter::new("sessionsFound", sessions_found),
+                            CollectorDiagnosticCounter::new("recordsRejected", records_rejected),
+                        ],
+                    );
+                    failure
+                })
             }
             CollectionProjection::Session => {
                 let candidates = mapper::map_sessions(sessions, &context).map_err(|_| {
+                    self.record_failure(
+                        &request,
+                        CollectorFailureCode::IncompatibleEnvelope,
+                        &[
+                            CollectorDiagnosticCounter::new("sessionsFound", sessions_found),
+                            CollectorDiagnosticCounter::new("recordsRejected", records_rejected),
+                        ],
+                    );
                     request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
                 })?;
                 CollectionResult::session(
@@ -179,9 +245,39 @@ impl Collector for ClineCollector {
                     Vec::new(),
                     process_summary,
                 )
-                .map_err(|error| validation_failure_preserving_all_rejected(&request, error))
+                .map_err(|error| {
+                    let failure = validation_failure_preserving_all_rejected(&request, error);
+                    self.record_failure(
+                        &request,
+                        failure.code,
+                        &[
+                            CollectorDiagnosticCounter::new("sessionsFound", sessions_found),
+                            CollectorDiagnosticCounter::new("recordsRejected", records_rejected),
+                        ],
+                    );
+                    failure
+                })
             }
         }
+    }
+}
+
+impl ClineCollector {
+    fn record_failure(
+        &self,
+        request: &CollectionRequest,
+        code: CollectorFailureCode,
+        counters: &[CollectorDiagnosticCounter],
+    ) {
+        record_collector_diagnostic(
+            self.diagnostics.as_deref(),
+            request,
+            DiagnosticSeverity::Warning,
+            "cline.collection_failed",
+            "Cline collection failed.",
+            Some(code),
+            counters,
+        );
     }
 }
 
@@ -224,6 +320,7 @@ fn supported_projections() -> Vec<CollectionProjection> {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
 
     use chrono::{TimeZone, Utc};
     use rusqlite::Connection;
@@ -233,6 +330,8 @@ mod tests {
     use crate::application::collection::{
         CollectionId, CollectionOutcome, CollectionScope, DetectionState,
     };
+    use crate::application::diagnostics::{DiagnosticEvent, DiagnosticSeverity};
+    use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 
     const METADATA: &str = r#"{
       "usage": {
@@ -330,13 +429,44 @@ mod tests {
     fn rejects_unreadable_message_files_without_exposing_content() {
         let fixture = FixtureCline::new();
         fixture.seed_session(METADATA, "missing.messages.json");
-        let collector = ClineCollector::from_database_path(fixture.database_path());
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = ClineCollector::from_database_path(fixture.database_path())
+            .with_diagnostic_recorder(diagnostics.clone());
 
         let error = collector
             .collect(daily_request(CollectionScope::Full), &NeverCancelled)
             .expect_err("all records rejected");
 
         assert_eq!(error.code, CollectorFailureCode::AllRecordsRejected);
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
+        assert_eq!(events[0].code.as_str(), "cline.collection_failed");
+        let context = events[0].context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""source":"cline""#));
+        assert!(context.contains(r#""projection":"daily""#));
+        assert!(context.contains(r#""failureCode":"collection.all_records_rejected""#));
+        assert!(context.contains(r#""recordsRejected":1"#));
+        assert!(!context.contains("missing.messages.json"));
+    }
+
+    #[test]
+    fn records_diagnostic_when_database_is_missing() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = ClineCollector::from_database_path("/missing/sessions.db")
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let result = collector
+            .collect(daily_request(CollectionScope::Full), &NeverCancelled)
+            .expect("missing database is empty");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 1);
+        let context = events[0].context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""failureCode":"source.not_found""#));
+        assert!(context.contains(r#""sessionsFound":0"#));
+        assert!(!context.contains("/missing"));
     }
 
     struct NeverCancelled;
@@ -344,6 +474,23 @@ mod tests {
     impl CancellationSignal for NeverCancelled {
         fn is_cancelled(&self) -> bool {
             false
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingDiagnostics {
+        events: Mutex<Vec<DiagnosticEvent>>,
+    }
+
+    impl RecordingDiagnostics {
+        fn events(&self) -> Vec<DiagnosticEvent> {
+            self.events.lock().expect("diagnostics").clone()
+        }
+    }
+
+    impl DiagnosticRecorder for RecordingDiagnostics {
+        fn record(&self, event: DiagnosticEvent) {
+            self.events.lock().expect("diagnostics").push(event);
         }
     }
 

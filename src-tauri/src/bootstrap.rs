@@ -477,12 +477,19 @@ fn build_refresh_coordinator<R: Runtime>(
         }
         .map_err(StartupError::Collector)?,
     );
-    let cline_collector = Arc::new(ClineCollector::from_data_dir(default_cline_data_dir()));
-    let zcode_collector = Arc::new(ZCodeCollector::from_data_dir(default_zcode_data_dir()));
     let diagnostics_database = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(Arc::new(
-        SqliteDiagnosticStore::new(diagnostics_database),
-    )));
+    let diagnostic_recorder = Arc::new(SqliteDiagnosticStore::new(diagnostics_database));
+    let cline_collector = Arc::new(
+        ClineCollector::from_data_dir(default_cline_data_dir())
+            .with_diagnostic_recorder(diagnostic_recorder.clone()),
+    );
+    let zcode_collector = Arc::new(
+        ZCodeCollector::from_data_dir(default_zcode_data_dir())
+            .with_diagnostic_recorder(diagnostic_recorder.clone()),
+    );
+    let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(
+        diagnostic_recorder,
+    ));
     let collector = Arc::new(RoutedCollector::new(
         ccusage_collector,
         cline_collector,

@@ -62,7 +62,7 @@ application-visible usage totals.
 - [x] Complete chunk 03: collection run and empty result helpers.
 - [x] Complete chunk 04: mapping support helpers.
 - [x] Complete chunk 05: native SQLite helper.
-- [ ] Complete chunk 06: collector diagnostics coverage.
+- [x] Complete chunk 06: collector diagnostics coverage.
 - [ ] Complete chunk 07: routing and source support matrix review.
 - [ ] Re-run the full local gate after all chunks are complete.
 - [ ] Update `docs/planning/_WIP/collector-architecture-audit.md` with important

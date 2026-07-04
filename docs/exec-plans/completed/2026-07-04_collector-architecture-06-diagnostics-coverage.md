@@ -52,18 +52,18 @@ richer counters.
 
 ## Checklist
 
-- [ ] Add `support/diagnostics.rs`.
-- [ ] Define safe collector diagnostic context input.
-- [ ] Add helper tests proving sensitive fields are not accepted or emitted.
-- [ ] Wire optional diagnostic recorder into Cline collector construction.
-- [ ] Record Cline diagnostics for missing/unreadable/incompatible/all-rejected
+- [x] Add `support/diagnostics.rs`.
+- [x] Define safe collector diagnostic context input.
+- [x] Add helper tests proving sensitive fields are not accepted or emitted.
+- [x] Wire optional diagnostic recorder into Cline collector construction.
+- [x] Record Cline diagnostics for missing/unreadable/incompatible/all-rejected
       collection failures.
-- [ ] Wire optional diagnostic recorder into ZCode collector construction.
-- [ ] Record ZCode diagnostics for missing/unreadable/incompatible collection
+- [x] Wire optional diagnostic recorder into ZCode collector construction.
+- [x] Record ZCode diagnostics for missing/unreadable/incompatible collection
       failures.
-- [ ] Preserve or adapt Antigravity diagnostics with no context loss.
-- [ ] Run diagnostics and collector tests.
-- [ ] Record verification outcomes before completion.
+- [x] Preserve or adapt Antigravity diagnostics with no context loss.
+- [x] Run diagnostics and collector tests.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -103,8 +103,28 @@ richer counters.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::support::diagnostics::`
+  - Outcome: passed. 3 support diagnostics tests passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::cline::`
+  - Outcome: passed. 13 Cline collector tests passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::zcode::`
+  - Outcome: passed. 18 ZCode collector tests passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity::adapter::tests::records_diagnostic`
+  - Outcome: passed. 2 Antigravity diagnostic tests passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml diagnostics`
+  - Outcome: passed. 9 diagnostics-matching tests passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::database::diagnostics_store::`
+  - Outcome: passed. 4 diagnostics store tests passed.
+- Command: `pnpm rust:test`
+  - Outcome: passed. 362 Rust tests passed, 1 ignored.
+- Command: `pnpm verify:fast`
+  - Outcome: passed. Existing ESLint warnings and duplication report output
+    remained non-fatal.
 
 ## Runtime Evidence
 
