@@ -106,8 +106,14 @@ mod tests {
         );
 
         collector
+            .collect(request(SourceKey::ClaudeCode), &NeverCancelled)
+            .expect("claude-code collection");
+        collector
             .collect(request(SourceKey::Codex), &NeverCancelled)
             .expect("codex collection");
+        collector
+            .collect(request(SourceKey::OpenCode), &NeverCancelled)
+            .expect("opencode collection");
         collector
             .collect(request(SourceKey::Pi), &NeverCancelled)
             .expect("pi collection");
@@ -121,10 +127,48 @@ mod tests {
             .collect(request(SourceKey::Antigravity), &NeverCancelled)
             .expect("antigravity collection");
 
-        assert_eq!(ccusage.sources(), vec![SourceKey::Codex, SourceKey::Pi]);
+        assert_eq!(
+            ccusage.sources(),
+            vec![
+                SourceKey::ClaudeCode,
+                SourceKey::Codex,
+                SourceKey::OpenCode,
+                SourceKey::Pi
+            ]
+        );
         assert_eq!(cline.sources(), vec![SourceKey::Cline]);
         assert_eq!(zcode.sources(), vec![SourceKey::ZCode]);
         assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
+    }
+
+    #[test]
+    fn aggregates_descriptors_from_all_wired_collectors() {
+        let collector = RoutedCollector::new(
+            Arc::new(RecordingCollector::new("ccusage")),
+            Arc::new(RecordingCollector::new("cline")),
+            Arc::new(RecordingCollector::new("zcode")),
+            Arc::new(RecordingCollector::new("antigravity")),
+        );
+
+        let descriptor = collector.describe().expect("descriptor");
+        let sources = descriptor
+            .profiles
+            .iter()
+            .map(|profile| profile.source)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            sources,
+            vec![
+                SourceKey::ClaudeCode,
+                SourceKey::Codex,
+                SourceKey::OpenCode,
+                SourceKey::Pi,
+                SourceKey::Cline,
+                SourceKey::ZCode,
+                SourceKey::Antigravity
+            ]
+        );
     }
 
     struct NeverCancelled;
@@ -163,11 +207,7 @@ mod tests {
                 adapter_version: 1,
                 binary_target: "test".to_owned(),
                 integrity: CollectorIntegrity::UnverifiedDevelopment,
-                profiles: vec![ProfileDescriptor {
-                    source: SourceKey::Cline,
-                    profile_version: 1,
-                    supported_projections: vec![CollectionProjection::Daily],
-                }],
+                profiles: profiles_for(self.key),
             })
         }
 
@@ -216,6 +256,29 @@ mod tests {
                 .expect("timestamp"),
         )
         .expect("request")
+    }
+
+    fn profiles_for(key: &str) -> Vec<ProfileDescriptor> {
+        match key {
+            "ccusage" => vec![
+                profile(SourceKey::ClaudeCode),
+                profile(SourceKey::Codex),
+                profile(SourceKey::OpenCode),
+                profile(SourceKey::Pi),
+            ],
+            "cline" => vec![profile(SourceKey::Cline)],
+            "zcode" => vec![profile(SourceKey::ZCode)],
+            "antigravity" => vec![profile(SourceKey::Antigravity)],
+            _ => Vec::new(),
+        }
+    }
+
+    fn profile(source: SourceKey) -> ProfileDescriptor {
+        ProfileDescriptor {
+            source,
+            profile_version: 1,
+            supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],
+        }
     }
 
     fn metadata(request: &CollectionRequest, collector: &str) -> CollectionMetadata {

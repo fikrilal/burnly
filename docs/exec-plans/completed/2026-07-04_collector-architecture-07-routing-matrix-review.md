@@ -44,15 +44,15 @@ in place, adding only small tests or docs updates that protect observed drift.
 
 ## Checklist
 
-- [ ] Compare `RoutedCollector` source mapping with refresh targets.
-- [ ] Compare collector descriptors/profiles with product docs and README.
-- [ ] Check source support statuses for Cline, ZCode, Antigravity, Pi,
+- [x] Compare `RoutedCollector` source mapping with refresh targets.
+- [x] Compare collector descriptors/profiles with product docs and README.
+- [x] Check source support statuses for Cline, ZCode, Antigravity, Pi,
       OpenCode, Codex, and Claude Code.
-- [ ] Add a routing/profile test only if drift is observed or likely to repeat.
-- [ ] Update docs if they are stale.
-- [ ] Do not add a plugin registry.
-- [ ] Run routing tests, architecture check, and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Add a routing/profile test only if drift is observed or likely to repeat.
+- [x] Update docs if they are stale.
+- [x] Do not add a plugin registry.
+- [x] Run routing tests, architecture check, and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -83,8 +83,14 @@ in place, adding only small tests or docs updates that protect observed drift.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::routed::`
+  - Outcome: passed. 2 routed collector tests passed.
+- Command: `pnpm architecture:check`
+  - Outcome: passed.
+- Command: `pnpm verify:fast`
+  - Outcome: passed. Existing ESLint warnings and duplication report output
+    remained non-fatal.
 
 ## Runtime Evidence
 

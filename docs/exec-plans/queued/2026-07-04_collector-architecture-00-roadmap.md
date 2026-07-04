@@ -63,9 +63,9 @@ application-visible usage totals.
 - [x] Complete chunk 04: mapping support helpers.
 - [x] Complete chunk 05: native SQLite helper.
 - [x] Complete chunk 06: collector diagnostics coverage.
-- [ ] Complete chunk 07: routing and source support matrix review.
-- [ ] Re-run the full local gate after all chunks are complete.
-- [ ] Update `docs/planning/_WIP/collector-architecture-audit.md` with important
+- [x] Complete chunk 07: routing and source support matrix review.
+- [x] Re-run the full local gate after all chunks are complete.
+- [x] Update `docs/planning/_WIP/collector-architecture-audit.md` with important
       implementation decisions or deviations.
 
 ## Test Plan
@@ -111,8 +111,9 @@ application-visible usage totals.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `pnpm verify`
+- Outcome: passed after all collector architecture chunks completed. Existing
+  ESLint warnings and duplication report output remained non-fatal.
 
 ## Runtime Evidence
 

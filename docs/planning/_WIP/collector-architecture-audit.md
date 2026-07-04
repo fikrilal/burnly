@@ -657,3 +657,29 @@ behavior changes.
   failures without exposing sensitive local data.
 - The collector contract remains unchanged.
 - No runtime plugin system is introduced.
+
+## Implementation Outcome
+
+Implemented in seven execution chunks on July 4, 2026.
+
+Important decisions and deviations:
+
+- Added `collectors/support/` primitives for descriptor, detection, failure,
+  local run, mapping, read-only external SQLite opening, and local diagnostic
+  event construction.
+- Kept Cline and ZCode schema verification, row parsing, and mapping
+  source-owned.
+- Preserved Antigravity's richer runtime diagnostics instead of forcing it into
+  a lowest-common-denominator helper shape.
+- Wired Cline and ZCode to the local diagnostic recorder for collection
+  failures and missing local data while keeping collection outcomes unchanged.
+- Added routed collector tests for all currently refreshed sources and
+  descriptor profile aggregation.
+- Audited README and product source support matrices; no product docs update was
+  required because supported and experimental source statuses were already
+  current.
+- Did not introduce a runtime plugin registry.
+
+Final verification:
+
+- `pnpm verify` passed after the full series.

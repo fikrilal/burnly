@@ -35,39 +35,46 @@ pub(in crate::infrastructure::collectors) fn record_collector_diagnostic(
     let Some(recorder) = recorder else {
         return;
     };
-    let Some(event) = collector_diagnostic_event(
-        request.source(),
-        request.projection(),
+    let Some(event) = collector_diagnostic_event(CollectorDiagnosticEventInput {
+        source: request.source(),
+        projection: request.projection(),
         severity,
         code,
         summary,
         failure_code,
         counters,
-        Utc::now().timestamp_millis(),
-    ) else {
+        created_at_ms: Utc::now().timestamp_millis(),
+    }) else {
         return;
     };
     recorder.record(event);
 }
 
-pub(in crate::infrastructure::collectors) fn collector_diagnostic_event(
+struct CollectorDiagnosticEventInput<'a> {
     source: SourceKey,
     projection: CollectionProjection,
     severity: DiagnosticSeverity,
-    code: &str,
-    summary: &str,
+    code: &'a str,
+    summary: &'a str,
     failure_code: Option<CollectorFailureCode>,
-    counters: &[CollectorDiagnosticCounter],
+    counters: &'a [CollectorDiagnosticCounter],
     created_at_ms: i64,
-) -> Option<DiagnosticEvent> {
-    let context = collector_diagnostic_context(source, projection, failure_code, counters)?;
+}
+
+fn collector_diagnostic_event(input: CollectorDiagnosticEventInput<'_>) -> Option<DiagnosticEvent> {
+    let context = collector_diagnostic_context(
+        input.source,
+        input.projection,
+        input.failure_code,
+        input.counters,
+    )?;
     DiagnosticEvent::new(
         DiagnosticArea::Collector,
-        severity,
-        DiagnosticCode::new(code).ok()?,
-        DiagnosticSummary::new(summary).ok()?,
+        input.severity,
+        DiagnosticCode::new(input.code).ok()?,
+        DiagnosticSummary::new(input.summary).ok()?,
         Some(context),
-        created_at_ms,
+        input.created_at_ms,
     )
     .ok()
 }
@@ -130,19 +137,19 @@ mod tests {
 
     #[test]
     fn builds_bounded_collector_diagnostic_event() {
-        let event = collector_diagnostic_event(
-            SourceKey::Cline,
-            CollectionProjection::Daily,
-            DiagnosticSeverity::Warning,
-            "cline.collection_failed",
-            "Cline collection failed.",
-            Some(CollectorFailureCode::IncompatibleEnvelope),
-            &[
+        let event = collector_diagnostic_event(CollectorDiagnosticEventInput {
+            source: SourceKey::Cline,
+            projection: CollectionProjection::Daily,
+            severity: DiagnosticSeverity::Warning,
+            code: "cline.collection_failed",
+            summary: "Cline collection failed.",
+            failure_code: Some(CollectorFailureCode::IncompatibleEnvelope),
+            counters: &[
                 CollectorDiagnosticCounter::new("sessionsFound", 2),
                 CollectorDiagnosticCounter::new("recordsRejected", 1),
             ],
-            100,
-        )
+            created_at_ms: 100,
+        })
         .expect("event");
 
         assert_eq!(event.area, DiagnosticArea::Collector);
@@ -157,32 +164,32 @@ mod tests {
 
     #[test]
     fn rejects_sensitive_counter_keys() {
-        let event = collector_diagnostic_event(
-            SourceKey::ZCode,
-            CollectionProjection::Session,
-            DiagnosticSeverity::Warning,
-            "zcode.collection_failed",
-            "ZCode collection failed.",
-            Some(CollectorFailureCode::SourceInvalidLocation),
-            &[CollectorDiagnosticCounter::new("databasePath", 1)],
-            100,
-        );
+        let event = collector_diagnostic_event(CollectorDiagnosticEventInput {
+            source: SourceKey::ZCode,
+            projection: CollectionProjection::Session,
+            severity: DiagnosticSeverity::Warning,
+            code: "zcode.collection_failed",
+            summary: "ZCode collection failed.",
+            failure_code: Some(CollectorFailureCode::SourceInvalidLocation),
+            counters: &[CollectorDiagnosticCounter::new("databasePath", 1)],
+            created_at_ms: 100,
+        });
 
         assert!(event.is_none());
     }
 
     #[test]
     fn rejects_unbounded_counter_keys() {
-        let event = collector_diagnostic_event(
-            SourceKey::ZCode,
-            CollectionProjection::Session,
-            DiagnosticSeverity::Warning,
-            "zcode.collection_failed",
-            "ZCode collection failed.",
-            Some(CollectorFailureCode::SourceInvalidLocation),
-            &[CollectorDiagnosticCounter::new("rows-rejected", 1)],
-            100,
-        );
+        let event = collector_diagnostic_event(CollectorDiagnosticEventInput {
+            source: SourceKey::ZCode,
+            projection: CollectionProjection::Session,
+            severity: DiagnosticSeverity::Warning,
+            code: "zcode.collection_failed",
+            summary: "ZCode collection failed.",
+            failure_code: Some(CollectorFailureCode::SourceInvalidLocation),
+            counters: &[CollectorDiagnosticCounter::new("rows-rejected", 1)],
+            created_at_ms: 100,
+        });
 
         assert!(event.is_none());
     }

@@ -147,13 +147,12 @@ impl Collector for ZCodeCollector {
             );
             request_failure(&request, code)
         })?;
-        let (start_ms, end_ms) = collection_window(&request).map_err(|failure| {
+        let (start_ms, end_ms) = collection_window(&request).inspect_err(|failure| {
             self.record_failure(
                 &request,
                 failure.code,
                 &[CollectorDiagnosticCounter::new("rowsFound", 0)],
             );
-            failure
         })?;
         let rows = store
             .read_model_usage_between(start_ms, end_ms)
