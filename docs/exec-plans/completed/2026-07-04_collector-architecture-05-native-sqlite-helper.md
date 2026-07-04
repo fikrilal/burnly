@@ -43,14 +43,14 @@ conversion source-owned.
 
 ## Checklist
 
-- [ ] Add `support/sqlite.rs`.
-- [ ] Add read-only external database open helper.
-- [ ] Add helper tests for read-only behavior if feasible.
-- [ ] Adopt helper in Cline store.
-- [ ] Adopt helper in ZCode store.
-- [ ] Keep schema verification source-specific.
-- [ ] Run focused store tests and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Add `support/sqlite.rs`.
+- [x] Add read-only external database open helper.
+- [x] Add helper tests for read-only behavior if feasible.
+- [x] Adopt helper in Cline store.
+- [x] Adopt helper in ZCode store.
+- [x] Keep schema verification source-specific.
+- [x] Run focused store tests and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -83,8 +83,23 @@ conversion source-owned.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::support::`
+  - Outcome: passed. 19 support tests passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::cline::store::`
+  - Outcome: passed. 4 Cline store tests passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::zcode::store::`
+  - Outcome: passed. 6 ZCode store tests passed.
+- Command: `pnpm rust:test`
+  - Outcome: passed. 357 Rust tests passed, 1 ignored.
+- Command: `pnpm architecture:test && pnpm architecture:check`
+  - Outcome: passed after adding a narrow architecture harness exception for
+    `collectors/support/sqlite.rs`.
+- Command: `pnpm verify:fast`
+  - Outcome: passed. Existing ESLint warnings and duplication report output
+    remained non-fatal.
 
 ## Runtime Evidence
 

@@ -3,6 +3,7 @@ mod detection;
 mod failure;
 mod mapping;
 mod run;
+mod sqlite;
 
 pub(in crate::infrastructure::collectors) use descriptor::{
     collector_key, daily_session_projections, single_source_descriptor, CollectorIdentity,
@@ -22,3 +23,4 @@ pub(in crate::infrastructure::collectors) use mapping::{
 pub(in crate::infrastructure::collectors) use run::{
     collection_metadata, empty_collection_result, LocalCollectionRun,
 };
+pub(in crate::infrastructure::collectors) use sqlite::open_external_read_only;

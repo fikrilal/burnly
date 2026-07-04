@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use serde::Deserialize;
 use thiserror::Error;
 
+use super::super::support::open_external_read_only;
 use super::schema::{verify_sessions_schema, ClineSchemaError};
 use super::ClineUsageMetrics;
 
@@ -44,11 +45,7 @@ pub(crate) struct ClineStore {
 
 impl ClineStore {
     pub(crate) fn open_read_only(path: impl AsRef<Path>) -> Result<Self, ClineStoreError> {
-        let connection = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(ClineStoreError::Open)?;
+        let connection = open_external_read_only(path).map_err(ClineStoreError::Open)?;
         verify_sessions_schema(&connection).map_err(ClineStoreError::Schema)?;
         Ok(Self { connection })
     }

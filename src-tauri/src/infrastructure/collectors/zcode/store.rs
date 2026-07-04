@@ -1,8 +1,9 @@
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use thiserror::Error;
 
+use super::super::support::open_external_read_only;
 use super::schema::{verify_model_usage_schema, ZCodeSchemaError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,11 +45,7 @@ pub(crate) struct ZCodeStore {
 
 impl ZCodeStore {
     pub(crate) fn open_read_only(path: impl AsRef<Path>) -> Result<Self, ZCodeStoreError> {
-        let connection = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(ZCodeStoreError::Open)?;
+        let connection = open_external_read_only(path).map_err(ZCodeStoreError::Open)?;
         verify_model_usage_schema(&connection).map_err(ZCodeStoreError::Schema)?;
         Ok(Self { connection })
     }

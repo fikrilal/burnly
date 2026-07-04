@@ -277,6 +277,12 @@ function runRustBoundarySelfTest() {
       expectFailure: false,
     },
     {
+      name: "collector SQLite support may use rusqlite for external tool database opening",
+      path: "src-tauri/src/infrastructure/collectors/support/sqlite.rs",
+      content: "use rusqlite::Connection;",
+      expectFailure: false,
+    },
+    {
       name: "infrastructure outside database may not use rusqlite",
       path: "src-tauri/src/infrastructure/leaked_store.rs",
       content: "use rusqlite::Connection;",
@@ -432,6 +438,7 @@ const allowedRusqlitePaths = [
   "src-tauri/src/infrastructure/database/",
   "src-tauri/src/infrastructure/collectors/cline/",
   "src-tauri/src/infrastructure/collectors/zcode/",
+  "src-tauri/src/infrastructure/collectors/support/sqlite.rs",
 ];
 
 function checkDatabaseOwnership(relativePath, content) {
@@ -449,7 +456,7 @@ function checkDatabaseOwnership(relativePath, content) {
 
   if (!isAllowed) {
     failures.push(
-      `${relativePath}: rusqlite may only be used inside infrastructure/database (production stores) or infrastructure/collectors/{cline,zcode} (external tool database reads).`,
+      `${relativePath}: rusqlite may only be used inside infrastructure/database (production stores), infrastructure/collectors/{cline,zcode} (external tool database reads), or collectors/support/sqlite.rs (shared external database opening).`,
     );
   }
 }
