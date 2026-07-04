@@ -45,14 +45,14 @@ test coverage and names where practical.
 
 ## Checklist
 
-- [ ] Create `src-tauri/src/application/refresh/tests.rs` behind `#[cfg(test)]`.
-- [ ] Move coordinator tests and fakes from `coordinator.rs`.
-- [ ] Keep test names stable unless module paths naturally change.
-- [ ] Avoid production visibility widening solely for tests.
-- [ ] Move helper tests into their owning modules when they are pure helper
+- [x] Create `src-tauri/src/application/refresh/tests.rs` behind `#[cfg(test)]`.
+- [x] Move coordinator tests and fakes from `coordinator.rs`.
+- [x] Keep test names stable unless module paths naturally change.
+- [x] Avoid production visibility widening solely for tests.
+- [x] Move helper tests into their owning modules when they are pure helper
       behavior.
-- [ ] Run all refresh tests and full Rust tests.
-- [ ] Record verification outcomes before completion.
+- [x] Run all refresh tests and full Rust tests.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -83,8 +83,14 @@ test coverage and names where practical.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `cargo fmt --manifest-path src-tauri/Cargo.toml`
+- Outcome: passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml application::refresh:: --quiet`
+- Outcome: passed; 43 refresh tests passed.
+- Command: `pnpm rust:test`
+- Outcome: passed; 338 Rust tests passed, 1 ignored.
+- Command: `pnpm verify:fast`
+- Outcome: passed; ESLint warnings and duplication report remain non-fatal.
 
 ## Runtime Evidence
 

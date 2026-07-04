@@ -62,7 +62,7 @@ contracts.
 - [x] Complete chunk 01: outcome and target helpers.
 - [x] Complete chunk 02: request planning extraction.
 - [x] Complete chunk 03: execution flow extraction.
-- [ ] Complete chunk 04: tests and fakes relocation.
+- [x] Complete chunk 04: tests and fakes relocation.
 - [ ] Complete chunk 05: optional harness guardrails.
 - [ ] Re-run the full local gate after all chunks are complete.
 - [ ] Update `docs/planning/_WIP/refresh-coordinator-audit.md` with important

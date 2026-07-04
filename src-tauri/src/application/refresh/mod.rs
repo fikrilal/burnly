@@ -9,6 +9,9 @@ mod scheduler;
 mod state;
 mod target;
 
+#[cfg(test)]
+mod tests;
+
 #[allow(
     unused_imports,
     reason = "refresh exposes the coordinator and state to bootstrap wiring and IPC"
