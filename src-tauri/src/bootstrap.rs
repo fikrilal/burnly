@@ -7,6 +7,7 @@ mod collectors;
 mod resources;
 mod settings_runtime;
 mod startup;
+mod tray_runtime;
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use iana_time_zone::GetTimezoneError;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
-use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
+use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
 use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
@@ -28,7 +29,6 @@ use crate::application::ports::window_actions::WindowActions;
 use crate::application::reconciliation::RefreshTrigger;
 use crate::application::refresh::{
     RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
-    RefreshSnapshot, RefreshStatus,
 };
 use crate::application::settings::SettingsService;
 #[cfg(test)]
@@ -40,16 +40,12 @@ use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBootstrapStore, SqliteDiagnosticStore,
     SqliteReconciliationStore, SqliteSettingsStore, SqliteTraySummaryStore,
 };
-use crate::ipc::refresh_event_sink;
 use crate::ipc::CONTRACT_VERSION;
 use crate::platform::lifecycle;
 #[cfg(not(debug_assertions))]
 use crate::platform::single_instance;
 use crate::platform::system_clock::SystemClock;
 use crate::platform::{database_path, system_clock, system_timezone, tray, updater};
-
-const TRAY_OPEN_STALE_AFTER_MS: i64 = 5 * 60 * 1_000;
-const TRAY_OPEN_REFRESH_THROTTLE_MS: i64 = 60 * 1_000;
 
 #[derive(Default)]
 struct ExitGuard {
@@ -236,7 +232,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         .enforce_current_project_path_policy()
         .map_err(|_| StartupError::PrivacyPolicy)?;
     let tray_summary_query = build_tray_summary_query(&database_path)?;
-    let refresh_event_sink = runtime_refresh_event_sink(
+    let refresh_event_sink = tray_runtime::runtime_refresh_event_sink(
         app.handle().clone(),
         tray_state.clone(),
         tray_summary_query.clone(),
@@ -258,7 +254,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         })?);
     let tray_controller = tray::TrayController::install(
         app.handle(),
-        &tray_snapshot(
+        &tray_runtime::tray_snapshot(
             &refresh_coordinator.snapshot(),
             &tray_summary_query,
             &reporting_timezone,
@@ -266,14 +262,17 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     )
     .map_err(StartupError::Tray)?;
     *tray_state.lock().expect("tray state lock is poisoned") = Some(tray_controller.clone());
-    tray_controller.update(&tray_snapshot(
+    tray_controller.update(&tray_runtime::tray_snapshot(
         &refresh_coordinator.snapshot(),
         &tray_summary_query,
         &reporting_timezone,
     ));
     app.manage(tray_controller);
     lifecycle::prepare_tray_panel(app.handle()).map_err(StartupError::TrayPanel)?;
-    install_tray_invalidation_listener(app.handle().clone(), tray_summary_query.clone());
+    tray_runtime::install_tray_invalidation_listener(
+        app.handle().clone(),
+        tray_summary_query.clone(),
+    );
     let runtime_capabilities = RuntimeCapabilities::new(
         RuntimeCapabilities::tray_available(),
         settings_runtime::launch_at_login_capability(),
@@ -287,7 +286,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(refresh_coordinator.clone());
     app.manage(refresh_scheduler);
     app.manage(runtime_settings.clone());
-    let tray_open_refresh = TrayOpenRefreshController::new(
+    let tray_open_refresh = tray_runtime::TrayOpenRefreshController::new(
         reporting_timezone.clone(),
         tray_summary_query.clone(),
         refresh_coordinator.clone(),
@@ -350,7 +349,7 @@ fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu:
 }
 
 fn open_tray_panel<R: Runtime>(app: &tauri::AppHandle<R>, anchor: Option<tauri::Rect>) {
-    if let Some(controller) = app.try_state::<TrayOpenRefreshController>() {
+    if let Some(controller) = app.try_state::<tray_runtime::TrayOpenRefreshController>() {
         controller.request_tray_open_refresh_if_stale();
     }
     let result = match anchor {
@@ -411,197 +410,6 @@ fn compose_refresh_coordinator(
         env!("CARGO_PKG_VERSION"),
         reporting_timezone,
     ))
-}
-
-struct RuntimeRefreshEventSink<R: Runtime> {
-    frontend: Arc<dyn RefreshEventSink>,
-    tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
-    tray_summary: TraySummaryQuery,
-}
-
-impl<R: Runtime> RefreshEventSink for RuntimeRefreshEventSink<R> {
-    fn publish(&self, snapshot: RefreshSnapshot, usage_changed: bool) {
-        self.frontend.publish(snapshot.clone(), usage_changed);
-        if let Some(tray) = self
-            .tray
-            .lock()
-            .expect("tray state lock is poisoned")
-            .as_ref()
-        {
-            let timezone = system_timezone::resolve().unwrap_or_else(|_| "UTC".to_owned());
-            tray.update(&tray_snapshot(&snapshot, &self.tray_summary, &timezone));
-        }
-    }
-}
-
-fn runtime_refresh_event_sink<R: Runtime>(
-    app: tauri::AppHandle<R>,
-    tray: Arc<Mutex<Option<tray::TrayController<R>>>>,
-    tray_summary: TraySummaryQuery,
-) -> Arc<dyn RefreshEventSink> {
-    Arc::new(RuntimeRefreshEventSink {
-        frontend: refresh_event_sink(app),
-        tray,
-        tray_summary,
-    })
-}
-
-fn install_tray_invalidation_listener<R: Runtime>(
-    app: tauri::AppHandle<R>,
-    tray_summary: TraySummaryQuery,
-) {
-    let listener_app = app.clone();
-    app.listen("burnly://v1/data-invalidated", move |_| {
-        if let (Some(controller), Some(coordinator)) = (
-            listener_app.try_state::<tray::TrayController<R>>(),
-            listener_app.try_state::<RefreshCoordinator>(),
-        ) {
-            let timezone = system_timezone::resolve().unwrap_or_else(|_| "UTC".to_owned());
-            controller.update(&tray_snapshot(
-                &coordinator.snapshot(),
-                &tray_summary,
-                &timezone,
-            ));
-        }
-    });
-}
-
-pub(crate) fn tray_snapshot(
-    snapshot: &RefreshSnapshot,
-    tray_summary: &TraySummaryQuery,
-    reporting_timezone: &str,
-) -> tray::TraySnapshot {
-    let summary = tray_summary.get(reporting_timezone).ok();
-    let today_tokens = summary.as_ref().map(|s| s.today.total_tokens);
-    let week_tokens = summary.as_ref().map(|s| s.week.total_tokens);
-    let month_tokens = summary.as_ref().map(|s| s.month.total_tokens);
-
-    tray::TraySnapshot {
-        status: tray_refresh_status(snapshot.status),
-        last_successful_refresh_at_ms: snapshot.last_successful_refresh_at_ms,
-        budget_summary: None,
-        today_tokens,
-        week_tokens,
-        month_tokens,
-    }
-}
-
-const fn tray_refresh_status(status: RefreshStatus) -> tray::TrayRefreshStatus {
-    match status {
-        RefreshStatus::Idle => tray::TrayRefreshStatus::Idle,
-        RefreshStatus::Queued => tray::TrayRefreshStatus::Queued,
-        RefreshStatus::Running => tray::TrayRefreshStatus::Running,
-        RefreshStatus::Cancelling => tray::TrayRefreshStatus::Cancelling,
-        RefreshStatus::Succeeded => tray::TrayRefreshStatus::Succeeded,
-        RefreshStatus::Partial => tray::TrayRefreshStatus::Partial,
-        RefreshStatus::Failed => tray::TrayRefreshStatus::Failed,
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TrayOpenRefreshDecision {
-    Request,
-    SkipActive,
-    SkipFresh,
-    SkipThrottled,
-    SkipClock,
-    SkipReadFailure,
-}
-
-trait TrayOpenClock: Send + Sync {
-    fn now_epoch_ms(&self) -> Option<i64>;
-}
-
-impl TrayOpenClock for SystemClock {
-    fn now_epoch_ms(&self) -> Option<i64> {
-        system_clock::now_epoch_ms().ok()
-    }
-}
-
-struct TrayOpenRefreshController {
-    reporting_timezone: String,
-    summary_query: TraySummaryQuery,
-    coordinator: RefreshCoordinator,
-    clock: Arc<dyn TrayOpenClock>,
-    last_request_at_ms: Mutex<Option<i64>>,
-}
-
-impl TrayOpenRefreshController {
-    fn new(
-        reporting_timezone: String,
-        summary_query: TraySummaryQuery,
-        coordinator: RefreshCoordinator,
-        clock: Arc<dyn TrayOpenClock>,
-    ) -> Self {
-        Self {
-            reporting_timezone,
-            summary_query,
-            coordinator,
-            clock,
-            last_request_at_ms: Mutex::new(None),
-        }
-    }
-
-    fn request_startup_refresh_if_stale(&self) -> TrayOpenRefreshDecision {
-        self.request_if_stale(RefreshTrigger::Launch)
-    }
-
-    fn request_tray_open_refresh_if_stale(&self) -> TrayOpenRefreshDecision {
-        self.request_if_stale(RefreshTrigger::Manual)
-    }
-
-    fn request_if_stale(&self, trigger: RefreshTrigger) -> TrayOpenRefreshDecision {
-        let now_ms = match self.clock.now_epoch_ms() {
-            Some(value) => value,
-            None => return TrayOpenRefreshDecision::SkipClock,
-        };
-        let last_successful_refresh_at_ms = match self.summary_query.get(&self.reporting_timezone) {
-            Ok(summary) => summary.last_successful_refresh_at_ms,
-            Err(_) => return TrayOpenRefreshDecision::SkipReadFailure,
-        };
-        let snapshot = self.coordinator.snapshot();
-        let mut last_request = self
-            .last_request_at_ms
-            .lock()
-            .expect("tray open refresh lock is poisoned");
-        let decision = tray_open_refresh_decision(
-            now_ms,
-            last_successful_refresh_at_ms,
-            *last_request,
-            snapshot.status.is_active(),
-        );
-        if decision == TrayOpenRefreshDecision::Request {
-            *last_request = Some(now_ms);
-            if matches!(trigger, RefreshTrigger::Manual) {
-                self.coordinator.request_freshness_refresh(trigger);
-            } else {
-                self.coordinator.request_refresh(trigger);
-            }
-        }
-        decision
-    }
-}
-
-fn tray_open_refresh_decision(
-    now_ms: i64,
-    last_successful_refresh_at_ms: Option<i64>,
-    last_request_at_ms: Option<i64>,
-    refresh_active: bool,
-) -> TrayOpenRefreshDecision {
-    if refresh_active {
-        return TrayOpenRefreshDecision::SkipActive;
-    }
-    if let Some(last_request_at_ms) = last_request_at_ms {
-        if now_ms.saturating_sub(last_request_at_ms) < TRAY_OPEN_REFRESH_THROTTLE_MS {
-            return TrayOpenRefreshDecision::SkipThrottled;
-        }
-    }
-    if let Some(last_successful_refresh_at_ms) = last_successful_refresh_at_ms {
-        if now_ms.saturating_sub(last_successful_refresh_at_ms) < TRAY_OPEN_STALE_AFTER_MS {
-            return TrayOpenRefreshDecision::SkipFresh;
-        }
-    }
-    TrayOpenRefreshDecision::Request
 }
 
 #[cfg(test)]
@@ -757,30 +565,6 @@ mod tests {
         std::fs::create_dir_all(&sidecar_directory).expect("create sidecar directory");
         std::fs::write(sidecar_directory.join("manifest.json"), "{}")
             .expect("write sidecar manifest");
-    }
-
-    #[test]
-    fn tray_open_refresh_requests_only_when_stale_and_not_throttled() {
-        assert_eq!(
-            tray_open_refresh_decision(600_000, None, None, false),
-            TrayOpenRefreshDecision::Request
-        );
-        assert_eq!(
-            tray_open_refresh_decision(600_000, Some(550_001), None, false),
-            TrayOpenRefreshDecision::SkipFresh
-        );
-        assert_eq!(
-            tray_open_refresh_decision(600_000, Some(200_000), Some(590_001), false),
-            TrayOpenRefreshDecision::SkipThrottled
-        );
-        assert_eq!(
-            tray_open_refresh_decision(600_000, Some(200_000), Some(500_000), false),
-            TrayOpenRefreshDecision::Request
-        );
-        assert_eq!(
-            tray_open_refresh_decision(600_000, Some(200_000), None, true),
-            TrayOpenRefreshDecision::SkipActive
-        );
     }
 
     #[test]

@@ -50,16 +50,16 @@ focused bootstrap tray runtime module.
 
 ## Checklist
 
-- [ ] Create `src-tauri/src/bootstrap/tray_runtime.rs`.
-- [ ] Move `RuntimeRefreshEventSink`.
-- [ ] Move runtime refresh event sink constructor.
-- [ ] Move tray invalidation listener.
-- [ ] Move tray snapshot mapping helpers.
-- [ ] Move `TrayOpenRefreshController` and decision helper.
-- [ ] Move tray-open decision tests.
-- [ ] Update `setup_runtime` and `open_tray_panel` call sites.
-- [ ] Run focused tray/bootstrap tests and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Create `src-tauri/src/bootstrap/tray_runtime.rs`.
+- [x] Move `RuntimeRefreshEventSink`.
+- [x] Move runtime refresh event sink constructor.
+- [x] Move tray invalidation listener.
+- [x] Move tray snapshot mapping helpers.
+- [x] Move `TrayOpenRefreshController` and decision helper.
+- [x] Move tray-open decision tests.
+- [x] Update `setup_runtime` and `open_tray_panel` call sites.
+- [x] Run focused tray/bootstrap tests and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -93,8 +93,13 @@ focused bootstrap tray runtime module.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml bootstrap::`
+- Outcome: passed; 23 passed, 0 failed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml platform::tray::`
+- Outcome: passed; 3 passed, 0 failed.
+- Command: `pnpm verify:fast`
+- Outcome: passed; existing ESLint warnings and duplication report remain
+  non-fatal.
 
 ## Runtime Evidence
 
