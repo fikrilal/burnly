@@ -1,6 +1,7 @@
 mod descriptor;
 mod detection;
 mod failure;
+mod mapping;
 mod run;
 
 pub(in crate::infrastructure::collectors) use descriptor::{
@@ -13,6 +14,10 @@ pub(in crate::infrastructure::collectors) use detection::{
 pub(in crate::infrastructure::collectors) use failure::{
     missing_or_invalid_location_code, request_failure, validate_source,
     validation_failure_as_internal, validation_failure_preserving_all_rejected,
+};
+pub(in crate::infrastructure::collectors) use mapping::{
+    checked_add_u64, date_in_scope, local_date_from_millis, provenance, utc_from_millis,
+    MappingIdentity,
 };
 pub(in crate::infrastructure::collectors) use run::{
     collection_metadata, empty_collection_result, LocalCollectionRun,

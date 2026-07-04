@@ -60,7 +60,7 @@ application-visible usage totals.
 - [x] Complete chunk 01: support skeleton plus descriptor/failure helpers.
 - [x] Complete chunk 02: detection result helpers.
 - [x] Complete chunk 03: collection run and empty result helpers.
-- [ ] Complete chunk 04: mapping support helpers.
+- [x] Complete chunk 04: mapping support helpers.
 - [ ] Complete chunk 05: native SQLite helper.
 - [ ] Complete chunk 06: collector diagnostics coverage.
 - [ ] Complete chunk 07: routing and source support matrix review.

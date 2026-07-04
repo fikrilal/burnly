@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use thiserror::Error;
 
@@ -13,12 +13,15 @@ use crate::{
         identity::{daily_source_key, session_source_key, IdentityError},
         source::SourceKey,
         usage::{
-            CostKind, CurrencyCode, DataQuality, TokenUsage, UsageCost, UsageValidationError,
-            ValuedCostStatus,
+            CostKind, CurrencyCode, TokenUsage, UsageCost, UsageValidationError, ValuedCostStatus,
         },
     },
 };
 
+use super::super::support::{
+    checked_add_u64, date_in_scope, local_date_from_millis, provenance, utc_from_millis,
+    MappingIdentity,
+};
 use super::{ClineMessageUsage, ClineSessionRow, ClineUsageMetrics};
 
 const PROFILE_VERSION: u16 = 1;
@@ -52,16 +55,14 @@ impl ClineMappingContext {
     }
 
     pub(crate) fn provenance(&self) -> CandidateProvenance {
-        CandidateProvenance {
+        provenance(&MappingIdentity {
             source: SourceKey::Cline,
             collector: self.collector.clone(),
             collector_version: self.collector_version.clone(),
             profile_version: PROFILE_VERSION,
             collection_id: self.collection_id.clone(),
             observed_at: self.observed_at,
-            data_quality: DataQuality::Complete,
-            warnings: Vec::new(),
-        }
+        })
     }
 }
 
@@ -84,7 +85,11 @@ pub(crate) fn map_daily(
 
     for session in sessions {
         for message in session.messages {
-            let usage_date = usage_date(message.timestamp_ms, timezone)?;
+            let usage_date = local_date_from_millis(
+                message.timestamp_ms,
+                timezone,
+                ClineMappingError::InvalidTimestamp,
+            )?;
             if !date_in_scope(usage_date, scope) {
                 continue;
             }
@@ -180,36 +185,48 @@ struct ClineUsageAccumulator {
 
 impl ClineUsageAccumulator {
     fn add(&mut self, metrics: ClineUsageMetrics) -> Result<(), ClineMappingError> {
-        self.input_tokens = self
-            .input_tokens
-            .checked_add(metrics.input_tokens)
-            .ok_or(ClineMappingError::TokenOverflow)?;
-        self.output_tokens = self
-            .output_tokens
-            .checked_add(metrics.output_tokens)
-            .ok_or(ClineMappingError::TokenOverflow)?;
-        self.cache_read_tokens = self
-            .cache_read_tokens
-            .checked_add(metrics.cache_read_tokens)
-            .ok_or(ClineMappingError::TokenOverflow)?;
-        self.cache_write_tokens = self
-            .cache_write_tokens
-            .checked_add(metrics.cache_write_tokens)
-            .ok_or(ClineMappingError::TokenOverflow)?;
-        self.cost_micros = self
-            .cost_micros
-            .checked_add(metrics.cost_micros)
-            .ok_or(ClineMappingError::CostOutOfRange)?;
+        self.input_tokens = checked_add_u64(
+            self.input_tokens,
+            metrics.input_tokens,
+            ClineMappingError::TokenOverflow,
+        )?;
+        self.output_tokens = checked_add_u64(
+            self.output_tokens,
+            metrics.output_tokens,
+            ClineMappingError::TokenOverflow,
+        )?;
+        self.cache_read_tokens = checked_add_u64(
+            self.cache_read_tokens,
+            metrics.cache_read_tokens,
+            ClineMappingError::TokenOverflow,
+        )?;
+        self.cache_write_tokens = checked_add_u64(
+            self.cache_write_tokens,
+            metrics.cache_write_tokens,
+            ClineMappingError::TokenOverflow,
+        )?;
+        self.cost_micros = checked_add_u64(
+            self.cost_micros,
+            metrics.cost_micros,
+            ClineMappingError::CostOutOfRange,
+        )?;
         Ok(())
     }
 
     fn tokens(&self) -> Result<TokenUsage, ClineMappingError> {
-        let total = self
-            .input_tokens
-            .checked_add(self.output_tokens)
-            .and_then(|value| value.checked_add(self.cache_read_tokens))
-            .and_then(|value| value.checked_add(self.cache_write_tokens))
-            .ok_or(ClineMappingError::TokenOverflow)?;
+        let total = checked_add_u64(
+            checked_add_u64(
+                checked_add_u64(
+                    self.input_tokens,
+                    self.output_tokens,
+                    ClineMappingError::TokenOverflow,
+                )?,
+                self.cache_read_tokens,
+                ClineMappingError::TokenOverflow,
+            )?,
+            self.cache_write_tokens,
+            ClineMappingError::TokenOverflow,
+        )?;
         TokenUsage::new(
             Some(self.input_tokens),
             Some(self.output_tokens),
@@ -222,12 +239,19 @@ impl ClineUsageAccumulator {
 }
 
 fn tokens_from_metrics(metrics: ClineUsageMetrics) -> Result<TokenUsage, ClineMappingError> {
-    let total = metrics
-        .input_tokens
-        .checked_add(metrics.output_tokens)
-        .and_then(|value| value.checked_add(metrics.cache_read_tokens))
-        .and_then(|value| value.checked_add(metrics.cache_write_tokens))
-        .ok_or(ClineMappingError::TokenOverflow)?;
+    let total = checked_add_u64(
+        checked_add_u64(
+            checked_add_u64(
+                metrics.input_tokens,
+                metrics.output_tokens,
+                ClineMappingError::TokenOverflow,
+            )?,
+            metrics.cache_read_tokens,
+            ClineMappingError::TokenOverflow,
+        )?,
+        metrics.cache_write_tokens,
+        ClineMappingError::TokenOverflow,
+    )?;
     TokenUsage::new(
         Some(metrics.input_tokens),
         Some(metrics.output_tokens),
@@ -259,25 +283,8 @@ fn cost_from_micros(cost_micros: u64, total_tokens: u64) -> Result<UsageCost, Cl
     })
 }
 
-fn usage_date(timestamp_ms: i64, timezone: Tz) -> Result<NaiveDate, ClineMappingError> {
-    Ok(timestamp(timestamp_ms)?
-        .with_timezone(&timezone)
-        .date_naive())
-}
-
 fn timestamp(timestamp_ms: i64) -> Result<DateTime<Utc>, ClineMappingError> {
-    Utc.timestamp_millis_opt(timestamp_ms)
-        .single()
-        .ok_or(ClineMappingError::InvalidTimestamp)
-}
-
-fn date_in_scope(usage_date: NaiveDate, scope: &CollectionScope) -> bool {
-    match scope {
-        CollectionScope::Full => true,
-        CollectionScope::Incremental(scope) => {
-            scope.start_date() <= usage_date && usage_date <= scope.end_date()
-        }
-    }
+    utc_from_millis(timestamp_ms, ClineMappingError::InvalidTimestamp)
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]

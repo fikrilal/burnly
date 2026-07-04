@@ -44,19 +44,19 @@ them gradually in native collectors.
 
 ## Checklist
 
-- [ ] Add `support/mapping.rs`.
-- [ ] Add provenance template/helper.
-- [ ] Add date-in-scope helper.
-- [ ] Add local-date-from-milliseconds helper.
-- [ ] Add UTC timestamp helper.
-- [ ] Add checked-add helper only if it has direct adoption in at least two
+- [x] Add `support/mapping.rs`.
+- [x] Add provenance template/helper.
+- [x] Add date-in-scope helper.
+- [x] Add local-date-from-milliseconds helper.
+- [x] Add UTC timestamp helper.
+- [x] Add checked-add helper only if it has direct adoption in at least two
       mappers.
-- [ ] Add support unit tests.
-- [ ] Adopt provenance/date helpers in ZCode mapper.
-- [ ] Adopt provenance/date helpers in Cline mapper.
-- [ ] Adopt safe helpers in Antigravity mapper only where clearly mechanical.
-- [ ] Run focused mapper tests and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Add support unit tests.
+- [x] Adopt provenance/date helpers in ZCode mapper.
+- [x] Adopt provenance/date helpers in Cline mapper.
+- [x] Adopt safe helpers in Antigravity mapper only where clearly mechanical.
+- [x] Run focused mapper tests and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -92,8 +92,26 @@ them gradually in native collectors.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::support::`
+- Outcome: passed; 17 passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::cline::mapper::`
+- Outcome: ran successfully but matched 0 tests; followed with full Cline
+  collector tests.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::cline::`
+- Outcome: passed; 12 passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::zcode::mapper::`
+- Outcome: passed; 3 passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity::mapper::`
+- Outcome: passed; 3 passed.
+- Command: `pnpm rust:test`
+- Outcome: passed; 355 passed, 1 ignored.
+- Command: `pnpm verify:fast`
+- Outcome: passed; lint emitted existing warnings only.
 
 ## Runtime Evidence
 
