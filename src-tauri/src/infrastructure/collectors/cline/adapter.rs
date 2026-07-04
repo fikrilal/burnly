@@ -7,16 +7,17 @@ use chrono::Utc;
 use crate::application::collection::{
     CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
     CollectionResult, CollectorDescriptor, CollectorFailure, CollectorFailureCode,
-    CollectorIntegrity, DetectionIssue, DetectionRequest, DetectionResult, DetectionState,
-    ProcessSummary, RejectedRecord,
+    CollectorIntegrity, DetectionRequest, DetectionResult, ProcessSummary, RejectedRecord,
 };
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
 use super::super::support::{
-    collector_key, daily_session_projections, missing_or_invalid_location_code, request_failure,
-    single_source_descriptor, validate_source, validation_failure_as_internal,
-    validation_failure_preserving_all_rejected, CollectorIdentity,
+    available_detection, cancelled_detection, collector_key, daily_session_projections,
+    detection_issue, invalid_configuration_detection, missing_or_invalid_location_code,
+    not_found_detection, request_failure, single_source_descriptor, unsupported_detection,
+    validate_source, validation_failure_as_internal, validation_failure_preserving_all_rejected,
+    CollectorIdentity,
 };
 use super::mapper::{self, ClineMappingContext, ClineSessionMessages};
 use super::{decode_messages, ClineStore};
@@ -70,70 +71,44 @@ impl Collector for ClineCollector {
         cancellation: &dyn CancellationSignal,
     ) -> Result<DetectionResult, CollectorFailure> {
         if cancellation.is_cancelled() {
-            return Ok(DetectionResult {
-                source: request.source,
-                state: DetectionState::Cancelled,
-                supported_projections: Vec::new(),
-                data_roots_found: 0,
-                usage_artifacts_found: false,
-                checked_at: request.requested_at,
-                issues: Vec::new(),
-            });
+            return Ok(cancelled_detection(&request));
         }
         if request.source != SourceKey::Cline {
-            return Ok(DetectionResult {
-                source: request.source,
-                state: DetectionState::Unsupported,
-                supported_projections: Vec::new(),
-                data_roots_found: 0,
-                usage_artifacts_found: false,
-                checked_at: request.requested_at,
-                issues: vec![issue("cline.unsupported_source", "Source is not Cline.")],
-            });
+            return Ok(unsupported_detection(
+                &request,
+                detection_issue("cline.unsupported_source", "Source is not Cline."),
+            ));
         }
         if !self.database_path.exists() {
-            return Ok(DetectionResult {
-                source: SourceKey::Cline,
-                state: DetectionState::NotFound,
-                supported_projections: supported_projections(),
-                data_roots_found: 0,
-                usage_artifacts_found: false,
-                checked_at: request.requested_at,
-                issues: vec![issue(
+            return Ok(not_found_detection(
+                &request,
+                SourceKey::Cline,
+                supported_projections(),
+                detection_issue(
                     "cline.database_missing",
                     "Cline sessions database was not found.",
-                )],
-            });
+                ),
+            ));
         }
 
         match ClineStore::open_read_only(&self.database_path)
             .and_then(|store| store.read_sessions())
         {
-            Ok(sessions) => Ok(DetectionResult {
-                source: SourceKey::Cline,
-                state: if sessions.is_empty() {
-                    DetectionState::AvailableNoData
-                } else {
-                    DetectionState::Available
-                },
-                supported_projections: supported_projections(),
-                data_roots_found: 1,
-                usage_artifacts_found: !sessions.is_empty(),
-                checked_at: request.requested_at,
-                issues: Vec::new(),
-            }),
-            Err(_) => Ok(DetectionResult {
-                source: SourceKey::Cline,
-                state: DetectionState::InvalidConfiguration,
-                supported_projections: supported_projections(),
-                data_roots_found: 1,
-                usage_artifacts_found: false,
-                checked_at: request.requested_at,
-                issues: vec![issue(
+            Ok(sessions) => Ok(available_detection(
+                &request,
+                SourceKey::Cline,
+                supported_projections(),
+                !sessions.is_empty(),
+            )),
+            Err(_) => Ok(invalid_configuration_detection(
+                &request,
+                SourceKey::Cline,
+                supported_projections(),
+                detection_issue(
                     "cline.database_incompatible",
                     "Cline sessions database is not readable by Burnly.",
-                )],
-            }),
+                ),
+            )),
         }
     }
 
@@ -310,13 +285,6 @@ fn supported_projections() -> Vec<CollectionProjection> {
     daily_session_projections()
 }
 
-fn issue(code: &str, message: &str) -> DetectionIssue {
-    DetectionIssue {
-        code: code.to_owned(),
-        message: message.to_owned(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -326,7 +294,9 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::application::collection::{CollectionId, CollectionOutcome, CollectionScope};
+    use crate::application::collection::{
+        CollectionId, CollectionOutcome, CollectionScope, DetectionState,
+    };
 
     const METADATA: &str = r#"{
       "usage": {

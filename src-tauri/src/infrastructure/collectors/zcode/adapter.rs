@@ -7,15 +7,16 @@ use chrono_tz::Tz;
 use crate::application::collection::{
     CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
     CollectionResult, CollectionScope, CollectorDescriptor, CollectorFailure, CollectorFailureCode,
-    CollectorIntegrity, DetectionIssue, DetectionRequest, DetectionResult, DetectionState,
-    ProcessSummary,
+    CollectorIntegrity, DetectionRequest, DetectionResult, ProcessSummary,
 };
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
 use super::super::support::{
-    collector_key, daily_session_projections, missing_or_invalid_location_code, request_failure,
-    single_source_descriptor, validate_source, validation_failure_as_internal, CollectorIdentity,
+    available_detection, cancelled_detection, collector_key, daily_session_projections,
+    detection_issue, invalid_configuration_detection, missing_or_invalid_location_code,
+    not_found_detection, request_failure, single_source_descriptor, unsupported_detection,
+    validate_source, validation_failure_as_internal, CollectorIdentity,
 };
 use super::mapper::{self, ZCodeMappingContext};
 use super::ZCodeStore;
@@ -63,70 +64,44 @@ impl Collector for ZCodeCollector {
         cancellation: &dyn CancellationSignal,
     ) -> Result<DetectionResult, CollectorFailure> {
         if cancellation.is_cancelled() {
-            return Ok(DetectionResult {
-                source: request.source,
-                state: DetectionState::Cancelled,
-                supported_projections: Vec::new(),
-                data_roots_found: 0,
-                usage_artifacts_found: false,
-                checked_at: request.requested_at,
-                issues: Vec::new(),
-            });
+            return Ok(cancelled_detection(&request));
         }
         if request.source != SourceKey::ZCode {
-            return Ok(DetectionResult {
-                source: request.source,
-                state: DetectionState::Unsupported,
-                supported_projections: Vec::new(),
-                data_roots_found: 0,
-                usage_artifacts_found: false,
-                checked_at: request.requested_at,
-                issues: vec![issue("zcode.unsupported_source", "Source is not ZCode.")],
-            });
+            return Ok(unsupported_detection(
+                &request,
+                detection_issue("zcode.unsupported_source", "Source is not ZCode."),
+            ));
         }
         if !self.database_path.exists() {
-            return Ok(DetectionResult {
-                source: SourceKey::ZCode,
-                state: DetectionState::NotFound,
-                supported_projections: supported_projections(),
-                data_roots_found: 0,
-                usage_artifacts_found: false,
-                checked_at: request.requested_at,
-                issues: vec![issue(
+            return Ok(not_found_detection(
+                &request,
+                SourceKey::ZCode,
+                supported_projections(),
+                detection_issue(
                     "zcode.database_missing",
                     "ZCode usage database was not found.",
-                )],
-            });
+                ),
+            ));
         }
 
         match ZCodeStore::open_read_only(&self.database_path)
             .and_then(|store| store.read_model_usage_between(0, i64::MAX))
         {
-            Ok(rows) => Ok(DetectionResult {
-                source: SourceKey::ZCode,
-                state: if rows.is_empty() {
-                    DetectionState::AvailableNoData
-                } else {
-                    DetectionState::Available
-                },
-                supported_projections: supported_projections(),
-                data_roots_found: 1,
-                usage_artifacts_found: !rows.is_empty(),
-                checked_at: request.requested_at,
-                issues: Vec::new(),
-            }),
-            Err(_) => Ok(DetectionResult {
-                source: SourceKey::ZCode,
-                state: DetectionState::InvalidConfiguration,
-                supported_projections: supported_projections(),
-                data_roots_found: 1,
-                usage_artifacts_found: false,
-                checked_at: request.requested_at,
-                issues: vec![issue(
+            Ok(rows) => Ok(available_detection(
+                &request,
+                SourceKey::ZCode,
+                supported_projections(),
+                !rows.is_empty(),
+            )),
+            Err(_) => Ok(invalid_configuration_detection(
+                &request,
+                SourceKey::ZCode,
+                supported_projections(),
+                detection_issue(
                     "zcode.database_incompatible",
                     "ZCode usage database is not readable by Burnly.",
-                )],
-            }),
+                ),
+            )),
         }
     }
 
@@ -313,13 +288,6 @@ fn supported_projections() -> Vec<CollectionProjection> {
     daily_session_projections()
 }
 
-fn issue(code: &str, message: &str) -> DetectionIssue {
-    DetectionIssue {
-        code: code.to_owned(),
-        message: message.to_owned(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::{NaiveDate, TimeZone};
@@ -328,7 +296,7 @@ mod tests {
 
     use super::*;
     use crate::application::collection::{
-        CollectionId, CollectionOutcome, CollectionScope, DetectionReason,
+        CollectionId, CollectionOutcome, CollectionScope, DetectionReason, DetectionState,
     };
 
     #[test]

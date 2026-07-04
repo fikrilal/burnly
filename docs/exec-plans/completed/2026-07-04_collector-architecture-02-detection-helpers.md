@@ -46,17 +46,17 @@ states and adopt them in ZCode and Cline without changing detection behavior.
 
 ## Checklist
 
-- [ ] Add `support/detection.rs`.
-- [ ] Add detection issue helper.
-- [ ] Add named constructors for cancelled and unsupported detection.
-- [ ] Add named constructors for not-found and invalid-configuration detection.
-- [ ] Add named constructor for available/available-no-data detection.
-- [ ] Add support unit tests for each constructor.
-- [ ] Adopt helpers in ZCode detection.
-- [ ] Adopt helpers in Cline detection.
-- [ ] Keep Antigravity runtime-specific detection logic explicit.
-- [ ] Run focused detection tests and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Add `support/detection.rs`.
+- [x] Add detection issue helper.
+- [x] Add named constructors for cancelled and unsupported detection.
+- [x] Add named constructors for not-found and invalid-configuration detection.
+- [x] Add named constructor for available/available-no-data detection.
+- [x] Add support unit tests for each constructor.
+- [x] Adopt helpers in ZCode detection.
+- [x] Adopt helpers in Cline detection.
+- [x] Keep Antigravity runtime-specific detection logic explicit.
+- [x] Run focused detection tests and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -91,8 +91,19 @@ states and adopt them in ZCode and Cline without changing detection behavior.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::support::`
+- Outcome: passed; 10 passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::cline::adapter::tests::detect`
+- Outcome: passed; 1 passed.
+- Command:
+  `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::zcode::adapter::tests::detect`
+- Outcome: passed; 3 passed.
+- Command: `pnpm rust:test`
+- Outcome: passed; 348 passed, 1 ignored.
+- Command: `pnpm verify:fast`
+- Outcome: passed; lint emitted existing warnings only.
 
 ## Runtime Evidence
 
