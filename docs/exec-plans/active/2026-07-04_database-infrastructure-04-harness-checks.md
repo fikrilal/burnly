@@ -50,16 +50,16 @@ database infrastructure refactor.
 
 ## Checklist
 
-- [ ] Inspect current architecture harness implementation.
-- [ ] Add a database boundary check or extend an existing boundary check.
-- [ ] Explicitly allow collector-local SQLite usage for external tool databases.
-- [ ] Ensure application/domain layers cannot import `rusqlite` or
+- [x] Inspect current architecture harness implementation.
+- [x] Add a database boundary check or extend an existing boundary check.
+- [x] Explicitly allow collector-local SQLite usage for external tool databases.
+- [x] Ensure application/domain layers cannot import `rusqlite` or
       infrastructure database modules.
-- [ ] Ensure production Burnly SQLite store adapters live under
+- [x] Ensure production Burnly SQLite store adapters live under
       `infrastructure/database`.
-- [ ] Update harness documentation if new rules are not self-explanatory.
-- [ ] Run harness and relevant fast verification.
-- [ ] Record verification outcomes before completing the plan.
+- [x] Update harness documentation if new rules are not self-explanatory.
+- [x] Run harness and relevant fast verification.
+- [x] Record verification outcomes before completing the plan.
 
 ## Test Plan
 
@@ -85,15 +85,39 @@ database infrastructure refactor.
 
 - Harness should encode current approved architecture, not enforce speculative
   future structure.
+- The `rusqlite` in `domain`/`application` check was already enforced by the
+  existing `forbiddenTechnologies` list in `rustLayerRules`. The genuinely new
+  work is the `checkDatabaseOwnership` function that confines `rusqlite` within
+  the `infrastructure` layer to `database/` and `collectors/{cline,zcode}/`.
+- `bootstrap.rs` uses `rusqlite` only in its `#[cfg(test)]` module and is not
+  checked by `checkDatabaseOwnership` because it is not under
+  `src-tauri/src/infrastructure/`. The composition root's tests legitimately
+  inspect persisted SQLite state.
+- `allowedRusqlitePaths` is an explicit allowlist, not a denylist. Adding a new
+  collector that reads external SQLite databases requires adding its path here,
+  which forces a deliberate architecture decision.
+- Five self-test cases were added to `runRustBoundarySelfTest` covering: database
+  store allowed, cline collector allowed, zcode collector allowed, leaked
+  infrastructure file rejected, and non-infrastructure file not checked by the
+  ownership rule.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- `pnpm architecture:test` — passed (11 self-test cases including 5 new
+  database ownership cases)
+- `pnpm architecture:check` — passed against real codebase
+- `pnpm rust:fmt` — passed (exit 0)
+- `pnpm rust:test` — 323 passed, 0 failed, 1 ignored
+- `pnpm rust:clippy` — passed, no warnings (`-D warnings`)
+- `pnpm migrations:check` — passed
+- `pnpm contracts:check` — passed
+- `pnpm public-api:check` — passed
+- `pnpm format:check` — passed
+- `pnpm verify:fast` — passed (exit 0, all sub-checks green)
 
 ## Runtime Evidence
 
-- Not required yet.
+- Not required.
 
 ## Follow-Up Debt
 
