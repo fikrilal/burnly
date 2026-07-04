@@ -4,6 +4,11 @@
 
 Drafted on July 4, 2026.
 
+Implemented through the bootstrap runtime execution-plan series on July 4, 2026. The composition root remains `src-tauri/src/bootstrap.rs`; runtime
+responsibilities were split into shallow sibling modules without changing
+startup order, IPC contracts, collector behavior, refresh policy, tray behavior,
+or persistence semantics.
+
 This audit focuses on `src-tauri/src/bootstrap.rs`.
 
 The goal is to reduce startup and runtime-composition risk without changing
@@ -59,6 +64,32 @@ src-tauri/src/bootstrap/
 
 This is intentionally not a new architecture layer. It is only a split of the
 composition root by runtime responsibility.
+
+## Implementation Outcome
+
+Completed module split:
+
+```text
+src-tauri/src/bootstrap.rs              # public run/setup facade and StartupError
+src-tauri/src/bootstrap/
+  collectors.rs                         # concrete collector graph composition
+  resources.rs                          # packaged resource and data-dir resolution
+  runtime_events.rs                     # RunEvent, tray/menu/reopen/exit handling
+  settings_runtime.rs                   # DesktopSettingsRuntime and launch-at-login
+  startup.rs                            # database initialization and run recovery
+  tray_runtime.rs                       # tray snapshot, invalidation, open-refresh
+```
+
+Kept intentionally in `bootstrap.rs`:
+
+- Tauri builder/plugin setup
+- startup order and Tauri-managed state registration
+- `StartupError` and `StartupErrorKind`
+- refresh coordinator and scheduler construction
+- broad Tauri IPC integration tests
+
+No service bag, dependency-injection container, collector registry, or platform
+behavior change was introduced.
 
 ## Current File Map
 

@@ -47,15 +47,15 @@ state easier to review.
 
 ## Checklist
 
-- [ ] Review remaining `bootstrap.rs` responsibilities after chunks 01-05.
-- [ ] Group or rename setup steps for readability.
-- [ ] Move test support only if it reduces production-file noise without
+- [x] Review remaining `bootstrap.rs` responsibilities after chunks 01-05.
+- [x] Group or rename setup steps for readability.
+- [x] Move test support only if it reduces production-file noise without
       widening production visibility.
-- [ ] Move `StartupError` only if it clearly improves readability.
-- [ ] Update audit implementation outcome.
-- [ ] Run focused bootstrap tests.
-- [ ] Run full local verification.
-- [ ] Record verification outcomes before completion.
+- [x] Move `StartupError` only if it clearly improves readability.
+- [x] Update audit implementation outcome.
+- [x] Run focused bootstrap tests.
+- [x] Run full local verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -85,11 +85,24 @@ state easier to review.
 - Do not introduce a `RuntimeServices` bag.
 - Keep startup order explicit.
 - Treat error-module movement as optional cleanup, not required scope.
+- Kept `StartupError` in `bootstrap.rs`; moving it would not improve
+  readability enough to justify a wider edit.
+- Kept test support in `bootstrap.rs`; moving it would require wider visibility
+  without reducing production runtime risk.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml bootstrap::`
+- Outcome: passed; 23 passed, 0 failed.
+- Command: `pnpm verify`
+- Outcome: failed initially because
+  `docs/planning/_WIP/bootstrap-runtime-composition-audit.md` needed Prettier
+  formatting after the audit update.
+- Command: `pnpm prettier --write docs/planning/_WIP/bootstrap-runtime-composition-audit.md`
+- Outcome: passed; audit document formatted.
+- Command: `pnpm verify`
+- Outcome: passed; existing ESLint warnings and duplication report remain
+  non-fatal.
 
 ## Runtime Evidence
 

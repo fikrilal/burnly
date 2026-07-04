@@ -71,9 +71,9 @@ persistence semantics, IPC contracts, or user-visible behavior.
 - [x] Complete chunk 03: settings runtime module.
 - [x] Complete chunk 04: tray runtime module.
 - [x] Complete chunk 05: runtime event module.
-- [ ] Complete chunk 06: setup composition cleanup.
-- [ ] Re-run the full local gate after all chunks are complete.
-- [ ] Update `docs/planning/_WIP/bootstrap-runtime-composition-audit.md` with
+- [x] Complete chunk 06: setup composition cleanup.
+- [x] Re-run the full local gate after all chunks are complete.
+- [x] Update `docs/planning/_WIP/bootstrap-runtime-composition-audit.md` with
       important implementation decisions or deviations.
 
 ## Test Plan
@@ -121,8 +121,8 @@ persistence semantics, IPC contracts, or user-visible behavior.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `pnpm verify`
+- Outcome: passed after formatting the updated audit document.
 
 ## Runtime Evidence
 

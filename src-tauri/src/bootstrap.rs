@@ -183,38 +183,21 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     let refresh_scheduler =
         RefreshScheduler::start(refresh_policy, Arc::new(refresh_coordinator.clone()))
             .map_err(StartupError::RefreshScheduler)?;
-    let runtime_settings =
-        RuntimeSettings::new(CloseBehavior::parse(&close_behavior).map_err(|_| {
-            StartupError::Persistence(PersistenceError::invalid_stored_value(
-                "app_settings.close_behavior",
-            ))
-        })?);
-    let tray_controller = tray::TrayController::install(
-        app.handle(),
-        &tray_runtime::tray_snapshot(
-            &refresh_coordinator.snapshot(),
-            &tray_summary_query,
-            &reporting_timezone,
-        ),
-    )
-    .map_err(StartupError::Tray)?;
-    *tray_state.lock().expect("tray state lock is poisoned") = Some(tray_controller.clone());
-    tray_controller.update(&tray_runtime::tray_snapshot(
-        &refresh_coordinator.snapshot(),
+    let runtime_settings = parse_runtime_settings(&close_behavior)?;
+    let tray_controller = install_tray_controller(
+        app,
+        tray_state.clone(),
+        &refresh_coordinator,
         &tray_summary_query,
         &reporting_timezone,
-    ));
+    )?;
     app.manage(tray_controller);
     lifecycle::prepare_tray_panel(app.handle()).map_err(StartupError::TrayPanel)?;
     tray_runtime::install_tray_invalidation_listener(
         app.handle().clone(),
         tray_summary_query.clone(),
     );
-    let runtime_capabilities = RuntimeCapabilities::new(
-        RuntimeCapabilities::tray_available(),
-        settings_runtime::launch_at_login_capability(),
-        RuntimeCapabilities::update_available(),
-    );
+    let runtime_capabilities = build_runtime_capabilities();
 
     app.manage(
         Arc::new(lifecycle::DesktopWindowActions::new(app.handle().clone()))
@@ -262,6 +245,50 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     ));
 
     Ok(())
+}
+
+fn parse_runtime_settings(close_behavior: &str) -> Result<RuntimeSettings, StartupError> {
+    Ok(RuntimeSettings::new(
+        CloseBehavior::parse(close_behavior).map_err(|_| {
+            StartupError::Persistence(PersistenceError::invalid_stored_value(
+                "app_settings.close_behavior",
+            ))
+        })?,
+    ))
+}
+
+fn install_tray_controller<R: Runtime>(
+    app: &tauri::App<R>,
+    tray_state: Arc<Mutex<Option<tray::TrayController<R>>>>,
+    refresh_coordinator: &RefreshCoordinator,
+    tray_summary_query: &TraySummaryQuery,
+    reporting_timezone: &str,
+) -> Result<tray::TrayController<R>, StartupError> {
+    let tray_controller = tray::TrayController::install(
+        app.handle(),
+        &tray_runtime::tray_snapshot(
+            &refresh_coordinator.snapshot(),
+            tray_summary_query,
+            reporting_timezone,
+        ),
+    )
+    .map_err(StartupError::Tray)?;
+    *tray_state.lock().expect("tray state lock is poisoned") = Some(tray_controller.clone());
+    tray_controller.update(&tray_runtime::tray_snapshot(
+        &refresh_coordinator.snapshot(),
+        tray_summary_query,
+        reporting_timezone,
+    ));
+
+    Ok(tray_controller)
+}
+
+fn build_runtime_capabilities() -> RuntimeCapabilities {
+    RuntimeCapabilities::new(
+        RuntimeCapabilities::tray_available(),
+        settings_runtime::launch_at_login_capability(),
+        RuntimeCapabilities::update_available(),
+    )
 }
 
 fn automatic_refresh_policy() -> RefreshPolicy {
