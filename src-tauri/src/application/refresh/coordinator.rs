@@ -15,8 +15,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use chrono::DateTime;
-
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -24,23 +22,16 @@ pub(crate) enum BudgetEvaluationError {
     #[error("budget storage failed")]
     StorageUnavailable,
 }
-use crate::application::collection::{CollectionProjection, CollectionResult};
 use crate::application::ports::clock::Clock;
-use crate::application::ports::collector::{CancellationSignal, Collector};
+use crate::application::ports::collector::Collector;
 use crate::application::ports::run_store::RunStore;
 use crate::application::ports::usage_store::UsageStore;
-use crate::application::reconciliation::{
-    DailyReconciliationRequest, ImportCollector, ImportOutcome, ImportRunCompletion, ImportRunSpec,
-    JobKey, RefreshOutcome, RefreshRunCompletion, RefreshRunSpec, RefreshTrigger,
-    SessionReconciliationRequest,
-};
+use crate::application::reconciliation::RefreshTrigger;
 
-use super::outcome::{
-    clamp_count, run_error, ExecutionFailure, ExecutionResult, RunOutcome, TargetRunAccumulator,
-};
-use super::request_plan::{planned_collection_request, RefreshScopePolicy};
+use super::execution::{execute_refresh, RefreshExecution};
+use super::outcome::RunOutcome;
+use super::request_plan::RefreshScopePolicy;
 use super::state::{RefreshSnapshot, RefreshStatus};
-use super::target::{import_timezone, records_seen, refresh_targets};
 
 struct CoordinatorState {
     status: RefreshStatus,
@@ -282,7 +273,22 @@ impl RefreshCoordinator {
         job_id: String,
         started_at_ms: i64,
     ) {
-        let result = self.execute(trigger, scope_policy, &job_id, started_at_ms);
+        let aggregation_timezone = self.aggregation_timezone();
+        let result = execute_refresh(
+            RefreshExecution {
+                collector: self.collector.as_ref(),
+                run_store: self.run_store.as_ref(),
+                usage_store: self.usage_store.as_ref(),
+                budget_evaluator: self.budget_evaluator.as_ref(),
+                clock: self.clock.as_ref(),
+                app_version: &self.app_version,
+                aggregation_timezone,
+            },
+            trigger,
+            scope_policy,
+            &job_id,
+            started_at_ms,
+        );
         let snapshot = {
             let mut state = self.lock_state();
             state.status = result.outcome.status();
@@ -292,313 +298,6 @@ impl RefreshCoordinator {
             state.snapshot()
         };
         self.event_sink.publish(snapshot, result.usage_changed);
-    }
-
-    fn execute(
-        &self,
-        trigger: RefreshTrigger,
-        scope_policy: RefreshScopePolicy,
-        job_id: &str,
-        started_at_ms: i64,
-    ) -> ExecutionResult {
-        let job_key = match JobKey::new(job_id) {
-            Ok(job_key) => job_key,
-            Err(_) => return self.failed_result(false),
-        };
-        let spec = match RefreshRunSpec::new(job_key, trigger, self.app_version.clone()) {
-            Ok(spec) => spec,
-            Err(_) => return self.failed_result(false),
-        };
-        let refresh_run_id = match self.run_store.begin_refresh_run(spec, started_at_ms) {
-            Ok(id) => id,
-            Err(_) => return self.failed_result(false),
-        };
-
-        let result = self.execute_open_refresh(refresh_run_id, scope_policy, job_id, started_at_ms);
-        match result {
-            Ok(result) => result,
-            Err(failure) => {
-                if let Some(import_run_id) = failure.import_run_id {
-                    let _ = self.run_store.complete_import_run(
-                        import_run_id,
-                        ImportRunCompletion {
-                            outcome: ImportOutcome::Failed,
-                            records_seen: failure.records_seen,
-                            records_rejected: failure.records_rejected,
-                            finished_at_ms: failure.finished_at_ms,
-                            error: run_error(failure.code, failure.summary),
-                        },
-                    );
-                }
-                let _ = self.run_store.complete_refresh_run(
-                    refresh_run_id,
-                    RefreshRunCompletion {
-                        outcome: RefreshOutcome::Failed,
-                        finished_at_ms: failure.finished_at_ms,
-                        error: run_error(failure.code, failure.summary),
-                    },
-                );
-                ExecutionResult {
-                    outcome: RunOutcome::Failed,
-                    finished_at_ms: failure.finished_at_ms,
-                    usage_changed: failure.usage_changed,
-                }
-            }
-        }
-    }
-
-    fn execute_open_refresh(
-        &self,
-        refresh_run_id: crate::application::reconciliation::RefreshRunId,
-        scope_policy: RefreshScopePolicy,
-        job_id: &str,
-        started_at_ms: i64,
-    ) -> Result<ExecutionResult, ExecutionFailure> {
-        let requested_at = DateTime::from_timestamp_millis(started_at_ms)
-            .ok_or_else(|| self.failure("refresh.time", "Refresh time is invalid."))?;
-
-        let mut aggregate = TargetRunAccumulator::default();
-        let mut first_error = None;
-        let mut usage_changed = false;
-        let mut finished_at_ms = started_at_ms;
-        let aggregation_timezone = self.aggregation_timezone();
-
-        for target in refresh_targets() {
-            let source_id = self
-                .run_store
-                .resolve_source(target.source, started_at_ms)
-                .map_err(|_| {
-                    self.failure("refresh.source", "Could not resolve the usage source.")
-                })?;
-            let request = planned_collection_request(
-                self.run_store.as_ref(),
-                job_id,
-                target,
-                requested_at,
-                &aggregation_timezone,
-                scope_policy,
-            )
-            .map_err(|error| self.failure(error.code(), error.summary()))?;
-            let collection = match self.collector.collect(request, &NeverCancelled) {
-                Ok(collection) => collection,
-                Err(failure) => {
-                    aggregate.record(RunOutcome::Failed);
-                    finished_at_ms = self.clock.now_epoch_ms();
-                    if first_error.is_none() {
-                        first_error = run_error(failure.code.code(), failure.to_string());
-                    }
-                    continue;
-                }
-            };
-            let result = self.persist(
-                refresh_run_id,
-                source_id,
-                started_at_ms,
-                &aggregation_timezone,
-                &collection,
-            )?;
-            aggregate.record(result.outcome);
-            usage_changed = usage_changed || result.usage_changed;
-            finished_at_ms = result.finished_at_ms;
-        }
-
-        let outcome = aggregate.outcome();
-        self.run_store
-            .complete_refresh_run(
-                refresh_run_id,
-                RefreshRunCompletion {
-                    outcome: outcome.refresh_outcome(),
-                    finished_at_ms,
-                    error: match outcome {
-                        RunOutcome::Succeeded => None,
-                        RunOutcome::Partial | RunOutcome::Failed => first_error,
-                    },
-                },
-            )
-            .map_err(|_| ExecutionFailure {
-                import_run_id: None,
-                records_seen: 0,
-                records_rejected: 0,
-                finished_at_ms,
-                usage_changed,
-                code: "refresh.completion",
-                summary: "Could not complete the refresh run.",
-            })?;
-
-        Ok(ExecutionResult {
-            outcome,
-            finished_at_ms,
-            usage_changed,
-        })
-    }
-
-    fn persist(
-        &self,
-        refresh_run_id: crate::application::reconciliation::RefreshRunId,
-        source_id: crate::application::reconciliation::SourceId,
-        now_ms: i64,
-        aggregation_timezone: &str,
-        collection: &CollectionResult,
-    ) -> Result<ExecutionResult, ExecutionFailure> {
-        let metadata = collection.metadata();
-        let import_collector = ImportCollector::new(
-            metadata.collector().as_str(),
-            metadata.collector_version(),
-            metadata.profile_version(),
-        )
-        .map_err(|_| self.failure("refresh.metadata", "Collector metadata is invalid."))?;
-        let import_spec = ImportRunSpec::new(
-            refresh_run_id,
-            source_id,
-            import_collector,
-            collection.projection(),
-            metadata.effective_scope().clone(),
-            import_timezone(collection.projection(), aggregation_timezone),
-        )
-        .map_err(|_| self.failure("refresh.import", "Import metadata is invalid."))?;
-        let import_run_id = self
-            .run_store
-            .begin_import_run(import_spec, now_ms)
-            .map_err(|_| self.failure("refresh.import", "Could not begin the import run."))?;
-
-        let collection_outcome = collection.outcome();
-        let records_seen = records_seen(collection);
-        let records_rejected = clamp_count(collection.rejection_count());
-        self.reconcile_collection(
-            source_id,
-            import_run_id,
-            now_ms,
-            aggregation_timezone,
-            collection,
-        )
-        .map_err(|_| {
-            self.import_failure(
-                import_run_id,
-                records_seen,
-                records_rejected,
-                false,
-                "refresh.reconciliation",
-                "Could not reconcile collected usage.",
-            )
-        })?;
-
-        let outcome = RunOutcome::from_collection(collection_outcome);
-        let finished_at_ms = self.clock.now_epoch_ms();
-
-        self.run_store
-            .complete_import_run(
-                import_run_id,
-                ImportRunCompletion {
-                    outcome: outcome.import_outcome(),
-                    records_seen,
-                    records_rejected,
-                    finished_at_ms,
-                    error: None,
-                },
-            )
-            .map_err(|_| {
-                self.import_failure(
-                    import_run_id,
-                    records_seen,
-                    records_rejected,
-                    true,
-                    "refresh.import_completion",
-                    "Could not complete the import run.",
-                )
-            })?;
-        Ok(ExecutionResult {
-            outcome,
-            finished_at_ms,
-            usage_changed: true,
-        })
-    }
-
-    fn reconcile_collection(
-        &self,
-        source_id: crate::application::reconciliation::SourceId,
-        import_run_id: crate::application::reconciliation::ImportRunId,
-        now_ms: i64,
-        aggregation_timezone: &str,
-        collection: &CollectionResult,
-    ) -> Result<(), crate::application::ports::usage_store::UsageStoreError> {
-        match collection.projection() {
-            CollectionProjection::Daily => {
-                let reconciliation = DailyReconciliationRequest::new(
-                    source_id,
-                    import_run_id,
-                    collection.metadata().effective_scope().clone(),
-                    collection.outcome(),
-                    now_ms,
-                    collection.daily_candidates().to_vec(),
-                );
-                self.usage_store.reconcile_daily(reconciliation)?;
-                let _ = self
-                    .budget_evaluator
-                    .evaluate_after_commit(aggregation_timezone, now_ms);
-                Ok(())
-            }
-            CollectionProjection::Session => {
-                let reconciliation = SessionReconciliationRequest::new(
-                    source_id,
-                    import_run_id,
-                    collection.metadata().effective_scope().clone(),
-                    collection.outcome(),
-                    now_ms,
-                    collection.session_candidates().to_vec(),
-                );
-                self.usage_store
-                    .reconcile_session(reconciliation)
-                    .map(|_| ())
-            }
-        }
-    }
-
-    fn failed_result(&self, usage_changed: bool) -> ExecutionResult {
-        ExecutionResult {
-            outcome: RunOutcome::Failed,
-            finished_at_ms: self.clock.now_epoch_ms(),
-            usage_changed,
-        }
-    }
-
-    fn failure(&self, code: &'static str, summary: &'static str) -> ExecutionFailure {
-        ExecutionFailure {
-            import_run_id: None,
-            records_seen: 0,
-            records_rejected: 0,
-            finished_at_ms: self.clock.now_epoch_ms(),
-            usage_changed: false,
-            code,
-            summary,
-        }
-    }
-
-    fn import_failure(
-        &self,
-        import_run_id: crate::application::reconciliation::ImportRunId,
-        records_seen: u32,
-        records_rejected: u32,
-        usage_changed: bool,
-        code: &'static str,
-        summary: &'static str,
-    ) -> ExecutionFailure {
-        ExecutionFailure {
-            import_run_id: Some(import_run_id),
-            records_seen,
-            records_rejected,
-            finished_at_ms: self.clock.now_epoch_ms(),
-            usage_changed,
-            code,
-            summary,
-        }
-    }
-}
-
-struct NeverCancelled;
-
-impl CancellationSignal for NeverCancelled {
-    fn is_cancelled(&self) -> bool {
-        false
     }
 }
 
@@ -611,18 +310,21 @@ mod tests {
 
     use chrono::{TimeZone, Utc};
 
+    use super::super::target::refresh_targets;
     use super::*;
     use crate::application::collection::{
         CandidateProvenance, CollectionId, CollectionMetadata, CollectionOutcome, CollectionPeriod,
-        CollectionRequest, CollectionScope, CollectorDescriptor, CollectorFailure,
-        CollectorFailureCode, DailyUsageCandidate, DetectionRequest, DetectionResult,
-        ProcessSummary, RejectedRecord, SessionUsageCandidate,
+        CollectionProjection, CollectionRequest, CollectionResult, CollectionScope,
+        CollectorDescriptor, CollectorFailure, CollectorFailureCode, DailyUsageCandidate,
+        DetectionRequest, DetectionResult, ProcessSummary, RejectedRecord, SessionUsageCandidate,
     };
+    use crate::application::ports::collector::CancellationSignal;
     use crate::application::ports::run_store::RunStoreError;
     use crate::application::ports::usage_store::UsageStoreError;
     use crate::application::reconciliation::{
-        DailyReconciliationSummary, ImportRunId, ImportRunLookup, RefreshRunId, SourceId,
-        SuccessfulImportState,
+        DailyReconciliationRequest, DailyReconciliationSummary, ImportOutcome, ImportRunCompletion,
+        ImportRunId, ImportRunLookup, ImportRunSpec, RefreshOutcome, RefreshRunCompletion,
+        RefreshRunId, RefreshRunSpec, SourceId, SuccessfulImportState,
     };
     use crate::domain::source::SourceKey;
     use crate::domain::usage::{

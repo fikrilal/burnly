@@ -51,16 +51,16 @@ reconciliation, and partial failure behavior.
 
 ## Checklist
 
-- [ ] Create `src-tauri/src/application/refresh/execution.rs`.
-- [ ] Move `execute` and `execute_open_refresh` behavior into execution code.
-- [ ] Move `persist` and `reconcile_collection` behavior into execution code.
-- [ ] Preserve `RefreshCoordinator` public methods and worker-spawn flow.
-- [ ] Keep terminal cleanup code explicit for open import and refresh runs.
-- [ ] Preserve budget evaluation after daily reconciliation only.
-- [ ] Preserve first-error behavior for partial/failed aggregate refreshes.
-- [ ] Keep error codes and summaries stable.
-- [ ] Run all coordinator tests and full Rust tests.
-- [ ] Record verification outcomes before completion.
+- [x] Create `src-tauri/src/application/refresh/execution.rs`.
+- [x] Move `execute` and `execute_open_refresh` behavior into execution code.
+- [x] Move `persist` and `reconcile_collection` behavior into execution code.
+- [x] Preserve `RefreshCoordinator` public methods and worker-spawn flow.
+- [x] Keep terminal cleanup code explicit for open import and refresh runs.
+- [x] Preserve budget evaluation after daily reconciliation only.
+- [x] Preserve first-error behavior for partial/failed aggregate refreshes.
+- [x] Keep error codes and summaries stable.
+- [x] Run all coordinator tests and full Rust tests.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -104,8 +104,14 @@ reconciliation, and partial failure behavior.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml application::refresh:: --quiet`
+- Outcome: passed; 43 refresh tests passed.
+- Command: `cargo fmt --manifest-path src-tauri/Cargo.toml`
+- Outcome: passed.
+- Command: `pnpm rust:test`
+- Outcome: passed; 338 Rust tests passed, 1 ignored.
+- Command: `pnpm verify:fast`
+- Outcome: passed; ESLint warnings and duplication report remain non-fatal.
 
 ## Runtime Evidence
 

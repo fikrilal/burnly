@@ -1,6 +1,7 @@
 //! The refresh coordinator: single owner of refresh concurrency.
 
 mod coordinator;
+mod execution;
 mod outcome;
 mod planner;
 mod request_plan;
