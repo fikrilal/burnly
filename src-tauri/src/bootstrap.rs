@@ -5,6 +5,7 @@
 
 mod collectors;
 mod resources;
+mod settings_runtime;
 mod startup;
 
 use std::path::Path;
@@ -17,9 +18,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{Listener, Manager, RunEvent, Runtime, WindowEvent};
 use thiserror::Error;
 
-use crate::application::bootstrap::{
-    BootstrapService, Capability, RuntimeCapabilities, RuntimeSettings,
-};
+use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
 
 use crate::application::collection::CollectorFailure;
 use crate::application::diagnostics::DiagnosticsService;
@@ -31,12 +30,12 @@ use crate::application::refresh::{
     RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
     RefreshSnapshot, RefreshStatus,
 };
-use crate::application::settings::{RuntimeSettingError, SettingsRuntime, SettingsService};
+use crate::application::settings::SettingsService;
 #[cfg(test)]
 use crate::application::update::UnavailableUpdateRuntime;
 use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
-use crate::domain::settings::{CloseBehavior, Settings};
+use crate::domain::settings::CloseBehavior;
 use crate::infrastructure::database::{
     Database, PersistenceError, PersistenceErrorKind, SqliteBootstrapStore, SqliteDiagnosticStore,
     SqliteReconciliationStore, SqliteSettingsStore, SqliteTraySummaryStore,
@@ -277,7 +276,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     install_tray_invalidation_listener(app.handle().clone(), tray_summary_query.clone());
     let runtime_capabilities = RuntimeCapabilities::new(
         RuntimeCapabilities::tray_available(),
-        launch_at_login_capability(),
+        settings_runtime::launch_at_login_capability(),
         RuntimeCapabilities::update_available(),
     );
 
@@ -313,10 +312,10 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         SqliteBootstrapStore::new(database),
         runtime_capabilities,
     ));
-    let runtime = Arc::new(DesktopSettingsRuntime {
-        app: app.handle().clone(),
+    let runtime = Arc::new(settings_runtime::DesktopSettingsRuntime::new(
+        app.handle().clone(),
         runtime_settings,
-    });
+    ));
     if let Err(error) = runtime.reconcile_launch_at_login_on_startup(launch_at_login) {
         eprintln!("Burnly launch-at-login reconciliation failed: {error:?}");
     }
@@ -327,88 +326,6 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     ));
 
     Ok(())
-}
-
-struct DesktopSettingsRuntime<R: Runtime> {
-    app: tauri::AppHandle<R>,
-    runtime_settings: RuntimeSettings,
-}
-
-impl<R: Runtime> SettingsRuntime for DesktopSettingsRuntime<R> {
-    fn validate(&self, current: &Settings, proposed: &Settings) -> Result<(), RuntimeSettingError> {
-        if proposed.launch_at_login() && !current.launch_at_login() && !launch_at_login_supported()
-        {
-            return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
-        }
-
-        Ok(())
-    }
-
-    fn prepare_update(
-        &self,
-        current: &Settings,
-        proposed: &Settings,
-    ) -> Result<(), RuntimeSettingError> {
-        if current.launch_at_login() != proposed.launch_at_login() {
-            self.apply_launch_at_login(proposed.launch_at_login())?;
-        }
-
-        Ok(())
-    }
-
-    fn rollback_update(&self, current: &Settings) -> Result<(), RuntimeSettingError> {
-        self.apply_launch_at_login(current.launch_at_login())
-    }
-
-    fn commit_update(&self, settings: &Settings) {
-        self.runtime_settings.update(settings);
-    }
-}
-
-impl<R: Runtime> DesktopSettingsRuntime<R> {
-    fn reconcile_launch_at_login_on_startup(
-        &self,
-        enabled: bool,
-    ) -> Result<(), RuntimeSettingError> {
-        if !should_reconcile_launch_at_login_on_startup(enabled, launch_at_login_supported()) {
-            return Ok(());
-        }
-
-        self.apply_launch_at_login(true)
-    }
-
-    fn apply_launch_at_login(&self, enabled: bool) -> Result<(), RuntimeSettingError> {
-        use tauri_plugin_autostart::ManagerExt;
-
-        if enabled && !launch_at_login_supported() {
-            return Err(RuntimeSettingError::LaunchAtLoginUnavailable);
-        }
-
-        let autostart = self.app.autolaunch();
-        let result = if enabled {
-            autostart.enable()
-        } else {
-            autostart.disable()
-        };
-
-        result.map_err(|_| RuntimeSettingError::LaunchAtLoginApplyFailed)
-    }
-}
-
-fn should_reconcile_launch_at_login_on_startup(persisted_enabled: bool, supported: bool) -> bool {
-    persisted_enabled && supported
-}
-
-fn launch_at_login_supported() -> bool {
-    !cfg!(debug_assertions)
-}
-
-fn launch_at_login_capability() -> Capability {
-    if launch_at_login_supported() {
-        RuntimeCapabilities::launch_at_login_available()
-    } else {
-        RuntimeCapabilities::launch_at_login_not_implemented()
-    }
 }
 
 fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuEvent) {
@@ -695,6 +612,7 @@ mod tests {
         BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
     };
     use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
+    use crate::application::settings::{RuntimeSettingError, SettingsRuntime};
     use crate::domain::settings::{Settings, SettingsDocument};
     use crate::infrastructure::collectors::antigravity::AntigravityCollector;
     use crate::infrastructure::collectors::ccusage::CcusageCollector;
@@ -781,14 +699,6 @@ mod tests {
             RuntimeCapabilities::launch_at_login_not_implemented(),
             RuntimeCapabilities::update_not_implemented(),
         )
-    }
-
-    #[test]
-    fn launch_at_login_startup_reconciliation_policy_requires_enabled_and_supported() {
-        assert!(should_reconcile_launch_at_login_on_startup(true, true));
-        assert!(!should_reconcile_launch_at_login_on_startup(true, false));
-        assert!(!should_reconcile_launch_at_login_on_startup(false, true));
-        assert!(!should_reconcile_launch_at_login_on_startup(false, false));
     }
 
     #[test]

@@ -49,14 +49,14 @@ semantics.
 
 ## Checklist
 
-- [ ] Create `src-tauri/src/bootstrap/settings_runtime.rs`.
-- [ ] Move `DesktopSettingsRuntime`.
-- [ ] Move launch-at-login support/capability helpers.
-- [ ] Move startup reconciliation policy helper and test.
-- [ ] Update `setup_runtime` to use the extracted module.
-- [ ] Confirm settings IPC update behavior still passes.
-- [ ] Run focused settings/bootstrap tests and fast verification.
-- [ ] Record verification outcomes before completion.
+- [x] Create `src-tauri/src/bootstrap/settings_runtime.rs`.
+- [x] Move `DesktopSettingsRuntime`.
+- [x] Move launch-at-login support/capability helpers.
+- [x] Move startup reconciliation policy helper and test.
+- [x] Update `setup_runtime` to use the extracted module.
+- [x] Confirm settings IPC update behavior still passes.
+- [x] Run focused settings/bootstrap tests and fast verification.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -90,8 +90,13 @@ semantics.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml application::settings::`
+- Outcome: passed; 4 passed, 0 failed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml bootstrap::`
+- Outcome: passed; 23 passed, 0 failed.
+- Command: `pnpm verify:fast`
+- Outcome: passed; existing ESLint warnings and duplication report remain
+  non-fatal.
 
 ## Runtime Evidence
 
