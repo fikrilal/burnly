@@ -56,7 +56,7 @@ behavior, schema semantics, or application-visible contracts.
 - [x] Complete chunk 03: reconciliation module split.
 - [x] Complete chunk 04: database architecture harness checks.
 - [x] Re-run the full local gate after all chunks are complete.
-- [ ] Update `docs/planning/_WIP/database-infrastructure-audit.md` with any
+- [x] Update `docs/planning/_WIP/database-infrastructure-audit.md` with any
       important implementation decisions or deviations.
 
 ## Test Plan
@@ -97,8 +97,9 @@ behavior, schema semantics, or application-visible contracts.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- `pnpm verify:fast` — passed
+- `pnpm rust:test` — passed: 323 passed, 0 failed, 1 ignored
+- `git diff --check origin/development..HEAD` — passed
 
 ## Runtime Evidence
 

@@ -11,13 +11,11 @@
     reason = "Coordinator entry points are invoked by the Phase 4F IPC commands"
 )]
 
-use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use chrono::{DateTime, NaiveDate, Utc};
-use chrono_tz::Tz;
+use chrono::{DateTime, Utc};
 
 use thiserror::Error;
 
@@ -27,8 +25,7 @@ pub(crate) enum BudgetEvaluationError {
     StorageUnavailable,
 }
 use crate::application::collection::{
-    CollectionId, CollectionOutcome, CollectionProjection, CollectionRequest, CollectionResult,
-    CollectionScope,
+    CollectionId, CollectionProjection, CollectionRequest, CollectionResult, CollectionScope,
 };
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::{CancellationSignal, Collector};
@@ -36,15 +33,18 @@ use crate::application::ports::run_store::RunStore;
 use crate::application::ports::usage_store::UsageStore;
 use crate::application::reconciliation::{
     DailyReconciliationRequest, ImportCollector, ImportOutcome, ImportRunCompletion, ImportRunSpec,
-    JobKey, RefreshOutcome, RefreshRunCompletion, RefreshRunSpec, RefreshTrigger, RunError,
+    JobKey, RefreshOutcome, RefreshRunCompletion, RefreshRunSpec, RefreshTrigger,
     SessionReconciliationRequest,
 };
-use crate::domain::source::SourceKey;
 
-use super::planner::{
-    RefreshPlanMode, RefreshPlanRequest, RefreshPlanTarget, RefreshPolicyPlanner,
+use super::outcome::{
+    clamp_count, run_error, ExecutionFailure, ExecutionResult, RunOutcome, TargetRunAccumulator,
 };
+use super::planner::{RefreshPlanMode, RefreshPlanRequest, RefreshPolicyPlanner};
 use super::state::{RefreshSnapshot, RefreshStatus};
+use super::target::{
+    import_timezone, local_date, projection_label, records_seen, refresh_targets, RefreshTarget,
+};
 
 struct CoordinatorState {
     status: RefreshStatus,
@@ -681,223 +681,10 @@ impl CancellationSignal for NeverCancelled {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RunOutcome {
-    Succeeded,
-    Partial,
-    Failed,
-}
-
-impl RunOutcome {
-    fn from_collection(outcome: CollectionOutcome) -> Self {
-        match outcome {
-            CollectionOutcome::Partial => Self::Partial,
-            CollectionOutcome::Complete | CollectionOutcome::Empty => Self::Succeeded,
-        }
-    }
-
-    const fn status(self) -> RefreshStatus {
-        match self {
-            Self::Succeeded => RefreshStatus::Succeeded,
-            Self::Partial => RefreshStatus::Partial,
-            Self::Failed => RefreshStatus::Failed,
-        }
-    }
-
-    const fn refresh_outcome(self) -> RefreshOutcome {
-        match self {
-            Self::Succeeded => RefreshOutcome::Succeeded,
-            Self::Partial => RefreshOutcome::Partial,
-            Self::Failed => RefreshOutcome::Failed,
-        }
-    }
-
-    const fn import_outcome(self) -> ImportOutcome {
-        match self {
-            Self::Succeeded => ImportOutcome::Succeeded,
-            Self::Partial => ImportOutcome::Partial,
-            Self::Failed => ImportOutcome::Failed,
-        }
-    }
-}
-
-#[derive(Default)]
-struct TargetRunAccumulator {
-    succeeded: u16,
-    partial: u16,
-    failed: u16,
-}
-
-impl TargetRunAccumulator {
-    const fn record(&mut self, outcome: RunOutcome) {
-        match outcome {
-            RunOutcome::Succeeded => self.succeeded += 1,
-            RunOutcome::Partial => self.partial += 1,
-            RunOutcome::Failed => self.failed += 1,
-        }
-    }
-
-    const fn outcome(&self) -> RunOutcome {
-        if self.failed == 0 && self.partial == 0 {
-            return RunOutcome::Succeeded;
-        }
-        if self.succeeded == 0 && self.partial == 0 {
-            return RunOutcome::Failed;
-        }
-        RunOutcome::Partial
-    }
-}
-
-struct ExecutionResult {
-    outcome: RunOutcome,
-    finished_at_ms: i64,
-    usage_changed: bool,
-}
-
-struct ExecutionFailure {
-    import_run_id: Option<crate::application::reconciliation::ImportRunId>,
-    records_seen: u32,
-    records_rejected: u32,
-    finished_at_ms: i64,
-    usage_changed: bool,
-    code: &'static str,
-    summary: &'static str,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RefreshScopePolicy {
     Full,
     CatchUp,
     Freshness,
-}
-
-fn run_error(code: impl Into<String>, summary: impl Into<String>) -> Option<RunError> {
-    RunError::new(code, summary).ok()
-}
-
-fn clamp_count(value: usize) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
-}
-
-#[derive(Debug, Clone, Copy)]
-struct RefreshTarget {
-    source: SourceKey,
-    projection: CollectionProjection,
-}
-
-impl RefreshTarget {
-    fn plan_target(self, aggregation_timezone: &str) -> RefreshPlanTarget {
-        match self.projection {
-            CollectionProjection::Daily => {
-                RefreshPlanTarget::daily(self.source, aggregation_timezone.to_owned())
-            }
-            CollectionProjection::Session => RefreshPlanTarget::session(self.source),
-        }
-    }
-
-    fn import_lookup(
-        self,
-        aggregation_timezone: &str,
-    ) -> Result<
-        crate::application::reconciliation::ImportRunLookup,
-        crate::application::reconciliation::RunValidationError,
-    > {
-        crate::application::reconciliation::ImportRunLookup::new(
-            self.source,
-            self.projection,
-            match self.projection {
-                CollectionProjection::Daily => Some(aggregation_timezone.to_owned()),
-                CollectionProjection::Session => None,
-            },
-        )
-    }
-}
-
-const fn refresh_targets() -> [RefreshTarget; 14] {
-    [
-        RefreshTarget {
-            source: SourceKey::ClaudeCode,
-            projection: CollectionProjection::Daily,
-        },
-        RefreshTarget {
-            source: SourceKey::ClaudeCode,
-            projection: CollectionProjection::Session,
-        },
-        RefreshTarget {
-            source: SourceKey::Codex,
-            projection: CollectionProjection::Daily,
-        },
-        RefreshTarget {
-            source: SourceKey::Codex,
-            projection: CollectionProjection::Session,
-        },
-        RefreshTarget {
-            source: SourceKey::OpenCode,
-            projection: CollectionProjection::Daily,
-        },
-        RefreshTarget {
-            source: SourceKey::OpenCode,
-            projection: CollectionProjection::Session,
-        },
-        RefreshTarget {
-            source: SourceKey::Pi,
-            projection: CollectionProjection::Daily,
-        },
-        RefreshTarget {
-            source: SourceKey::Pi,
-            projection: CollectionProjection::Session,
-        },
-        RefreshTarget {
-            source: SourceKey::Cline,
-            projection: CollectionProjection::Daily,
-        },
-        RefreshTarget {
-            source: SourceKey::Cline,
-            projection: CollectionProjection::Session,
-        },
-        RefreshTarget {
-            source: SourceKey::ZCode,
-            projection: CollectionProjection::Daily,
-        },
-        RefreshTarget {
-            source: SourceKey::ZCode,
-            projection: CollectionProjection::Session,
-        },
-        RefreshTarget {
-            source: SourceKey::Antigravity,
-            projection: CollectionProjection::Daily,
-        },
-        RefreshTarget {
-            source: SourceKey::Antigravity,
-            projection: CollectionProjection::Session,
-        },
-    ]
-}
-
-const fn projection_label(projection: CollectionProjection) -> &'static str {
-    match projection {
-        CollectionProjection::Daily => "daily",
-        CollectionProjection::Session => "session",
-    }
-}
-
-fn import_timezone(projection: CollectionProjection, timezone: &str) -> Option<String> {
-    match projection {
-        CollectionProjection::Daily => Some(timezone.to_owned()),
-        CollectionProjection::Session => None,
-    }
-}
-
-fn local_date(requested_at: DateTime<Utc>, aggregation_timezone: &str) -> Result<NaiveDate, ()> {
-    let timezone = Tz::from_str(aggregation_timezone).map_err(|_| ())?;
-    Ok(requested_at.with_timezone(&timezone).date_naive())
-}
-
-fn records_seen(collection: &CollectionResult) -> u32 {
-    let count = match collection.projection() {
-        CollectionProjection::Daily => collection.daily_candidates().len(),
-        CollectionProjection::Session => collection.session_candidates().len(),
-    };
-    clamp_count(count)
 }
 
 #[cfg(test)]
@@ -911,9 +698,9 @@ mod tests {
 
     use super::*;
     use crate::application::collection::{
-        CandidateProvenance, CollectionMetadata, CollectionPeriod, CollectorDescriptor,
-        CollectorFailure, CollectorFailureCode, DailyUsageCandidate, DetectionRequest,
-        DetectionResult, ProcessSummary, RejectedRecord, SessionUsageCandidate,
+        CandidateProvenance, CollectionMetadata, CollectionOutcome, CollectionPeriod,
+        CollectorDescriptor, CollectorFailure, CollectorFailureCode, DailyUsageCandidate,
+        DetectionRequest, DetectionResult, ProcessSummary, RejectedRecord, SessionUsageCandidate,
     };
     use crate::application::ports::run_store::RunStoreError;
     use crate::application::ports::usage_store::UsageStoreError;
@@ -921,6 +708,7 @@ mod tests {
         DailyReconciliationSummary, ImportRunId, ImportRunLookup, RefreshRunId, SourceId,
         SuccessfulImportState,
     };
+    use crate::domain::source::SourceKey;
     use crate::domain::usage::{
         CostKind, CurrencyCode, DataQuality, TokenUsage, UsageCost, ValuedCostStatus,
     };
