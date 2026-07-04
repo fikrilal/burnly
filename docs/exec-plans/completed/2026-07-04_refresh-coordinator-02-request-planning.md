@@ -54,16 +54,16 @@ full, catch-up, and freshness behavior.
 
 ## Checklist
 
-- [ ] Create a request-planning internal module with a narrow public surface.
-- [ ] Move `collection_request` behavior into the new module.
-- [ ] Move `planned_scope` behavior into the new module.
-- [ ] Keep `RunStore::latest_successful_import` dependency explicit, either by
+- [x] Create a request-planning internal module with a narrow public surface.
+- [x] Move `collection_request` behavior into the new module.
+- [x] Move `planned_scope` behavior into the new module.
+- [x] Keep `RunStore::latest_successful_import` dependency explicit, either by
       passing the store or by passing a narrow lookup closure/helper.
-- [ ] Preserve existing error codes and summaries for invalid request,
+- [x] Preserve existing error codes and summaries for invalid request,
       timezone, and import-state failures.
-- [ ] Update coordinator execution flow to call the planner helper.
-- [ ] Run focused coordinator tests for scope policy.
-- [ ] Record verification outcomes before completion.
+- [x] Update coordinator execution flow to call the planner helper.
+- [x] Run focused coordinator tests for scope policy.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -102,8 +102,11 @@ full, catch-up, and freshness behavior.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: queued plan only
+- `cargo fmt --manifest-path src-tauri/Cargo.toml` — applied Rust formatting
+- `cargo test --manifest-path src-tauri/Cargo.toml application::refresh::` —
+  passed: 43 passed, 0 failed
+- `pnpm rust:test` — passed: 338 passed, 0 failed, 1 ignored
+- `pnpm verify:fast` — passed; ESLint reported existing warnings only
 
 ## Runtime Evidence
 

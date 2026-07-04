@@ -3,6 +3,7 @@
 mod coordinator;
 mod outcome;
 mod planner;
+mod request_plan;
 mod scheduler;
 mod state;
 mod target;

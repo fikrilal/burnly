@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 
 use thiserror::Error;
 
@@ -24,9 +24,7 @@ pub(crate) enum BudgetEvaluationError {
     #[error("budget storage failed")]
     StorageUnavailable,
 }
-use crate::application::collection::{
-    CollectionId, CollectionProjection, CollectionRequest, CollectionResult, CollectionScope,
-};
+use crate::application::collection::{CollectionProjection, CollectionResult};
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::run_store::RunStore;
@@ -40,11 +38,9 @@ use crate::application::reconciliation::{
 use super::outcome::{
     clamp_count, run_error, ExecutionFailure, ExecutionResult, RunOutcome, TargetRunAccumulator,
 };
-use super::planner::{RefreshPlanMode, RefreshPlanRequest, RefreshPolicyPlanner};
+use super::request_plan::{planned_collection_request, RefreshScopePolicy};
 use super::state::{RefreshSnapshot, RefreshStatus};
-use super::target::{
-    import_timezone, local_date, projection_label, records_seen, refresh_targets, RefreshTarget,
-};
+use super::target::{import_timezone, records_seen, refresh_targets};
 
 struct CoordinatorState {
     status: RefreshStatus,
@@ -374,15 +370,15 @@ impl RefreshCoordinator {
                 .map_err(|_| {
                     self.failure("refresh.source", "Could not resolve the usage source.")
                 })?;
-            let scope =
-                self.planned_scope(target, requested_at, &aggregation_timezone, scope_policy)?;
-            let request = self.collection_request(
+            let request = planned_collection_request(
+                self.run_store.as_ref(),
                 job_id,
                 target,
-                scope,
                 requested_at,
                 &aggregation_timezone,
-            )?;
+                scope_policy,
+            )
+            .map_err(|error| self.failure(error.code(), error.summary()))?;
             let collection = match self.collector.collect(request, &NeverCancelled) {
                 Ok(collection) => collection,
                 Err(failure) => {
@@ -434,80 +430,6 @@ impl RefreshCoordinator {
             finished_at_ms,
             usage_changed,
         })
-    }
-
-    fn collection_request(
-        &self,
-        job_id: &str,
-        target: RefreshTarget,
-        scope: CollectionScope,
-        requested_at: DateTime<Utc>,
-        aggregation_timezone: &str,
-    ) -> Result<CollectionRequest, ExecutionFailure> {
-        let collection_id = CollectionId::new(format!(
-            "{job_id}:{}:{}",
-            target.source.as_str(),
-            projection_label(target.projection)
-        ))
-        .map_err(|_| self.failure("refresh.request", "Refresh request is invalid."))?;
-
-        match target.projection {
-            CollectionProjection::Daily => CollectionRequest::daily(
-                collection_id,
-                target.source,
-                scope,
-                aggregation_timezone.to_owned(),
-                requested_at,
-            )
-            .map_err(|_| self.failure("refresh.request", "Refresh request is invalid.")),
-            CollectionProjection::Session => Ok(CollectionRequest::session(
-                collection_id,
-                target.source,
-                scope,
-                requested_at,
-            )),
-        }
-    }
-
-    fn planned_scope(
-        &self,
-        target: RefreshTarget,
-        requested_at: DateTime<Utc>,
-        aggregation_timezone: &str,
-        scope_policy: RefreshScopePolicy,
-    ) -> Result<CollectionScope, ExecutionFailure> {
-        match scope_policy {
-            RefreshScopePolicy::Full => Ok(CollectionScope::Full),
-            RefreshScopePolicy::CatchUp | RefreshScopePolicy::Freshness => {
-                let today = local_date(requested_at, aggregation_timezone).map_err(|_| {
-                    self.failure("refresh.timezone", "Refresh timezone is invalid.")
-                })?;
-                let lookup = target.import_lookup(aggregation_timezone).map_err(|_| {
-                    self.failure("refresh.import_state", "Refresh import state is invalid.")
-                })?;
-                let previous_import =
-                    self.run_store
-                        .latest_successful_import(lookup)
-                        .map_err(|_| {
-                            self.failure(
-                                "refresh.import_state",
-                                "Could not read the latest successful import state.",
-                            )
-                        })?;
-                let mode = match scope_policy {
-                    RefreshScopePolicy::CatchUp => RefreshPlanMode::CatchUp,
-                    RefreshScopePolicy::Freshness => RefreshPlanMode::Freshness,
-                    RefreshScopePolicy::Full => unreachable!("full scope returned earlier"),
-                };
-                let plan = RefreshPolicyPlanner::new().plan(RefreshPlanRequest::new(
-                    target.plan_target(aggregation_timezone),
-                    mode,
-                    today,
-                    previous_import,
-                ));
-                Ok(plan.scope().clone())
-            }
-        }
     }
 
     fn persist(
@@ -680,13 +602,6 @@ impl CancellationSignal for NeverCancelled {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RefreshScopePolicy {
-    Full,
-    CatchUp,
-    Freshness,
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
@@ -698,9 +613,10 @@ mod tests {
 
     use super::*;
     use crate::application::collection::{
-        CandidateProvenance, CollectionMetadata, CollectionOutcome, CollectionPeriod,
-        CollectorDescriptor, CollectorFailure, CollectorFailureCode, DailyUsageCandidate,
-        DetectionRequest, DetectionResult, ProcessSummary, RejectedRecord, SessionUsageCandidate,
+        CandidateProvenance, CollectionId, CollectionMetadata, CollectionOutcome, CollectionPeriod,
+        CollectionRequest, CollectionScope, CollectorDescriptor, CollectorFailure,
+        CollectorFailureCode, DailyUsageCandidate, DetectionRequest, DetectionResult,
+        ProcessSummary, RejectedRecord, SessionUsageCandidate,
     };
     use crate::application::ports::run_store::RunStoreError;
     use crate::application::ports::usage_store::UsageStoreError;
