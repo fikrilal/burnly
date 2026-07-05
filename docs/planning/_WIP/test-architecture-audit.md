@@ -4,12 +4,15 @@
 
 Drafted on July 4, 2026.
 
+Implemented on July 5, 2026. The six execution chunks are complete; this
+document now serves as the historical audit plus the calibrated baseline for
+remaining duplication.
+
 This audit focuses on Burnly's test architecture: test ownership, fixture
 shape, support-code boundaries, duplication, and maintainability.
 
 This document is not an execution plan. It is an inspection and refactor
-proposal that should be converted into small execution chunks before
-implementation.
+proposal that was converted into small execution chunks for implementation.
 
 ## Executive Summary
 
@@ -43,6 +46,29 @@ Largest current test and test-adjacent hotspots from the audit:
  208 src/app/App.test.tsx
 ```
 
+Post-implementation structure:
+
+```text
+src-tauri/src/bootstrap/test_support.rs
+src-tauri/src/application/refresh/test_support.rs
+src-tauri/src/infrastructure/database/reconciliation/test_support.rs
+src-tauri/src/infrastructure/collectors/support/test_support.rs
+src/features/tray/test_support.tsx
+src/features/tray/TrayPanel.overview.test.tsx
+src/features/tray/TrayPanel.settings.test.tsx
+src/features/tray/TrayPanel.updates.test.tsx
+```
+
+Post-implementation duplication baseline:
+
+```text
+85 clones
+1,427 duplicated lines
+8,542 duplicated tokens
+3.63% total duplicated lines
+3.83% total duplicated tokens
+```
+
 The duplication report also flags repeated test/setup patterns in:
 
 - `src-tauri/src/application/refresh/tests.rs`
@@ -54,6 +80,58 @@ The duplication report also flags repeated test/setup patterns in:
 
 Some duplication is acceptable in tests when it keeps scenario intent visible.
 The issue here is repeated setup mechanics, not repeated behavioral assertions.
+
+After the refactor, remaining duplication is mostly production contract
+symmetry, reviewed collector envelope/profile shapes, and explicit test
+assertions. `pnpm duplication:report` should remain report-only until a stable
+lower baseline exists.
+
+## Implementation Summary
+
+- Bootstrap fakes and repeated startup setup moved to
+  `src-tauri/src/bootstrap/test_support.rs`.
+- Refresh coordinator setup moved to
+  `src-tauri/src/application/refresh/test_support.rs`.
+- Reconciliation fixture builders moved to
+  `src-tauri/src/infrastructure/database/reconciliation/test_support.rs` while
+  preserving real SQLite persistence tests.
+- Native collector adapter tests now share request construction, fixed
+  timestamps, cancellation, and diagnostic recording through
+  `src-tauri/src/infrastructure/collectors/support/test_support.rs`.
+- Antigravity runtime-client socket tests now serialize their local TCP server
+  tests with a test-only lock to avoid parallel connection flakes.
+- Tray panel frontend tests were split by visible workflow and share local
+  render/mock setup through `src/features/tray/test_support.tsx`.
+
+## Calibrated Duplication Ownership
+
+Intentional:
+
+- Reconciliation daily/session repository code has parallel storage contracts;
+  repeated structure is acceptable until a production abstraction removes real
+  complexity.
+- `ccusage` envelope and capability profile tests repeat reviewed source shapes
+  to keep source contracts explicit.
+- Collector mapper tests repeat token/category assertions because the model
+  semantics differ by source and should remain visible.
+
+Deferred:
+
+- Refresh coordinator tests still have some scenario repetition. The new
+  support module reduced setup, but further extraction should wait until a new
+  refresh policy change proves the next abstraction.
+- Bootstrap tests still live in `bootstrap.rs`. The heavy setup is now outside
+  the file, but moving the tests themselves is not necessary yet.
+- IPC and App frontend tests still trigger existing max-line warnings. They are
+  smaller than the original tray test and should be split only when a future
+  feature creates a clearer workflow boundary.
+
+Still worth watching:
+
+- Native collector adapter production code remains similar across Cline and
+  ZCode. That belongs to collector architecture work, not test architecture.
+- Database reconciliation production daily/session symmetry may deserve a
+  separate persistence-design audit if it keeps growing.
 
 ## Current Strengths
 
@@ -269,6 +347,8 @@ Success criteria:
 - no production visibility is widened for test convenience
 - `pnpm rust:test` and `pnpm architecture:check` pass
 
+Outcome: completed on July 5, 2026.
+
 ### Chunk 2: Refresh Test Harness Normalization
 
 Introduce refresh-owned scenario fixtures for collector outcomes, import
@@ -281,6 +361,8 @@ Success criteria:
 - assertions remain visible at call sites
 - `pnpm rust:test` and `pnpm duplication:report` pass
 
+Outcome: completed on July 5, 2026.
+
 ### Chunk 3: Reconciliation Fixture Builders
 
 Add database reconciliation fixture builders while keeping real SQLite tests.
@@ -291,6 +373,8 @@ Success criteria:
 - repeated insert/setup mechanics are reduced
 - conflict, duplicate, and recovery scenarios remain explicit
 - `pnpm rust:test` passes
+
+Outcome: completed on July 5, 2026.
 
 ### Chunk 4: Collector Adapter Test Support
 
@@ -304,6 +388,8 @@ Success criteria:
 - `ccusage` remains sidecar-specific
 - `pnpm rust:test` and `pnpm duplication:report` pass
 
+Outcome: completed on July 5, 2026.
+
 ### Chunk 5: Frontend Test Split
 
 Split the largest frontend test files only where separate user workflows are
@@ -315,6 +401,8 @@ Success criteria:
 - tests continue to assert user-visible behavior
 - `pnpm test` and `pnpm lint` pass
 
+Outcome: completed on July 5, 2026.
+
 ### Chunk 6: Harness Calibration
 
 If duplication warnings remain after the structural work, decide whether they
@@ -325,6 +413,8 @@ Success criteria:
 - intentional duplication is documented near the owning tests or harness
 - repeated mechanical setup is removed
 - no new hard duplication gate is added until the baseline is stable
+
+Outcome: completed on July 5, 2026.
 
 ## Non-Goals
 

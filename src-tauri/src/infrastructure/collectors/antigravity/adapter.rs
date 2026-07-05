@@ -289,12 +289,14 @@ impl Collector for AntigravityCollector {
         if endpoints.is_empty() {
             self.record_diagnostic(
                 &request,
-                DiagnosticSeverity::Warning,
-                "antigravity.runtime_unavailable",
-                "Antigravity local runtime endpoint was not found.",
-                &diagnostics,
-                Some(CollectorFailureCode::SourceNotFound.code()),
-                Some("runtime_endpoint_missing"),
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Warning,
+                    code: "antigravity.runtime_unavailable",
+                    summary: "Antigravity local runtime endpoint was not found.",
+                    counters: &diagnostics,
+                    failure_code: Some(CollectorFailureCode::SourceNotFound.code()),
+                    failure_reason: Some("runtime_endpoint_missing"),
+                },
             );
             return Err(failure(&request, CollectorFailureCode::SourceNotFound));
         }
@@ -307,12 +309,14 @@ impl Collector for AntigravityCollector {
             .map_err(|_| {
                 self.record_diagnostic(
                     &request,
-                    DiagnosticSeverity::Warning,
-                    "antigravity.collection_failed",
-                    "Antigravity collection failed.",
-                    &diagnostics,
-                    Some(CollectorFailureCode::ScopeNotRepresentable.code()),
-                    Some("scope_not_representable"),
+                    AntigravityDiagnosticInput {
+                        severity: DiagnosticSeverity::Warning,
+                        code: "antigravity.collection_failed",
+                        summary: "Antigravity collection failed.",
+                        counters: &diagnostics,
+                        failure_code: Some(CollectorFailureCode::ScopeNotRepresentable.code()),
+                        failure_reason: Some("scope_not_representable"),
+                    },
                 );
                 failure(&request, CollectorFailureCode::ScopeNotRepresentable)
             })?;
@@ -321,12 +325,14 @@ impl Collector for AntigravityCollector {
         if conversations.is_empty() {
             self.record_diagnostic(
                 &request,
-                DiagnosticSeverity::Info,
-                "antigravity.collection_empty",
-                "Antigravity collection found no conversation artifacts.",
-                &diagnostics,
-                None,
-                None,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Info,
+                    code: "antigravity.collection_empty",
+                    summary: "Antigravity collection found no conversation artifacts.",
+                    counters: &diagnostics,
+                    failure_code: None,
+                    failure_reason: None,
+                },
             );
             return empty_result(&request, started, started_at);
         }
@@ -340,12 +346,14 @@ impl Collector for AntigravityCollector {
                 let failure_code = error.reason.collector_failure_code();
                 self.record_diagnostic(
                     &request,
-                    DiagnosticSeverity::Warning,
-                    error.reason.diagnostic_code(),
-                    error.reason.summary(),
-                    &diagnostics,
-                    Some(failure_code.code()),
-                    Some(error.reason.failure_reason()),
+                    AntigravityDiagnosticInput {
+                        severity: DiagnosticSeverity::Warning,
+                        code: error.reason.diagnostic_code(),
+                        summary: error.reason.summary(),
+                        counters: &diagnostics,
+                        failure_code: Some(failure_code.code()),
+                        failure_reason: Some(error.reason.failure_reason()),
+                    },
                 );
                 return Err(failure(&request, failure_code));
             }
@@ -357,12 +365,14 @@ impl Collector for AntigravityCollector {
         if cancellation.is_cancelled() {
             self.record_diagnostic(
                 &request,
-                DiagnosticSeverity::Warning,
-                "antigravity.collection_cancelled",
-                "Antigravity collection was cancelled.",
-                &diagnostics,
-                Some(CollectorFailureCode::Cancelled.code()),
-                Some("cancelled"),
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Warning,
+                    code: "antigravity.collection_cancelled",
+                    summary: "Antigravity collection was cancelled.",
+                    counters: &diagnostics,
+                    failure_code: Some(CollectorFailureCode::Cancelled.code()),
+                    failure_reason: Some("cancelled"),
+                },
             );
             return Err(failure(&request, CollectorFailureCode::Cancelled));
         }
@@ -371,51 +381,57 @@ impl Collector for AntigravityCollector {
         if result.is_ok() {
             self.record_diagnostic(
                 &request,
-                DiagnosticSeverity::Info,
-                "antigravity.collection_completed",
-                "Antigravity collection completed.",
-                &diagnostics,
-                None,
-                None,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Info,
+                    code: "antigravity.collection_completed",
+                    summary: "Antigravity collection completed.",
+                    counters: &diagnostics,
+                    failure_code: None,
+                    failure_reason: None,
+                },
             );
         }
         result
     }
 }
 
+struct AntigravityDiagnosticInput<'a> {
+    severity: DiagnosticSeverity,
+    code: &'a str,
+    summary: &'a str,
+    counters: &'a AntigravityDiagnosticCounters,
+    failure_code: Option<&'a str>,
+    failure_reason: Option<&'a str>,
+}
+
 impl AntigravityCollector {
     fn record_diagnostic(
         &self,
         request: &CollectionRequest,
-        severity: DiagnosticSeverity,
-        code: &str,
-        summary: &str,
-        counters: &AntigravityDiagnosticCounters,
-        failure_code: Option<&str>,
-        failure_reason: Option<&str>,
+        input: AntigravityDiagnosticInput<'_>,
     ) {
         let Some(recorder) = &self.diagnostics else {
             return;
         };
-        let Ok(code) = DiagnosticCode::new(code) else {
+        let Ok(code) = DiagnosticCode::new(input.code) else {
             return;
         };
-        let Ok(summary) = DiagnosticSummary::new(summary) else {
+        let Ok(summary) = DiagnosticSummary::new(input.summary) else {
             return;
         };
         let Ok(context) = DiagnosticContext::new(
             json!({
                 "source": "antigravity",
                 "projection": projection_name(request.projection()),
-                "failureCode": failure_code,
-                "failureReason": failure_reason,
-                "processCandidatesFound": counters.process_candidates_found,
-                "endpointsFound": counters.endpoints_found,
-                "conversationArtifactsFound": counters.conversations_found,
-                "streamCallsAttempted": counters.stream_calls_attempted,
-                "streamsSucceeded": counters.streams_succeeded,
-                "recordsExtracted": counters.records_extracted,
-                "recordsRejected": counters.records_rejected,
+                "failureCode": input.failure_code,
+                "failureReason": input.failure_reason,
+                "processCandidatesFound": input.counters.process_candidates_found,
+                "endpointsFound": input.counters.endpoints_found,
+                "conversationArtifactsFound": input.counters.conversations_found,
+                "streamCallsAttempted": input.counters.stream_calls_attempted,
+                "streamsSucceeded": input.counters.streams_succeeded,
+                "recordsExtracted": input.counters.records_extracted,
+                "recordsRejected": input.counters.records_rejected,
             })
             .to_string(),
         ) else {
@@ -423,7 +439,7 @@ impl AntigravityCollector {
         };
         let Ok(event) = DiagnosticEvent::new(
             DiagnosticArea::Collector,
-            severity,
+            input.severity,
             code,
             summary,
             Some(context),

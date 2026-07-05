@@ -1,5 +1,7 @@
 # 2026-07-04 Test Architecture 06 Harness Calibration
 
+Status: Completed on July 5, 2026.
+
 ## Objective
 
 Re-run test architecture checks after the support refactors and document any
@@ -43,15 +45,15 @@ intentional remaining duplication or deferred test-architecture debt.
 
 ## Checklist
 
-- [ ] Run `pnpm duplication:report`.
-- [ ] Inspect remaining repeated blocks.
-- [ ] Classify each meaningful remaining duplication as intentional, deferred,
+- [x] Run `pnpm duplication:report`.
+- [x] Inspect remaining repeated blocks.
+- [x] Classify each meaningful remaining duplication as intentional, deferred,
       or still worth extracting.
-- [ ] Update the test architecture audit with implementation decisions or
+- [x] Update the test architecture audit with implementation decisions or
       remaining debt.
-- [ ] Update harness checks only if the same mistake is likely to repeat.
-- [ ] Run the full local gate.
-- [ ] Record verification outcomes before completion.
+- [x] Update harness checks only if the same mistake is likely to repeat.
+- [x] Run the full local gate.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -80,9 +82,16 @@ intentional remaining duplication or deferred test-architecture debt.
 ## Verification
 
 - Command: `pnpm duplication:report`
-- Outcome: not run yet
+- Outcome: passed as report-only. Baseline after the test architecture cleanup:
+  85 clones, 1,427 duplicated lines, 8,542 duplicated tokens, 3.63% total
+  duplicated lines, and 3.83% total duplicated tokens.
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed. The first run exposed a Rust clippy
+  `too_many_arguments` warning in the Antigravity diagnostic helper; this was
+  fixed with a small diagnostic input struct and the full gate was rerun
+  successfully. The final gate included 18 frontend test files / 89 tests and
+  366 Rust tests passed / 1 ignored. ESLint still reports 16 existing warnings
+  and no errors.
 
 ## Runtime Evidence
 
@@ -90,4 +99,5 @@ intentional remaining duplication or deferred test-architecture debt.
 
 ## Follow-Up Debt
 
-- None.
+- Keep duplication reporting non-fatal until the remaining production contract
+  symmetry has a lower, stable baseline.

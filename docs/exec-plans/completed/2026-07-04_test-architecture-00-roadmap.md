@@ -1,5 +1,7 @@
 # 2026-07-04 Test Architecture Roadmap
 
+Status: Completed on July 5, 2026.
+
 ## Objective
 
 Coordinate the test architecture cleanup described in
@@ -55,14 +57,14 @@ generic test utilities.
 
 ## Checklist
 
-- [ ] Complete chunk 01: bootstrap test support.
-- [ ] Complete chunk 02: refresh test harness normalization.
-- [ ] Complete chunk 03: reconciliation fixture builders.
-- [ ] Complete chunk 04: collector adapter test support.
-- [ ] Complete chunk 05: frontend test split.
-- [ ] Complete chunk 06: harness calibration and documentation.
-- [ ] Re-run the full local gate after all chunks are complete.
-- [ ] Update `docs/planning/_WIP/test-architecture-audit.md` with important
+- [x] Complete chunk 01: bootstrap test support.
+- [x] Complete chunk 02: refresh test harness normalization.
+- [x] Complete chunk 03: reconciliation fixture builders.
+- [x] Complete chunk 04: collector adapter test support.
+- [x] Complete chunk 05: frontend test split.
+- [x] Complete chunk 06: harness calibration and documentation.
+- [x] Re-run the full local gate after all chunks are complete.
+- [x] Update `docs/planning/_WIP/test-architecture-audit.md` with important
       implementation decisions or deviations.
 
 ## Test Plan
@@ -113,7 +115,10 @@ generic test utilities.
 ## Verification
 
 - Command: `pnpm verify`
-- Outcome: not run yet
+- Outcome: passed after all six chunks. Final run included format, lint,
+  typecheck, frontend tests, sidecar preparation, Rust formatting, Rust clippy,
+  Rust tests, and harness checks. ESLint reported 16 existing warnings and no
+  errors.
 
 ## Runtime Evidence
 
@@ -121,4 +126,5 @@ generic test utilities.
 
 ## Follow-Up Debt
 
-- None.
+- Duplication reporting remains report-only. The calibrated baseline is
+  documented in `docs/planning/_WIP/test-architecture-audit.md`.
