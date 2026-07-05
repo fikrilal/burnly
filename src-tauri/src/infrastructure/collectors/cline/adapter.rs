@@ -320,18 +320,19 @@ fn supported_projections() -> Vec<CollectionProjection> {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use chrono::{TimeZone, Utc};
     use rusqlite::Connection;
     use tempfile::TempDir;
 
     use super::*;
-    use crate::application::collection::{
-        CollectionId, CollectionOutcome, CollectionScope, DetectionState,
+    use crate::application::collection::{CollectionOutcome, CollectionScope, DetectionState};
+    use crate::application::diagnostics::DiagnosticSeverity;
+    use crate::infrastructure::collectors::support::{
+        daily_request as support_daily_request, detection_request, fixed_timestamp,
+        session_request as support_session_request, utc_millis, NeverCancelled,
+        RecordingDiagnostics,
     };
-    use crate::application::diagnostics::{DiagnosticEvent, DiagnosticSeverity};
-    use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 
     const METADATA: &str = r#"{
       "usage": {
@@ -358,11 +359,7 @@ mod tests {
 
         let result = collector
             .detect(
-                DetectionRequest {
-                    source: SourceKey::Cline,
-                    reason: crate::application::collection::DetectionReason::Startup,
-                    requested_at: timestamp(),
-                },
+                detection_request(SourceKey::Cline, timestamp()),
                 &NeverCancelled,
             )
             .expect("detection");
@@ -421,8 +418,14 @@ mod tests {
         assert_eq!(candidate.source_session_id, "cline-session-1");
         assert_eq!(candidate.project_path, None);
         assert_eq!(candidate.tokens.input_tokens(), Some(12_000));
-        assert_eq!(candidate.first_activity_at, Some(millis(1_782_782_160_000)));
-        assert_eq!(candidate.last_activity_at, Some(millis(1_782_782_700_000)));
+        assert_eq!(
+            candidate.first_activity_at,
+            Some(utc_millis(1_782_782_160_000))
+        );
+        assert_eq!(
+            candidate.last_activity_at,
+            Some(utc_millis(1_782_782_700_000))
+        );
     }
 
     #[test]
@@ -467,31 +470,6 @@ mod tests {
         assert!(context.contains(r#""failureCode":"source.not_found""#));
         assert!(context.contains(r#""sessionsFound":0"#));
         assert!(!context.contains("/missing"));
-    }
-
-    struct NeverCancelled;
-
-    impl CancellationSignal for NeverCancelled {
-        fn is_cancelled(&self) -> bool {
-            false
-        }
-    }
-
-    #[derive(Default)]
-    struct RecordingDiagnostics {
-        events: Mutex<Vec<DiagnosticEvent>>,
-    }
-
-    impl RecordingDiagnostics {
-        fn events(&self) -> Vec<DiagnosticEvent> {
-            self.events.lock().expect("diagnostics").clone()
-        }
-    }
-
-    impl DiagnosticRecorder for RecordingDiagnostics {
-        fn record(&self, event: DiagnosticEvent) {
-            self.events.lock().expect("diagnostics").push(event);
-        }
     }
 
     struct FixtureCline {
@@ -576,33 +554,21 @@ mod tests {
     }
 
     fn daily_request(scope: CollectionScope) -> CollectionRequest {
-        CollectionRequest::daily(
-            CollectionId::new("cline-daily").expect("collection id"),
+        support_daily_request(
+            "cline-daily",
             SourceKey::Cline,
             scope,
             "Asia/Jakarta",
             timestamp(),
         )
-        .expect("daily request")
     }
 
     fn session_request() -> CollectionRequest {
-        CollectionRequest::session(
-            CollectionId::new("cline-session").expect("collection id"),
-            SourceKey::Cline,
-            CollectionScope::Full,
-            timestamp(),
-        )
+        support_session_request("cline-session", SourceKey::Cline, timestamp())
     }
 
     fn timestamp() -> chrono::DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 6, 30, 12, 0, 0)
-            .single()
-            .expect("timestamp")
-    }
-
-    fn millis(value: i64) -> chrono::DateTime<Utc> {
-        Utc.timestamp_millis_opt(value).single().expect("timestamp")
+        fixed_timestamp(2026, 6, 30, 12, 0, 0)
     }
 
     fn message_fixture(name: &str) -> PathBuf {

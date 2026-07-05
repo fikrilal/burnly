@@ -5,6 +5,8 @@ mod failure;
 mod mapping;
 mod run;
 mod sqlite;
+#[cfg(test)]
+mod test_support;
 
 pub(in crate::infrastructure::collectors) use descriptor::{
     collector_key, daily_session_projections, single_source_descriptor, CollectorIdentity,
@@ -28,3 +30,8 @@ pub(in crate::infrastructure::collectors) use run::{
     collection_metadata, empty_collection_result, LocalCollectionRun,
 };
 pub(in crate::infrastructure::collectors) use sqlite::open_external_read_only;
+#[cfg(test)]
+pub(in crate::infrastructure::collectors) use test_support::{
+    daily_request, date, detection_request, fixed_timestamp, session_request, utc_millis,
+    NeverCancelled, RecordingDiagnostics,
+};

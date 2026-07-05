@@ -741,20 +741,22 @@ fn issue(code: &str, message: &str) -> DetectionIssue {
 mod tests {
     use std::fs::{self, File};
     use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use chrono::{TimeZone, Utc};
     use tempfile::TempDir;
 
     use super::*;
-    use crate::application::collection::{
-        CollectionId, CollectionOutcome, CollectionScope, DetectionReason,
-    };
-    use crate::application::diagnostics::{DiagnosticEvent, DiagnosticSeverity};
+    use crate::application::collection::{CollectionOutcome, CollectionScope};
+    use crate::application::diagnostics::DiagnosticSeverity;
     use crate::infrastructure::collectors::antigravity::discovery::{
         LocalListener, ProcessSnapshot,
     };
     use crate::infrastructure::collectors::antigravity::product_variant::AntigravityProductVariant;
+    use crate::infrastructure::collectors::support::{
+        daily_request as support_daily_request, detection_request as support_detection_request,
+        fixed_timestamp, session_request as support_session_request, NeverCancelled,
+        RecordingDiagnostics,
+    };
 
     #[test]
     fn describes_antigravity_profile() {
@@ -971,31 +973,6 @@ mod tests {
             .any(|candidate| candidate.source_session_id == "antigravity:app-conversation"));
     }
 
-    struct NeverCancelled;
-
-    impl CancellationSignal for NeverCancelled {
-        fn is_cancelled(&self) -> bool {
-            false
-        }
-    }
-
-    #[derive(Default)]
-    struct RecordingDiagnostics {
-        events: Mutex<Vec<DiagnosticEvent>>,
-    }
-
-    impl RecordingDiagnostics {
-        fn events(&self) -> Vec<DiagnosticEvent> {
-            self.events.lock().expect("diagnostics").clone()
-        }
-    }
-
-    impl DiagnosticRecorder for RecordingDiagnostics {
-        fn record(&self, event: DiagnosticEvent) {
-            self.events.lock().expect("diagnostics").push(event);
-        }
-    }
-
     fn collector_with_discovery(runtime_discovery: RuntimeDiscovery) -> AntigravityCollector {
         let data_root = TempDir::new().expect("tempdir");
         AntigravityCollector::from_parts(
@@ -1104,10 +1081,7 @@ mod tests {
             variant,
             conversation_id: conversation_id.to_owned(),
             path: conversation_id.into(),
-            modified_at: Utc
-                .with_ymd_and_hms(2026, 7, 2, 8, 0, 0)
-                .single()
-                .expect("timestamp"),
+            modified_at: timestamp(),
         }
     }
 
@@ -1151,37 +1125,24 @@ mod tests {
     }
 
     fn detection_request(source: SourceKey) -> DetectionRequest {
-        DetectionRequest {
-            source,
-            reason: DetectionReason::Startup,
-            requested_at: Utc
-                .with_ymd_and_hms(2026, 7, 2, 8, 0, 0)
-                .single()
-                .expect("timestamp"),
-        }
+        support_detection_request(source, timestamp())
     }
 
     fn daily_request(source: SourceKey) -> CollectionRequest {
-        CollectionRequest::daily(
-            CollectionId::new(format!("{}-daily", source.as_str())).expect("collection id"),
+        support_daily_request(
+            &format!("{}-daily", source.as_str()),
             source,
             CollectionScope::Full,
             "UTC",
-            Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0)
-                .single()
-                .expect("timestamp"),
+            timestamp(),
         )
-        .expect("request")
     }
 
     fn session_request(source: SourceKey) -> CollectionRequest {
-        CollectionRequest::session(
-            CollectionId::new(format!("{}-session", source.as_str())).expect("collection id"),
-            source,
-            CollectionScope::Full,
-            Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0)
-                .single()
-                .expect("timestamp"),
-        )
+        support_session_request(&format!("{}-session", source.as_str()), source, timestamp())
+    }
+
+    fn timestamp() -> chrono::DateTime<chrono::Utc> {
+        fixed_timestamp(2026, 7, 2, 8, 0, 0)
     }
 }

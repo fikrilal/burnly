@@ -443,6 +443,7 @@ pub(crate) enum RuntimeClientError {
 mod tests {
     use std::io::{Read, Write};
     use std::net::{IpAddr, Ipv4Addr, TcpListener};
+    use std::sync::{Mutex, MutexGuard};
     use std::thread;
 
     use serde_json::json;
@@ -452,6 +453,7 @@ mod tests {
 
     #[test]
     fn retrieves_quota_summary_with_optional_csrf_header() {
+        let _guard = runtime_client_test_lock();
         let server = TestServer::start(|request| {
             assert!(request.contains(
                 "POST /exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary HTTP/1.1"
@@ -470,6 +472,7 @@ mod tests {
 
     #[test]
     fn streams_agent_state_updates_with_connect_framed_request() {
+        let _guard = runtime_client_test_lock();
         let server = TestServer::start(|request| {
             assert!(request.contains("Content-Type: application/connect+json"));
             assert!(request.contains("Connect-Protocol-Version: 1"));
@@ -493,6 +496,7 @@ mod tests {
 
     #[test]
     fn streams_agent_state_updates_from_open_chunked_stream() {
+        let _guard = runtime_client_test_lock();
         let server = TestServer::start_streaming(|request, stream| {
             assert!(request.contains("Content-Type: application/connect+json"));
             let payload = encode_connect_frame(br#"{"response":{"open":true}}"#).expect("frame");
@@ -530,6 +534,11 @@ mod tests {
             port,
             csrf_token: csrf_token.map(str::to_owned),
         }
+    }
+
+    fn runtime_client_test_lock() -> MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().expect("runtime client test lock")
     }
 
     fn http_response(body: &[u8]) -> Vec<u8> {

@@ -6,6 +6,8 @@ Extract shared collector adapter test support for stable Burnly-level
 expectations while keeping source-specific parsing, schema, RPC, and sidecar
 fixtures source-owned.
 
+Status: Completed on July 5, 2026.
+
 ## Acceptance Criteria
 
 - Collector adapter tests share stable expectation mechanics where appropriate.
@@ -47,18 +49,18 @@ fixtures source-owned.
 
 ## Checklist
 
-- [ ] Inspect Cline, ZCode, Antigravity, and ccusage adapter tests.
-- [ ] Identify repeated request, detection, empty result, and diagnostic
+- [x] Inspect Cline, ZCode, Antigravity, and ccusage adapter tests.
+- [x] Identify repeated request, detection, empty result, and diagnostic
       expectations.
-- [ ] Add collector-owned test support in `collectors/support/`.
-- [ ] Add request fixture support if repeated across native collectors.
-- [ ] Add diagnostic expectation helpers that do not hide event contract details.
-- [ ] Add empty collection and detection expectation helpers where useful.
-- [ ] Keep source-specific fixtures source-owned.
-- [ ] Avoid refactoring ccusage unless a helper is clearly sidecar-safe.
-- [ ] Run focused collector tests.
-- [ ] Run duplication report and architecture checks.
-- [ ] Record verification outcomes before completion.
+- [x] Add collector-owned test support in `collectors/support/`.
+- [x] Add request fixture support if repeated across native collectors.
+- [x] Add diagnostic expectation helpers that do not hide event contract details.
+- [x] Add empty collection and detection expectation helpers where useful.
+- [x] Keep source-specific fixtures source-owned.
+- [x] Avoid refactoring ccusage unless a helper is clearly sidecar-safe.
+- [x] Run focused collector tests.
+- [x] Run duplication report and architecture checks.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -92,17 +94,26 @@ fixtures source-owned.
 - Keep native collector test support small.
 - Keep source semantics visible in source tests.
 - Do not create a generic collector framework.
+- Share only request construction, fixed timestamps, cancellation, and in-memory
+  diagnostic recording for native adapter tests.
+- Keep empty-result, detection-state, and diagnostic context assertions explicit
+  in each source test instead of hiding them behind generic expectation helpers.
+- Serialize Antigravity runtime-client socket tests with a test-only lock because
+  the focused collector suite exposed an intermittent parallel connection
+  failure.
 
 ## Verification
 
 - Command: `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors --lib`
-- Outcome: not run yet
+- Outcome: passed, 183 passed, 1 ignored
 - Command: `pnpm rust:test`
-- Outcome: not run yet
+- Outcome: passed, 365 passed, 1 ignored
 - Command: `pnpm duplication:report`
-- Outcome: not run yet
+- Outcome: passed as report-only, existing clones remain; clone count reduced to 85
 - Command: `pnpm architecture:check`
-- Outcome: not run yet
+- Outcome: passed
+- Command: `pnpm rust:fmt`
+- Outcome: passed after `pnpm rust:fmt:write`
 
 ## Runtime Evidence
 

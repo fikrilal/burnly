@@ -312,18 +312,22 @@ fn supported_projections() -> Vec<CollectionProjection> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use chrono::{DateTime, NaiveDate, TimeZone};
+    use chrono::{DateTime, Utc};
     use rusqlite::Connection;
     use tempfile::NamedTempFile;
 
     use super::*;
     use crate::application::collection::{
-        CollectionId, CollectionOutcome, CollectionScope, DetectionReason, DetectionState,
+        CollectionId, CollectionOutcome, CollectionScope, DetectionState,
     };
-    use crate::application::diagnostics::{DiagnosticEvent, DiagnosticSeverity};
-    use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
+    use crate::application::diagnostics::DiagnosticSeverity;
+    use crate::infrastructure::collectors::support::{
+        daily_request as support_daily_request, date, fixed_timestamp,
+        session_request as support_session_request, utc_millis, NeverCancelled,
+        RecordingDiagnostics,
+    };
 
     #[test]
     fn describes_zcode_profile() {
@@ -454,11 +458,8 @@ mod tests {
         let result = collector
             .collect(
                 daily_request(
-                    CollectionScope::incremental(
-                        NaiveDate::from_ymd_opt(2026, 7, 3).expect("start"),
-                        NaiveDate::from_ymd_opt(2026, 7, 3).expect("end"),
-                    )
-                    .expect("scope"),
+                    CollectionScope::incremental(date(2026, 7, 3), date(2026, 7, 3))
+                        .expect("scope"),
                 ),
                 &NeverCancelled,
             )
@@ -485,33 +486,8 @@ mod tests {
             .find(|candidate| candidate.source_session_id == "sess-main")
             .expect("main session");
         assert_eq!(main.project_path, None);
-        assert_eq!(main.first_activity_at, Some(millis(1_782_952_270_000)));
-        assert_eq!(main.last_activity_at, Some(millis(1_782_952_275_000)));
-    }
-
-    struct NeverCancelled;
-
-    impl CancellationSignal for NeverCancelled {
-        fn is_cancelled(&self) -> bool {
-            false
-        }
-    }
-
-    #[derive(Default)]
-    struct RecordingDiagnostics {
-        events: Mutex<Vec<DiagnosticEvent>>,
-    }
-
-    impl RecordingDiagnostics {
-        fn events(&self) -> Vec<DiagnosticEvent> {
-            self.events.lock().expect("diagnostics").clone()
-        }
-    }
-
-    impl DiagnosticRecorder for RecordingDiagnostics {
-        fn record(&self, event: DiagnosticEvent) {
-            self.events.lock().expect("diagnostics").push(event);
-        }
+        assert_eq!(main.first_activity_at, Some(utc_millis(1_782_952_270_000)));
+        assert_eq!(main.last_activity_at, Some(utc_millis(1_782_952_275_000)));
     }
 
     fn fixture_database(name: &str) -> NamedTempFile {
@@ -529,40 +505,24 @@ mod tests {
     }
 
     fn detection_request(source: SourceKey) -> DetectionRequest {
-        DetectionRequest {
-            source,
-            reason: DetectionReason::Startup,
-            requested_at: timestamp(),
-        }
+        crate::infrastructure::collectors::support::detection_request(source, timestamp())
     }
 
     fn daily_request(scope: CollectionScope) -> CollectionRequest {
-        CollectionRequest::daily(
-            CollectionId::new("zcode-daily").expect("collection id"),
+        support_daily_request(
+            "zcode-daily",
             SourceKey::ZCode,
             scope,
             "Asia/Jakarta",
             timestamp(),
         )
-        .expect("daily request")
     }
 
     fn session_request() -> CollectionRequest {
-        CollectionRequest::session(
-            CollectionId::new("zcode-session").expect("collection id"),
-            SourceKey::ZCode,
-            CollectionScope::Full,
-            timestamp(),
-        )
+        support_session_request("zcode-session", SourceKey::ZCode, timestamp())
     }
 
     fn timestamp() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 7, 2, 12, 0, 0)
-            .single()
-            .expect("timestamp")
-    }
-
-    fn millis(value: i64) -> DateTime<Utc> {
-        Utc.timestamp_millis_opt(value).single().expect("timestamp")
+        fixed_timestamp(2026, 7, 2, 12, 0, 0)
     }
 }
