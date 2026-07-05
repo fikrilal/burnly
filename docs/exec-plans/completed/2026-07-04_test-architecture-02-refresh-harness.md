@@ -1,5 +1,9 @@
 # 2026-07-04 Test Architecture 02 Refresh Harness
 
+## Status
+
+Completed on July 5, 2026.
+
 ## Objective
 
 Normalize refresh coordinator test setup into a small refresh-owned scenario
@@ -44,17 +48,17 @@ harness without hiding refresh-state assertions.
 
 ## Checklist
 
-- [ ] Inspect repeated setup in `application/refresh/tests.rs`.
-- [ ] Add `src-tauri/src/application/refresh/test_support.rs`.
-- [ ] Introduce a focused `RefreshHarness` or equivalent.
-- [ ] Introduce collector scenario fixtures for success, empty, failure, and
+- [x] Inspect repeated setup in `application/refresh/tests.rs`.
+- [x] Add `src-tauri/src/application/refresh/test_support.rs`.
+- [x] Introduce focused refresh scenario support helpers.
+- [x] Introduce collector scenario fixtures for success, empty, failure, and
       cancellation where repeated today.
-- [ ] Introduce import outcome fixtures only for repeated mechanics.
-- [ ] Keep final run-state, import, and diagnostic assertions in test bodies.
-- [ ] Prefer table-driven cases only where one rule has multiple inputs.
-- [ ] Run focused refresh tests.
-- [ ] Run duplication report and architecture checks.
-- [ ] Record verification outcomes before completion.
+- [x] Introduce import outcome fixtures only for repeated mechanics.
+- [x] Keep final run-state, import, and diagnostic assertions in test bodies.
+- [x] Prefer table-driven cases only where one rule has multiple inputs.
+- [x] Run focused refresh tests.
+- [x] Run duplication report and architecture checks.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -91,13 +95,15 @@ harness without hiding refresh-state assertions.
 ## Verification
 
 - Command: `cargo test --manifest-path src-tauri/Cargo.toml application::refresh --lib`
-- Outcome: not run yet
+- Outcome: passed; 43 passed, 0 failed.
 - Command: `pnpm rust:test`
-- Outcome: not run yet
+- Outcome: passed; 365 passed, 0 failed, 1 ignored.
 - Command: `pnpm duplication:report`
-- Outcome: not run yet
+- Outcome: passed as report-only; existing clone report remains non-fatal.
 - Command: `pnpm architecture:check`
-- Outcome: not run yet
+- Outcome: passed.
+- Command: `pnpm rust:fmt`
+- Outcome: passed after applying `pnpm rust:fmt:write`.
 
 ## Runtime Evidence
 

@@ -1,7 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
-use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 
@@ -30,6 +28,11 @@ use crate::domain::source::SourceKey;
 use crate::domain::usage::{
     CostKind, CurrencyCode, DataQuality, TokenUsage, UsageCost, ValuedCostStatus,
 };
+
+#[path = "test_support.rs"]
+mod test_support;
+
+use test_support::*;
 
 struct FakeRunStore {
     refresh_outcomes: Mutex<Vec<RefreshOutcome>>,
@@ -487,51 +490,6 @@ fn empty_collection_for_request(request: &CollectionRequest) -> CollectionResult
     }
 }
 
-fn expected_refresh_targets() -> Vec<(SourceKey, CollectionProjection)> {
-    refresh_targets()
-        .iter()
-        .map(|target| (target.source, target.projection))
-        .collect()
-}
-
-fn expected_refresh_projections() -> Vec<CollectionProjection> {
-    refresh_targets()
-        .iter()
-        .map(|target| target.projection)
-        .collect()
-}
-
-fn repeated_import_outcomes(outcome: ImportOutcome) -> Vec<ImportOutcome> {
-    vec![outcome; refresh_targets().len()]
-}
-
-fn repeated_collection_outcomes(outcome: CollectionOutcome) -> Vec<CollectionOutcome> {
-    vec![outcome; refresh_targets().len()]
-}
-
-fn repeated_refresh_outcomes(outcome: RefreshOutcome) -> Vec<RefreshOutcome> {
-    vec![outcome]
-}
-
-fn repeated_scope(scope: CollectionScope) -> Vec<CollectionScope> {
-    vec![scope; refresh_targets().len()]
-}
-
-fn date(year: i32, month: u32, day: u32) -> chrono::NaiveDate {
-    chrono::NaiveDate::from_ymd_opt(year, month, day).expect("date")
-}
-
-fn seed_successful_imports(run_store: &FakeRunStore, scope: CollectionScope) {
-    for target in refresh_targets() {
-        run_store.seed_successful_import(SuccessfulImportState::new(
-            target.source,
-            target.projection,
-            scope.clone(),
-            1,
-        ));
-    }
-}
-
 #[allow(dead_code)]
 fn candidate() -> DailyUsageCandidate {
     let request = CollectionRequest::daily(
@@ -629,40 +587,9 @@ impl Collector for ScriptedCollector {
     }
 }
 
-fn coordinator_with(
-    collector: Arc<dyn Collector>,
-) -> (RefreshCoordinator, Arc<FakeRunStore>, Arc<FakeUsageStore>) {
-    let run_store = Arc::new(FakeRunStore::new());
-    let usage_store = Arc::new(FakeUsageStore::new());
-    let clock = Arc::new(FakeClock { now_ms: 1_000 });
-    let coordinator = RefreshCoordinator::new(
-        collector,
-        run_store.clone(),
-        usage_store.clone(),
-        clock,
-        "0.1.0",
-        "UTC",
-    );
-
-    (coordinator, run_store, usage_store)
-}
-
-fn await_terminal(coordinator: &RefreshCoordinator) -> RefreshSnapshot {
-    for _ in 0..1_000 {
-        let snapshot = coordinator.snapshot();
-        if !snapshot.status.is_active() {
-            return snapshot;
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
-    panic!("refresh did not reach a terminal state");
-}
-
 #[test]
 fn complete_collection_reconciles_and_succeeds() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
 
     let submitted = coordinator.request_refresh(RefreshTrigger::Manual);
@@ -693,9 +620,7 @@ fn complete_collection_reconciles_and_succeeds() {
 
 #[test]
 fn missing_baseline_uses_full_scope_for_collector_import_and_reconciliation() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
 
     coordinator.request_refresh(RefreshTrigger::Manual);
@@ -715,9 +640,7 @@ fn missing_baseline_uses_full_scope_for_collector_import_and_reconciliation() {
 
 #[test]
 fn manual_refresh_uses_incremental_catch_up_after_baseline() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let run_store = Arc::new(FakeRunStore::new());
     let usage_store = Arc::new(FakeUsageStore::new());
     let previous_scope =
@@ -757,9 +680,7 @@ fn manual_refresh_uses_incremental_catch_up_after_baseline() {
 
 #[test]
 fn freshness_refresh_uses_today_only_after_baseline() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let run_store = Arc::new(FakeRunStore::new());
     let usage_store = Arc::new(FakeUsageStore::new());
     let previous_scope =
@@ -799,9 +720,7 @@ fn freshness_refresh_uses_today_only_after_baseline() {
 
 #[test]
 fn freshness_refresh_without_baseline_uses_full_scope() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
 
     coordinator.request_freshness_refresh(RefreshTrigger::Manual);
@@ -821,9 +740,7 @@ fn freshness_refresh_without_baseline_uses_full_scope() {
 
 #[test]
 fn successful_refresh_records_completion_time() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(empty_collection_for_request(&request))
-    }));
+    let collector = empty_collector();
     let run_store = Arc::new(FakeRunStore::new());
     let usage_store = Arc::new(FakeUsageStore::new());
     let coordinator = RefreshCoordinator::new(
@@ -848,9 +765,7 @@ fn successful_refresh_records_completion_time() {
 
 #[test]
 fn event_sink_observes_submission_and_committed_completion() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let run_store = Arc::new(FakeRunStore::new());
     let usage_store = Arc::new(FakeUsageStore::new());
     let events = Arc::new(RecordingEventSink::new());
@@ -878,9 +793,7 @@ fn event_sink_observes_submission_and_committed_completion() {
 
 #[test]
 fn budget_evaluation_runs_after_daily_commit_without_failing_refresh() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let run_store = Arc::new(FakeRunStore::new());
     let usage_store = Arc::new(FakeUsageStore::new());
     let evaluator = Arc::new(RecordingBudgetEvaluator::new());
@@ -920,9 +833,7 @@ fn budget_evaluation_runs_after_daily_commit_without_failing_refresh() {
 
 #[test]
 fn empty_collection_succeeds_with_no_records() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(empty_collection_for_request(&request))
-    }));
+    let collector = empty_collector();
     let (coordinator, run_store, usage_store) = coordinator_with(collector);
 
     let submitted = coordinator.request_refresh(RefreshTrigger::Launch);
@@ -1021,9 +932,7 @@ fn collector_failure_for_one_target_keeps_later_targets_and_marks_partial() {
 
 #[test]
 fn source_resolution_failure_terminalizes_the_refresh_run() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(empty_collection_for_request(&request))
-    }));
+    let collector = empty_collector();
     let (coordinator, run_store, usage_store) = coordinator_with(collector);
     run_store.fail_once(RunStoreFailure::ResolveSource);
 
@@ -1038,9 +947,7 @@ fn source_resolution_failure_terminalizes_the_refresh_run() {
 
 #[test]
 fn import_creation_failure_terminalizes_the_refresh_run() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(empty_collection_for_request(&request))
-    }));
+    let collector = empty_collector();
     let (coordinator, run_store, _usage_store) = coordinator_with(collector);
     run_store.fail_once(RunStoreFailure::BeginImport);
 
@@ -1054,9 +961,7 @@ fn import_creation_failure_terminalizes_the_refresh_run() {
 
 #[test]
 fn reconciliation_failure_terminalizes_import_and_refresh_runs() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let (coordinator, run_store, usage_store) = coordinator_with(collector);
     usage_store.fail();
 
@@ -1071,9 +976,7 @@ fn reconciliation_failure_terminalizes_import_and_refresh_runs() {
 
 #[test]
 fn completion_failures_retry_terminal_cleanup() {
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let (coordinator, run_store, _usage_store) = coordinator_with(collector);
     run_store.fail_once(RunStoreFailure::CompleteImport);
 
@@ -1084,9 +987,7 @@ fn completion_failures_retry_terminal_cleanup() {
     assert_eq!(run_store.import_outcomes(), vec![ImportOutcome::Failed]);
     assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
 
-    let collector = Arc::new(ScriptedCollector::new(|request| {
-        Ok(collection_for_request(&request, Vec::new()))
-    }));
+    let collector = successful_collector();
     let (coordinator, run_store, _usage_store) = coordinator_with(collector);
     run_store.fail_once(RunStoreFailure::CompleteRefresh);
 
