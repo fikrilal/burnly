@@ -8,6 +8,8 @@ mod resources;
 mod runtime_events;
 mod settings_runtime;
 mod startup;
+#[cfg(test)]
+mod test_support;
 mod tray_runtime;
 
 use std::path::Path;
@@ -28,8 +30,6 @@ use crate::application::refresh::{
     RefreshCoordinator, RefreshEventSink, RefreshPolicy, RefreshScheduler, RefreshSchedulerError,
 };
 use crate::application::settings::SettingsService;
-#[cfg(test)]
-use crate::application::update::UnavailableUpdateRuntime;
 use crate::application::update::UpdateService;
 use crate::application::usage::TraySummaryQuery;
 use crate::domain::settings::CloseBehavior;
@@ -348,99 +348,14 @@ fn compose_refresh_coordinator(
 mod tests {
     use std::path::PathBuf;
 
-    use crate::application::bootstrap::{
-        BootstrapError, BootstrapStorage, BootstrapStore, Capability, CapabilityStatus,
-    };
-    use crate::application::ports::settings_store::{SettingsStore, SettingsStoreError};
-    use crate::application::settings::{RuntimeSettingError, SettingsRuntime};
     use crate::domain::settings::{Settings, SettingsDocument};
-    use crate::infrastructure::collectors::antigravity::AntigravityCollector;
-    use crate::infrastructure::collectors::ccusage::CcusageCollector;
-    use crate::infrastructure::collectors::cline::ClineCollector;
-    use crate::infrastructure::collectors::routed::RoutedCollector;
-    use crate::infrastructure::collectors::zcode::ZCodeCollector;
     use crate::ipc::refresh_event_sink;
 
     use rusqlite::Connection;
     use serde_json::{json, Value};
-    use tauri::webview::InvokeRequest;
 
+    use super::test_support::*;
     use super::*;
-
-    struct FixedBootstrapStore;
-
-    impl BootstrapStore for FixedBootstrapStore {
-        fn read_bootstrap_storage(&self) -> Result<BootstrapStorage, BootstrapError> {
-            Ok(BootstrapStorage {
-                launch_at_login: false,
-                close_behavior: "quit".to_owned(),
-                settings_revision: 1,
-                schema_version: 2,
-            })
-        }
-    }
-
-    struct TestSettingsStore {
-        document: Mutex<SettingsDocument>,
-    }
-
-    impl SettingsStore for TestSettingsStore {
-        fn get(&self) -> Result<SettingsDocument, SettingsStoreError> {
-            Ok(self.document.lock().expect("settings lock").clone())
-        }
-
-        fn replace(
-            &self,
-            expected_revision: i64,
-            settings: &Settings,
-            _updated_at_ms: i64,
-        ) -> Result<SettingsDocument, SettingsStoreError> {
-            let mut document = self.document.lock().expect("settings lock");
-            if document.revision() != expected_revision {
-                return Err(SettingsStoreError::Conflict);
-            }
-            *document = SettingsDocument::new(settings.clone(), expected_revision + 1)
-                .expect("valid document");
-            Ok(document.clone())
-        }
-    }
-
-    struct TestSettingsRuntime;
-
-    impl SettingsRuntime for TestSettingsRuntime {
-        fn validate(
-            &self,
-            _current: &Settings,
-            _proposed: &Settings,
-        ) -> Result<(), RuntimeSettingError> {
-            Ok(())
-        }
-
-        fn prepare_update(
-            &self,
-            _current: &Settings,
-            _proposed: &Settings,
-        ) -> Result<(), RuntimeSettingError> {
-            Ok(())
-        }
-
-        fn rollback_update(&self, _current: &Settings) -> Result<(), RuntimeSettingError> {
-            Ok(())
-        }
-
-        fn commit_update(&self, _settings: &Settings) {}
-    }
-
-    fn capabilities_without_tray() -> RuntimeCapabilities {
-        RuntimeCapabilities::new(
-            Capability {
-                supported: false,
-                status: CapabilityStatus::NotImplemented,
-            },
-            RuntimeCapabilities::launch_at_login_not_implemented(),
-            RuntimeCapabilities::update_not_implemented(),
-        )
-    }
 
     #[test]
     fn home_data_dir_prefers_home_when_available() {
@@ -491,13 +406,6 @@ mod tests {
         );
 
         assert_eq!(resolved, product_resource_directory);
-    }
-
-    fn write_packaged_sidecar_manifest(resource_directory: &Path) {
-        let sidecar_directory = resource_directory.join("sidecars").join("ccusage");
-        std::fs::create_dir_all(&sidecar_directory).expect("create sidecar directory");
-        std::fs::write(sidecar_directory.join("manifest.json"), "{}")
-            .expect("write sidecar manifest");
     }
 
     #[test]
@@ -827,17 +735,8 @@ mod tests {
             .expect("seed settings");
 
         let store = Arc::new(SqliteReconciliationStore::new(database));
-        let ccusage_collector = Arc::new(
-            CcusageCollector::development(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .parent()
-                    .expect("workspace root")
-                    .join("tests/fixtures/collectors/ccusage/process/fake-collector.sh"),
-            )
-            .expect("collector"),
-        );
         let coordinator = RefreshCoordinator::new(
-            ccusage_collector,
+            fake_ccusage_collector(),
             store.clone(),
             store,
             Arc::new(SystemClock),
@@ -894,35 +793,10 @@ mod tests {
                 FixedBootstrapStore,
                 capabilities_without_tray(),
             ))
-            .manage(UpdateService::new(
-                Arc::new(UnavailableUpdateRuntime::new()),
-            ))
+            .manage(unavailable_update_service())
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("build mock tauri app");
-        let ccusage_collector = Arc::new(
-            CcusageCollector::development(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .parent()
-                    .expect("workspace root")
-                    .join("tests/fixtures/collectors/ccusage/process/fake-collector.sh"),
-            )
-            .expect("development collector"),
-        );
-        let cline_collector = Arc::new(ClineCollector::from_database_path(
-            directory.path().join("missing-cline-sessions.db"),
-        ));
-        let zcode_collector = Arc::new(ZCodeCollector::from_database_path(
-            directory.path().join("missing-zcode-usage.db"),
-        ));
-        let antigravity_collector = Arc::new(AntigravityCollector::empty_from_data_root(
-            directory.path().join("empty-antigravity"),
-        ));
-        let collector = Arc::new(RoutedCollector::new(
-            ccusage_collector,
-            cline_collector,
-            zcode_collector,
-            antigravity_collector,
-        ));
+        let collector = composed_refresh_collector(directory.path());
         let coordinator = compose_refresh_coordinator(
             &database_path,
             collector,
@@ -994,12 +868,6 @@ mod tests {
             .ends_with('Z'));
     }
 
-    fn settings_count(connection: &Connection) -> i64 {
-        connection
-            .query_row("SELECT COUNT(*) FROM app_settings", [], |row| row.get(0))
-            .expect("count settings")
-    }
-
     #[cfg(unix)]
     fn import_statuses(connection: &Connection) -> String {
         let mut statement = connection
@@ -1027,88 +895,5 @@ mod tests {
         rows.map(|row| row.expect("import status row"))
             .collect::<Vec<_>>()
             .join(", ")
-    }
-
-    fn expect_startup_error(result: Result<Database, StartupError>, message: &str) -> StartupError {
-        match result {
-            Ok(_) => panic!("{message}"),
-            Err(error) => error,
-        }
-    }
-
-    fn setting_text(connection: &Connection, column: &str) -> String {
-        connection
-            .query_row(
-                &format!("SELECT {column} FROM app_settings WHERE id = 1"),
-                [],
-                |row| row.get(0),
-            )
-            .expect("query text setting")
-    }
-
-    fn setting_i64(connection: &Connection, column: &str) -> i64 {
-        connection
-            .query_row(
-                &format!("SELECT {column} FROM app_settings WHERE id = 1"),
-                [],
-                |row| row.get(0),
-            )
-            .expect("query integer setting")
-    }
-
-    fn pragma_i64(connection: &Connection, name: &str) -> i64 {
-        connection
-            .pragma_query_value(None, name, |row| row.get(0))
-            .expect("query pragma")
-    }
-
-    fn invoke(command: &str) -> Value {
-        invoke_from_window("main", command)
-    }
-
-    fn invoke_from_window(label: &str, command: &str) -> Value {
-        let app = tauri::test::mock_builder()
-            .invoke_handler(crate::ipc::invoke_handler())
-            .manage(BootstrapService::new(
-                env!("CARGO_PKG_VERSION"),
-                CONTRACT_VERSION,
-                FixedBootstrapStore,
-                capabilities_without_tray(),
-            ))
-            .manage(UpdateService::new(
-                Arc::new(UnavailableUpdateRuntime::new()),
-            ))
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .expect("build mock tauri app");
-        let webview = tauri::WebviewWindowBuilder::new(&app, label, Default::default())
-            .build()
-            .expect("build mock webview");
-
-        tauri::test::get_ipc_response(&webview, request(command))
-            .expect("invoke command")
-            .deserialize::<Value>()
-            .expect("deserialize command response")
-    }
-
-    fn request(command: &str) -> InvokeRequest {
-        request_with_body(command, Value::Object(Default::default()))
-    }
-
-    fn request_with_body(command: &str, body: Value) -> InvokeRequest {
-        InvokeRequest {
-            cmd: command.into(),
-            callback: tauri::ipc::CallbackFn(0),
-            error: tauri::ipc::CallbackFn(1),
-            url: if cfg!(any(windows, target_os = "android")) {
-                "http://tauri.localhost"
-            } else {
-                "tauri://localhost"
-            }
-            .parse()
-            .expect("parse tauri url"),
-            body: tauri::ipc::InvokeBody::Json(body),
-            headers: Default::default(),
-            invoke_key: tauri::test::INVOKE_KEY.to_owned(),
-        }
     }
 }

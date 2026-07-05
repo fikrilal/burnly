@@ -1,5 +1,9 @@
 # 2026-07-04 Test Architecture 01 Bootstrap Support
 
+## Status
+
+Completed on July 5, 2026.
+
 ## Objective
 
 Move bootstrap test setup and fakes out of the production composition file while
@@ -47,17 +51,17 @@ preserving the same bootstrap behavior coverage.
 
 ## Checklist
 
-- [ ] Inspect bootstrap tests and list repeated setup/fakes.
-- [ ] Add `src-tauri/src/bootstrap/test_support.rs`.
-- [ ] Move startup database fixtures that are only used by bootstrap tests.
-- [ ] Move fake sidecar/process setup used by composed refresh tests.
-- [ ] Move runtime app or command bridge setup helpers where appropriate.
-- [ ] Keep behavioral assertions in the tests unless a helper name makes the
+- [x] Inspect bootstrap tests and list repeated setup/fakes.
+- [x] Add `src-tauri/src/bootstrap/test_support.rs`.
+- [x] Move startup database fixtures that are only used by bootstrap tests.
+- [x] Move fake sidecar/process setup used by composed refresh tests.
+- [x] Move runtime app or command bridge setup helpers where appropriate.
+- [x] Keep behavioral assertions in the tests unless a helper name makes the
       assertion clearer.
-- [ ] Confirm production builds do not expose test support.
-- [ ] Run focused bootstrap tests.
-- [ ] Run architecture checks.
-- [ ] Record verification outcomes before completion.
+- [x] Confirm production builds do not expose test support.
+- [x] Run focused bootstrap tests.
+- [x] Run architecture checks.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -92,11 +96,13 @@ preserving the same bootstrap behavior coverage.
 ## Verification
 
 - Command: `cargo test --manifest-path src-tauri/Cargo.toml bootstrap --lib`
-- Outcome: not run yet
+- Outcome: passed; 24 passed, 0 failed.
 - Command: `pnpm rust:test`
-- Outcome: not run yet
+- Outcome: passed; 365 passed, 0 failed, 1 ignored.
 - Command: `pnpm architecture:check`
-- Outcome: not run yet
+- Outcome: passed.
+- Command: `pnpm rust:fmt`
+- Outcome: passed after applying `pnpm rust:fmt:write`.
 
 ## Runtime Evidence
 
