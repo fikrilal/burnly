@@ -5,6 +5,8 @@
 Split or normalize large frontend tests where separate user workflows or stable
 IPC boundaries are already clear.
 
+Status: Completed on July 5, 2026.
+
 ## Acceptance Criteria
 
 - Frontend tests remain behavior-focused.
@@ -44,15 +46,15 @@ IPC boundaries are already clear.
 
 ## Checklist
 
-- [ ] Inspect `TrayPanel.test.tsx`, `client.test.ts`, and `App.test.tsx`.
-- [ ] Split tests by user-visible workflow only where it is clearly useful.
-- [ ] Add local test support only when repeated setup is real.
-- [ ] Keep React Testing Library queries through roles, labels, names, and
+- [x] Inspect `TrayPanel.test.tsx`, `client.test.ts`, and `App.test.tsx`.
+- [x] Split tests by user-visible workflow only where it is clearly useful.
+- [x] Add local test support only when repeated setup is real.
+- [x] Keep React Testing Library queries through roles, labels, names, and
       visible text.
-- [ ] Avoid asserting Tailwind classes or incidental DOM shape.
-- [ ] Keep TypeScript strict with no `any`.
-- [ ] Run frontend tests and lint.
-- [ ] Record verification outcomes before completion.
+- [x] Avoid asserting Tailwind classes or incidental DOM shape.
+- [x] Keep TypeScript strict with no `any`.
+- [x] Run frontend tests and lint.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -83,17 +85,21 @@ IPC boundaries are already clear.
 - Do not add broad snapshots.
 - Do not assert styling internals.
 - Do not move React feature code toward Tauri APIs.
+- Split `TrayPanel.test.tsx` into overview, settings/diagnostics, and update
+  workflow files.
+- Keep `App.test.tsx` and `src/ipc/client.test.ts` intact for this chunk;
+  they are smaller and still cohesive.
 
 ## Verification
 
 - Command: `pnpm test`
-- Outcome: not run yet
+- Outcome: passed, 18 files passed, 89 tests passed
 - Command: `pnpm lint`
-- Outcome: not run yet
+- Outcome: passed with existing warnings
 - Command: `pnpm verify:fast`
-- Outcome: not run yet
+- Outcome: passed
 - Command: `pnpm architecture:check`
-- Outcome: not run yet
+- Outcome: passed
 
 ## Runtime Evidence
 
