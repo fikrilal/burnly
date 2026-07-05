@@ -5,6 +5,8 @@
 Reduce repeated SQLite fixture setup in database reconciliation tests while
 continuing to test real SQLite behavior.
 
+Status: Completed on July 5, 2026.
+
 ## Acceptance Criteria
 
 - `src-tauri/src/infrastructure/database/reconciliation/test_support.rs` owns
@@ -44,17 +46,17 @@ continuing to test real SQLite behavior.
 
 ## Checklist
 
-- [ ] Inspect repeated SQLite setup in reconciliation tests.
-- [ ] Add `reconciliation/test_support.rs`.
-- [ ] Add a database fixture for creating temporary real SQLite stores.
-- [ ] Add daily candidate fixture builders.
-- [ ] Add session candidate fixture builders.
-- [ ] Add interrupted-run fixture builders where repeated.
-- [ ] Keep repository calls explicit in tests.
-- [ ] Keep assertions for conflict and recovery behavior explicit.
-- [ ] Run focused reconciliation tests.
-- [ ] Run duplication report and architecture checks.
-- [ ] Record verification outcomes before completion.
+- [x] Inspect repeated SQLite setup in reconciliation tests.
+- [x] Add `reconciliation/test_support.rs`.
+- [x] Add a database fixture for creating temporary real SQLite stores.
+- [x] Add daily candidate fixture builders.
+- [x] Add session candidate fixture builders.
+- [x] Add interrupted-run fixture builders where repeated.
+- [x] Keep repository calls explicit in tests.
+- [x] Keep assertions for conflict and recovery behavior explicit.
+- [x] Run focused reconciliation tests.
+- [x] Run duplication report and architecture checks.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -91,13 +93,15 @@ continuing to test real SQLite behavior.
 ## Verification
 
 - Command: `cargo test --manifest-path src-tauri/Cargo.toml infrastructure::database::reconciliation --lib`
-- Outcome: not run yet
+- Outcome: passed, 25 passed
 - Command: `pnpm rust:test`
-- Outcome: not run yet
+- Outcome: passed, 365 passed, 1 ignored
 - Command: `pnpm duplication:report`
-- Outcome: not run yet
+- Outcome: passed as report-only, existing clones remain
 - Command: `pnpm architecture:check`
-- Outcome: not run yet
+- Outcome: passed
+- Command: `pnpm rust:fmt`
+- Outcome: failed before formatting, passed after `pnpm rust:fmt:write`
 
 ## Runtime Evidence
 
