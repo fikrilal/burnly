@@ -23,7 +23,7 @@ use super::discovery::{LocalListener, ProcessSnapshot};
 use super::mapper::{self, AntigravityMappingContext, ConversationUsage};
 use super::{
     extract_usage_records, ConversationDatabase, ConversationIndex, RuntimeClient,
-    RuntimeClientError, RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
+    RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
 };
 
 const COLLECTOR_KEY: &str = "antigravity";
@@ -118,6 +118,8 @@ enum RuntimeUsageSource {
     Current(RuntimeClient),
     #[cfg(test)]
     Fixed(Vec<ConversationUsage>),
+    #[cfg(test)]
+    Failing(AntigravityRuntimeCollectionFailureReason),
 }
 
 impl RuntimeUsageSource {
@@ -125,11 +127,63 @@ impl RuntimeUsageSource {
         &self,
         endpoints: &[RuntimeEndpoint],
         conversations: &[ConversationDatabase],
-    ) -> Result<RuntimeUsageReport, RuntimeClientError> {
+    ) -> Result<RuntimeUsageReport, AntigravityRuntimeCollectionFailure> {
         match self {
             Self::Current(client) => collect_runtime_usage(client, endpoints, conversations),
             #[cfg(test)]
             Self::Fixed(usage) => Ok(RuntimeUsageReport::from_usage(usage.clone())),
+            #[cfg(test)]
+            Self::Failing(reason) => Err(AntigravityRuntimeCollectionFailure {
+                reason: *reason,
+                report: RuntimeUsageReport::default(),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct AntigravityRuntimeCollectionFailure {
+    reason: AntigravityRuntimeCollectionFailureReason,
+    report: RuntimeUsageReport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AntigravityRuntimeCollectionFailureReason {
+    NoMatchingRuntimeEndpoint,
+    RuntimeStreamUnavailable,
+}
+
+impl AntigravityRuntimeCollectionFailureReason {
+    const fn diagnostic_code(self) -> &'static str {
+        match self {
+            Self::NoMatchingRuntimeEndpoint => "antigravity.runtime_endpoint_mismatch",
+            Self::RuntimeStreamUnavailable => "antigravity.runtime_stream_unavailable",
+        }
+    }
+
+    const fn summary(self) -> &'static str {
+        match self {
+            Self::NoMatchingRuntimeEndpoint => {
+                "Antigravity conversation artifacts were found, but no matching runtime endpoint was available."
+            }
+            Self::RuntimeStreamUnavailable => {
+                "Antigravity runtime endpoints were found, but usage streams could not be read."
+            }
+        }
+    }
+
+    const fn failure_reason(self) -> &'static str {
+        match self {
+            Self::NoMatchingRuntimeEndpoint => "no_matching_runtime_endpoint",
+            Self::RuntimeStreamUnavailable => "runtime_stream_unavailable",
+        }
+    }
+
+    const fn collector_failure_code(self) -> CollectorFailureCode {
+        match self {
+            Self::NoMatchingRuntimeEndpoint | Self::RuntimeStreamUnavailable => {
+                CollectorFailureCode::SourceNotFound
+            }
         }
     }
 }
@@ -235,11 +289,14 @@ impl Collector for AntigravityCollector {
         if endpoints.is_empty() {
             self.record_diagnostic(
                 &request,
-                DiagnosticSeverity::Warning,
-                "antigravity.collection_failed",
-                "Antigravity collection failed.",
-                &diagnostics,
-                Some(CollectorFailureCode::SourceNotFound.code()),
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Warning,
+                    code: "antigravity.runtime_unavailable",
+                    summary: "Antigravity local runtime endpoint was not found.",
+                    counters: &diagnostics,
+                    failure_code: Some(CollectorFailureCode::SourceNotFound.code()),
+                    failure_reason: Some("runtime_endpoint_missing"),
+                },
             );
             return Err(failure(&request, CollectorFailureCode::SourceNotFound));
         }
@@ -252,11 +309,14 @@ impl Collector for AntigravityCollector {
             .map_err(|_| {
                 self.record_diagnostic(
                     &request,
-                    DiagnosticSeverity::Warning,
-                    "antigravity.collection_failed",
-                    "Antigravity collection failed.",
-                    &diagnostics,
-                    Some(CollectorFailureCode::ScopeNotRepresentable.code()),
+                    AntigravityDiagnosticInput {
+                        severity: DiagnosticSeverity::Warning,
+                        code: "antigravity.collection_failed",
+                        summary: "Antigravity collection failed.",
+                        counters: &diagnostics,
+                        failure_code: Some(CollectorFailureCode::ScopeNotRepresentable.code()),
+                        failure_reason: Some("scope_not_representable"),
+                    },
                 );
                 failure(&request, CollectorFailureCode::ScopeNotRepresentable)
             })?;
@@ -265,28 +325,39 @@ impl Collector for AntigravityCollector {
         if conversations.is_empty() {
             self.record_diagnostic(
                 &request,
-                DiagnosticSeverity::Info,
-                "antigravity.collection_empty",
-                "Antigravity collection found no conversation artifacts.",
-                &diagnostics,
-                None,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Info,
+                    code: "antigravity.collection_empty",
+                    summary: "Antigravity collection found no conversation artifacts.",
+                    counters: &diagnostics,
+                    failure_code: None,
+                    failure_reason: None,
+                },
             );
             return empty_result(&request, started, started_at);
         }
-        let report = self
-            .runtime_usage
-            .collect(&endpoints, &conversations)
-            .map_err(|_| {
+        let report = match self.runtime_usage.collect(&endpoints, &conversations) {
+            Ok(report) => report,
+            Err(error) => {
+                diagnostics.stream_calls_attempted = error.report.stream_calls_attempted;
+                diagnostics.streams_succeeded = error.report.streams_succeeded;
+                diagnostics.records_extracted = error.report.records_extracted;
+                diagnostics.records_rejected = error.report.records_rejected;
+                let failure_code = error.reason.collector_failure_code();
                 self.record_diagnostic(
                     &request,
-                    DiagnosticSeverity::Warning,
-                    "antigravity.collection_failed",
-                    "Antigravity collection failed.",
-                    &diagnostics,
-                    Some(CollectorFailureCode::SourceNotFound.code()),
+                    AntigravityDiagnosticInput {
+                        severity: DiagnosticSeverity::Warning,
+                        code: error.reason.diagnostic_code(),
+                        summary: error.reason.summary(),
+                        counters: &diagnostics,
+                        failure_code: Some(failure_code.code()),
+                        failure_reason: Some(error.reason.failure_reason()),
+                    },
                 );
-                failure(&request, CollectorFailureCode::SourceNotFound)
-            })?;
+                return Err(failure(&request, failure_code));
+            }
+        };
         diagnostics.stream_calls_attempted = report.stream_calls_attempted;
         diagnostics.streams_succeeded = report.streams_succeeded;
         diagnostics.records_extracted = report.records_extracted;
@@ -294,11 +365,14 @@ impl Collector for AntigravityCollector {
         if cancellation.is_cancelled() {
             self.record_diagnostic(
                 &request,
-                DiagnosticSeverity::Warning,
-                "antigravity.collection_cancelled",
-                "Antigravity collection was cancelled.",
-                &diagnostics,
-                Some(CollectorFailureCode::Cancelled.code()),
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Warning,
+                    code: "antigravity.collection_cancelled",
+                    summary: "Antigravity collection was cancelled.",
+                    counters: &diagnostics,
+                    failure_code: Some(CollectorFailureCode::Cancelled.code()),
+                    failure_reason: Some("cancelled"),
+                },
             );
             return Err(failure(&request, CollectorFailureCode::Cancelled));
         }
@@ -307,48 +381,57 @@ impl Collector for AntigravityCollector {
         if result.is_ok() {
             self.record_diagnostic(
                 &request,
-                DiagnosticSeverity::Info,
-                "antigravity.collection_completed",
-                "Antigravity collection completed.",
-                &diagnostics,
-                None,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Info,
+                    code: "antigravity.collection_completed",
+                    summary: "Antigravity collection completed.",
+                    counters: &diagnostics,
+                    failure_code: None,
+                    failure_reason: None,
+                },
             );
         }
         result
     }
 }
 
+struct AntigravityDiagnosticInput<'a> {
+    severity: DiagnosticSeverity,
+    code: &'a str,
+    summary: &'a str,
+    counters: &'a AntigravityDiagnosticCounters,
+    failure_code: Option<&'a str>,
+    failure_reason: Option<&'a str>,
+}
+
 impl AntigravityCollector {
     fn record_diagnostic(
         &self,
         request: &CollectionRequest,
-        severity: DiagnosticSeverity,
-        code: &str,
-        summary: &str,
-        counters: &AntigravityDiagnosticCounters,
-        failure_code: Option<&str>,
+        input: AntigravityDiagnosticInput<'_>,
     ) {
         let Some(recorder) = &self.diagnostics else {
             return;
         };
-        let Ok(code) = DiagnosticCode::new(code) else {
+        let Ok(code) = DiagnosticCode::new(input.code) else {
             return;
         };
-        let Ok(summary) = DiagnosticSummary::new(summary) else {
+        let Ok(summary) = DiagnosticSummary::new(input.summary) else {
             return;
         };
         let Ok(context) = DiagnosticContext::new(
             json!({
                 "source": "antigravity",
                 "projection": projection_name(request.projection()),
-                "failureCode": failure_code,
-                "processCandidatesFound": counters.process_candidates_found,
-                "endpointsFound": counters.endpoints_found,
-                "conversationArtifactsFound": counters.conversations_found,
-                "streamCallsAttempted": counters.stream_calls_attempted,
-                "streamsSucceeded": counters.streams_succeeded,
-                "recordsExtracted": counters.records_extracted,
-                "recordsRejected": counters.records_rejected,
+                "failureCode": input.failure_code,
+                "failureReason": input.failure_reason,
+                "processCandidatesFound": input.counters.process_candidates_found,
+                "endpointsFound": input.counters.endpoints_found,
+                "conversationArtifactsFound": input.counters.conversations_found,
+                "streamCallsAttempted": input.counters.stream_calls_attempted,
+                "streamsSucceeded": input.counters.streams_succeeded,
+                "recordsExtracted": input.counters.records_extracted,
+                "recordsRejected": input.counters.records_rejected,
             })
             .to_string(),
         ) else {
@@ -356,7 +439,7 @@ impl AntigravityCollector {
         };
         let Ok(event) = DiagnosticEvent::new(
             DiagnosticArea::Collector,
-            severity,
+            input.severity,
             code,
             summary,
             Some(context),
@@ -372,7 +455,7 @@ fn collect_runtime_usage(
     client: &RuntimeClient,
     endpoints: &[RuntimeEndpoint],
     conversations: &[ConversationDatabase],
-) -> Result<RuntimeUsageReport, RuntimeClientError> {
+) -> Result<RuntimeUsageReport, AntigravityRuntimeCollectionFailure> {
     let mut collected = Vec::new();
     let mut attempted = false;
     let mut stream_calls_attempted = 0_u32;
@@ -423,19 +506,26 @@ fn collect_runtime_usage(
             });
         }
     }
-    if !attempted {
-        return Err(RuntimeClientError::ConnectionFailed);
-    }
-    if successful_streams == 0 {
-        return Err(RuntimeClientError::ConnectionFailed);
-    }
-    Ok(RuntimeUsageReport {
+    let report = RuntimeUsageReport {
         usage: collected,
         stream_calls_attempted,
         streams_succeeded: successful_streams,
         records_extracted,
         records_rejected,
-    })
+    };
+    if !attempted {
+        return Err(AntigravityRuntimeCollectionFailure {
+            reason: AntigravityRuntimeCollectionFailureReason::NoMatchingRuntimeEndpoint,
+            report,
+        });
+    }
+    if successful_streams == 0 {
+        return Err(AntigravityRuntimeCollectionFailure {
+            reason: AntigravityRuntimeCollectionFailureReason::RuntimeStreamUnavailable,
+            report,
+        });
+    }
+    Ok(report)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -667,20 +757,22 @@ fn issue(code: &str, message: &str) -> DetectionIssue {
 mod tests {
     use std::fs::{self, File};
     use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use chrono::{TimeZone, Utc};
     use tempfile::TempDir;
 
     use super::*;
-    use crate::application::collection::{
-        CollectionId, CollectionOutcome, CollectionScope, DetectionReason,
-    };
-    use crate::application::diagnostics::{DiagnosticEvent, DiagnosticSeverity};
+    use crate::application::collection::{CollectionOutcome, CollectionScope};
+    use crate::application::diagnostics::DiagnosticSeverity;
     use crate::infrastructure::collectors::antigravity::discovery::{
         LocalListener, ProcessSnapshot,
     };
     use crate::infrastructure::collectors::antigravity::product_variant::AntigravityProductVariant;
+    use crate::infrastructure::collectors::support::{
+        daily_request as support_daily_request, detection_request as support_detection_request,
+        fixed_timestamp, session_request as support_session_request, NeverCancelled,
+        RecordingDiagnostics,
+    };
 
     #[test]
     fn describes_antigravity_profile() {
@@ -767,7 +859,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].area, DiagnosticArea::Collector);
         assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
-        assert_eq!(events[0].code.as_str(), "antigravity.collection_failed");
+        assert_eq!(events[0].code.as_str(), "antigravity.runtime_unavailable");
         let context = events[0]
             .context
             .as_ref()
@@ -776,7 +868,67 @@ mod tests {
             .to_owned();
         assert!(context.contains(r#""endpointsFound":0"#));
         assert!(context.contains(r#""failureCode":"source.not_found""#));
+        assert!(context.contains(r#""failureReason":"runtime_endpoint_missing""#));
         assert!(context.contains(r#""projection":"daily""#));
+    }
+
+    #[test]
+    fn records_diagnostic_when_conversation_has_no_matching_runtime_endpoint() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (_directory, collector) = collector_with_conversation_and_runtime(
+            AntigravityProductVariant::App,
+            AntigravityProductVariant::Cli,
+            RuntimeUsageSource::Current(RuntimeClient::new()),
+        );
+        let collector = collector.with_test_diagnostics(diagnostics.clone());
+
+        let error = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect_err("variant mismatch");
+
+        assert_eq!(error.code, CollectorFailureCode::SourceNotFound);
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].code.as_str(),
+            "antigravity.runtime_endpoint_mismatch"
+        );
+        let context = events[0].context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""endpointsFound":1"#));
+        assert!(context.contains(r#""conversationArtifactsFound":1"#));
+        assert!(context.contains(r#""streamCallsAttempted":0"#));
+        assert!(context.contains(r#""failureCode":"source.not_found""#));
+        assert!(context.contains(r#""failureReason":"no_matching_runtime_endpoint""#));
+    }
+
+    #[test]
+    fn records_diagnostic_when_runtime_stream_is_unavailable() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (_directory, collector) = collector_with_conversation_and_runtime(
+            AntigravityProductVariant::App,
+            AntigravityProductVariant::App,
+            RuntimeUsageSource::Failing(
+                AntigravityRuntimeCollectionFailureReason::RuntimeStreamUnavailable,
+            ),
+        );
+        let collector = collector.with_test_diagnostics(diagnostics.clone());
+
+        let error = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect_err("stream unavailable");
+
+        assert_eq!(error.code, CollectorFailureCode::SourceNotFound);
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].code.as_str(),
+            "antigravity.runtime_stream_unavailable"
+        );
+        let context = events[0].context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""endpointsFound":1"#));
+        assert!(context.contains(r#""conversationArtifactsFound":1"#));
+        assert!(context.contains(r#""failureCode":"source.not_found""#));
+        assert!(context.contains(r#""failureReason":"runtime_stream_unavailable""#));
     }
 
     #[test]
@@ -837,31 +989,6 @@ mod tests {
             .any(|candidate| candidate.source_session_id == "antigravity:app-conversation"));
     }
 
-    struct NeverCancelled;
-
-    impl CancellationSignal for NeverCancelled {
-        fn is_cancelled(&self) -> bool {
-            false
-        }
-    }
-
-    #[derive(Default)]
-    struct RecordingDiagnostics {
-        events: Mutex<Vec<DiagnosticEvent>>,
-    }
-
-    impl RecordingDiagnostics {
-        fn events(&self) -> Vec<DiagnosticEvent> {
-            self.events.lock().expect("diagnostics").clone()
-        }
-    }
-
-    impl DiagnosticRecorder for RecordingDiagnostics {
-        fn record(&self, event: DiagnosticEvent) {
-            self.events.lock().expect("diagnostics").push(event);
-        }
-    }
-
     fn collector_with_discovery(runtime_discovery: RuntimeDiscovery) -> AntigravityCollector {
         let data_root = TempDir::new().expect("tempdir");
         AntigravityCollector::from_parts(
@@ -894,6 +1021,44 @@ mod tests {
             RuntimeUsageSource::Fixed(fixed_usage()),
         );
         (data_root, collector)
+    }
+
+    fn collector_with_conversation_and_runtime(
+        conversation_variant: AntigravityProductVariant,
+        runtime_variant: AntigravityProductVariant,
+        runtime_usage: RuntimeUsageSource,
+    ) -> (TempDir, AntigravityCollector) {
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), conversation_variant, "conversation");
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![process_for_variant(runtime_variant)]),
+            runtime_usage,
+        );
+        (data_root, collector)
+    }
+
+    fn process_for_variant(variant: AntigravityProductVariant) -> ProcessSnapshot {
+        match variant {
+            AntigravityProductVariant::App => ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/opt/antigravity/Antigravity-x64")),
+                vec!["/opt/antigravity/Antigravity-x64".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            ),
+            AntigravityProductVariant::Ide => ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/opt/antigravity-ide/Antigravity-IDE")),
+                vec!["/opt/antigravity-ide/Antigravity-IDE".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            ),
+            AntigravityProductVariant::Cli => ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            ),
+        }
     }
 
     fn fixed_usage() -> Vec<ConversationUsage> {
@@ -932,10 +1097,7 @@ mod tests {
             variant,
             conversation_id: conversation_id.to_owned(),
             path: conversation_id.into(),
-            modified_at: Utc
-                .with_ymd_and_hms(2026, 7, 2, 8, 0, 0)
-                .single()
-                .expect("timestamp"),
+            modified_at: timestamp(),
         }
     }
 
@@ -979,37 +1141,24 @@ mod tests {
     }
 
     fn detection_request(source: SourceKey) -> DetectionRequest {
-        DetectionRequest {
-            source,
-            reason: DetectionReason::Startup,
-            requested_at: Utc
-                .with_ymd_and_hms(2026, 7, 2, 8, 0, 0)
-                .single()
-                .expect("timestamp"),
-        }
+        support_detection_request(source, timestamp())
     }
 
     fn daily_request(source: SourceKey) -> CollectionRequest {
-        CollectionRequest::daily(
-            CollectionId::new(format!("{}-daily", source.as_str())).expect("collection id"),
+        support_daily_request(
+            &format!("{}-daily", source.as_str()),
             source,
             CollectionScope::Full,
             "UTC",
-            Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0)
-                .single()
-                .expect("timestamp"),
+            timestamp(),
         )
-        .expect("request")
     }
 
     fn session_request(source: SourceKey) -> CollectionRequest {
-        CollectionRequest::session(
-            CollectionId::new(format!("{}-session", source.as_str())).expect("collection id"),
-            source,
-            CollectionScope::Full,
-            Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0)
-                .single()
-                .expect("timestamp"),
-        )
+        support_session_request(&format!("{}-session", source.as_str()), source, timestamp())
+    }
+
+    fn timestamp() -> chrono::DateTime<chrono::Utc> {
+        fixed_timestamp(2026, 7, 2, 8, 0, 0)
     }
 }

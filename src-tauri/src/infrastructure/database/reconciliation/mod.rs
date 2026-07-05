@@ -9,6 +9,8 @@ mod mapping;
 mod runs;
 mod session;
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
 
 mod store;
