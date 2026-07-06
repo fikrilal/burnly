@@ -20,6 +20,7 @@ use super::super::support::{
     validation_failure_as_internal, CollectorDiagnosticCounter, CollectorIdentity,
     LocalCollectionRun,
 };
+use super::detection::inspect_grok_home;
 use super::grok_home::unified_log_path;
 use super::mapper::{self, GrokMappingContext};
 use super::model_resolver::GrokModelResolver;
@@ -90,7 +91,8 @@ impl Collector for GrokCollector {
                 detection_issue("grok.unsupported_source", "Source is not Grok Build."),
             ));
         }
-        if !self.grok_home.is_dir() {
+        let inspection = inspect_grok_home(Some(self.grok_home.as_path()));
+        if !inspection.grok_home_exists {
             return Ok(not_found_detection(
                 &request,
                 SourceKey::GrokBuild,
@@ -102,8 +104,8 @@ impl Collector for GrokCollector {
             ));
         }
 
-        let unified_log = unified_log_path(&self.grok_home);
-        if !unified_log.is_file() {
+        let unified_log = unified_log_path(&inspection.grok_home);
+        if !inspection.unified_log_exists {
             return Ok(not_found_detection(
                 &request,
                 SourceKey::GrokBuild,

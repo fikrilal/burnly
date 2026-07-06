@@ -37,7 +37,7 @@ impl Database {
 
     pub fn needs_migration(&self) -> Result<bool, PersistenceError> {
         let version = self.schema_version()?;
-        Ok(version > 0 && version < super::migrations::LATEST_SCHEMA_VERSION)
+        Ok(version > 0 && version < Self::latest_supported_schema_version())
     }
 
     pub fn create_verified_migration_backup(
@@ -138,6 +138,10 @@ impl Database {
         self.connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|source| PersistenceError::read("user_version", source))
+    }
+
+    pub fn latest_supported_schema_version() -> i64 {
+        super::migrations::LATEST_SCHEMA_VERSION
     }
 
     pub(crate) fn connection(&self) -> &Connection {
@@ -305,7 +309,10 @@ mod tests {
         assert!(!settings.0); // launch_at_login
         assert_eq!(settings.1, "quit"); // close_behavior
 
-        assert_eq!(database.schema_version().expect("schema version"), 5);
+        assert_eq!(
+            database.schema_version().expect("schema version"),
+            Database::latest_supported_schema_version()
+        );
     }
 
     #[test]

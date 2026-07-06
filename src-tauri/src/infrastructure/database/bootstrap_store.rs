@@ -65,7 +65,10 @@ mod tests {
             .read_bootstrap_storage()
             .expect("read bootstrap storage");
 
-        assert_eq!(storage.schema_version, 5);
+        assert_eq!(
+            storage.schema_version,
+            Database::latest_supported_schema_version()
+        );
         assert_eq!(storage.settings_revision, 1);
         assert!(!storage.launch_at_login);
     }

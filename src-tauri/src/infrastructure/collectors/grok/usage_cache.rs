@@ -284,7 +284,7 @@ pub(crate) mod tests {
         }
 
         fn read_checkpoint(&self) -> Result<Option<GrokUnifiedLogCheckpoint>, GrokUsageCacheError> {
-            Ok(self.checkpoint.lock().expect("checkpoint").clone())
+            Ok(*self.checkpoint.lock().expect("checkpoint"))
         }
 
         fn write_checkpoint(
