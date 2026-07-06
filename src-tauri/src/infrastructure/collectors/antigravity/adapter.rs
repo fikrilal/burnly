@@ -25,6 +25,8 @@ use super::{
     extract_usage_from_generator_metadata, ConversationDatabase, ConversationIndex, RuntimeClient,
     RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
 };
+use super::cli_sqlite_reader::{collect_cli_sqlite_usage, CliSqliteCollectionReport};
+use super::product_variant::AntigravityProductVariant;
 use super::runtime_metadata_client::fetch_generator_metadata_items;
 use super::usage_cache::{AntigravityCacheSupplementReport, AntigravityUsageCacheClient, NoOpAntigravityUsageCache};
 
@@ -437,47 +439,84 @@ impl Collector for AntigravityCollector {
             );
             return empty_result(&request, started, started_at);
         }
-        if endpoints.is_empty() {
-            return self.collect_with_cache_fallback(
+        let (mut collected_usage, sqlite_report) =
+            collect_cli_sqlite_usage(&conversations).unwrap_or_default();
+        apply_sqlite_diagnostics(&mut diagnostics, &sqlite_report);
+        if sqlite_report.records_rejected > 0 {
+            self.record_diagnostic(
                 &request,
-                started,
-                started_at,
-                &mut diagnostics,
-                &conversations,
-                None,
-                if discovery.endpoints.is_empty() {
-                    AntigravityRuntimeCollectionFailureReason::RuntimeNotFound
-                } else {
-                    AntigravityRuntimeCollectionFailureReason::RuntimeIdentityProbeFailed
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Warning,
+                    code: "antigravity.sqlite_parse_failed",
+                    summary: "Antigravity CLI SQLite usage metadata could not be parsed for one or more conversations.",
+                    counters: &diagnostics,
+                    failure_code: None,
+                    failure_reason: Some("sqlite_parse_failed"),
                 },
             );
         }
-        let mut runtime_failure = None;
-        let mut report = match self.runtime_usage.collect(&endpoints, &conversations) {
-            Ok(report) => report,
-            Err(error) => {
-                runtime_failure = Some(error.reason);
-                error.report
-            }
+
+        let runtime_targets = conversations_needing_runtime(&conversations, &collected_usage);
+        let default_failure_reason = if discovery.endpoints.is_empty() {
+            AntigravityRuntimeCollectionFailureReason::RuntimeNotFound
+        } else if endpoints.is_empty() {
+            AntigravityRuntimeCollectionFailureReason::RuntimeIdentityProbeFailed
+        } else {
+            AntigravityRuntimeCollectionFailureReason::RuntimeMetadataUnavailable
         };
-        diagnostics.metadata_calls_attempted = report.metadata_calls_attempted;
-        diagnostics.metadata_calls_succeeded = report.metadata_calls_succeeded;
-        diagnostics.records_extracted = report.records_extracted;
-        diagnostics.records_rejected = report.records_rejected;
-        if report.metadata_calls_succeeded > 0 {
-            let runtime_usage = report.usage.clone();
+        let mut runtime_failure = if endpoints.is_empty() && !runtime_targets.is_empty() {
+            Some(default_failure_reason)
+        } else {
+            None
+        };
+
+        if !endpoints.is_empty() && !runtime_targets.is_empty() {
+            match self
+                .runtime_usage
+                .collect(&endpoints, &runtime_targets)
+            {
+                Ok(report) => {
+                    runtime_failure = None;
+                    diagnostics.metadata_calls_attempted = report.metadata_calls_attempted;
+                    diagnostics.metadata_calls_succeeded = report.metadata_calls_succeeded;
+                    diagnostics.records_extracted = diagnostics
+                        .records_extracted
+                        .saturating_add(report.records_extracted);
+                    diagnostics.records_rejected = diagnostics
+                        .records_rejected
+                        .saturating_add(report.records_rejected);
+                    merge_conversation_usage(&mut collected_usage, report.usage);
+                }
+                Err(error) => {
+                    runtime_failure = Some(error.reason);
+                    diagnostics.metadata_calls_attempted = error.report.metadata_calls_attempted;
+                    diagnostics.metadata_calls_succeeded = error.report.metadata_calls_succeeded;
+                    diagnostics.records_extracted = diagnostics
+                        .records_extracted
+                        .saturating_add(error.report.records_extracted);
+                    diagnostics.records_rejected = diagnostics
+                        .records_rejected
+                        .saturating_add(error.report.records_rejected);
+                    merge_conversation_usage(&mut collected_usage, error.report.usage);
+                }
+            }
+        }
+
+        if !collected_usage.is_empty() {
             let _ = self
                 .usage_cache
-                .upsert_runtime_usage(&runtime_usage, COLLECTOR_VERSION);
+                .upsert_runtime_usage(&collected_usage, COLLECTOR_VERSION);
         }
-        self.collect_with_cache_fallback(
+
+        self.finish_collection(
             &request,
             started,
             started_at,
             &mut diagnostics,
             &conversations,
-            Some((&mut report, runtime_failure)),
-            AntigravityRuntimeCollectionFailureReason::RuntimeMetadataUnavailable,
+            collected_usage,
+            runtime_failure,
+            default_failure_reason,
         )
     }
 }
@@ -492,23 +531,17 @@ struct AntigravityDiagnosticInput<'a> {
 }
 
 impl AntigravityCollector {
-    fn collect_with_cache_fallback(
+    fn finish_collection(
         &self,
         request: &CollectionRequest,
         started: Instant,
         started_at: DateTime<Utc>,
         diagnostics: &mut AntigravityDiagnosticCounters,
         conversations: &[ConversationDatabase],
-        runtime_state: Option<(
-            &mut RuntimeUsageReport,
-            Option<AntigravityRuntimeCollectionFailureReason>,
-        )>,
+        mut usage: Vec<ConversationUsage>,
+        runtime_failure: Option<AntigravityRuntimeCollectionFailureReason>,
         default_failure_reason: AntigravityRuntimeCollectionFailureReason,
     ) -> Result<CollectionResult, CollectorFailure> {
-        let mut usage = runtime_state
-            .as_ref()
-            .map(|(report, _)| report.usage.clone())
-            .unwrap_or_default();
         let supplement = self
             .usage_cache
             .supplement_usage(
@@ -522,9 +555,7 @@ impl AntigravityCollector {
         diagnostics.cache_records_used = supplement.records_used;
 
         if usage.is_empty() {
-            let reason = runtime_state
-                .and_then(|(_, failure)| failure)
-                .unwrap_or(default_failure_reason);
+            let reason = runtime_failure.unwrap_or(default_failure_reason);
             let failure_code = reason.collector_failure_code();
             self.record_diagnostic(
                 request,
@@ -603,6 +634,10 @@ impl AntigravityCollector {
                 "recordsRejected": input.counters.records_rejected,
                 "cacheRecordsRead": input.counters.cache_records_read,
                 "cacheRecordsUsed": input.counters.cache_records_used,
+                "sqliteRecordsExtracted": input.counters.sqlite_records_extracted,
+                "sqliteRecordsRejected": input.counters.sqlite_records_rejected,
+                "sqliteConversationsParsed": input.counters.sqlite_conversations_parsed,
+                "sqliteConversationsFailed": input.counters.sqlite_conversations_failed,
             })
             .to_string(),
         ) else {
@@ -752,6 +787,64 @@ struct AntigravityDiagnosticCounters {
     records_rejected: u32,
     cache_records_read: u32,
     cache_records_used: u32,
+    sqlite_records_extracted: u32,
+    sqlite_records_rejected: u32,
+    sqlite_conversations_parsed: u32,
+    sqlite_conversations_failed: u32,
+}
+
+fn apply_sqlite_diagnostics(
+    diagnostics: &mut AntigravityDiagnosticCounters,
+    report: &CliSqliteCollectionReport,
+) {
+    diagnostics.sqlite_records_extracted = report.records_extracted;
+    diagnostics.sqlite_records_rejected = report.records_rejected;
+    diagnostics.sqlite_conversations_parsed = report.conversations_parsed;
+    diagnostics.sqlite_conversations_failed = report.conversations_failed;
+    diagnostics.records_extracted = diagnostics
+        .records_extracted
+        .saturating_add(report.records_extracted);
+    diagnostics.records_rejected = diagnostics
+        .records_rejected
+        .saturating_add(report.records_rejected);
+}
+
+fn conversations_needing_runtime(
+    conversations: &[ConversationDatabase],
+    collected: &[ConversationUsage],
+) -> Vec<ConversationDatabase> {
+    conversations
+        .iter()
+        .filter(|conversation| {
+            let has_sqlite_records = collected.iter().any(|usage| {
+                usage.database.conversation_id == conversation.conversation_id
+                    && usage.database.variant == conversation.variant
+                    && !usage.records.is_empty()
+            });
+            if conversation.variant == AntigravityProductVariant::Cli && has_sqlite_records {
+                return false;
+            }
+            true
+        })
+        .cloned()
+        .collect()
+}
+
+fn merge_conversation_usage(
+    target: &mut Vec<ConversationUsage>,
+    incoming: Vec<ConversationUsage>,
+) {
+    for mut entry in incoming {
+        if let Some(existing) = target.iter_mut().find(|usage| {
+            usage.database.conversation_id == entry.database.conversation_id
+                && usage.database.variant == entry.database.variant
+        }) {
+            existing.records.append(&mut entry.records);
+            existing.records = dedupe_records(existing.records.clone());
+        } else {
+            target.push(entry);
+        }
+    }
 }
 
 fn dedupe_records(
@@ -1187,6 +1280,60 @@ mod tests {
         assert!(context.contains(r#""conversationArtifactsFound":1"#));
         assert!(context.contains(r#""failureCode":"source.not_found""#));
         assert!(context.contains(r#""failureReason":"metadata_rpc_unavailable""#));
+    }
+
+    #[test]
+    fn collects_cli_usage_from_sqlite_without_runtime() {
+        use rusqlite::params;
+        use rusqlite::Connection;
+
+        use crate::infrastructure::collectors::antigravity::protobuf_usage::tests::{
+            sample_gen_metadata_blob, sample_trajectory_metadata_blob,
+        };
+
+        let data_root = TempDir::new().expect("tempdir");
+        let path = data_root
+            .path()
+            .join("antigravity-cli/conversations/cli-session.db");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent dir");
+        }
+        let connection = Connection::open(&path).expect("open database");
+        connection
+            .execute_batch(
+                "CREATE TABLE gen_metadata (idx integer, data blob, size integer);
+                 CREATE TABLE trajectory_metadata_blob (id text, data blob);",
+            )
+            .expect("schema");
+        connection
+            .execute(
+                "INSERT INTO gen_metadata (idx, data, size) VALUES (0, ?1, 0)",
+                params![sample_gen_metadata_blob("response-cli")],
+            )
+            .expect("insert gen_metadata");
+        connection
+            .execute(
+                "INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?1)",
+                params![sample_trajectory_metadata_blob()],
+            )
+            .expect("insert trajectory metadata");
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(Vec::new()),
+            noop_usage_cache_client(),
+        );
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("sqlite collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        assert_eq!(result.daily_candidates().len(), 1);
+        assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(150));
+        assert_eq!(result.daily_candidates()[0].tokens.output_tokens(), Some(25));
     }
 
     #[test]

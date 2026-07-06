@@ -1,7 +1,9 @@
 mod adapter;
+mod cli_sqlite_reader;
 mod conversation_index;
 mod discovery;
 mod mapper;
+mod protobuf_usage;
 pub(crate) mod product_variant;
 mod runtime_client;
 mod runtime_metadata_client;

@@ -65,10 +65,7 @@ impl ConversationIndex {
         variant: AntigravityProductVariant,
         time_window: TimeWindow,
     ) -> Result<Vec<ConversationDatabase>, ConversationIndexError> {
-        let conversations_dir = self
-            .data_root
-            .join(variant.data_dir_name())
-            .join("conversations");
+        let conversations_dir = variant_data_root(&self.data_root, variant).join("conversations");
         if !conversations_dir.exists() {
             return Ok(Vec::new());
         }
@@ -131,6 +128,18 @@ impl ConversationIndex {
         }
         Ok(databases.into_values().collect())
     }
+}
+
+fn variant_data_root(data_root: &Path, variant: AntigravityProductVariant) -> PathBuf {
+    if variant == AntigravityProductVariant::Cli {
+        if let Ok(home) = std::env::var("GEMINI_CLI_HOME") {
+            let trimmed = home.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed);
+            }
+        }
+    }
+    data_root.join(variant.data_dir_name())
 }
 
 fn default_home_directory() -> Option<PathBuf> {
@@ -331,8 +340,48 @@ mod tests {
         );
     }
 
+    #[test]
+    fn gemini_cli_home_overrides_cli_variant_root() {
+        let data_root = TempDir::new().expect("data root");
+        let cli_home = TempDir::new().expect("cli home");
+        create_db_at(
+            cli_home.path(),
+            Path::new("conversations"),
+            "cli-from-env",
+        );
+
+        let previous = std::env::var("GEMINI_CLI_HOME").ok();
+        std::env::set_var("GEMINI_CLI_HOME", cli_home.path());
+        let result = (|| {
+            let index = ConversationIndex::from_data_root(data_root.path());
+            index.list(&CollectionScope::Full, "UTC")
+        })();
+        if let Some(value) = previous {
+            std::env::set_var("GEMINI_CLI_HOME", value);
+        } else {
+            std::env::remove_var("GEMINI_CLI_HOME");
+        }
+
+        let databases = result.expect("conversation index");
+        assert_eq!(databases.len(), 1);
+        assert_eq!(databases[0].conversation_id, "cli-from-env");
+        assert_eq!(databases[0].variant, AntigravityProductVariant::Cli);
+        assert_eq!(
+            databases[0].path,
+            cli_home
+                .path()
+                .join("conversations")
+                .join("cli-from-env.db")
+        );
+    }
+
     fn create_db(root: &Path, variant: AntigravityProductVariant, name: &str) {
         let directory = root.join(variant.data_dir_name()).join("conversations");
+        create_db_at(root, directory.strip_prefix(root).expect("relative"), name);
+    }
+
+    fn create_db_at(root: &Path, relative_dir: &Path, name: &str) {
+        let directory = root.join(relative_dir);
         fs::create_dir_all(&directory).expect("conversation dir");
         File::create(directory.join(format!("{name}.db"))).expect("db file");
     }

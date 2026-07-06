@@ -436,6 +436,7 @@ async function checkFrontendBoundaries() {
 
 const allowedRusqlitePaths = [
   "src-tauri/src/infrastructure/database/",
+  "src-tauri/src/infrastructure/collectors/antigravity/",
   "src-tauri/src/infrastructure/collectors/cline/",
   "src-tauri/src/infrastructure/collectors/zcode/",
   "src-tauri/src/infrastructure/collectors/support/sqlite.rs",
