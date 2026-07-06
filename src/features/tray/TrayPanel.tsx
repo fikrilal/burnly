@@ -51,7 +51,7 @@ export function TrayPanel({
   if (summary.isError && !summary.data) {
     return (
       <TrayShell
-        status="Failed"
+        status="Refresh failed"
         detail={userSafeErrorMessage(summary.error)}
         tone="danger"
       />
@@ -243,7 +243,7 @@ function HeaderStatus({
   if (state === "failed") {
     return (
       <span className="text-xs font-medium text-destructive">
-        Update failed
+        Refresh failed
       </span>
     );
   }

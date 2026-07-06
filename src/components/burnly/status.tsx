@@ -26,7 +26,7 @@ const FRESHNESS: Record<FreshnessState, { label: string; Icon: LucideIcon }> = {
   stale: { label: "Stale", Icon: Clock },
   partial: { label: "Some sources failed", Icon: AlertTriangle },
   refreshing: { label: "Refreshing", Icon: RefreshCw },
-  failed: { label: "Update failed", Icon: AlertCircle },
+  failed: { label: "Refresh failed", Icon: AlertCircle },
   empty: { label: "Empty", Icon: Inbox },
 };
 

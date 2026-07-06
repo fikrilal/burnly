@@ -18,7 +18,7 @@ describe("FreshnessStatus", () => {
     expect(screen.getByText("Refreshing")).toBeInTheDocument();
 
     rerender(<FreshnessStatus state="failed" />);
-    expect(screen.getByText("Update failed")).toBeInTheDocument();
+    expect(screen.getByText("Refresh failed")).toBeInTheDocument();
   });
 });
 

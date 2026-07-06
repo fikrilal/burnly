@@ -83,7 +83,7 @@ describe("TrayPanel overview", () => {
 
     renderTrayPanel();
 
-    expect(await screen.findByText("Failed")).toBeInTheDocument();
+    expect(await screen.findByText("Refresh failed")).toBeInTheDocument();
     expect(screen.getByText("summary offline")).toBeInTheDocument();
   });
 });

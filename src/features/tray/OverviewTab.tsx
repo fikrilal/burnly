@@ -26,7 +26,7 @@ export function OverviewTab({
     <div className="flex flex-col gap-6">
       {isError ? (
         <ErrorState
-          title="Update failed"
+          title="Usage refresh failed"
           description={userSafeErrorMessage(error)}
         />
       ) : null}
