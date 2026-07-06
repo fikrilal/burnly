@@ -25,6 +25,9 @@ use super::{
     extract_usage_from_generator_metadata, ConversationDatabase, ConversationIndex, RuntimeClient,
     RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
 };
+use super::app_ide_sqlite_reader::{
+    collect_app_ide_sqlite_fallback, AppIdeSqliteCollectionReport,
+};
 use super::cli_sqlite_reader::{collect_cli_sqlite_usage, CliSqliteCollectionReport};
 use super::product_variant::AntigravityProductVariant;
 use super::runtime_metadata_client::fetch_generator_metadata_items;
@@ -418,6 +421,7 @@ impl Collector for AntigravityCollector {
                         counters: &diagnostics,
                         failure_code: Some(CollectorFailureCode::ScopeNotRepresentable.code()),
                         failure_reason: Some("scope_not_representable"),
+                        variants: Vec::new(),
                     },
                 );
                 failure(&request, CollectorFailureCode::ScopeNotRepresentable)
@@ -435,13 +439,14 @@ impl Collector for AntigravityCollector {
                     counters: &diagnostics,
                     failure_code: None,
                     failure_reason: None,
+                    variants: Vec::new(),
                 },
             );
             return empty_result(&request, started, started_at);
         }
         let (mut collected_usage, sqlite_report) =
             collect_cli_sqlite_usage(&conversations).unwrap_or_default();
-        apply_sqlite_diagnostics(&mut diagnostics, &sqlite_report);
+        apply_cli_sqlite_diagnostics(&mut diagnostics, &sqlite_report);
         if sqlite_report.records_rejected > 0 {
             self.record_diagnostic(
                 &request,
@@ -452,6 +457,39 @@ impl Collector for AntigravityCollector {
                     counters: &diagnostics,
                     failure_code: None,
                     failure_reason: Some("sqlite_parse_failed"),
+                    variants: Vec::new(),
+                },
+            );
+        }
+
+        let (app_ide_usage, app_ide_report) = collect_app_ide_sqlite_fallback(&conversations);
+        apply_app_ide_sqlite_diagnostics(&mut diagnostics, &app_ide_report);
+        merge_conversation_usage(&mut collected_usage, app_ide_usage);
+        if app_ide_report.conversations_accepted > 0 {
+            self.record_diagnostic(
+                &request,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Info,
+                    code: "antigravity.sqlite_fallback_accepted",
+                    summary: "Antigravity experimental App/IDE SQLite fallback produced usage records.",
+                    counters: &diagnostics,
+                    failure_code: None,
+                    failure_reason: Some("sqlite_fallback_accepted"),
+                    variants: variant_names(&app_ide_report.variants_accepted),
+                },
+            );
+        }
+        if app_ide_report.conversations_rejected > 0 {
+            self.record_diagnostic(
+                &request,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Info,
+                    code: "antigravity.sqlite_fallback_rejected",
+                    summary: "Antigravity experimental App/IDE SQLite fallback rejected one or more conversation databases.",
+                    counters: &diagnostics,
+                    failure_code: None,
+                    failure_reason: Some("sqlite_fallback_rejected"),
+                    variants: variant_names(&app_ide_report.variants_rejected),
                 },
             );
         }
@@ -528,6 +566,7 @@ struct AntigravityDiagnosticInput<'a> {
     counters: &'a AntigravityDiagnosticCounters,
     failure_code: Option<&'a str>,
     failure_reason: Option<&'a str>,
+    variants: Vec<&'a str>,
 }
 
 impl AntigravityCollector {
@@ -566,6 +605,7 @@ impl AntigravityCollector {
                     counters: diagnostics,
                     failure_code: Some(failure_code.code()),
                     failure_reason: Some(reason.failure_reason()),
+                    variants: Vec::new(),
                 },
             );
             return Err(failure(request, failure_code));
@@ -581,6 +621,7 @@ impl AntigravityCollector {
                     counters: diagnostics,
                     failure_code: None,
                     failure_reason: Some("cache_used"),
+                    variants: Vec::new(),
                 },
             );
         }
@@ -594,6 +635,7 @@ impl AntigravityCollector {
                 counters: diagnostics,
                 failure_code: None,
                 failure_reason: None,
+                variants: Vec::new(),
             },
         );
         result_from_usage(request, started, started_at, usage)
@@ -638,6 +680,11 @@ impl AntigravityCollector {
                 "sqliteRecordsRejected": input.counters.sqlite_records_rejected,
                 "sqliteConversationsParsed": input.counters.sqlite_conversations_parsed,
                 "sqliteConversationsFailed": input.counters.sqlite_conversations_failed,
+                "appIdeSqliteRecordsExtracted": input.counters.app_ide_sqlite_records_extracted,
+                "appIdeSqliteRecordsRejected": input.counters.app_ide_sqlite_records_rejected,
+                "appIdeSqliteConversationsAccepted": input.counters.app_ide_sqlite_conversations_accepted,
+                "appIdeSqliteConversationsRejected": input.counters.app_ide_sqlite_conversations_rejected,
+                "variants": input.variants,
             })
             .to_string(),
         ) else {
@@ -791,9 +838,20 @@ struct AntigravityDiagnosticCounters {
     sqlite_records_rejected: u32,
     sqlite_conversations_parsed: u32,
     sqlite_conversations_failed: u32,
+    app_ide_sqlite_records_extracted: u32,
+    app_ide_sqlite_records_rejected: u32,
+    app_ide_sqlite_conversations_accepted: u32,
+    app_ide_sqlite_conversations_rejected: u32,
 }
 
-fn apply_sqlite_diagnostics(
+fn variant_names(variants: &std::collections::BTreeSet<AntigravityProductVariant>) -> Vec<&'static str> {
+    variants
+        .iter()
+        .map(|variant| variant.as_str())
+        .collect()
+}
+
+fn apply_cli_sqlite_diagnostics(
     diagnostics: &mut AntigravityDiagnosticCounters,
     report: &CliSqliteCollectionReport,
 ) {
@@ -801,6 +859,22 @@ fn apply_sqlite_diagnostics(
     diagnostics.sqlite_records_rejected = report.records_rejected;
     diagnostics.sqlite_conversations_parsed = report.conversations_parsed;
     diagnostics.sqlite_conversations_failed = report.conversations_failed;
+    diagnostics.records_extracted = diagnostics
+        .records_extracted
+        .saturating_add(report.records_extracted);
+    diagnostics.records_rejected = diagnostics
+        .records_rejected
+        .saturating_add(report.records_rejected);
+}
+
+fn apply_app_ide_sqlite_diagnostics(
+    diagnostics: &mut AntigravityDiagnosticCounters,
+    report: &AppIdeSqliteCollectionReport,
+) {
+    diagnostics.app_ide_sqlite_records_extracted = report.records_extracted;
+    diagnostics.app_ide_sqlite_records_rejected = report.records_rejected;
+    diagnostics.app_ide_sqlite_conversations_accepted = report.conversations_accepted;
+    diagnostics.app_ide_sqlite_conversations_rejected = report.conversations_rejected;
     diagnostics.records_extracted = diagnostics
         .records_extracted
         .saturating_add(report.records_extracted);
@@ -821,10 +895,7 @@ fn conversations_needing_runtime(
                     && usage.database.variant == conversation.variant
                     && !usage.records.is_empty()
             });
-            if conversation.variant == AntigravityProductVariant::Cli && has_sqlite_records {
-                return false;
-            }
-            true
+            !has_sqlite_records
         })
         .cloned()
         .collect()
@@ -1280,6 +1351,82 @@ mod tests {
         assert!(context.contains(r#""conversationArtifactsFound":1"#));
         assert!(context.contains(r#""failureCode":"source.not_found""#));
         assert!(context.contains(r#""failureReason":"metadata_rpc_unavailable""#));
+    }
+
+    #[test]
+    fn collects_app_usage_from_sqlite_fallback_without_runtime() {
+        use rusqlite::params;
+        use rusqlite::Connection;
+
+        use crate::infrastructure::collectors::antigravity::protobuf_usage::tests::{
+            sample_gen_metadata_blob, sample_trajectory_metadata_blob,
+        };
+
+        let data_root = TempDir::new().expect("tempdir");
+        let path = data_root
+            .path()
+            .join("antigravity/conversations/app-session.db");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent dir");
+        }
+        let connection = Connection::open(&path).expect("open database");
+        connection
+            .execute_batch(
+                "CREATE TABLE gen_metadata (idx integer, data blob, size integer);
+                 CREATE TABLE trajectory_metadata_blob (id text, data blob);",
+            )
+            .expect("schema");
+        connection
+            .execute(
+                "INSERT INTO gen_metadata (idx, data, size) VALUES (0, ?1, 0)",
+                params![sample_gen_metadata_blob("response-app")],
+            )
+            .expect("insert gen_metadata");
+        connection
+            .execute(
+                "INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?1)",
+                params![sample_trajectory_metadata_blob()],
+            )
+            .expect("insert trajectory metadata");
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(Vec::new()),
+            noop_usage_cache_client(),
+        );
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("sqlite fallback collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        assert_eq!(result.daily_candidates().len(), 1);
+        assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(150));
+    }
+
+    #[test]
+    fn uses_runtime_after_app_sqlite_fallback_rejects_schema_mismatch() {
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), AntigravityProductVariant::App, "app-conversation");
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![process_for_variant(
+                AntigravityProductVariant::App,
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(fixed_usage()),
+            noop_usage_cache_client(),
+        );
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("runtime collection after fallback rejection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        assert_eq!(result.daily_candidates().len(), 1);
+        assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(180));
     }
 
     #[test]

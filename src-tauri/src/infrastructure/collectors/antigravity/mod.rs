@@ -1,4 +1,5 @@
 mod adapter;
+mod app_ide_sqlite_reader;
 mod cli_sqlite_reader;
 mod conversation_index;
 mod discovery;

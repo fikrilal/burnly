@@ -342,6 +342,11 @@ mod tests {
 
     #[test]
     fn gemini_cli_home_overrides_cli_variant_root() {
+        use std::sync::{Mutex, MutexGuard};
+
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard: MutexGuard<'_, ()> = LOCK.lock().expect("gemini cli home test lock");
+
         let data_root = TempDir::new().expect("data root");
         let cli_home = TempDir::new().expect("cli home");
         create_db_at(
@@ -352,10 +357,8 @@ mod tests {
 
         let previous = std::env::var("GEMINI_CLI_HOME").ok();
         std::env::set_var("GEMINI_CLI_HOME", cli_home.path());
-        let result = (|| {
-            let index = ConversationIndex::from_data_root(data_root.path());
-            index.list(&CollectionScope::Full, "UTC")
-        })();
+        let index = ConversationIndex::from_data_root(data_root.path());
+        let result = index.list(&CollectionScope::Full, "UTC");
         if let Some(value) = previous {
             std::env::set_var("GEMINI_CLI_HOME", value);
         } else {

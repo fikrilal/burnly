@@ -2,8 +2,7 @@
 
 ## Status
 
-Active. Phase 04 completed on July 6, 2026. Next queued phase: App/IDE SQLite
-fallback.
+Active. Phase 05 completed on July 6, 2026. Next queued phase: product docs.
 
 ## Objective
 
@@ -22,7 +21,7 @@ primary collection mechanism.
 2. `2026-07-06_antigravity-hardening-02-runtime-metadata-sync.md` (completed)
 3. `2026-07-06_antigravity-hardening-03-usage-cache.md` (completed)
 4. `2026-07-06_antigravity-hardening-04-cli-sqlite-reader.md` (completed)
-5. `2026-07-06_antigravity-hardening-05-app-ide-sqlite-fallback.md`
+5. `2026-07-06_antigravity-hardening-05-app-ide-sqlite-fallback.md` (completed)
 6. `2026-07-06_antigravity-hardening-06-product-docs.md`
 
 ## Invariants

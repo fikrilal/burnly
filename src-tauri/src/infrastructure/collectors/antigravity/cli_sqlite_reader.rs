@@ -67,19 +67,50 @@ pub(crate) fn collect_cli_sqlite_usage(
 fn read_cli_conversation(
     conversation: &ConversationDatabase,
 ) -> Result<Vec<super::AntigravityUsageRecord>, CliSqliteReaderError> {
-    let connection = open_external_read_only(&conversation.path).map_err(CliSqliteReaderError::Open)?;
-    let session_timestamp_ms = read_session_timestamp_ms(&connection, &conversation.path)?;
-    let rows = read_gen_metadata_rows(&connection)?;
+    read_conversation_gen_metadata_usage(conversation).map_err(Into::into)
+}
+
+pub(crate) fn read_conversation_gen_metadata_usage(
+    conversation: &ConversationDatabase,
+) -> Result<Vec<super::AntigravityUsageRecord>, ConversationSqliteReaderError> {
+    let connection =
+        open_external_read_only(&conversation.path).map_err(ConversationSqliteReaderError::Open)?;
+    let session_timestamp_ms =
+        read_session_timestamp_ms(&connection, &conversation.path).map_err(Into::into)?;
+    let rows = read_gen_metadata_rows(&connection).map_err(Into::into)?;
     parse_gen_metadata_rows(
-        AntigravityProductVariant::Cli,
+        conversation.variant,
         &conversation.conversation_id,
         &rows,
         session_timestamp_ms,
     )
-    .map_err(CliSqliteReaderError::Parse)
+    .map_err(ConversationSqliteReaderError::Parse)
 }
 
-fn read_session_timestamp_ms(connection: &Connection, path: &Path) -> Result<i64, CliSqliteReaderError> {
+#[derive(Debug, Error)]
+pub(crate) enum ConversationSqliteReaderError {
+    #[error("antigravity conversation sqlite database could not be opened")]
+    Open(#[source] rusqlite::Error),
+    #[error("antigravity conversation sqlite query failed")]
+    Query(#[source] rusqlite::Error),
+    #[error("antigravity conversation sqlite usage parse failed")]
+    Parse(#[source] ProtobufUsageError),
+}
+
+impl From<ConversationSqliteReaderError> for CliSqliteReaderError {
+    fn from(error: ConversationSqliteReaderError) -> Self {
+        match error {
+            ConversationSqliteReaderError::Open(source) => Self::Open(source),
+            ConversationSqliteReaderError::Query(source) => Self::Query(source),
+            ConversationSqliteReaderError::Parse(source) => Self::Parse(source),
+        }
+    }
+}
+
+fn read_session_timestamp_ms(
+    connection: &Connection,
+    path: &Path,
+) -> Result<i64, ConversationSqliteReaderError> {
     let blob: Option<Vec<u8>> = connection
         .query_row(
             "SELECT data FROM trajectory_metadata_blob LIMIT 1",
@@ -97,16 +128,56 @@ fn read_session_timestamp_ms(connection: &Connection, path: &Path) -> Result<i64
     Ok(file_modified_ms(path).unwrap_or_else(|| Utc::now().timestamp_millis()))
 }
 
-fn read_gen_metadata_rows(connection: &Connection) -> Result<Vec<Vec<u8>>, CliSqliteReaderError> {
+pub(crate) fn read_gen_metadata_rows(
+    connection: &Connection,
+) -> Result<Vec<Vec<u8>>, ConversationSqliteReaderError> {
     let mut statement = connection
         .prepare("SELECT data FROM gen_metadata ORDER BY idx")
-        .map_err(CliSqliteReaderError::Query)?;
+        .map_err(ConversationSqliteReaderError::Query)?;
     let rows = statement
         .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(CliSqliteReaderError::Query)?;
+        .map_err(ConversationSqliteReaderError::Query)?;
 
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(CliSqliteReaderError::Query)
+        .map_err(ConversationSqliteReaderError::Query)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenMetadataSchemaValidation {
+    Valid,
+    Missing,
+    Mismatch,
+}
+
+pub(crate) fn validate_gen_metadata_schema(connection: &Connection) -> GenMetadataSchemaValidation {
+    let has_table = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'gen_metadata' LIMIT 1",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .is_ok();
+    if !has_table {
+        return GenMetadataSchemaValidation::Missing;
+    }
+
+    let Ok(mut statement) = connection.prepare("PRAGMA table_info(gen_metadata)") else {
+        return GenMetadataSchemaValidation::Mismatch;
+    };
+    let Ok(columns) = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+    else {
+        return GenMetadataSchemaValidation::Mismatch;
+    };
+
+    let has_idx = columns.iter().any(|column| column == "idx");
+    let has_data = columns.iter().any(|column| column == "data");
+    if has_idx && has_data {
+        GenMetadataSchemaValidation::Valid
+    } else {
+        GenMetadataSchemaValidation::Mismatch
+    }
 }
 
 fn file_modified_ms(path: &Path) -> Option<i64> {
