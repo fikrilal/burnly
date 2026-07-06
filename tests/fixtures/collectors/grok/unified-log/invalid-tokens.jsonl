@@ -1,0 +1,2 @@
+{"ts":"2026-07-06T10:00:00.000Z","src":"shell","pid":1001,"lvl":"info","sid":"019f0000-0000-7000-8000-000000000001","msg":"shell.turn.inference_done","ctx":{"loop_index":1,"prompt_tokens":-1,"cached_prompt_tokens":0,"completion_tokens":240,"reasoning_tokens":0}}
+{"ts":"2026-07-06T10:00:01.000Z","src":"shell","pid":1001,"lvl":"info","sid":"019f0000-0000-7000-8000-000000000001","msg":"shell.turn.inference_done","ctx":{"loop_index":2,"prompt_tokens":100,"cached_prompt_tokens":200,"completion_tokens":10,"reasoning_tokens":0}}

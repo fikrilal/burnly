@@ -2,7 +2,7 @@
 
 ## Status
 
-Active. Chunk 02 is the next implementation chunk.
+Active. Chunk 03 is the next implementation chunk.
 
 ## Objective
 
@@ -19,8 +19,8 @@ experimental product status.
 ## Execution Order
 
 1. `2026-07-06_grok-collector-01-source-identity-fixtures.md` (completed)
-2. `2026-07-06_grok-collector-02-unified-log-reader-session-index.md` **(next)**
-3. `2026-07-06_grok-collector-03-adapter-mapper.md` (queued)
+2. `2026-07-06_grok-collector-02-unified-log-reader-session-index.md` (completed)
+3. `2026-07-06_grok-collector-03-adapter-mapper.md` **(next)**
 4. `2026-07-06_grok-collector-04-usage-cache.md` (queued)
 5. `2026-07-06_grok-collector-05-runtime-wiring.md` (queued)
 6. `2026-07-06_grok-collector-06-product-docs.md` (queued)
@@ -89,12 +89,12 @@ The Grok collector roadmap is complete when all of the following are true:
 
 ## Progress
 
-| Chunk                                   | Status | Notes         |
-| --------------------------------------- | ------ | ------------- |
+| Chunk                                   | Status    | Notes               |
+| --------------------------------------- | --------- | ------------------- |
 | 01 Source identity and fixtures         | completed | verified 2026-07-06 |
-| 02 Unified log reader and session index | queued    | ready to start |
-| 03 Adapter and mapper                   | queued | blocked on 02 |
-| 04 Usage cache                          | queued | blocked on 03 |
-| 05 Runtime wiring                       | queued | blocked on 04 |
-| 06 Product docs                         | queued | blocked on 05 |
-| 07 Runtime evidence                     | queued | blocked on 06 |
+| 02 Unified log reader and session index | completed | verified 2026-07-06 |
+| 03 Adapter and mapper                   | queued    | ready to start      |
+| 04 Usage cache                          | queued    | blocked on 03       |
+| 05 Runtime wiring                       | queued    | blocked on 04       |
+| 06 Product docs                         | queued    | blocked on 05       |
+| 07 Runtime evidence                     | queued    | blocked on 06       |

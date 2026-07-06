@@ -1,0 +1,1 @@
+{"ts":"2026-07-06T10:00:00.000Z","src":"shell","pid":1001,"lvl":"info","msg":"shell.turn.inference_done","ctx":{"loop_index":1,"prompt_tokens":12000,"cached_prompt_tokens":8000,"completion_tokens":240,"reasoning_tokens":0}}

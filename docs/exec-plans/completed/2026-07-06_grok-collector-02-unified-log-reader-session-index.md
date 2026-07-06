@@ -62,14 +62,14 @@ without adding adapter, cache, or runtime refresh behavior.
 
 ## Checklist
 
-- [ ] Export `grok` module from collectors `mod.rs`.
-- [ ] Implement `UnifiedLogReader` with usage-only decode types.
-- [ ] Implement `SessionIndex` over `sessions/**/summary.json`.
-- [ ] Implement basic `detect` helpers for grok home/unified log presence.
-- [ ] Add reader/index unit tests using chunk 01 fixtures.
-- [ ] Add edge-case fixtures for malformed and overflow cases.
-- [ ] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`.
-- [ ] Run `pnpm rust:fmt` and `pnpm rust:check`.
+- [x] Export `grok` module from collectors `mod.rs`.
+- [x] Implement `UnifiedLogReader` with usage-only decode types.
+- [x] Implement `SessionIndex` over `sessions/**/summary.json`.
+- [x] Implement basic `detect` helpers for grok home/unified log presence.
+- [x] Add reader/index unit tests using chunk 01 fixtures.
+- [x] Add edge-case fixtures for malformed and overflow cases.
+- [x] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`.
+- [x] Run `pnpm rust:fmt` and `pnpm rust:check`.
 
 ## Test Plan
 
@@ -96,11 +96,18 @@ without adding adapter, cache, or runtime refresh behavior.
 - Primary log message: `shell.turn.inference_done`
 - Session discovery file: `summary.json`
 - Optional detection freshness file: `signals.json` counters only
+- Incompatible `summary.json` files are skipped during directory scan rather
+  than failing the whole index read.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: not run yet
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`
+  passed: 12 tests.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml` completed.
+- `pnpm rust:check` passed.
+- `pnpm architecture:check` passed.
+- `pnpm verify:fast` passed. Existing ESLint warnings and duplication report
+  remain non-fatal under the configured gate.
 
 ## Runtime Evidence
 
