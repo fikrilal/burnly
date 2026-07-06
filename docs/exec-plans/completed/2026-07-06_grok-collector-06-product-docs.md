@@ -1,5 +1,9 @@
 # 2026-07-06 Grok Collector 06 Product Docs
 
+## Status
+
+Completed on July 6, 2026.
+
 ## Objective
 
 Document Grok Build support accurately while the source remains experimental,
@@ -47,14 +51,14 @@ including privacy boundaries and per-inference accounting semantics.
 
 ## Checklist
 
-- [ ] Update `docs/product/product.md`.
-- [ ] Update `README.md`.
-- [ ] Document per-inference vs per-turn semantics.
-- [ ] Document unavailable cost behavior.
-- [ ] Document that cached prompt tokens count toward the tray total-activity
+- [x] Update `docs/product/product.md`.
+- [x] Update `README.md`.
+- [x] Document per-inference vs per-turn semantics.
+- [x] Document unavailable cost behavior.
+- [x] Document that cached prompt tokens count toward the tray total-activity
       number, with `cache_read_tokens` as breakdown metadata only.
-- [ ] Document privacy denylist files.
-- [ ] Run `pnpm verify:fast` if docs tooling is part of the gate touched by edits.
+- [x] Document privacy denylist files.
+- [x] Run `pnpm verify:fast` if docs tooling is part of the gate touched by edits.
 
 ## Test Plan
 
@@ -72,8 +76,23 @@ including privacy boundaries and per-inference accounting semantics.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: not run yet
+```text
+pnpm verify:fast
+# All matched files use Prettier code style!
+# ESLint: 0 errors (16 pre-existing warnings)
+# Rust architecture, harness, migration, and collector fixture checks passed.
+# EXIT:0
+```
+
+## Implementation Notes
+
+- Updated `docs/product/product.md` Grok Build source-support row with wired
+  collector behavior, per-inference semantics, cache-read presentation, cost
+  unavailability, and privacy denylist summary.
+- Updated `README.md` supported-sources table and added Grok Build
+  troubleshooting notes under usage refresh.
+- Updated execution-plan cross-links in
+  `docs/planning/_WIP/grok-collector-engineering-proposal.md`.
 
 ## Runtime Evidence
 

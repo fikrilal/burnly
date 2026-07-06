@@ -21,22 +21,22 @@ and gives you a quick answer to: "how much have I burned today?"
 Burnly reads local usage from supported AI coding tools. Support levels are
 explicit because each tool stores usage differently.
 
-| Tool        | Status            | Collection path                        | Notes                                                                                                                                                                      |
-| ----------- | ----------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Code | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                          |
-| Codex       | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                          |
-| OpenCode    | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                          |
-| Pi          | Supported         | Bundled `ccusage` collector            | Local usage only. Model labels keep the `[pi]` prefix from `ccusage`.                                                                                                      |
-| Cline CLI   | Experimental      | Native Burnly collector for `~/.cline` | Reads local session/message usage metrics. Data format may change upstream.                                                                                                |
-| ZCode       | Experimental      | Native Burnly collector                | Reads local SQLite usage data. Data format may change upstream.                                                                                                            |
-| Antigravity | Experimental      | Native Burnly collector                | Three variants: 2.0, IDE, and CLI. CLI reads local SQLite/protobuf metadata. App/IDE use runtime metadata when available, experimental SQLite fallback, then cached usage. |
-| Grok Build  | Experimental      | Native Burnly collector (in progress)  | Reads `~/.grok/logs/unified.jsonl` inference telemetry plus session metadata. Collector wiring is not complete yet.                                                        |
-| Cursor      | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
-| Windsurf    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
-| Aider       | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
-| Roo Code    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
-| Continue    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
-| Gemini CLI  | Not planned       | Deprecated upstream                    | Reconsider only if a maintained successor exposes reliable local usage.                                                                                                    |
+| Tool        | Status            | Collection path                        | Notes                                                                                                                                                                                                                                        |
+| ----------- | ----------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                                                                                            |
+| Codex       | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                                                                                            |
+| OpenCode    | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                                                                                            |
+| Pi          | Supported         | Bundled `ccusage` collector            | Local usage only. Model labels keep the `[pi]` prefix from `ccusage`.                                                                                                                                                                        |
+| Cline CLI   | Experimental      | Native Burnly collector for `~/.cline` | Reads local session/message usage metrics. Data format may change upstream.                                                                                                                                                                  |
+| ZCode       | Experimental      | Native Burnly collector                | Reads local SQLite usage data. Data format may change upstream.                                                                                                                                                                              |
+| Antigravity | Experimental      | Native Burnly collector                | Three variants: 2.0, IDE, and CLI. CLI reads local SQLite/protobuf metadata. App/IDE use runtime metadata when available, experimental SQLite fallback, then cached usage.                                                                   |
+| Grok Build  | Experimental      | Native Burnly collector for `~/.grok`  | Reads `shell.turn.inference_done` rows from `unified.jsonl` plus session metadata. Totals are per inference call, not per user turn. Cached prompt tokens count toward tray totals. Cost unavailable in v1. Data format may change upstream. |
+| Cursor      | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                                                                                        |
+| Windsurf    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                                                                                        |
+| Aider       | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                                                                                        |
+| Roo Code    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                                                                                        |
+| Continue    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                                                                                        |
+| Gemini CLI  | Not planned       | Deprecated upstream                    | Reconsider only if a maintained successor exposes reliable local usage.                                                                                                                                                                      |
 
 Burnly does not read prompts, responses, source code, or file contents.
 
@@ -213,6 +213,17 @@ For Antigravity, refresh behavior depends on the variant:
 
 Burnly never reads prompts, responses, source files, or network traffic from
 Antigravity.
+
+For Grok Build, refresh reads local inference telemetry from
+`~/.grok/logs/unified.jsonl` (or `GROK_HOME` when set) and joins session
+metadata from `~/.grok/sessions/**/summary.json`. A running `grok` process is
+not required after inference rows are written to the unified log. If the log is
+temporarily unreadable or truncated, Burnly may recover usage from a durable
+normalized cache instead of clearing stored totals.
+
+Burnly never reads Grok chat transcripts (`chat_history.jsonl`,
+`updates.jsonl`), prompt history, terminal logs, `auth.json`, or other
+conversation-bearing files.
 
 ### The `burnly` command is not found
 

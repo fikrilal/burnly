@@ -20,7 +20,7 @@ use super::super::support::{
     validation_failure_as_internal, CollectorDiagnosticCounter, CollectorIdentity,
     LocalCollectionRun,
 };
-use super::grok_home::{default_grok_home, unified_log_path};
+use super::grok_home::unified_log_path;
 use super::mapper::{self, GrokMappingContext};
 use super::model_resolver::GrokModelResolver;
 use super::session_index::GrokSessionIndex;
@@ -55,10 +55,6 @@ impl GrokCollector {
             usage_cache: GrokUsageCacheClient::new(Arc::new(NoOpGrokUsageCache)),
             diagnostics: None,
         }
-    }
-
-    pub(crate) fn default_grok_home() -> Self {
-        Self::from_grok_home(default_grok_home())
     }
 
     pub(crate) fn with_usage_cache(mut self, usage_cache: GrokUsageCacheClient) -> Self {

@@ -125,6 +125,11 @@ pub(super) fn composed_refresh_collector(data_root: &Path) -> Arc<dyn Collector>
         Arc::new(AntigravityCollector::empty_from_data_root(
             data_root.join("empty-antigravity"),
         )),
+        Arc::new(
+            crate::infrastructure::collectors::grok::GrokCollector::from_grok_home(
+                data_root.join("missing-grok-home"),
+            ),
+        ),
     ))
 }
 

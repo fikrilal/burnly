@@ -49,7 +49,7 @@ impl RefreshTarget {
 }
 
 /// All supported source/projection pairs refreshed by the coordinator.
-pub(super) const fn refresh_targets() -> [RefreshTarget; 14] {
+pub(super) const fn refresh_targets() -> [RefreshTarget; 16] {
     [
         RefreshTarget {
             source: SourceKey::ClaudeCode,
@@ -107,6 +107,14 @@ pub(super) const fn refresh_targets() -> [RefreshTarget; 14] {
             source: SourceKey::Antigravity,
             projection: CollectionProjection::Session,
         },
+        RefreshTarget {
+            source: SourceKey::GrokBuild,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::GrokBuild,
+            projection: CollectionProjection::Session,
+        },
     ]
 }
 
@@ -150,20 +158,20 @@ mod tests {
     fn target_catalog_contains_each_supported_source_projection_pair() {
         let targets = refresh_targets();
 
-        assert_eq!(targets.len(), 14);
+        assert_eq!(targets.len(), 16);
         assert_eq!(
             targets
                 .iter()
                 .filter(|target| target.projection == CollectionProjection::Daily)
                 .count(),
-            7
+            8
         );
         assert_eq!(
             targets
                 .iter()
                 .filter(|target| target.projection == CollectionProjection::Session)
                 .count(),
-            7
+            8
         );
 
         for source in [
@@ -174,16 +182,13 @@ mod tests {
             SourceKey::Cline,
             SourceKey::ZCode,
             SourceKey::Antigravity,
+            SourceKey::GrokBuild,
         ] {
             assert!(targets.iter().any(|target| target.source == source
                 && target.projection == CollectionProjection::Daily));
             assert!(targets.iter().any(|target| target.source == source
                 && target.projection == CollectionProjection::Session));
         }
-
-        assert!(!targets
-            .iter()
-            .any(|target| target.source == SourceKey::GrokBuild));
     }
 
     #[test]

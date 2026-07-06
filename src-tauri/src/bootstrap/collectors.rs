@@ -5,10 +5,13 @@ use crate::application::ports::collector::Collector;
 use crate::infrastructure::collectors::antigravity::AntigravityCollector;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
+use crate::infrastructure::collectors::grok::{
+    default_grok_home, GrokCollector, GrokUsageCacheClient,
+};
 use crate::infrastructure::collectors::routed::RoutedCollector;
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
 use crate::infrastructure::database::{
-    Database, SqliteAntigravityUsageCacheStore, SqliteDiagnosticStore,
+    Database, SqliteAntigravityUsageCacheStore, SqliteDiagnosticStore, SqliteGrokUsageCacheStore,
 };
 
 use super::{resources, StartupError};
@@ -36,6 +39,14 @@ pub(super) fn build_collector_graph(
         ZCodeCollector::from_data_dir(resources::default_zcode_data_dir())
             .with_diagnostic_recorder(diagnostic_recorder.clone()),
     );
+    let grok_usage_cache_database =
+        Database::open(database_path).map_err(StartupError::Persistence)?;
+    let grok_usage_cache = Arc::new(SqliteGrokUsageCacheStore::new(grok_usage_cache_database));
+    let grok_collector = Arc::new(
+        GrokCollector::from_grok_home(default_grok_home())
+            .with_usage_cache(GrokUsageCacheClient::new(grok_usage_cache))
+            .with_diagnostic_recorder(diagnostic_recorder.clone()),
+    );
     let usage_cache_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(usage_cache_database));
     let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(
@@ -48,5 +59,6 @@ pub(super) fn build_collector_graph(
         cline_collector,
         zcode_collector,
         antigravity_collector,
+        grok_collector,
     )))
 }

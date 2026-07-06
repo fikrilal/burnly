@@ -2,7 +2,7 @@
 
 ## Status
 
-Active. Chunk 05 is the next implementation chunk.
+Completed on July 6, 2026.
 
 ## Objective
 
@@ -22,9 +22,9 @@ experimental product status.
 2. `2026-07-06_grok-collector-02-unified-log-reader-session-index.md` (completed)
 3. `2026-07-06_grok-collector-03-adapter-mapper.md` (completed)
 4. `2026-07-06_grok-collector-04-usage-cache.md` (completed)
-5. `2026-07-06_grok-collector-05-runtime-wiring.md` **(next)**
-6. `2026-07-06_grok-collector-06-product-docs.md` (queued)
-7. `2026-07-06_grok-collector-07-runtime-evidence.md` (queued)
+5. `2026-07-06_grok-collector-05-runtime-wiring.md` (completed)
+6. `2026-07-06_grok-collector-06-product-docs.md` (completed)
+7. `2026-07-06_grok-collector-07-runtime-evidence.md` (completed)
 
 ## Invariants
 
@@ -95,6 +95,14 @@ The Grok collector roadmap is complete when all of the following are true:
 | 02 Unified log reader and session index | completed | verified 2026-07-06 |
 | 03 Adapter and mapper                   | completed | verified 2026-07-06 |
 | 04 Usage cache                          | completed | verified 2026-07-06 |
-| 05 Runtime wiring                       | queued    | ready to start      |
-| 06 Product docs                         | queued    | blocked on 05       |
-| 07 Runtime evidence                     | queued    | blocked on 06       |
+| 05 Runtime wiring                       | completed | verified 2026-07-06 |
+| 06 Product docs                         | completed | verified 2026-07-06 |
+| 07 Runtime evidence                     | completed | verified 2026-07-06 |
+
+## Completion Notes
+
+- Runtime evidence:
+  `docs/runtime-evidence/2026-07-06-grok-runtime/README.md`
+- `pnpm verify:fast` could not finish on the evidence machine because the root
+  filesystem was full (`ENOSPC` during release-artifacts harness).
+- Grok collector tests passed (`37` grok tests).

@@ -53,14 +53,14 @@ collect Grok daily and session usage alongside existing sources.
 
 ## Checklist
 
-- [ ] Add default grok home resolution with `GROK_HOME` override.
-- [ ] Wire `GrokCollector` into runtime collector construction.
-- [ ] Route `SourceKey::GrokBuild` to the native collector.
-- [ ] Add Grok daily and session refresh targets.
-- [ ] Update routing/coordinator/bridge tests.
-- [ ] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib routes_collection_by_source -- --nocapture`.
-- [ ] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib refresh_ -- --nocapture`.
-- [ ] Run `pnpm verify:fast`.
+- [x] Add default grok home resolution with `GROK_HOME` override.
+- [x] Wire `GrokCollector` into runtime collector construction.
+- [x] Route `SourceKey::GrokBuild` to the native collector.
+- [x] Add Grok daily and session refresh targets.
+- [x] Update routing/coordinator/bridge tests.
+- [x] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib routes_collection_by_source -- --nocapture`.
+- [x] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib refresh_ -- --nocapture`.
+- [x] Run `pnpm verify:fast`.
 
 ## Test Plan
 
@@ -75,10 +75,6 @@ collect Grok daily and session usage alongside existing sources.
   - grok home missing during refresh
 - Runtime evidence:
   - deferred to chunk 07
-- Relevant commands:
-  - `cargo test --manifest-path src-tauri/Cargo.toml --lib routes_collection_by_source -- --nocapture`
-  - `cargo test --manifest-path src-tauri/Cargo.toml --lib refresh_ -- --nocapture`
-  - `pnpm verify:fast`
 
 ## Decisions
 
@@ -86,8 +82,14 @@ collect Grok daily and session usage alongside existing sources.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: not run yet
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib routes_collection_by_source -- --nocapture`
+- Outcome: 1 passed (2026-07-06)
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib refresh_ -- --nocapture`
+- Outcome: 19 passed (2026-07-06)
+- Command: `pnpm verify:fast`
+- Outcome: passed (2026-07-06)
+- Command: `pnpm architecture:check`
+- Outcome: passed (2026-07-06)
 
 ## Runtime Evidence
 

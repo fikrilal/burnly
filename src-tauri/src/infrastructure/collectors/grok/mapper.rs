@@ -19,9 +19,9 @@ use crate::{
 use super::super::support::{
     checked_add_u64, date_in_scope, local_date_from_millis, provenance, MappingIdentity,
 };
+use super::model_resolver::GrokModelResolver;
 use super::session_index::GrokSessionSummary;
 use super::unified_log_reader::GrokInferenceUsage;
-use super::GrokModelResolver;
 
 const PROFILE_VERSION: u16 = 1;
 

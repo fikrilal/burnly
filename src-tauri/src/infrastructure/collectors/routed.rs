@@ -13,6 +13,7 @@ pub(crate) struct RoutedCollector {
     cline: Arc<dyn Collector>,
     zcode: Arc<dyn Collector>,
     antigravity: Arc<dyn Collector>,
+    grok: Arc<dyn Collector>,
 }
 
 impl RoutedCollector {
@@ -21,12 +22,14 @@ impl RoutedCollector {
         cline: Arc<dyn Collector>,
         zcode: Arc<dyn Collector>,
         antigravity: Arc<dyn Collector>,
+        grok: Arc<dyn Collector>,
     ) -> Self {
         Self {
             ccusage,
             cline,
             zcode,
             antigravity,
+            grok,
         }
     }
 
@@ -38,11 +41,7 @@ impl RoutedCollector {
             SourceKey::Cline => Ok(&self.cline),
             SourceKey::ZCode => Ok(&self.zcode),
             SourceKey::Antigravity => Ok(&self.antigravity),
-            SourceKey::GrokBuild => Err(CollectorFailure::new(
-                crate::application::collection::CollectorFailureCode::UnsupportedSource,
-                Some(source),
-                None,
-            )),
+            SourceKey::GrokBuild => Ok(&self.grok),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -61,6 +60,7 @@ impl Collector for RoutedCollector {
         descriptor
             .profiles
             .extend(self.antigravity.describe()?.profiles);
+        descriptor.profiles.extend(self.grok.describe()?.profiles);
         Ok(descriptor)
     }
 
@@ -103,11 +103,13 @@ mod tests {
         let cline = Arc::new(RecordingCollector::new("cline"));
         let zcode = Arc::new(RecordingCollector::new("zcode"));
         let antigravity = Arc::new(RecordingCollector::new("antigravity"));
+        let grok = Arc::new(RecordingCollector::new("grok-build"));
         let collector = RoutedCollector::new(
             ccusage.clone(),
             cline.clone(),
             zcode.clone(),
             antigravity.clone(),
+            grok.clone(),
         );
 
         collector
@@ -131,6 +133,9 @@ mod tests {
         collector
             .collect(request(SourceKey::Antigravity), &NeverCancelled)
             .expect("antigravity collection");
+        collector
+            .collect(request(SourceKey::GrokBuild), &NeverCancelled)
+            .expect("grok-build collection");
 
         assert_eq!(
             ccusage.sources(),
@@ -144,23 +149,7 @@ mod tests {
         assert_eq!(cline.sources(), vec![SourceKey::Cline]);
         assert_eq!(zcode.sources(), vec![SourceKey::ZCode]);
         assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
-    }
-
-    #[test]
-    fn grok_build_fails_closed_until_native_collector_is_wired() {
-        let collector = RoutedCollector::new(
-            Arc::new(RecordingCollector::new("ccusage")),
-            Arc::new(RecordingCollector::new("cline")),
-            Arc::new(RecordingCollector::new("zcode")),
-            Arc::new(RecordingCollector::new("antigravity")),
-        );
-
-        let failure = collector
-            .collect(request(SourceKey::GrokBuild), &NeverCancelled)
-            .expect_err("grok-build should fail closed");
-
-        assert_eq!(failure.code, CollectorFailureCode::UnsupportedSource);
-        assert_eq!(failure.source_key, Some(SourceKey::GrokBuild));
+        assert_eq!(grok.sources(), vec![SourceKey::GrokBuild]);
     }
 
     #[test]
@@ -170,6 +159,7 @@ mod tests {
             Arc::new(RecordingCollector::new("cline")),
             Arc::new(RecordingCollector::new("zcode")),
             Arc::new(RecordingCollector::new("antigravity")),
+            Arc::new(RecordingCollector::new("grok-build")),
         );
 
         let descriptor = collector.describe().expect("descriptor");
@@ -188,7 +178,8 @@ mod tests {
                 SourceKey::Pi,
                 SourceKey::Cline,
                 SourceKey::ZCode,
-                SourceKey::Antigravity
+                SourceKey::Antigravity,
+                SourceKey::GrokBuild,
             ]
         );
     }
@@ -291,6 +282,7 @@ mod tests {
             "cline" => vec![profile(SourceKey::Cline)],
             "zcode" => vec![profile(SourceKey::ZCode)],
             "antigravity" => vec![profile(SourceKey::Antigravity)],
+            "grok-build" => vec![profile(SourceKey::GrokBuild)],
             _ => Vec::new(),
         }
     }

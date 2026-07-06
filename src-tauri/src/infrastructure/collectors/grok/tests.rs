@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use chrono::{TimeZone, Utc};
 use tempfile::TempDir;
 
-use super::{GrokSessionIndex, GrokSessionSummary, UnifiedLogReader};
+use super::session_index::{GrokSessionIndex, GrokSessionSummary};
+use super::unified_log_reader::UnifiedLogReader;
 
 fn fixture_path(relative: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

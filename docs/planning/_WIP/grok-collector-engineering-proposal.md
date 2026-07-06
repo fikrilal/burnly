@@ -11,10 +11,12 @@ It is not an execution plan and does not approve implementation by itself.
 Execution plans:
 
 - Roadmap: `docs/exec-plans/active/2026-07-06_grok-collector-00-roadmap.md`
-- Active chunk:
-  `docs/exec-plans/active/2026-07-06_grok-collector-01-source-identity-fixtures.md`
-- Queued chunks: `docs/exec-plans/queued/2026-07-06_grok-collector-02-*.md`
+- Completed roadmap:
+  `docs/exec-plans/completed/2026-07-06_grok-collector-00-roadmap.md`
+- Completed chunks: `docs/exec-plans/completed/2026-07-06_grok-collector-01-*.md`
   through `07-runtime-evidence.md`
+- Runtime evidence:
+  `docs/runtime-evidence/2026-07-06-grok-runtime/README.md`
 
 ## Context
 
@@ -46,7 +48,9 @@ does not document `unified.jsonl` as a supported usage-export API. Burnly must
 treat Grok local formats as reverse-engineered, version-sensitive artifacts,
 similar to Antigravity's experimental collectors.
 
-Burnly currently has no Grok source or collector implementation.
+Burnly ships a native Grok Build collector behind the existing collector port.
+Product docs describe it as experimental until runtime evidence confirms
+stability across upstream Grok CLI updates.
 
 ## Recommendation
 
