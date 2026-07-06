@@ -36,16 +36,19 @@ const PROFILE_VERSION: u16 = 1;
 pub(crate) struct AntigravityCollector {
     conversation_index: ConversationIndex,
     runtime_discovery: RuntimeDiscoverySource,
+    endpoint_validation: EndpointValidationSource,
     runtime_usage: RuntimeUsageSource,
     diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
 }
 
 impl AntigravityCollector {
     pub(crate) fn new() -> Self {
+        let runtime_client = RuntimeClient::new();
         Self {
             conversation_index: ConversationIndex::default(),
             runtime_discovery: RuntimeDiscoverySource::Current,
-            runtime_usage: RuntimeUsageSource::Current(RuntimeClient::new()),
+            endpoint_validation: EndpointValidationSource::Current(runtime_client.clone()),
+            runtime_usage: RuntimeUsageSource::Current(runtime_client),
             diagnostics: None,
         }
     }
@@ -71,6 +74,7 @@ impl AntigravityCollector {
                 vec!["agy".to_owned()],
                 vec![LocalListener::ipv4(34415)],
             )]),
+            EndpointValidationSource::Passthrough,
             RuntimeUsageSource::Fixed(Vec::new()),
         )
     }
@@ -79,11 +83,13 @@ impl AntigravityCollector {
     fn from_parts(
         conversation_index: ConversationIndex,
         runtime_discovery: RuntimeDiscovery,
+        endpoint_validation: EndpointValidationSource,
         runtime_usage: RuntimeUsageSource,
     ) -> Self {
         Self {
             conversation_index,
             runtime_discovery: RuntimeDiscoverySource::Fixed(runtime_discovery),
+            endpoint_validation,
             runtime_usage,
             diagnostics: None,
         }
@@ -92,6 +98,12 @@ impl AntigravityCollector {
     #[cfg(test)]
     fn with_test_diagnostics(mut self, diagnostics: Arc<dyn DiagnosticRecorder>) -> Self {
         self.diagnostics = Some(diagnostics);
+        self
+    }
+
+    #[cfg(test)]
+    fn with_endpoint_validation(mut self, endpoint_validation: EndpointValidationSource) -> Self {
+        self.endpoint_validation = endpoint_validation;
         self
     }
 }
@@ -110,6 +122,63 @@ impl RuntimeDiscoverySource {
             #[cfg(test)]
             Self::Fixed(discovery) => discovery.discover_report(),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum EndpointValidationSource {
+    Current(RuntimeClient),
+    #[cfg(test)]
+    Passthrough,
+    #[cfg(test)]
+    RejectAll,
+}
+
+impl EndpointValidationSource {
+    fn validate(&self, candidates: &[RuntimeEndpoint]) -> EndpointValidationReport {
+        match self {
+            Self::Current(client) => validate_runtime_endpoints(client, candidates),
+            #[cfg(test)]
+            Self::Passthrough => EndpointValidationReport {
+                endpoints: candidates.to_vec(),
+                identity_probes_attempted: candidates.len().try_into().unwrap_or(u32::MAX),
+                identity_probes_succeeded: candidates.len().try_into().unwrap_or(u32::MAX),
+            },
+            #[cfg(test)]
+            Self::RejectAll => EndpointValidationReport {
+                endpoints: Vec::new(),
+                identity_probes_attempted: candidates.len().try_into().unwrap_or(u32::MAX),
+                identity_probes_succeeded: 0,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct EndpointValidationReport {
+    endpoints: Vec<RuntimeEndpoint>,
+    identity_probes_attempted: u32,
+    identity_probes_succeeded: u32,
+}
+
+fn validate_runtime_endpoints(
+    client: &RuntimeClient,
+    candidates: &[RuntimeEndpoint],
+) -> EndpointValidationReport {
+    let mut endpoints = Vec::new();
+    let mut identity_probes_attempted = 0_u32;
+    let mut identity_probes_succeeded = 0_u32;
+    for candidate in candidates {
+        identity_probes_attempted = identity_probes_attempted.saturating_add(1);
+        if client.probe_identity(candidate).is_ok() {
+            identity_probes_succeeded = identity_probes_succeeded.saturating_add(1);
+            endpoints.push(candidate.clone());
+        }
+    }
+    EndpointValidationReport {
+        endpoints,
+        identity_probes_attempted,
+        identity_probes_succeeded,
     }
 }
 
@@ -149,6 +218,8 @@ struct AntigravityRuntimeCollectionFailure {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AntigravityRuntimeCollectionFailureReason {
+    RuntimeNotFound,
+    RuntimeIdentityProbeFailed,
     NoMatchingRuntimeEndpoint,
     RuntimeStreamUnavailable,
 }
@@ -156,6 +227,8 @@ enum AntigravityRuntimeCollectionFailureReason {
 impl AntigravityRuntimeCollectionFailureReason {
     const fn diagnostic_code(self) -> &'static str {
         match self {
+            Self::RuntimeNotFound => "antigravity.runtime_not_found",
+            Self::RuntimeIdentityProbeFailed => "antigravity.runtime_identity_probe_failed",
             Self::NoMatchingRuntimeEndpoint => "antigravity.runtime_endpoint_mismatch",
             Self::RuntimeStreamUnavailable => "antigravity.runtime_stream_unavailable",
         }
@@ -163,6 +236,10 @@ impl AntigravityRuntimeCollectionFailureReason {
 
     const fn summary(self) -> &'static str {
         match self {
+            Self::RuntimeNotFound => "Antigravity local runtime endpoint was not found.",
+            Self::RuntimeIdentityProbeFailed => {
+                "Antigravity process listeners were found, but no language-server endpoint passed identity validation."
+            }
             Self::NoMatchingRuntimeEndpoint => {
                 "Antigravity conversation artifacts were found, but no matching runtime endpoint was available."
             }
@@ -174,6 +251,8 @@ impl AntigravityRuntimeCollectionFailureReason {
 
     const fn failure_reason(self) -> &'static str {
         match self {
+            Self::RuntimeNotFound => "runtime_not_found",
+            Self::RuntimeIdentityProbeFailed => "runtime_identity_probe_failed",
             Self::NoMatchingRuntimeEndpoint => "no_matching_runtime_endpoint",
             Self::RuntimeStreamUnavailable => "runtime_stream_unavailable",
         }
@@ -181,9 +260,10 @@ impl AntigravityRuntimeCollectionFailureReason {
 
     const fn collector_failure_code(self) -> CollectorFailureCode {
         match self {
-            Self::NoMatchingRuntimeEndpoint | Self::RuntimeStreamUnavailable => {
-                CollectorFailureCode::SourceNotFound
-            }
+            Self::RuntimeNotFound
+            | Self::RuntimeIdentityProbeFailed
+            | Self::NoMatchingRuntimeEndpoint
+            | Self::RuntimeStreamUnavailable => CollectorFailureCode::SourceNotFound,
         }
     }
 }
@@ -225,7 +305,10 @@ impl Collector for AntigravityCollector {
         }
 
         let discovery = self.runtime_discovery.discover();
-        let endpoints = discovery.endpoints;
+        let validation = self
+            .endpoint_validation
+            .validate(&discovery.endpoints);
+        let endpoints = validation.endpoints;
         let conversations = self
             .conversation_index
             .list(
@@ -249,8 +332,16 @@ impl Collector for AntigravityCollector {
         };
         let issues = if endpoints.is_empty() {
             vec![issue(
-                "antigravity.runtime_unavailable",
-                "Antigravity local runtime endpoint was not found.",
+                if discovery.endpoints.is_empty() {
+                    "antigravity.runtime_not_found"
+                } else {
+                    "antigravity.runtime_identity_probe_failed"
+                },
+                if discovery.endpoints.is_empty() {
+                    "Antigravity local runtime endpoint was not found."
+                } else {
+                    "Antigravity process listeners were found, but no language-server endpoint passed identity validation."
+                },
             )]
         } else {
             Vec::new()
@@ -280,25 +371,37 @@ impl Collector for AntigravityCollector {
         }
 
         let discovery = self.runtime_discovery.discover();
+        let validation = self
+            .endpoint_validation
+            .validate(&discovery.endpoints);
         let mut diagnostics = AntigravityDiagnosticCounters {
             process_candidates_found: discovery.process_candidates_found,
             endpoints_found: discovery.endpoints.len(),
+            endpoints_accepted: validation.endpoints.len(),
+            identity_probes_attempted: validation.identity_probes_attempted,
+            identity_probes_succeeded: validation.identity_probes_succeeded,
             ..AntigravityDiagnosticCounters::default()
         };
-        let endpoints = discovery.endpoints;
+        let endpoints = validation.endpoints;
         if endpoints.is_empty() {
+            let reason = if discovery.endpoints.is_empty() {
+                AntigravityRuntimeCollectionFailureReason::RuntimeNotFound
+            } else {
+                AntigravityRuntimeCollectionFailureReason::RuntimeIdentityProbeFailed
+            };
+            let failure_code = reason.collector_failure_code();
             self.record_diagnostic(
                 &request,
                 AntigravityDiagnosticInput {
                     severity: DiagnosticSeverity::Warning,
-                    code: "antigravity.runtime_unavailable",
-                    summary: "Antigravity local runtime endpoint was not found.",
+                    code: reason.diagnostic_code(),
+                    summary: reason.summary(),
                     counters: &diagnostics,
-                    failure_code: Some(CollectorFailureCode::SourceNotFound.code()),
-                    failure_reason: Some("runtime_endpoint_missing"),
+                    failure_code: Some(failure_code.code()),
+                    failure_reason: Some(reason.failure_reason()),
                 },
             );
-            return Err(failure(&request, CollectorFailureCode::SourceNotFound));
+            return Err(failure(&request, failure_code));
         }
         let conversations = self
             .conversation_index
@@ -321,6 +424,7 @@ impl Collector for AntigravityCollector {
                 failure(&request, CollectorFailureCode::ScopeNotRepresentable)
             })?;
         let conversations = bounded_conversations(conversations);
+        diagnostics.sqlite_dbs_scanned = conversations.len();
         diagnostics.conversations_found = conversations.len();
         if conversations.is_empty() {
             self.record_diagnostic(
@@ -427,6 +531,12 @@ impl AntigravityCollector {
                 "failureReason": input.failure_reason,
                 "processCandidatesFound": input.counters.process_candidates_found,
                 "endpointsFound": input.counters.endpoints_found,
+                "endpointsAccepted": input.counters.endpoints_accepted,
+                "identityProbesAttempted": input.counters.identity_probes_attempted,
+                "identityProbesSucceeded": input.counters.identity_probes_succeeded,
+                "sqliteDbsScanned": input.counters.sqlite_dbs_scanned,
+                "metadataCallsAttempted": input.counters.metadata_calls_attempted,
+                "metadataCallsSucceeded": input.counters.metadata_calls_succeeded,
                 "conversationArtifactsFound": input.counters.conversations_found,
                 "streamCallsAttempted": input.counters.stream_calls_attempted,
                 "streamsSucceeded": input.counters.streams_succeeded,
@@ -560,6 +670,12 @@ impl RuntimeUsageReport {
 struct AntigravityDiagnosticCounters {
     process_candidates_found: usize,
     endpoints_found: usize,
+    endpoints_accepted: usize,
+    identity_probes_attempted: u32,
+    identity_probes_succeeded: u32,
+    sqlite_dbs_scanned: usize,
+    metadata_calls_attempted: u32,
+    metadata_calls_succeeded: u32,
     conversations_found: usize,
     stream_calls_attempted: u32,
     streams_succeeded: u32,
@@ -800,7 +916,7 @@ mod tests {
         assert_eq!(result.state, DetectionState::NotFound);
         assert_eq!(result.supported_projections, supported_projections());
         assert!(!result.usage_artifacts_found);
-        assert_eq!(result.issues[0].code, "antigravity.runtime_unavailable");
+        assert_eq!(result.issues[0].code, "antigravity.runtime_not_found");
     }
 
     #[test]
@@ -859,7 +975,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].area, DiagnosticArea::Collector);
         assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
-        assert_eq!(events[0].code.as_str(), "antigravity.runtime_unavailable");
+        assert_eq!(events[0].code.as_str(), "antigravity.runtime_not_found");
         let context = events[0]
             .context
             .as_ref()
@@ -867,8 +983,9 @@ mod tests {
             .as_str()
             .to_owned();
         assert!(context.contains(r#""endpointsFound":0"#));
+        assert!(context.contains(r#""endpointsAccepted":0"#));
         assert!(context.contains(r#""failureCode":"source.not_found""#));
-        assert!(context.contains(r#""failureReason":"runtime_endpoint_missing""#));
+        assert!(context.contains(r#""failureReason":"runtime_not_found""#));
         assert!(context.contains(r#""projection":"daily""#));
     }
 
@@ -966,6 +1083,8 @@ mod tests {
         assert_eq!(events[0].code.as_str(), "antigravity.collection_completed");
         let context = events[0].context.as_ref().expect("context").as_str();
         assert!(context.contains(r#""processCandidatesFound":1"#));
+        assert!(context.contains(r#""endpointsAccepted":1"#));
+        assert!(context.contains(r#""sqliteDbsScanned":2"#));
         assert!(context.contains(r#""conversationArtifactsFound":2"#));
         assert!(context.contains(r#""recordsExtracted":2"#));
         assert!(context.contains(r#""recordsRejected":0"#));
@@ -989,11 +1108,89 @@ mod tests {
             .any(|candidate| candidate.source_session_id == "antigravity:app-conversation"));
     }
 
+    #[test]
+    fn records_diagnostic_when_identity_probe_rejects_all_endpoints() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = collector_with_discovery(RuntimeDiscovery::from_processes(vec![
+            ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            ),
+        ]))
+        .with_endpoint_validation(EndpointValidationSource::RejectAll)
+        .with_test_diagnostics(diagnostics.clone());
+
+        let error = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect_err("identity probe failed");
+
+        assert_eq!(error.code, CollectorFailureCode::SourceNotFound);
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].code.as_str(),
+            "antigravity.runtime_identity_probe_failed"
+        );
+        let context = events[0].context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""endpointsFound":1"#));
+        assert!(context.contains(r#""endpointsAccepted":0"#));
+        assert!(context.contains(r#""identityProbesAttempted":1"#));
+        assert!(context.contains(r#""identityProbesSucceeded":0"#));
+        assert!(context.contains(r#""failureReason":"runtime_identity_probe_failed""#));
+    }
+
+    #[test]
+    fn accepts_multiple_ide_endpoints_after_validation() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = collector_with_discovery(RuntimeDiscovery::from_processes(vec![
+            ProcessSnapshot::new(
+                11,
+                Some(PathBuf::from(
+                    "/opt/antigravity-ide/Antigravity-IDE/resources/app/extensions/antigravity/bin/language_server_linux_x64",
+                )),
+                vec![
+                    "language_server_linux_x64".to_owned(),
+                    "--app_data_dir".to_owned(),
+                    "antigravity-ide".to_owned(),
+                    "--csrf_token".to_owned(),
+                    "token-main".to_owned(),
+                ],
+                vec![LocalListener::ipv4(35625)],
+            ),
+            ProcessSnapshot::new(
+                12,
+                Some(PathBuf::from(
+                    "/opt/antigravity-ide/Antigravity-IDE/resources/app/extensions/antigravity/bin/language_server_linux_x64",
+                )),
+                vec![
+                    "language_server_linux_x64".to_owned(),
+                    "--enable_lsp".to_owned(),
+                    "--app_data_dir".to_owned(),
+                    "antigravity-ide".to_owned(),
+                    "--csrf_token".to_owned(),
+                    "token-workspace".to_owned(),
+                ],
+                vec![LocalListener::ipv4(41647)],
+            ),
+        ]))
+        .with_test_diagnostics(diagnostics.clone());
+
+        let result = collector
+            .detect(detection_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("detection");
+
+        assert_eq!(result.state, DetectionState::Available);
+        assert!(result.issues.is_empty());
+    }
+
     fn collector_with_discovery(runtime_discovery: RuntimeDiscovery) -> AntigravityCollector {
         let data_root = TempDir::new().expect("tempdir");
         AntigravityCollector::from_parts(
             ConversationIndex::from_data_root(data_root.path()),
             runtime_discovery,
+            EndpointValidationSource::Passthrough,
             RuntimeUsageSource::Fixed(Vec::new()),
         )
     }
@@ -1018,6 +1215,7 @@ mod tests {
                 vec!["agy".to_owned()],
                 vec![LocalListener::ipv4(34415)],
             )]),
+            EndpointValidationSource::Passthrough,
             RuntimeUsageSource::Fixed(fixed_usage()),
         );
         (data_root, collector)
@@ -1033,6 +1231,7 @@ mod tests {
         let collector = AntigravityCollector::from_parts(
             ConversationIndex::from_data_root(data_root.path()),
             RuntimeDiscovery::from_processes(vec![process_for_variant(runtime_variant)]),
+            EndpointValidationSource::Passthrough,
             runtime_usage,
         );
         (data_root, collector)

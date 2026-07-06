@@ -2,11 +2,17 @@
 
 ## Status
 
-Engineering proposal.
+Engineering proposal, revised after production diagnostics and Tokscale code
+inspection on July 6, 2026.
 
 This proposal covers native Burnly support for Google Antigravity local runtime
 usage data across Antigravity product variants. It is not an execution plan and
 does not approve implementation by itself.
+
+The July 6 revision supersedes the earlier "stream first" recommendation. The
+current Burnly collector already proved that `StreamAgentStateUpdates` is too
+fragile as the primary data path because Antigravity can unload or rotate local
+trajectories while local SQLite artifacts still exist.
 
 ## Context
 
@@ -89,10 +95,49 @@ Useful observed methods:
 ```text
 RetrieveUserQuotaSummary
 StreamAgentStateUpdates
+GetAllCascadeTrajectories
+GetCascadeTrajectoryGeneratorMetadata
 ```
 
 `StreamAgentStateUpdates` returns decoded usage metadata for recent
 conversations, including provider-reported token counters.
+
+Production diagnostics from Burnly `0.1.15` and `0.1.16` showed a recurring
+failure pattern:
+
+```text
+code: antigravity.runtime_stream_unavailable
+failureCode: source.not_found
+conversationArtifactsFound: 1-2
+endpointsFound: 8-11
+streamCallsAttempted: 3
+streamsSucceeded: 0
+recordsExtracted: 0
+```
+
+That means Burnly was able to discover Antigravity processes, local endpoints,
+and local conversation artifacts, but the live runtime no longer had the
+requested trajectory loaded. The refresh then became partial even though other
+sources succeeded and older Antigravity usage may still have been present in
+local storage.
+
+External reference inspection:
+
+- Tokscale: <https://github.com/junhoyeo/tokscale>
+- App/IDE sync implementation:
+  `crates/tokscale-cli/src/antigravity.rs`
+- Cached App/IDE parser:
+  `crates/tokscale-core/src/sessions/antigravity.rs`
+- Antigravity CLI SQLite/protobuf parser:
+  `crates/tokscale-core/src/sessions/antigravity_cli.rs`
+
+Tokscale confirms two important design points:
+
+1. Antigravity App/IDE usage can be synchronized from the running local
+   language server, then cached as normalized usage-only JSONL.
+2. Antigravity CLI can be read directly from local SQLite conversation DBs by
+   decoding protobuf metadata, without requiring the `agy` process to still be
+   running.
 
 ## Recommendation
 
@@ -108,10 +153,17 @@ release_stage: experimental
 metric_quality: source_reported_tokens_runtime_rpc
 ```
 
-The first implementation should use the running Antigravity local RPC service
-when available. It should discover recent conversation IDs from the matching
-variant data root, call `StreamAgentStateUpdates`, and extract only usage
-metadata.
+The collector should move away from `StreamAgentStateUpdates` as the primary
+source. The recommended target architecture is:
+
+1. Prefer direct SQLite/protobuf parsing where the usage metadata shape is known
+   and can be tested safely.
+2. Use runtime metadata RPC as a best-effort sync path for App/IDE sessions that
+   are still available in the running language server.
+3. Persist normalized usage-only Antigravity records in Burnly storage so later
+   refreshes can reuse last-known usage when the runtime is unavailable.
+4. Treat live runtime failures as recoverable when direct SQLite or cached usage
+   can still produce a consistent result.
 
 Treat Antigravity 2.0 and Antigravity IDE as variants under one collector
 family:
@@ -135,17 +187,25 @@ deduplication, and future UI splitting if users need it.
 
 Recommended implementation order:
 
-1. Ship runtime RPC collection first for Antigravity 2.0, IDE, and CLI.
-2. Improve refresh/process detection so short-lived CLI sessions are less
-   likely to be missed while Burnly is running.
-3. Add offline SQLite/protobuf decoding later only if live collection misses too
-   much real-world CLI usage and we can keep extraction limited to usage
-   metadata.
+1. Harden diagnostics and endpoint probing so failures identify the broken
+   stage precisely.
+2. Replace the App/IDE runtime stream path with Tokscale-style metadata sync:
+   `GetAllCascadeTrajectories` plus `GetCascadeTrajectoryGeneratorMetadata`.
+3. Add durable normalized Antigravity usage cache.
+4. Add direct SQLite/protobuf parsing for Antigravity CLI.
+5. Validate the same SQLite/protobuf parser against Antigravity 2.0 and IDE DBs
+   as an experimental fallback.
 
 Do not implement transparent network interception, TLS interception, proxy
 configuration, request capture, packet sniffing, transcript parsing, or raw
 prompt/response blob decoding. Those approaches are fragile and have poor
 privacy boundaries.
+
+Do not spend implementation effort only trying alternate trajectory IDs for
+`StreamAgentStateUpdates`. Local evidence already showed that even the
+`trajectory_meta.trajectory_id` value can fail when the runtime store has
+unloaded the trajectory. That patch would reduce one failure shape, but it
+would not solve the core lifecycle problem.
 
 ## Local Data Shape
 
@@ -157,8 +217,11 @@ Primary discovery path:
 ~/.gemini/antigravity-cli/conversations/<conversation_id>.db
 ```
 
-The conversation DB filename is the conversation ID used by the local RPC API.
-The DB schema stores steps and metadata as protobuf blobs:
+The conversation DB filename is a local artifact identifier. Earlier Burnly
+logic assumed this was always the correct live RPC trajectory identifier, but
+production diagnostics showed that this assumption is unsafe after Antigravity
+unloads or rotates runtime trajectory state. The DB schema stores steps and
+metadata as protobuf blobs:
 
 ```text
 trajectory_meta
@@ -236,7 +299,7 @@ response.groups[*].buckets[*].remainingFraction
 response.groups[*].buckets[*].resetTime
 ```
 
-Agent-state endpoint:
+Legacy agent-state endpoint:
 
 ```text
 POST /exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates
@@ -261,7 +324,9 @@ Request shape:
 }
 ```
 
-The endpoint uses Connect streaming JSON framing.
+The endpoint uses Connect streaming JSON framing. Burnly should keep this
+knowledge for diagnostics and compatibility, but it should not be the primary
+collection path.
 
 Observed usage fields:
 
@@ -486,8 +551,8 @@ For Antigravity IDE, dedupe must run across all discovered IDE language-server
 processes because the main server and workspace servers can expose overlapping
 conversation data.
 
-For Antigravity CLI, dedupe must also be robust across repeated stream snapshots
-from the same long-running `agy` process.
+For Antigravity CLI, dedupe must also be robust across repeated metadata or
+SQLite reads from the same long-running `agy` process.
 
 Do not derive cost for Antigravity in the first implementation. Quota/credit
 fields are not consistently emitted locally and are not equivalent to billable
@@ -549,16 +614,25 @@ Antigravity support should be split into small infrastructure components:
 AntigravityCollector
     |
     +-- RuntimeDiscovery
-    |     Finds running Antigravity local UI/RPC endpoints for app, IDE, and CLI.
+    |     Finds and identity-probes running Antigravity local RPC endpoints.
     |
-    +-- RuntimeClient
-    |     Calls RetrieveUserQuotaSummary and StreamAgentStateUpdates.
+    +-- RuntimeMetadataClient
+    |     Calls GetAllCascadeTrajectories and GetCascadeTrajectoryGeneratorMetadata.
     |
     +-- ConversationIndex
-    |     Lists recent conversation DB IDs for each variant.
+    |     Lists recent conversation DB artifacts for each variant.
+    |
+    +-- CliSqliteUsageReader
+    |     Reads Antigravity CLI usage from SQLite/protobuf metadata.
+    |
+    +-- AppIdeSqliteUsageReader
+    |     Experimental fallback for App/IDE DBs when validated.
+    |
+    +-- UsageCache
+    |     Stores normalized usage-only records for runtime-unavailable refreshes.
     |
     +-- UsageExtractor
-    |     Extracts usage-only counters from decoded RPC updates.
+    |     Extracts usage-only counters from runtime metadata or protobuf metadata.
     |
     +-- UsageMapper
           Maps extracted usage into Burnly collector envelopes.
@@ -566,6 +640,123 @@ AntigravityCollector
 
 The application layer should not know about Antigravity ports, CSRF tokens,
 Connect framing, or conversation DB details.
+
+### Data Path Priority
+
+Recommended collection priority:
+
+1. Direct SQLite/protobuf reader for variants where the metadata mapping is
+   proven.
+2. Runtime metadata sync for running App/IDE sessions.
+3. Durable normalized cache for records already seen by a previous successful
+   sync.
+4. Recoverable unavailable result when no trustworthy local source can produce
+   records.
+
+This avoids treating live RPC as the only source of truth. Live RPC is useful,
+but it is an ephemeral synchronization channel.
+
+### Runtime Metadata Sync
+
+Tokscale uses runtime metadata RPC instead of trajectory streaming as the main
+App/IDE sync path. Burnly should adopt the same shape:
+
+```text
+POST /exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories
+POST /exa.language_server_pb.LanguageServerService/GetCascadeTrajectoryGeneratorMetadata
+```
+
+The metadata response exposes generation records and usage counters without
+requiring Burnly to subscribe to a trajectory stream. The collector should
+extract only:
+
+```text
+retryInfos[*].usage.inputTokens
+retryInfos[*].usage.outputTokens
+retryInfos[*].usage.cacheReadTokens
+retryInfos[*].usage.thinkingOutputTokens
+retryInfos[*].usage.responseId
+responseModel / modelDisplayName / raw model id
+timestamp when available
+```
+
+If a metadata call fails for a trajectory, the collector should continue with
+other trajectories and use cached usage for the failed trajectory when present.
+
+### Direct SQLite/Protobuf Reader
+
+Tokscale's Antigravity CLI reader shows that CLI usage is recoverable from
+local SQLite without a running runtime. Burnly should implement its own minimal
+reader instead of shelling out to Tokscale, because Burnly needs a controlled
+privacy boundary, typed diagnostics, and stable integration with import runs.
+
+Known CLI protobuf mapping:
+
+| Local metadata field             | Meaning                         |
+| -------------------------------- | ------------------------------- |
+| `gen_metadata.#1`                | chat model message              |
+| `chatModel.#19`                  | response model                  |
+| `chatModel.#9.#4`                | per-generation timestamp        |
+| `chatModel.#4`                   | usage message                   |
+| `usage.#1`                       | fixed/system prompt input       |
+| `usage.#2`                       | newly processed input           |
+| `usage.#5`                       | cache read tokens               |
+| `usage.#9`                       | output text tokens              |
+| `usage.#10`                      | thinking/reasoning tokens       |
+| `usage.#11`                      | response id / dedupe key        |
+| `trajectory_metadata_blob.#2`    | conversation created timestamp  |
+| `trajectory_metadata_blob.#1.#1` | workspace URI, diagnostics only |
+
+Burnly should combine input as `usage.#1 + usage.#2`, store cache read,
+output, and reasoning separately, and use `usage.#11` as the primary idempotency
+key. The protobuf reader must be bounded and defensive:
+
+- reject malformed wire values,
+- clamp or reject impossible token values,
+- avoid panics on unknown fields,
+- never persist raw protobuf blobs,
+- keep workspace URI out of normal reports unless explicitly redacted.
+
+The same reader may work for Antigravity 2.0 and IDE because their conversation
+DB schemas match the CLI schema shape, but that must be validated behind an
+experimental fallback before becoming the preferred App/IDE path.
+
+### Durable Usage Cache
+
+Burnly already persists imported usage, but the Antigravity collector needs a
+collector-local normalized cache before mapping/import when runtime metadata is
+partially available. The cache should contain usage-only records:
+
+```text
+variant
+session_id / cascade_id / conversation_id
+response_id
+model_id
+model_display_name
+timestamp
+input_tokens
+output_tokens
+reasoning_tokens
+cache_read_tokens
+cache_write_tokens
+collector_version
+first_seen_at
+last_seen_at
+```
+
+No prompt, response, tool-call, tool-result, file-content, or raw protobuf data
+belongs in this cache.
+
+When live RPC fails but cached records exist for the requested refresh window,
+the collector should produce records from cache and write an informational
+diagnostic such as:
+
+```text
+antigravity.runtime_unavailable_cache_used
+```
+
+It should not mark the entire refresh partial unless no direct or cached data
+can satisfy an enabled Antigravity source.
 
 ## Folder Structure
 
@@ -578,7 +769,10 @@ src-tauri/src/infrastructure/collectors/antigravity/
   product_variant.rs
   conversation_index.rs
   discovery.rs
-  runtime_client.rs
+  runtime_metadata_client.rs
+  sqlite_usage_reader.rs
+  protobuf_usage.rs
+  usage_cache.rs
   usage_extractor.rs
   usage_mapper.rs
   fixtures/
@@ -592,15 +786,37 @@ src-tauri/src/infrastructure/collectors/antigravity/
   usage_extractor_tests.rs
   usage_mapper_tests.rs
   conversation_index_tests.rs
+  runtime_metadata_client_tests.rs
+  sqlite_usage_reader_tests.rs
+  protobuf_usage_tests.rs
+  usage_cache_tests.rs
 ```
 
-Use sanitized RPC fixture payloads that contain only usage fields. Do not store
-real prompt-bearing Antigravity agent-state payloads in the repository.
+Use sanitized runtime metadata and protobuf fixtures that contain only usage
+fields. Do not store real prompt-bearing Antigravity agent-state payloads in
+the repository.
 
 ## Runtime Discovery
 
 Antigravity uses dynamic local ports. Discovery should be conservative and
 read-only.
+
+The current Burnly implementation is too permissive because it can discover
+many process-owned loopback listeners and then try collection against endpoints
+that are not confirmed to be the correct language-server surface. Discovery
+should become identity-based:
+
+1. Extract process metadata, declared ports, and CSRF tokens from known
+   Antigravity processes.
+2. Probe only process-owned listeners.
+3. Prefer a cheap heartbeat or quota request to validate a candidate endpoint.
+4. Accept a usage endpoint only after a language-server identity method or
+   trajectory-list method succeeds.
+5. Support HTTP first and HTTPS fallback for localhost, because Antigravity CLI
+   can expose both.
+
+This mirrors Tokscale's practical approach: process discovery is only a
+candidate generator; successful language-server RPC calls are the actual proof.
 
 Recommended Linux discovery order for Antigravity 2.0:
 
@@ -628,10 +844,11 @@ Recommended Linux discovery order for Antigravity CLI:
    `~/.local/bin/agy`.
 2. Inspect local listening ports owned by those processes.
 3. Probe candidate HTTP ports with `RetrieveUserQuotaSummary`.
-4. Keep endpoints that return a successful quota response.
+4. Keep endpoints that return a successful quota or metadata response.
 5. Discover recent conversation IDs from
    `~/.gemini/antigravity-cli/conversations/*.db`.
-6. Optionally use `~/.gemini/antigravity-cli/log/cli-*.log` only for endpoint
+6. Prefer direct SQLite/protobuf usage extraction for completed CLI sessions.
+7. Optionally use `~/.gemini/antigravity-cli/log/cli-*.log` only for endpoint
    diagnostics and model-label diagnostics. Do not depend on logs for token
    counters.
 
@@ -649,20 +866,24 @@ when process-owned listener discovery is available.
 
 ## Refresh Policy
 
-Antigravity data should be treated as runtime-dependent:
+Antigravity data should be treated as partially runtime-dependent:
 
-- If Antigravity is running, collect recent conversation usage from the local
-  RPC service.
-- If Antigravity is not running, return a recoverable `source_unavailable`
-  result and leave previous persisted usage intact.
+- If a direct SQLite/protobuf reader is available for the variant, collect from
+  local SQLite first.
+- If Antigravity App/IDE is running, sync recent conversation usage from the
+  local metadata RPC service and update the normalized cache.
+- If runtime metadata is unavailable but cached records exist, use cached
+  records and emit a recoverable diagnostic.
+- If no direct, runtime, or cached source can produce records, return a
+  recoverable `source_unavailable` result and leave previous persisted usage
+  intact.
 - Do not launch Antigravity from Burnly.
 - Do not require user proxy setup or credentials.
 
 For Antigravity CLI, runtime availability is narrower than the app and IDE:
-`agy` may exit soon after the command finishes. The first implementation should
-collect CLI usage opportunistically when the CLI process is alive. A later
-offline decoder can recover completed CLI sessions from SQLite protobuf blobs
-if we can keep the privacy boundary strict.
+`agy` may exit soon after the command finishes. Direct SQLite/protobuf parsing
+should be the preferred CLI path so Burnly can recover completed CLI sessions
+after the process exits.
 
 Initial import:
 
@@ -675,7 +896,9 @@ Daily refresh:
 
 - Query conversations modified today from each variant root.
 - Include a two-day lookback for resumed conversations and delayed writes.
-- Dedupe by `responseId` so repeated streaming snapshots are idempotent.
+- Dedupe by `responseId` so repeated metadata snapshots are idempotent.
+- Use runtime metadata only to add or update usage records; do not delete older
+  cached records just because a runtime endpoint no longer lists a trajectory.
 
 Manual full refresh:
 
@@ -686,21 +909,27 @@ Manual full refresh:
 
 Runtime dependency:
 
-- The clean token path requires the relevant Antigravity variant to be running.
-  Offline local DB decoding may be possible later, but it would require stable
-  protobuf decoding and a stricter privacy review.
+- App/IDE metadata sync requires the relevant Antigravity variant to be
+  running. Direct SQLite/protobuf parsing can reduce this dependency, but it
+  uses reverse-engineered local metadata and must be kept isolated and heavily
+  tested.
 
 Private API stability:
 
 - The local RPC service is not a public Antigravity API. Method names, message
   shapes, CSRF behavior, model placeholders, and local ports may change between
   Antigravity releases.
+- The SQLite/protobuf metadata format is not a public schema. Field numbers may
+  change between Antigravity releases. Burnly must fail soft and emit precise
+  diagnostics when the parser can no longer decode usage safely.
 
 Privacy:
 
 - `StreamAgentStateUpdates` can include prompt-bearing and system-prompt-bearing
   payloads. The collector must never persist full responses, full requests, or
   debug dumps.
+- Direct protobuf parsing must read only known usage metadata fields and must
+  not persist raw protobuf blobs or decoded transcript-like fields.
 
 Model labels:
 
@@ -722,16 +951,137 @@ Multiple IDE endpoints:
 CLI lifecycle:
 
 - Antigravity CLI starts a short-lived local language server per active CLI
-  session. After the process exits, its RPC endpoint is gone. The current
-  proposal does not require Burnly to recover completed CLI sessions while the
-  CLI is closed.
+  session. After the process exits, its RPC endpoint is gone. The revised
+  proposal handles this by prioritizing direct CLI SQLite/protobuf parsing.
+
+## Implementation Phases
+
+### Phase 1: Diagnostics And Endpoint Correctness
+
+Goals:
+
+- Make Antigravity failures explain the broken stage.
+- Stop treating every runtime miss as a generic `source.not_found`.
+- Reduce accidental probing of unrelated local ports.
+
+Changes:
+
+- Add diagnostic codes:
+  - `antigravity.runtime_not_found`
+  - `antigravity.runtime_identity_probe_failed`
+  - `antigravity.metadata_rpc_unavailable`
+  - `antigravity.runtime_stream_unavailable`
+  - `antigravity.sqlite_unavailable`
+  - `antigravity.sqlite_parse_failed`
+  - `antigravity.cache_used`
+- Add redacted context:
+  - variant,
+  - endpoints found,
+  - endpoints accepted,
+  - metadata calls attempted,
+  - metadata calls succeeded,
+  - SQLite DBs scanned,
+  - records extracted,
+  - records rejected.
+- Keep refresh status `succeeded` when Antigravity has no local data and no
+  recent prior data. Reserve `partial` for a source that had expected local data
+  but no usable direct, runtime, or cached path.
+
+### Phase 2: Runtime Metadata Sync
+
+Goals:
+
+- Replace `StreamAgentStateUpdates` as the primary App/IDE runtime path.
+- Extract usage from generator metadata snapshots.
+
+Changes:
+
+- Implement `RuntimeMetadataClient`.
+- Probe language-server identity with `GetAllCascadeTrajectories`.
+- Fetch usage with `GetCascadeTrajectoryGeneratorMetadata`.
+- Normalize `retryInfos[*].usage` into internal usage records.
+- Dedupe by `responseId`.
+- Support HTTP and HTTPS localhost fallback.
+
+This phase should still be considered best-effort because the runtime can be
+closed or can refuse older trajectories.
+
+### Phase 3: Durable Usage Cache
+
+Goals:
+
+- Preserve last-known Antigravity usage after the runtime unloads sessions.
+- Prevent transient runtime failures from creating noisy partial refreshes.
+
+Changes:
+
+- Add collector-local normalized usage cache storage.
+- Upsert records from runtime metadata sync.
+- Read cache for the active refresh window when runtime metadata fails.
+- Emit `antigravity.cache_used` instead of `source.not_found` when cached usage
+  satisfies the refresh.
+
+### Phase 4: Direct Antigravity CLI SQLite Reader
+
+Goals:
+
+- Make Antigravity CLI tracking work after `agy` exits.
+- Avoid depending on short-lived runtime RPC.
+
+Changes:
+
+- Implement a bounded protobuf wire reader for known usage metadata fields.
+- Read `~/.gemini/antigravity-cli/conversations/*.db`.
+- Support `GEMINI_CLI_HOME` when present.
+- Parse `gen_metadata` and `trajectory_metadata_blob`.
+- Dedupe by response ID.
+- Add synthetic SQLite/protobuf fixtures for:
+  - normal usage,
+  - duplicate response IDs,
+  - missing timestamps,
+  - malformed blobs,
+  - huge/invalid token values.
+
+### Phase 5: Experimental App/IDE SQLite Fallback
+
+Goals:
+
+- Determine whether the CLI protobuf reader can safely recover App/IDE usage.
+- Reduce App/IDE dependence on live runtime metadata.
+
+Changes:
+
+- Run the same parser against:
+  - `~/.gemini/antigravity/conversations/*.db`
+  - `~/.gemini/antigravity-ide/conversations/*.db`
+- Gate this behind strict schema and field validation.
+- Emit experimental diagnostics separately from CLI parser diagnostics.
+- Promote it to the preferred App/IDE path only after enough local evidence
+  shows stable field mapping across multiple sessions and platforms.
+
+### Phase 6: Product Semantics And Documentation
+
+Goals:
+
+- Keep user-facing behavior accurate while the source is experimental.
+
+Changes:
+
+- Document Antigravity support as experimental.
+- Document that CLI usage is local SQLite/protobuf-derived.
+- Document that App/IDE may use live runtime sync and cached records.
+- Keep Antigravity variant metadata in diagnostics and exports.
+- Avoid showing a warning badge for recoverable cache usage.
 
 ## Verification Plan
 
 Automated verification:
 
-- Unit tests for Connect streaming frame parsing using sanitized fixtures.
-- Unit tests for usage extraction from sanitized agent-state updates.
+- Unit tests for metadata RPC response parsing using sanitized fixtures.
+- Unit tests for usage extraction from sanitized runtime metadata.
+- Unit tests for Antigravity CLI protobuf usage parsing.
+- Unit tests for malformed protobuf handling.
+- Unit tests for cache fallback semantics.
 - Unit tests for dedupe by `responseId`.
 - Unit tests for fallback model label selection.
 - Unit tests for conversation DB discovery and date-window filtering.
@@ -778,5 +1128,5 @@ Runtime evidence should include sanitized counters only.
   displayed as separate rows or grouped under an Antigravity internal label?
 - Should Antigravity IDE stay merged into the `Antigravity` source label for
   MVP, or should the UI show `Antigravity IDE` once variant metadata exists?
-- What missed-usage threshold should trigger the later offline SQLite/protobuf
-  decoder work for short-lived CLI sessions?
+- What evidence threshold is enough to promote App/IDE direct SQLite parsing
+  from experimental fallback to preferred collection path?

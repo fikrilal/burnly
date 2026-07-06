@@ -14,6 +14,8 @@ use thiserror::Error;
 use super::RuntimeEndpoint;
 
 const QUOTA_PATH: &str = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary";
+const TRAJECTORIES_PATH: &str =
+    "/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories";
 const STREAM_PATH: &str = "/exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates";
 const TIMEOUT: Duration = Duration::from_secs(3);
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_millis(750);
@@ -34,6 +36,28 @@ impl RuntimeClient {
     ) -> Result<Value, RuntimeClientError> {
         let response = post_json(endpoint, QUOTA_PATH, b"{}", ContentType::Json)?;
         serde_json::from_slice(&response).map_err(|_| RuntimeClientError::InvalidJson)
+    }
+
+    pub(crate) fn get_all_cascade_trajectories(
+        &self,
+        endpoint: &RuntimeEndpoint,
+    ) -> Result<Value, RuntimeClientError> {
+        let response = post_json(endpoint, TRAJECTORIES_PATH, b"{}", ContentType::Json)?;
+        serde_json::from_slice(&response).map_err(|_| RuntimeClientError::InvalidJson)
+    }
+
+    pub(crate) fn probe_identity(&self, endpoint: &RuntimeEndpoint) -> Result<(), RuntimeClientError> {
+        if let Ok(value) = self.retrieve_user_quota_summary(endpoint) {
+            if quota_response_is_valid(&value) {
+                return Ok(());
+            }
+        }
+        let value = self.get_all_cascade_trajectories(endpoint)?;
+        if trajectories_response_is_valid(&value) {
+            Ok(())
+        } else {
+            Err(RuntimeClientError::IdentityProbeFailed)
+        }
     }
 
     pub(crate) fn stream_agent_state_updates(
@@ -392,6 +416,19 @@ fn encode_connect_frame(payload: &[u8]) -> Result<Vec<u8>, RuntimeClientError> {
     Ok(frame)
 }
 
+fn quota_response_is_valid(value: &Value) -> bool {
+    value
+        .get("response")
+        .and_then(Value::as_object)
+        .and_then(|response| response.get("groups"))
+        .and_then(Value::as_array)
+        .is_some()
+}
+
+fn trajectories_response_is_valid(value: &Value) -> bool {
+    value.get("trajectorySummaries").and_then(Value::as_object).is_some()
+}
+
 fn decode_connect_frames(body: &[u8]) -> Result<Vec<Value>, RuntimeClientError> {
     let mut frames = Vec::new();
     let mut offset = 0;
@@ -437,6 +474,8 @@ pub(crate) enum RuntimeClientError {
     MalformedHttp,
     #[error("antigravity runtime response is too large")]
     ResponseTooLarge,
+    #[error("antigravity runtime identity probe failed")]
+    IdentityProbeFailed,
 }
 
 #[cfg(test)]
@@ -497,19 +536,22 @@ mod tests {
     #[test]
     fn streams_agent_state_updates_from_open_chunked_stream() {
         let _guard = runtime_client_test_lock();
-        let server = TestServer::start_streaming(|request, stream| {
-            assert!(request.contains("Content-Type: application/connect+json"));
-            let payload = encode_connect_frame(br#"{"response":{"open":true}}"#).expect("frame");
-            let response = [
-                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec(),
-                format!("{:x}\r\n", payload.len()).into_bytes(),
-                payload,
-                b"\r\n".to_vec(),
-            ]
-            .concat();
-            stream.write_all(&response).expect("write response");
-            thread::sleep(STREAM_IDLE_TIMEOUT + Duration::from_millis(250));
-        });
+        let server = TestServer::start_streaming(
+            |request, stream| {
+                assert!(request.contains("Content-Type: application/connect+json"));
+                let payload = encode_connect_frame(br#"{"response":{"open":true}}"#).expect("frame");
+                let response = [
+                    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec(),
+                    format!("{:x}\r\n", payload.len()).into_bytes(),
+                    payload,
+                    b"\r\n".to_vec(),
+                ]
+                .concat();
+                stream.write_all(&response).expect("write response");
+                thread::sleep(STREAM_IDLE_TIMEOUT + Duration::from_millis(250));
+            },
+            1,
+        );
 
         let client = RuntimeClient::new();
         let frames = client
@@ -517,6 +559,66 @@ mod tests {
             .expect("agent state");
 
         assert_eq!(frames, vec![json!({"response": {"open": true}})]);
+    }
+
+    #[test]
+    fn probes_identity_with_quota_response() {
+        let _guard = runtime_client_test_lock();
+        let server = TestServer::start(|request| {
+            assert!(request.contains(
+                "POST /exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary HTTP/1.1"
+            ));
+            http_response(
+                r#"{"response":{"groups":[{"displayName":"Gemini Models","buckets":[]}]}}"#
+                    .as_bytes(),
+            )
+        });
+
+        let client = RuntimeClient::new();
+        client
+            .probe_identity(&endpoint(server.port(), Some("local-token")))
+            .expect("identity probe");
+    }
+
+    #[test]
+    fn probes_identity_with_trajectory_list_when_quota_is_invalid() {
+        let _guard = runtime_client_test_lock();
+        let server = TestServer::start_with_connections(
+            |request| {
+                if request.contains("RetrieveUserQuotaSummary") {
+                    return http_response(br#"{"code":"unknown","message":"invalid"}"#);
+                }
+                assert!(request.contains("GetAllCascadeTrajectories"));
+                http_response(br#"{"trajectorySummaries":{"session-1":{"stepCount":1}}}"#)
+            },
+            2,
+        );
+
+        let client = RuntimeClient::new();
+        client
+            .probe_identity(&endpoint(server.port(), None))
+            .expect("identity probe");
+    }
+
+    #[test]
+    fn rejects_identity_probe_when_rpc_responses_are_unusable() {
+        let _guard = runtime_client_test_lock();
+        let server = TestServer::start_with_connections(
+            |request| {
+                if request.contains("RetrieveUserQuotaSummary") {
+                    return http_response(br#"{"code":"unknown","message":"invalid"}"#);
+                }
+                http_response(br#"{"code":"unknown","message":"invalid"}"#)
+            },
+            2,
+        );
+
+        let client = RuntimeClient::new();
+        let error = client
+            .probe_identity(&endpoint(server.port(), None))
+            .expect_err("identity probe");
+
+        assert_eq!(error, RuntimeClientError::IdentityProbeFailed);
     }
 
     #[test]
@@ -566,20 +668,31 @@ mod tests {
 
     impl TestServer {
         fn start(handler: fn(String) -> Vec<u8>) -> Self {
+            Self::start_with_connections(handler, 1)
+        }
+
+        fn start_with_connections(handler: fn(String) -> Vec<u8>, connections: usize) -> Self {
             Self::start_streaming(move |request, stream| {
                 let response = handler(request);
                 stream.write_all(&response).expect("write response");
-            })
+            }, connections)
         }
 
-        fn start_streaming(handler: impl FnOnce(String, &mut TcpStream) + Send + 'static) -> Self {
+        fn start_streaming(
+            handler: impl Fn(String, &mut TcpStream) + Send + 'static,
+            connections: usize,
+        ) -> Self {
             let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("listener");
             let port = listener.local_addr().expect("addr").port();
             let handle = thread::spawn(move || {
-                let (mut stream, _) = listener.accept().expect("accept");
-                let request = read_http_request(&mut stream);
-                let request = String::from_utf8_lossy(&request).into_owned();
-                handler(request, &mut stream);
+                for _ in 0..connections {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        break;
+                    };
+                    let request = read_http_request(&mut stream);
+                    let request = String::from_utf8_lossy(&request).into_owned();
+                    handler(request, &mut stream);
+                }
             });
             Self { port, handle }
         }
