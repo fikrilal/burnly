@@ -2,8 +2,7 @@
 
 ## Status
 
-Active. Phase 01 completed on July 6, 2026. Next queued phase: runtime metadata
-sync.
+Active. Phase 02 completed on July 6, 2026. Next queued phase: usage cache.
 
 ## Objective
 

@@ -4,10 +4,13 @@ mod discovery;
 mod mapper;
 pub(crate) mod product_variant;
 mod runtime_client;
+mod runtime_metadata_client;
 mod usage_extractor;
 
 pub(crate) use adapter::AntigravityCollector;
 pub(crate) use conversation_index::{ConversationDatabase, ConversationIndex};
 pub(crate) use discovery::{RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint};
 pub(crate) use runtime_client::RuntimeClient;
-pub(crate) use usage_extractor::{extract_usage_records, AntigravityUsageRecord};
+pub(crate) use usage_extractor::{
+    extract_usage_from_generator_metadata, AntigravityUsageRecord,
+};

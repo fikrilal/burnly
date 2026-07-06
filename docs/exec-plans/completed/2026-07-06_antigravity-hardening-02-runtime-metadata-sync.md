@@ -2,7 +2,7 @@
 
 ## Status
 
-Queued.
+Completed on July 6, 2026.
 
 ## Objective
 
@@ -29,7 +29,7 @@ Tokscale-style metadata sync using `GetAllCascadeTrajectories` and
 ## Impact Areas
 
 - `src-tauri/src/infrastructure/collectors/antigravity/runtime_client.rs`
-- New or renamed runtime metadata client module
+- `src-tauri/src/infrastructure/collectors/antigravity/runtime_metadata_client.rs`
 - `src-tauri/src/infrastructure/collectors/antigravity/usage_extractor.rs`
 - `src-tauri/src/infrastructure/collectors/antigravity/adapter.rs`
 - Antigravity sanitized fixtures
@@ -52,16 +52,16 @@ Tokscale-style metadata sync using `GetAllCascadeTrajectories` and
 
 ## Checklist
 
-- [ ] Add sanitized fixtures for metadata trajectory list and generator metadata.
-- [ ] Implement `GetAllCascadeTrajectories` request/response support.
-- [ ] Implement `GetCascadeTrajectoryGeneratorMetadata` request/response
+- [x] Add sanitized fixtures for metadata trajectory list and generator metadata.
+- [x] Implement `GetAllCascadeTrajectories` request/response support.
+- [x] Implement `GetCascadeTrajectoryGeneratorMetadata` request/response
       support.
-- [ ] Extract usage records from `retryInfos[*].usage`.
-- [ ] Prefer model labels in order: display name, response model, raw model.
-- [ ] Dedupe by response ID.
-- [ ] Keep stream RPC only as legacy compatibility or remove primary use.
-- [ ] Update tests and diagnostics.
-- [ ] Record verification outcomes before completion.
+- [x] Extract usage records from `retryInfos[*].usage`.
+- [x] Prefer model labels in order: display name, response model, raw model.
+- [x] Dedupe by response ID.
+- [x] Keep stream RPC only as legacy compatibility or remove primary use.
+- [x] Update tests and diagnostics.
+- [x] Record verification outcomes before completion.
 
 ## Test Plan
 
@@ -75,4 +75,27 @@ Tokscale-style metadata sync using `GetAllCascadeTrajectories` and
 
 ## Verification
 
-Record actual commands and outcomes here when executed.
+```text
+cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity --lib
+# ok. 54 passed; 0 failed
+
+pnpm rust:check
+# ok (dead_code warnings for trajectory-list helpers not yet wired into adapter collection)
+
+pnpm architecture:check
+# Architecture boundary check passed.
+```
+
+## Implementation Notes
+
+- Added `runtime_metadata_client.rs` with trajectory summary parsing,
+  `list_trajectory_summaries`, and `fetch_generator_metadata_items`.
+- Adapter `collect_runtime_usage` now fetches generator metadata per indexed
+  conversation using `cascadeId` (conversation DB filename) and extracts usage
+  from `generatorMetadata` plus nested `retryInfos[*].usage`.
+- `StreamAgentStateUpdates` remains in `runtime_client.rs` for legacy tests but
+  is no longer called from the adapter collection path.
+- Diagnostics counters now report `metadataCallsAttempted` and
+  `metadataCallsSucceeded`; stream counters remain at zero for compatibility.
+- Collection fails with `antigravity.metadata_rpc_unavailable` only when every
+  metadata RPC attempt fails.

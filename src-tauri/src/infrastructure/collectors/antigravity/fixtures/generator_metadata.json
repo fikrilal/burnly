@@ -1,0 +1,53 @@
+{
+  "generatorMetadata": [
+    {
+      "stepIndices": [2, 3],
+      "chatModel": {
+        "model": "MODEL_PLACEHOLDER_M16",
+        "responseModel": "gemini-pro-default",
+        "modelDisplayName": "Gemini 3.1 Pro (High)",
+        "usage": {
+          "model": "MODEL_PLACEHOLDER_M16",
+          "inputTokens": "120",
+          "outputTokens": "30",
+          "thinkingOutputTokens": "10",
+          "responseOutputTokens": "20",
+          "cacheReadTokens": "5",
+          "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+          "responseId": "response-primary"
+        },
+        "retryInfos": [
+          {
+            "usage": {
+              "model": "MODEL_PLACEHOLDER_M16",
+              "inputTokens": "80",
+              "outputTokens": "20",
+              "thinkingOutputTokens": "4",
+              "responseOutputTokens": "16",
+              "cacheReadTokens": "2",
+              "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+              "responseId": "response-retry"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepIndices": [4],
+      "chatModel": {
+        "model": "MODEL_PLACEHOLDER_M50",
+        "responseModel": "gemini-flash-default",
+        "usage": {
+          "model": "MODEL_PLACEHOLDER_M50",
+          "inputTokens": "40",
+          "outputTokens": "8",
+          "thinkingOutputTokens": "0",
+          "responseOutputTokens": "8",
+          "cacheReadTokens": "0",
+          "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+          "responseId": "response-fallback-model"
+        }
+      }
+    }
+  ]
+}

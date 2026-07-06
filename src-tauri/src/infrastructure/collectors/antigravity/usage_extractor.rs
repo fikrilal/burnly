@@ -40,6 +40,14 @@ impl AntigravityUsageRecord {
     }
 }
 
+pub(crate) fn extract_usage_from_generator_metadata(
+    variant: AntigravityProductVariant,
+    conversation_id: &str,
+    generator_metadata: &[Value],
+) -> Result<Vec<AntigravityUsageRecord>, UsageExtractionError> {
+    extract_usage_records(variant, conversation_id, generator_metadata)
+}
+
 pub(crate) fn extract_usage_records(
     variant: AntigravityProductVariant,
     conversation_id: &str,
@@ -290,9 +298,19 @@ pub(crate) enum UsageExtractionError {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+
     use serde_json::json;
 
     use super::*;
+    use crate::infrastructure::collectors::antigravity::runtime_metadata_client::generator_metadata_items;
+
+    fn fixture_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src/infrastructure/collectors/antigravity/fixtures")
+            .join(name)
+    }
 
     #[test]
     fn extracts_usage_records_from_nested_agent_state_frames() {
@@ -374,6 +392,84 @@ mod tests {
         .expect("usage records");
 
         assert!(records.is_empty());
+    }
+
+    #[test]
+    fn extracts_usage_records_from_generator_metadata_fixture() {
+        let fixture =
+            fs::read_to_string(fixture_path("generator_metadata.json")).expect("fixture");
+        let response: serde_json::Value = serde_json::from_str(&fixture).expect("json");
+        let metadata = generator_metadata_items(&response);
+
+        let records = extract_usage_from_generator_metadata(
+            AntigravityProductVariant::App,
+            "conversation-a",
+            &metadata,
+        )
+        .expect("usage records");
+
+        assert_eq!(records.len(), 3);
+        let primary = records
+            .iter()
+            .find(|record| record.response_id.as_deref() == Some("response-primary"))
+            .expect("primary usage record");
+        assert_eq!(primary.model_label, "Gemini 3.1 Pro (High)");
+        assert!(
+            records
+                .iter()
+                .any(|record| record.response_id.as_deref() == Some("response-retry"))
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| record.raw_model_id == "MODEL_PLACEHOLDER_M50")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_response_model_when_display_name_is_missing() {
+        let records = extract_usage_from_generator_metadata(
+            AntigravityProductVariant::Ide,
+            "conversation-b",
+            &[json!({
+                "chatModel": {
+                    "model": "MODEL_PLACEHOLDER_M50",
+                    "responseModel": "gemini-flash-default",
+                    "usage": {
+                        "model": "MODEL_PLACEHOLDER_M50",
+                        "inputTokens": 12,
+                        "outputTokens": 3
+                    }
+                }
+            })],
+        )
+        .expect("usage records");
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].model_label, "gemini-flash-default");
+    }
+
+    #[test]
+    fn collapses_duplicate_response_ids_in_generator_metadata() {
+        let frame = json!({
+            "chatModel": {
+                "model": "gemini",
+                "usage": {
+                    "model": "gemini",
+                    "inputTokens": 10,
+                    "responseId": "duplicate-response"
+                }
+            }
+        });
+
+        let records = extract_usage_from_generator_metadata(
+            AntigravityProductVariant::App,
+            "conversation-a",
+            &[frame.clone(), frame],
+        )
+        .expect("usage records");
+
+        assert_eq!(records.len(), 1);
     }
 
     #[test]

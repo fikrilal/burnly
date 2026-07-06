@@ -16,6 +16,8 @@ use super::RuntimeEndpoint;
 const QUOTA_PATH: &str = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary";
 const TRAJECTORIES_PATH: &str =
     "/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories";
+const GENERATOR_METADATA_PATH: &str =
+    "/exa.language_server_pb.LanguageServerService/GetCascadeTrajectoryGeneratorMetadata";
 const STREAM_PATH: &str = "/exa.language_server_pb.LanguageServerService/StreamAgentStateUpdates";
 const TIMEOUT: Duration = Duration::from_secs(3);
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_millis(750);
@@ -43,6 +45,21 @@ impl RuntimeClient {
         endpoint: &RuntimeEndpoint,
     ) -> Result<Value, RuntimeClientError> {
         let response = post_json(endpoint, TRAJECTORIES_PATH, b"{}", ContentType::Json)?;
+        serde_json::from_slice(&response).map_err(|_| RuntimeClientError::InvalidJson)
+    }
+
+    pub(crate) fn get_cascade_trajectory_generator_metadata(
+        &self,
+        endpoint: &RuntimeEndpoint,
+        cascade_id: &str,
+    ) -> Result<Value, RuntimeClientError> {
+        if cascade_id.trim().is_empty() {
+            return Err(RuntimeClientError::InvalidCascadeId);
+        }
+        let request = json!({ "cascadeId": cascade_id });
+        let body =
+            serde_json::to_vec(&request).map_err(|_| RuntimeClientError::InvalidJson)?;
+        let response = post_json(endpoint, GENERATOR_METADATA_PATH, &body, ContentType::Json)?;
         serde_json::from_slice(&response).map_err(|_| RuntimeClientError::InvalidJson)
     }
 
@@ -468,6 +485,8 @@ pub(crate) enum RuntimeClientError {
     InvalidJson,
     #[error("antigravity conversation id is invalid")]
     InvalidConversationId,
+    #[error("antigravity cascade id is invalid")]
+    InvalidCascadeId,
     #[error("antigravity runtime returned malformed connect frames")]
     MalformedConnectFrame,
     #[error("antigravity runtime returned malformed http")]
@@ -559,6 +578,44 @@ mod tests {
             .expect("agent state");
 
         assert_eq!(frames, vec![json!({"response": {"open": true}})]);
+    }
+
+    #[test]
+    fn lists_trajectory_summaries_from_endpoint() {
+        use crate::infrastructure::collectors::antigravity::runtime_metadata_client::list_trajectory_summaries;
+
+        let _guard = runtime_client_test_lock();
+        let server = TestServer::start(|request| {
+            assert!(request.contains("GetAllCascadeTrajectories"));
+            http_response(include_str!("fixtures/trajectory_list.json").as_bytes())
+        });
+
+        let client = RuntimeClient::new();
+        let summaries = list_trajectory_summaries(&client, &endpoint(server.port(), None))
+            .expect("trajectory summaries");
+
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].cascade_id, "conversation-a");
+        assert_eq!(summaries[0].step_count, Some(12));
+        assert_eq!(summaries[1].cascade_id, "conversation-b");
+        assert_eq!(summaries[1].step_count, Some(7));
+    }
+
+    #[test]
+    fn fetches_generator_metadata_with_cascade_id() {
+        let _guard = runtime_client_test_lock();
+        let server = TestServer::start(|request| {
+            assert!(request.contains("GetCascadeTrajectoryGeneratorMetadata"));
+            assert!(request.contains(r#""cascadeId":"conversation-1""#));
+            http_response(br#"{"generatorMetadata":[{"chatModel":{"model":"gemini","usage":{"inputTokens":"10","outputTokens":"2","model":"gemini"}}}]}"#)
+        });
+
+        let client = RuntimeClient::new();
+        let response = client
+            .get_cascade_trajectory_generator_metadata(&endpoint(server.port(), None), "conversation-1")
+            .expect("generator metadata");
+
+        assert!(response.get("generatorMetadata").is_some());
     }
 
     #[test]

@@ -1,0 +1,17 @@
+{
+  "trajectorySummaries": {
+    "conversation-a": {
+      "summary": "Sample trajectory A",
+      "stepCount": 12,
+      "cascadeId": "conversation-a",
+      "trajectoryId": "trajectory-a",
+      "status": "CASCADE_RUN_STATUS_IDLE"
+    },
+    "conversation-b": {
+      "summary": "Sample trajectory B",
+      "stepCount": 7,
+      "cascadeId": "conversation-b",
+      "status": "CASCADE_RUN_STATUS_RUNNING"
+    }
+  }
+}

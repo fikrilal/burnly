@@ -22,9 +22,10 @@ use crate::domain::source::SourceKey;
 use super::discovery::{LocalListener, ProcessSnapshot};
 use super::mapper::{self, AntigravityMappingContext, ConversationUsage};
 use super::{
-    extract_usage_records, ConversationDatabase, ConversationIndex, RuntimeClient,
+    extract_usage_from_generator_metadata, ConversationDatabase, ConversationIndex, RuntimeClient,
     RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
 };
+use super::runtime_metadata_client::fetch_generator_metadata_items;
 
 const COLLECTOR_KEY: &str = "antigravity";
 const DISPLAY_NAME: &str = "Antigravity";
@@ -221,7 +222,7 @@ enum AntigravityRuntimeCollectionFailureReason {
     RuntimeNotFound,
     RuntimeIdentityProbeFailed,
     NoMatchingRuntimeEndpoint,
-    RuntimeStreamUnavailable,
+    RuntimeMetadataUnavailable,
 }
 
 impl AntigravityRuntimeCollectionFailureReason {
@@ -230,7 +231,7 @@ impl AntigravityRuntimeCollectionFailureReason {
             Self::RuntimeNotFound => "antigravity.runtime_not_found",
             Self::RuntimeIdentityProbeFailed => "antigravity.runtime_identity_probe_failed",
             Self::NoMatchingRuntimeEndpoint => "antigravity.runtime_endpoint_mismatch",
-            Self::RuntimeStreamUnavailable => "antigravity.runtime_stream_unavailable",
+            Self::RuntimeMetadataUnavailable => "antigravity.metadata_rpc_unavailable",
         }
     }
 
@@ -243,8 +244,8 @@ impl AntigravityRuntimeCollectionFailureReason {
             Self::NoMatchingRuntimeEndpoint => {
                 "Antigravity conversation artifacts were found, but no matching runtime endpoint was available."
             }
-            Self::RuntimeStreamUnavailable => {
-                "Antigravity runtime endpoints were found, but usage streams could not be read."
+            Self::RuntimeMetadataUnavailable => {
+                "Antigravity runtime endpoints were found, but generator metadata could not be read."
             }
         }
     }
@@ -254,7 +255,7 @@ impl AntigravityRuntimeCollectionFailureReason {
             Self::RuntimeNotFound => "runtime_not_found",
             Self::RuntimeIdentityProbeFailed => "runtime_identity_probe_failed",
             Self::NoMatchingRuntimeEndpoint => "no_matching_runtime_endpoint",
-            Self::RuntimeStreamUnavailable => "runtime_stream_unavailable",
+            Self::RuntimeMetadataUnavailable => "metadata_rpc_unavailable",
         }
     }
 
@@ -263,7 +264,7 @@ impl AntigravityRuntimeCollectionFailureReason {
             Self::RuntimeNotFound
             | Self::RuntimeIdentityProbeFailed
             | Self::NoMatchingRuntimeEndpoint
-            | Self::RuntimeStreamUnavailable => CollectorFailureCode::SourceNotFound,
+            | Self::RuntimeMetadataUnavailable => CollectorFailureCode::SourceNotFound,
         }
     }
 }
@@ -443,8 +444,8 @@ impl Collector for AntigravityCollector {
         let report = match self.runtime_usage.collect(&endpoints, &conversations) {
             Ok(report) => report,
             Err(error) => {
-                diagnostics.stream_calls_attempted = error.report.stream_calls_attempted;
-                diagnostics.streams_succeeded = error.report.streams_succeeded;
+                diagnostics.metadata_calls_attempted = error.report.metadata_calls_attempted;
+                diagnostics.metadata_calls_succeeded = error.report.metadata_calls_succeeded;
                 diagnostics.records_extracted = error.report.records_extracted;
                 diagnostics.records_rejected = error.report.records_rejected;
                 let failure_code = error.reason.collector_failure_code();
@@ -462,8 +463,8 @@ impl Collector for AntigravityCollector {
                 return Err(failure(&request, failure_code));
             }
         };
-        diagnostics.stream_calls_attempted = report.stream_calls_attempted;
-        diagnostics.streams_succeeded = report.streams_succeeded;
+        diagnostics.metadata_calls_attempted = report.metadata_calls_attempted;
+        diagnostics.metadata_calls_succeeded = report.metadata_calls_succeeded;
         diagnostics.records_extracted = report.records_extracted;
         diagnostics.records_rejected = report.records_rejected;
         if cancellation.is_cancelled() {
@@ -568,8 +569,8 @@ fn collect_runtime_usage(
 ) -> Result<RuntimeUsageReport, AntigravityRuntimeCollectionFailure> {
     let mut collected = Vec::new();
     let mut attempted = false;
-    let mut stream_calls_attempted = 0_u32;
-    let mut successful_streams = 0_u32;
+    let mut metadata_calls_attempted = 0_u32;
+    let mut metadata_calls_succeeded = 0_u32;
     let mut records_extracted = 0_u32;
     let mut records_rejected = 0_u32;
     for conversation in conversations {
@@ -579,17 +580,25 @@ fn collect_runtime_usage(
             .filter(|endpoint| endpoint.variant == conversation.variant)
         {
             attempted = true;
-            stream_calls_attempted = stream_calls_attempted.saturating_add(1);
-            let frames =
-                match client.stream_agent_state_updates(endpoint, &conversation.conversation_id) {
-                    Ok(frames) => frames,
-                    Err(_) => continue,
-                };
-            successful_streams = successful_streams.saturating_add(1);
-            let mut extracted = match extract_usage_records(
+            metadata_calls_attempted = metadata_calls_attempted.saturating_add(1);
+            let metadata_items = match fetch_generator_metadata_items(
+                client,
+                endpoint,
+                &conversation.conversation_id,
+            ) {
+                Ok(items) => {
+                    metadata_calls_succeeded = metadata_calls_succeeded.saturating_add(1);
+                    items
+                }
+                Err(_) => continue,
+            };
+            if metadata_items.is_empty() {
+                continue;
+            }
+            let mut extracted = match extract_usage_from_generator_metadata(
                 conversation.variant,
                 &conversation.conversation_id,
-                &frames,
+                &metadata_items,
             ) {
                 Ok(extracted) => extracted,
                 Err(_) => {
@@ -618,8 +627,8 @@ fn collect_runtime_usage(
     }
     let report = RuntimeUsageReport {
         usage: collected,
-        stream_calls_attempted,
-        streams_succeeded: successful_streams,
+        metadata_calls_attempted,
+        metadata_calls_succeeded,
         records_extracted,
         records_rejected,
     };
@@ -629,9 +638,9 @@ fn collect_runtime_usage(
             report,
         });
     }
-    if successful_streams == 0 {
+    if metadata_calls_succeeded == 0 {
         return Err(AntigravityRuntimeCollectionFailure {
-            reason: AntigravityRuntimeCollectionFailureReason::RuntimeStreamUnavailable,
+            reason: AntigravityRuntimeCollectionFailureReason::RuntimeMetadataUnavailable,
             report,
         });
     }
@@ -641,8 +650,8 @@ fn collect_runtime_usage(
 #[derive(Debug, Clone, Default)]
 struct RuntimeUsageReport {
     usage: Vec<ConversationUsage>,
-    stream_calls_attempted: u32,
-    streams_succeeded: u32,
+    metadata_calls_attempted: u32,
+    metadata_calls_succeeded: u32,
     records_extracted: u32,
     records_rejected: u32,
 }
@@ -657,8 +666,8 @@ impl RuntimeUsageReport {
             .try_into()
             .unwrap_or(u32::MAX);
         Self {
-            streams_succeeded: usage.len().try_into().unwrap_or(u32::MAX),
-            stream_calls_attempted: usage.len().try_into().unwrap_or(u32::MAX),
+            metadata_calls_succeeded: usage.len().try_into().unwrap_or(u32::MAX),
+            metadata_calls_attempted: usage.len().try_into().unwrap_or(u32::MAX),
             usage,
             records_extracted,
             records_rejected: 0,
@@ -1013,39 +1022,39 @@ mod tests {
         let context = events[0].context.as_ref().expect("context").as_str();
         assert!(context.contains(r#""endpointsFound":1"#));
         assert!(context.contains(r#""conversationArtifactsFound":1"#));
-        assert!(context.contains(r#""streamCallsAttempted":0"#));
+        assert!(context.contains(r#""metadataCallsAttempted":0"#));
         assert!(context.contains(r#""failureCode":"source.not_found""#));
         assert!(context.contains(r#""failureReason":"no_matching_runtime_endpoint""#));
     }
 
     #[test]
-    fn records_diagnostic_when_runtime_stream_is_unavailable() {
+    fn records_diagnostic_when_runtime_metadata_is_unavailable() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
         let (_directory, collector) = collector_with_conversation_and_runtime(
             AntigravityProductVariant::App,
             AntigravityProductVariant::App,
             RuntimeUsageSource::Failing(
-                AntigravityRuntimeCollectionFailureReason::RuntimeStreamUnavailable,
+                AntigravityRuntimeCollectionFailureReason::RuntimeMetadataUnavailable,
             ),
         );
         let collector = collector.with_test_diagnostics(diagnostics.clone());
 
         let error = collector
             .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
-            .expect_err("stream unavailable");
+            .expect_err("metadata unavailable");
 
         assert_eq!(error.code, CollectorFailureCode::SourceNotFound);
         let events = diagnostics.events();
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0].code.as_str(),
-            "antigravity.runtime_stream_unavailable"
+            "antigravity.metadata_rpc_unavailable"
         );
         let context = events[0].context.as_ref().expect("context").as_str();
         assert!(context.contains(r#""endpointsFound":1"#));
         assert!(context.contains(r#""conversationArtifactsFound":1"#));
         assert!(context.contains(r#""failureCode":"source.not_found""#));
-        assert!(context.contains(r#""failureReason":"runtime_stream_unavailable""#));
+        assert!(context.contains(r#""failureReason":"metadata_rpc_unavailable""#));
     }
 
     #[test]
@@ -1088,7 +1097,104 @@ mod tests {
         assert!(context.contains(r#""conversationArtifactsFound":2"#));
         assert!(context.contains(r#""recordsExtracted":2"#));
         assert!(context.contains(r#""recordsRejected":0"#));
-        assert!(context.contains(r#""streamsSucceeded":2"#));
+        assert!(context.contains(r#""metadataCallsSucceeded":2"#));
+    }
+
+    #[test]
+    fn continues_collection_when_one_metadata_fetch_fails() {
+        use std::io::{Read, Write};
+        use std::net::{Ipv4Addr, TcpListener};
+        use std::sync::{Mutex, MutexGuard};
+        use std::thread;
+
+        static LOCK: Mutex<()> = Mutex::new(());
+
+        fn metadata_test_lock() -> MutexGuard<'static, ()> {
+            LOCK.lock().expect("metadata integration test lock")
+        }
+
+        fn read_http_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            let mut content_length = None;
+            loop {
+                let read = stream.read(&mut buffer).expect("read request");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+                let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
+                else {
+                    continue;
+                };
+                if content_length.is_none() {
+                    let headers = String::from_utf8_lossy(&request[..header_end]);
+                    content_length = headers.lines().find_map(|line| {
+                        line.strip_prefix("Content-Length: ")
+                            .and_then(|value| value.parse::<usize>().ok())
+                    });
+                }
+                let expected_length = header_end + 4 + content_length.unwrap_or(0);
+                if request.len() >= expected_length {
+                    break;
+                }
+            }
+            request
+        }
+
+        let _guard = metadata_test_lock();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("listener");
+        let port = listener.local_addr().expect("addr").port();
+        let handle = thread::spawn(move || {
+            for _ in 0..2 {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    break;
+                };
+                let request_bytes = read_http_request(&mut stream);
+                let request = String::from_utf8_lossy(&request_bytes);
+                let response = if request.contains("conversation-fail") {
+                    b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_vec()
+                } else {
+                    let body = br#"{"generatorMetadata":[{"chatModel":{"model":"gemini","modelDisplayName":"Gemini Flash","usage":{"model":"gemini","inputTokens":"25","outputTokens":"5","responseId":"response-ok"}}}]}"#;
+                    [
+                        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len())
+                            .into_bytes(),
+                        body.to_vec(),
+                    ]
+                    .concat()
+                };
+                stream.write_all(&response).expect("write response");
+            }
+        });
+
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), AntigravityProductVariant::App, "conversation-fail");
+        create_db(data_root.path(), AntigravityProductVariant::App, "conversation-ok");
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from(
+                    "/opt/antigravity/Antigravity-x64/language_server",
+                )),
+                vec![
+                    "language_server".to_owned(),
+                    "--override_ide_name".to_owned(),
+                    "antigravity".to_owned(),
+                ],
+                vec![LocalListener::ipv4(port)],
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Current(RuntimeClient::new()),
+        );
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection");
+
+        handle.join().expect("server thread");
+        assert_eq!(result.daily_candidates().len(), 1);
+        assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(25));
     }
 
     #[test]
