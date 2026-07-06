@@ -7,7 +7,9 @@ use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
 use crate::infrastructure::collectors::routed::RoutedCollector;
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
-use crate::infrastructure::database::{Database, SqliteDiagnosticStore};
+use crate::infrastructure::database::{
+    Database, SqliteAntigravityUsageCacheStore, SqliteDiagnosticStore,
+};
 
 use super::{resources, StartupError};
 
@@ -34,8 +36,12 @@ pub(super) fn build_collector_graph(
         ZCodeCollector::from_data_dir(resources::default_zcode_data_dir())
             .with_diagnostic_recorder(diagnostic_recorder.clone()),
     );
+    let usage_cache_database =
+        Database::open(database_path).map_err(StartupError::Persistence)?;
+    let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(usage_cache_database));
     let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(
         diagnostic_recorder,
+        usage_cache,
     ));
 
     Ok(Arc::new(RoutedCollector::new(

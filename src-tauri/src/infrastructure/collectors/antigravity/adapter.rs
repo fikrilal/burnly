@@ -26,6 +26,7 @@ use super::{
     RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
 };
 use super::runtime_metadata_client::fetch_generator_metadata_items;
+use super::usage_cache::{AntigravityCacheSupplementReport, AntigravityUsageCacheClient, NoOpAntigravityUsageCache};
 
 const COLLECTOR_KEY: &str = "antigravity";
 const DISPLAY_NAME: &str = "Antigravity";
@@ -39,6 +40,7 @@ pub(crate) struct AntigravityCollector {
     runtime_discovery: RuntimeDiscoverySource,
     endpoint_validation: EndpointValidationSource,
     runtime_usage: RuntimeUsageSource,
+    usage_cache: AntigravityUsageCacheClient,
     diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
 }
 
@@ -50,13 +52,18 @@ impl AntigravityCollector {
             runtime_discovery: RuntimeDiscoverySource::Current,
             endpoint_validation: EndpointValidationSource::Current(runtime_client.clone()),
             runtime_usage: RuntimeUsageSource::Current(runtime_client),
+            usage_cache: AntigravityUsageCacheClient::new(Arc::new(NoOpAntigravityUsageCache)),
             diagnostics: None,
         }
     }
 
-    pub(crate) fn with_diagnostic_recorder(diagnostics: Arc<dyn DiagnosticRecorder>) -> Self {
+    pub(crate) fn with_diagnostic_recorder(
+        diagnostics: Arc<dyn DiagnosticRecorder>,
+        usage_cache: Arc<dyn crate::application::ports::antigravity_usage_cache::AntigravityUsageCache>,
+    ) -> Self {
         Self {
             diagnostics: Some(diagnostics),
+            usage_cache: AntigravityUsageCacheClient::new(usage_cache),
             ..Self::new()
         }
     }
@@ -77,6 +84,7 @@ impl AntigravityCollector {
             )]),
             EndpointValidationSource::Passthrough,
             RuntimeUsageSource::Fixed(Vec::new()),
+            AntigravityUsageCacheClient::new(Arc::new(NoOpAntigravityUsageCache)),
         )
     }
 
@@ -86,14 +94,22 @@ impl AntigravityCollector {
         runtime_discovery: RuntimeDiscovery,
         endpoint_validation: EndpointValidationSource,
         runtime_usage: RuntimeUsageSource,
+        usage_cache: AntigravityUsageCacheClient,
     ) -> Self {
         Self {
             conversation_index,
             runtime_discovery: RuntimeDiscoverySource::Fixed(runtime_discovery),
             endpoint_validation,
             runtime_usage,
+            usage_cache,
             diagnostics: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_usage_cache(mut self, usage_cache: AntigravityUsageCacheClient) -> Self {
+        self.usage_cache = usage_cache;
+        self
     }
 
     #[cfg(test)]
@@ -384,26 +400,6 @@ impl Collector for AntigravityCollector {
             ..AntigravityDiagnosticCounters::default()
         };
         let endpoints = validation.endpoints;
-        if endpoints.is_empty() {
-            let reason = if discovery.endpoints.is_empty() {
-                AntigravityRuntimeCollectionFailureReason::RuntimeNotFound
-            } else {
-                AntigravityRuntimeCollectionFailureReason::RuntimeIdentityProbeFailed
-            };
-            let failure_code = reason.collector_failure_code();
-            self.record_diagnostic(
-                &request,
-                AntigravityDiagnosticInput {
-                    severity: DiagnosticSeverity::Warning,
-                    code: reason.diagnostic_code(),
-                    summary: reason.summary(),
-                    counters: &diagnostics,
-                    failure_code: Some(failure_code.code()),
-                    failure_reason: Some(reason.failure_reason()),
-                },
-            );
-            return Err(failure(&request, failure_code));
-        }
         let conversations = self
             .conversation_index
             .list(
@@ -441,62 +437,48 @@ impl Collector for AntigravityCollector {
             );
             return empty_result(&request, started, started_at);
         }
-        let report = match self.runtime_usage.collect(&endpoints, &conversations) {
+        if endpoints.is_empty() {
+            return self.collect_with_cache_fallback(
+                &request,
+                started,
+                started_at,
+                &mut diagnostics,
+                &conversations,
+                None,
+                if discovery.endpoints.is_empty() {
+                    AntigravityRuntimeCollectionFailureReason::RuntimeNotFound
+                } else {
+                    AntigravityRuntimeCollectionFailureReason::RuntimeIdentityProbeFailed
+                },
+            );
+        }
+        let mut runtime_failure = None;
+        let mut report = match self.runtime_usage.collect(&endpoints, &conversations) {
             Ok(report) => report,
             Err(error) => {
-                diagnostics.metadata_calls_attempted = error.report.metadata_calls_attempted;
-                diagnostics.metadata_calls_succeeded = error.report.metadata_calls_succeeded;
-                diagnostics.records_extracted = error.report.records_extracted;
-                diagnostics.records_rejected = error.report.records_rejected;
-                let failure_code = error.reason.collector_failure_code();
-                self.record_diagnostic(
-                    &request,
-                    AntigravityDiagnosticInput {
-                        severity: DiagnosticSeverity::Warning,
-                        code: error.reason.diagnostic_code(),
-                        summary: error.reason.summary(),
-                        counters: &diagnostics,
-                        failure_code: Some(failure_code.code()),
-                        failure_reason: Some(error.reason.failure_reason()),
-                    },
-                );
-                return Err(failure(&request, failure_code));
+                runtime_failure = Some(error.reason);
+                error.report
             }
         };
         diagnostics.metadata_calls_attempted = report.metadata_calls_attempted;
         diagnostics.metadata_calls_succeeded = report.metadata_calls_succeeded;
         diagnostics.records_extracted = report.records_extracted;
         diagnostics.records_rejected = report.records_rejected;
-        if cancellation.is_cancelled() {
-            self.record_diagnostic(
-                &request,
-                AntigravityDiagnosticInput {
-                    severity: DiagnosticSeverity::Warning,
-                    code: "antigravity.collection_cancelled",
-                    summary: "Antigravity collection was cancelled.",
-                    counters: &diagnostics,
-                    failure_code: Some(CollectorFailureCode::Cancelled.code()),
-                    failure_reason: Some("cancelled"),
-                },
-            );
-            return Err(failure(&request, CollectorFailureCode::Cancelled));
+        if report.metadata_calls_succeeded > 0 {
+            let runtime_usage = report.usage.clone();
+            let _ = self
+                .usage_cache
+                .upsert_runtime_usage(&runtime_usage, COLLECTOR_VERSION);
         }
-
-        let result = result_from_usage(&request, started, started_at, report.usage);
-        if result.is_ok() {
-            self.record_diagnostic(
-                &request,
-                AntigravityDiagnosticInput {
-                    severity: DiagnosticSeverity::Info,
-                    code: "antigravity.collection_completed",
-                    summary: "Antigravity collection completed.",
-                    counters: &diagnostics,
-                    failure_code: None,
-                    failure_reason: None,
-                },
-            );
-        }
-        result
+        self.collect_with_cache_fallback(
+            &request,
+            started,
+            started_at,
+            &mut diagnostics,
+            &conversations,
+            Some((&mut report, runtime_failure)),
+            AntigravityRuntimeCollectionFailureReason::RuntimeMetadataUnavailable,
+        )
     }
 }
 
@@ -510,6 +492,82 @@ struct AntigravityDiagnosticInput<'a> {
 }
 
 impl AntigravityCollector {
+    fn collect_with_cache_fallback(
+        &self,
+        request: &CollectionRequest,
+        started: Instant,
+        started_at: DateTime<Utc>,
+        diagnostics: &mut AntigravityDiagnosticCounters,
+        conversations: &[ConversationDatabase],
+        runtime_state: Option<(
+            &mut RuntimeUsageReport,
+            Option<AntigravityRuntimeCollectionFailureReason>,
+        )>,
+        default_failure_reason: AntigravityRuntimeCollectionFailureReason,
+    ) -> Result<CollectionResult, CollectorFailure> {
+        let mut usage = runtime_state
+            .as_ref()
+            .map(|(report, _)| report.usage.clone())
+            .unwrap_or_default();
+        let supplement = self
+            .usage_cache
+            .supplement_usage(
+                request.scope(),
+                request.aggregation_timezone().unwrap_or("UTC"),
+                conversations,
+                &mut usage,
+            )
+            .unwrap_or(AntigravityCacheSupplementReport::default());
+        diagnostics.cache_records_read = supplement.records_read;
+        diagnostics.cache_records_used = supplement.records_used;
+
+        if usage.is_empty() {
+            let reason = runtime_state
+                .and_then(|(_, failure)| failure)
+                .unwrap_or(default_failure_reason);
+            let failure_code = reason.collector_failure_code();
+            self.record_diagnostic(
+                request,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Warning,
+                    code: reason.diagnostic_code(),
+                    summary: reason.summary(),
+                    counters: diagnostics,
+                    failure_code: Some(failure_code.code()),
+                    failure_reason: Some(reason.failure_reason()),
+                },
+            );
+            return Err(failure(request, failure_code));
+        }
+
+        if supplement.used_cache {
+            self.record_diagnostic(
+                request,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Info,
+                    code: "antigravity.cache_used",
+                    summary: "Antigravity collection used cached usage records because runtime metadata was unavailable.",
+                    counters: diagnostics,
+                    failure_code: None,
+                    failure_reason: Some("cache_used"),
+                },
+            );
+        }
+
+        self.record_diagnostic(
+            request,
+            AntigravityDiagnosticInput {
+                severity: DiagnosticSeverity::Info,
+                code: "antigravity.collection_completed",
+                summary: "Antigravity collection completed.",
+                counters: diagnostics,
+                failure_code: None,
+                failure_reason: None,
+            },
+        );
+        result_from_usage(request, started, started_at, usage)
+    }
+
     fn record_diagnostic(
         &self,
         request: &CollectionRequest,
@@ -543,6 +601,8 @@ impl AntigravityCollector {
                 "streamsSucceeded": input.counters.streams_succeeded,
                 "recordsExtracted": input.counters.records_extracted,
                 "recordsRejected": input.counters.records_rejected,
+                "cacheRecordsRead": input.counters.cache_records_read,
+                "cacheRecordsUsed": input.counters.cache_records_used,
             })
             .to_string(),
         ) else {
@@ -690,6 +750,8 @@ struct AntigravityDiagnosticCounters {
     streams_succeeded: u32,
     records_extracted: u32,
     records_rejected: u32,
+    cache_records_read: u32,
+    cache_records_used: u32,
 }
 
 fn dedupe_records(
@@ -960,7 +1022,15 @@ mod tests {
 
     #[test]
     fn returns_source_not_found_when_runtime_endpoint_is_missing() {
-        let collector = collector_with_discovery(RuntimeDiscovery::from_processes(Vec::new()));
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), AntigravityProductVariant::App, "conversation");
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Current(RuntimeClient::new()),
+            noop_usage_cache_client(),
+        );
 
         let error = collector
             .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
@@ -972,8 +1042,16 @@ mod tests {
     #[test]
     fn records_diagnostic_when_runtime_endpoint_is_missing() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
-        let collector = collector_with_discovery(RuntimeDiscovery::from_processes(Vec::new()))
-            .with_test_diagnostics(diagnostics.clone());
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), AntigravityProductVariant::App, "conversation");
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Current(RuntimeClient::new()),
+            noop_usage_cache_client(),
+        )
+        .with_test_diagnostics(diagnostics.clone());
 
         let error = collector
             .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
@@ -1025,6 +1103,60 @@ mod tests {
         assert!(context.contains(r#""metadataCallsAttempted":0"#));
         assert!(context.contains(r#""failureCode":"source.not_found""#));
         assert!(context.contains(r#""failureReason":"no_matching_runtime_endpoint""#));
+    }
+
+    #[test]
+    fn uses_cached_usage_when_runtime_metadata_is_unavailable() {
+        use crate::infrastructure::collectors::antigravity::usage_cache::tests::{
+            cached_record, RecordingUsageCache,
+        };
+
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let cache = RecordingUsageCache::default().seed(vec![cached_record(
+            AntigravityProductVariant::App,
+            "conversation",
+            "response-cached",
+            55,
+            11,
+        )]);
+        let (_directory, collector) = collector_with_conversation_and_runtime(
+            AntigravityProductVariant::App,
+            AntigravityProductVariant::App,
+            RuntimeUsageSource::Failing(
+                AntigravityRuntimeCollectionFailureReason::RuntimeMetadataUnavailable,
+            ),
+        );
+        let collector = collector
+            .with_usage_cache(AntigravityUsageCacheClient::new(Arc::new(cache)))
+            .with_test_diagnostics(diagnostics.clone());
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("cached collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        assert_eq!(result.daily_candidates().len(), 1);
+        assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(55));
+        let events = diagnostics.events();
+        assert!(events.iter().any(|event| event.code.as_str() == "antigravity.cache_used"));
+        assert!(events.iter().any(|event| {
+            event.code.as_str() == "antigravity.collection_completed"
+        }));
+    }
+
+    #[test]
+    fn upserts_cache_after_successful_runtime_collection() {
+        use crate::infrastructure::collectors::antigravity::usage_cache::tests::RecordingUsageCache;
+
+        let cache = Arc::new(RecordingUsageCache::default());
+        let (_directory, collector) = collector_with_usage();
+        let collector = collector.with_usage_cache(AntigravityUsageCacheClient::new(cache.clone()));
+
+        collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection");
+
+        assert!(!cache.upserts().is_empty());
     }
 
     #[test]
@@ -1186,6 +1318,7 @@ mod tests {
             )]),
             EndpointValidationSource::Passthrough,
             RuntimeUsageSource::Current(RuntimeClient::new()),
+            noop_usage_cache_client(),
         );
 
         let result = collector
@@ -1217,15 +1350,20 @@ mod tests {
     #[test]
     fn records_diagnostic_when_identity_probe_rejects_all_endpoints() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
-        let collector = collector_with_discovery(RuntimeDiscovery::from_processes(vec![
-            ProcessSnapshot::new(
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), AntigravityProductVariant::Cli, "conversation");
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
                 10,
                 Some(PathBuf::from("/home/user/.local/bin/agy")),
                 vec!["agy".to_owned()],
                 vec![LocalListener::ipv4(34415)],
-            ),
-        ]))
-        .with_endpoint_validation(EndpointValidationSource::RejectAll)
+            )]),
+            EndpointValidationSource::RejectAll,
+            RuntimeUsageSource::Current(RuntimeClient::new()),
+            noop_usage_cache_client(),
+        )
         .with_test_diagnostics(diagnostics.clone());
 
         let error = collector
@@ -1298,6 +1436,7 @@ mod tests {
             runtime_discovery,
             EndpointValidationSource::Passthrough,
             RuntimeUsageSource::Fixed(Vec::new()),
+            noop_usage_cache_client(),
         )
     }
 
@@ -1323,6 +1462,7 @@ mod tests {
             )]),
             EndpointValidationSource::Passthrough,
             RuntimeUsageSource::Fixed(fixed_usage()),
+            noop_usage_cache_client(),
         );
         (data_root, collector)
     }
@@ -1339,8 +1479,13 @@ mod tests {
             RuntimeDiscovery::from_processes(vec![process_for_variant(runtime_variant)]),
             EndpointValidationSource::Passthrough,
             runtime_usage,
+            noop_usage_cache_client(),
         );
         (data_root, collector)
+    }
+
+    fn noop_usage_cache_client() -> AntigravityUsageCacheClient {
+        AntigravityUsageCacheClient::new(Arc::new(NoOpAntigravityUsageCache))
     }
 
     fn process_for_variant(variant: AntigravityProductVariant) -> ProcessSnapshot {

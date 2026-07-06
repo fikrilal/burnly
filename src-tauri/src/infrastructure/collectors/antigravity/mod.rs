@@ -5,6 +5,7 @@ mod mapper;
 pub(crate) mod product_variant;
 mod runtime_client;
 mod runtime_metadata_client;
+mod usage_cache;
 mod usage_extractor;
 
 pub(crate) use adapter::AntigravityCollector;
