@@ -3,7 +3,8 @@
 ## Status
 
 Engineering proposal, revised after production diagnostics and Tokscale code
-inspection on July 6, 2026.
+inspection on July 6, 2026. Collector hardening phases 01–06 completed on July
+6, 2026. See `docs/exec-plans/completed/2026-07-06_antigravity-hardening-*`.
 
 This proposal covers native Burnly support for Google Antigravity local runtime
 usage data across Antigravity product variants. It is not an execution plan and
@@ -13,6 +14,15 @@ The July 6 revision supersedes the earlier "stream first" recommendation. The
 current Burnly collector already proved that `StreamAgentStateUpdates` is too
 fragile as the primary data path because Antigravity can unload or rotate local
 trajectories while local SQLite artifacts still exist.
+
+Implemented hardening summary:
+
+- Runtime metadata sync replaced stream-first collection for App/IDE.
+- Durable normalized usage cache supplements partial runtime failures.
+- CLI SQLite/protobuf reader is the primary CLI collection path.
+- App/IDE SQLite/protobuf parsing is an experimental gated fallback.
+- Product and engineering docs record experimental status, privacy boundary, and
+  recoverable cache diagnostics.
 
 ## Context
 

@@ -8,7 +8,9 @@ use crate::infrastructure::collectors::support::open_external_read_only;
 
 use super::mapper::ConversationUsage;
 use super::product_variant::AntigravityProductVariant;
-use super::protobuf_usage::{parse_gen_metadata_rows, parse_trajectory_created_ms, ProtobufUsageError};
+use super::protobuf_usage::{
+    parse_gen_metadata_rows, parse_trajectory_created_ms, ProtobufUsageError,
+};
 use super::ConversationDatabase;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -42,8 +44,9 @@ pub(crate) fn collect_cli_sqlite_usage(
         match read_cli_conversation(conversation) {
             Ok(records) => {
                 report.conversations_parsed = report.conversations_parsed.saturating_add(1);
-                report.records_extracted =
-                    report.records_extracted.saturating_add(records.len().try_into().unwrap_or(u32::MAX));
+                report.records_extracted = report
+                    .records_extracted
+                    .saturating_add(records.len().try_into().unwrap_or(u32::MAX));
                 if !records.is_empty() {
                     usage.push(ConversationUsage {
                         database: conversation.clone(),
@@ -75,9 +78,8 @@ pub(crate) fn read_conversation_gen_metadata_usage(
 ) -> Result<Vec<super::AntigravityUsageRecord>, ConversationSqliteReaderError> {
     let connection =
         open_external_read_only(&conversation.path).map_err(ConversationSqliteReaderError::Open)?;
-    let session_timestamp_ms =
-        read_session_timestamp_ms(&connection, &conversation.path).map_err(Into::into)?;
-    let rows = read_gen_metadata_rows(&connection).map_err(Into::into)?;
+    let session_timestamp_ms = read_session_timestamp_ms(&connection, &conversation.path)?;
+    let rows = read_gen_metadata_rows(&connection)?;
     parse_gen_metadata_rows(
         conversation.variant,
         &conversation.conversation_id,
@@ -260,7 +262,10 @@ mod tests {
         assert_eq!(report.conversations_parsed, 1);
         assert_eq!(usage.len(), 1);
         assert_eq!(usage[0].records[0].input_tokens, 150);
-        assert_eq!(usage[0].records[0].response_id.as_deref(), Some("response-1"));
+        assert_eq!(
+            usage[0].records[0].response_id.as_deref(),
+            Some("response-1")
+        );
     }
 
     #[test]

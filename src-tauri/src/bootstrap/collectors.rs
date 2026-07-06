@@ -36,8 +36,7 @@ pub(super) fn build_collector_graph(
         ZCodeCollector::from_data_dir(resources::default_zcode_data_dir())
             .with_diagnostic_recorder(diagnostic_recorder.clone()),
     );
-    let usage_cache_database =
-        Database::open(database_path).map_err(StartupError::Persistence)?;
+    let usage_cache_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(usage_cache_database));
     let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(
         diagnostic_recorder,

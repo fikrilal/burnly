@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -18,20 +19,20 @@ use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::domain::source::SourceKey;
 
+use super::app_ide_sqlite_reader::{collect_app_ide_sqlite_fallback, AppIdeSqliteCollectionReport};
+use super::cli_sqlite_reader::{collect_cli_sqlite_usage, CliSqliteCollectionReport};
 #[cfg(test)]
 use super::discovery::{LocalListener, ProcessSnapshot};
 use super::mapper::{self, AntigravityMappingContext, ConversationUsage};
+use super::product_variant::AntigravityProductVariant;
+use super::runtime_metadata_client::{
+    fetch_generator_metadata_items, list_trajectory_summaries, TrajectorySummary,
+};
+use super::usage_cache::{AntigravityUsageCacheClient, NoOpAntigravityUsageCache};
 use super::{
     extract_usage_from_generator_metadata, ConversationDatabase, ConversationIndex, RuntimeClient,
     RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
 };
-use super::app_ide_sqlite_reader::{
-    collect_app_ide_sqlite_fallback, AppIdeSqliteCollectionReport,
-};
-use super::cli_sqlite_reader::{collect_cli_sqlite_usage, CliSqliteCollectionReport};
-use super::product_variant::AntigravityProductVariant;
-use super::runtime_metadata_client::fetch_generator_metadata_items;
-use super::usage_cache::{AntigravityCacheSupplementReport, AntigravityUsageCacheClient, NoOpAntigravityUsageCache};
 
 const COLLECTOR_KEY: &str = "antigravity";
 const DISPLAY_NAME: &str = "Antigravity";
@@ -64,7 +65,9 @@ impl AntigravityCollector {
 
     pub(crate) fn with_diagnostic_recorder(
         diagnostics: Arc<dyn DiagnosticRecorder>,
-        usage_cache: Arc<dyn crate::application::ports::antigravity_usage_cache::AntigravityUsageCache>,
+        usage_cache: Arc<
+            dyn crate::application::ports::antigravity_usage_cache::AntigravityUsageCache,
+        >,
     ) -> Self {
         Self {
             diagnostics: Some(diagnostics),
@@ -120,12 +123,6 @@ impl AntigravityCollector {
     #[cfg(test)]
     fn with_test_diagnostics(mut self, diagnostics: Arc<dyn DiagnosticRecorder>) -> Self {
         self.diagnostics = Some(diagnostics);
-        self
-    }
-
-    #[cfg(test)]
-    fn with_endpoint_validation(mut self, endpoint_validation: EndpointValidationSource) -> Self {
-        self.endpoint_validation = endpoint_validation;
         self
     }
 }
@@ -327,9 +324,7 @@ impl Collector for AntigravityCollector {
         }
 
         let discovery = self.runtime_discovery.discover();
-        let validation = self
-            .endpoint_validation
-            .validate(&discovery.endpoints);
+        let validation = self.endpoint_validation.validate(&discovery.endpoints);
         let endpoints = validation.endpoints;
         let conversations = self
             .conversation_index
@@ -393,9 +388,7 @@ impl Collector for AntigravityCollector {
         }
 
         let discovery = self.runtime_discovery.discover();
-        let validation = self
-            .endpoint_validation
-            .validate(&discovery.endpoints);
+        let validation = self.endpoint_validation.validate(&discovery.endpoints);
         let mut diagnostics = AntigravityDiagnosticCounters {
             process_candidates_found: discovery.process_candidates_found,
             endpoints_found: discovery.endpoints.len(),
@@ -471,7 +464,8 @@ impl Collector for AntigravityCollector {
                 AntigravityDiagnosticInput {
                     severity: DiagnosticSeverity::Info,
                     code: "antigravity.sqlite_fallback_accepted",
-                    summary: "Antigravity experimental App/IDE SQLite fallback produced usage records.",
+                    summary:
+                        "Antigravity experimental App/IDE SQLite fallback produced usage records.",
                     counters: &diagnostics,
                     failure_code: None,
                     failure_reason: Some("sqlite_fallback_accepted"),
@@ -509,10 +503,7 @@ impl Collector for AntigravityCollector {
         };
 
         if !endpoints.is_empty() && !runtime_targets.is_empty() {
-            match self
-                .runtime_usage
-                .collect(&endpoints, &runtime_targets)
-            {
+            match self.runtime_usage.collect(&endpoints, &runtime_targets) {
                 Ok(report) => {
                     runtime_failure = None;
                     diagnostics.metadata_calls_attempted = report.metadata_calls_attempted;
@@ -546,16 +537,16 @@ impl Collector for AntigravityCollector {
                 .upsert_runtime_usage(&collected_usage, COLLECTOR_VERSION);
         }
 
-        self.finish_collection(
-            &request,
+        self.finish_collection(FinishCollectionInput {
+            request: &request,
             started,
             started_at,
-            &mut diagnostics,
-            &conversations,
-            collected_usage,
+            diagnostics: &mut diagnostics,
+            conversations: &conversations,
+            usage: collected_usage,
             runtime_failure,
             default_failure_reason,
-        )
+        })
     }
 }
 
@@ -569,18 +560,32 @@ struct AntigravityDiagnosticInput<'a> {
     variants: Vec<&'a str>,
 }
 
+struct FinishCollectionInput<'a> {
+    request: &'a CollectionRequest,
+    started: Instant,
+    started_at: DateTime<Utc>,
+    diagnostics: &'a mut AntigravityDiagnosticCounters,
+    conversations: &'a [ConversationDatabase],
+    usage: Vec<ConversationUsage>,
+    runtime_failure: Option<AntigravityRuntimeCollectionFailureReason>,
+    default_failure_reason: AntigravityRuntimeCollectionFailureReason,
+}
+
 impl AntigravityCollector {
     fn finish_collection(
         &self,
-        request: &CollectionRequest,
-        started: Instant,
-        started_at: DateTime<Utc>,
-        diagnostics: &mut AntigravityDiagnosticCounters,
-        conversations: &[ConversationDatabase],
-        mut usage: Vec<ConversationUsage>,
-        runtime_failure: Option<AntigravityRuntimeCollectionFailureReason>,
-        default_failure_reason: AntigravityRuntimeCollectionFailureReason,
+        input: FinishCollectionInput<'_>,
     ) -> Result<CollectionResult, CollectorFailure> {
+        let FinishCollectionInput {
+            request,
+            started,
+            started_at,
+            diagnostics,
+            conversations,
+            mut usage,
+            runtime_failure,
+            default_failure_reason,
+        } = input;
         let supplement = self
             .usage_cache
             .supplement_usage(
@@ -589,9 +594,12 @@ impl AntigravityCollector {
                 conversations,
                 &mut usage,
             )
-            .unwrap_or(AntigravityCacheSupplementReport::default());
+            .unwrap_or_default();
         diagnostics.cache_records_read = supplement.records_read;
         diagnostics.cache_records_used = supplement.records_used;
+        for conversation_usage in &mut usage {
+            conversation_usage.records = dedupe_records(conversation_usage.records.clone());
+        }
 
         if usage.is_empty() {
             let reason = runtime_failure.unwrap_or(default_failure_reason);
@@ -715,29 +723,27 @@ fn collect_runtime_usage(
     let mut metadata_calls_succeeded = 0_u32;
     let mut records_extracted = 0_u32;
     let mut records_rejected = 0_u32;
-    for conversation in conversations {
-        let mut records = Vec::new();
-        for endpoint in endpoints
-            .iter()
-            .filter(|endpoint| endpoint.variant == conversation.variant)
-        {
-            attempted = true;
+    for endpoint in endpoints {
+        let summaries = runtime_summaries_for_endpoint(client, endpoint, conversations);
+        if summaries.is_empty() {
+            continue;
+        }
+        attempted = true;
+        for summary in summaries {
             metadata_calls_attempted = metadata_calls_attempted.saturating_add(1);
-            let metadata_items = match fetch_generator_metadata_items(
-                client,
-                endpoint,
-                &conversation.conversation_id,
-            ) {
-                Ok(items) => {
-                    metadata_calls_succeeded = metadata_calls_succeeded.saturating_add(1);
-                    items
-                }
-                Err(_) => continue,
-            };
+            let metadata_items =
+                match fetch_generator_metadata_items(client, endpoint, &summary.cascade_id) {
+                    Ok(items) => {
+                        metadata_calls_succeeded = metadata_calls_succeeded.saturating_add(1);
+                        items
+                    }
+                    Err(_) => continue,
+                };
             if metadata_items.is_empty() {
                 continue;
             }
-            let mut extracted = match extract_usage_from_generator_metadata(
+            let conversation = conversation_for_summary(endpoint.variant, &summary, conversations);
+            let extracted = match extract_usage_from_generator_metadata(
                 conversation.variant,
                 &conversation.conversation_id,
                 &metadata_items,
@@ -750,21 +756,13 @@ fn collect_runtime_usage(
             };
             records_extracted =
                 records_extracted.saturating_add(extracted.len().try_into().unwrap_or(u32::MAX));
-            records.append(&mut extracted);
-        }
-        let records_before_dedupe = records.len();
-        let records = dedupe_records(records);
-        records_rejected = records_rejected.saturating_add(
-            records_before_dedupe
-                .saturating_sub(records.len())
-                .try_into()
-                .unwrap_or(u32::MAX),
-        );
-        if !records.is_empty() {
-            collected.push(ConversationUsage {
-                database: conversation.clone(),
-                records,
-            });
+            merge_conversation_usage(
+                &mut collected,
+                vec![ConversationUsage {
+                    database: conversation,
+                    records: extracted,
+                }],
+            );
         }
     }
     let report = RuntimeUsageReport {
@@ -787,6 +785,43 @@ fn collect_runtime_usage(
         });
     }
     Ok(report)
+}
+
+fn runtime_summaries_for_endpoint(
+    client: &RuntimeClient,
+    endpoint: &RuntimeEndpoint,
+    conversations: &[ConversationDatabase],
+) -> Vec<TrajectorySummary> {
+    match list_trajectory_summaries(client, endpoint) {
+        Ok(summaries) if !summaries.is_empty() => summaries,
+        _ => conversations
+            .iter()
+            .filter(|conversation| conversation.variant == endpoint.variant)
+            .map(|conversation| TrajectorySummary {
+                cascade_id: conversation.conversation_id.clone(),
+                step_count: None,
+            })
+            .collect(),
+    }
+}
+
+fn conversation_for_summary(
+    variant: AntigravityProductVariant,
+    summary: &TrajectorySummary,
+    conversations: &[ConversationDatabase],
+) -> ConversationDatabase {
+    conversations
+        .iter()
+        .find(|conversation| {
+            conversation.variant == variant && conversation.conversation_id == summary.cascade_id
+        })
+        .cloned()
+        .unwrap_or_else(|| ConversationDatabase {
+            variant,
+            conversation_id: summary.cascade_id.clone(),
+            path: PathBuf::new(),
+            modified_at: Utc::now(),
+        })
 }
 
 #[derive(Debug, Clone, Default)]
@@ -844,11 +879,10 @@ struct AntigravityDiagnosticCounters {
     app_ide_sqlite_conversations_rejected: u32,
 }
 
-fn variant_names(variants: &std::collections::BTreeSet<AntigravityProductVariant>) -> Vec<&'static str> {
-    variants
-        .iter()
-        .map(|variant| variant.as_str())
-        .collect()
+fn variant_names(
+    variants: &std::collections::BTreeSet<AntigravityProductVariant>,
+) -> Vec<&'static str> {
+    variants.iter().map(|variant| variant.as_str()).collect()
 }
 
 fn apply_cli_sqlite_diagnostics(
@@ -895,16 +929,13 @@ fn conversations_needing_runtime(
                     && usage.database.variant == conversation.variant
                     && !usage.records.is_empty()
             });
-            !has_sqlite_records
+            conversation.variant != AntigravityProductVariant::Cli || !has_sqlite_records
         })
         .cloned()
         .collect()
 }
 
-fn merge_conversation_usage(
-    target: &mut Vec<ConversationUsage>,
-    incoming: Vec<ConversationUsage>,
-) {
+fn merge_conversation_usage(target: &mut Vec<ConversationUsage>, incoming: Vec<ConversationUsage>) {
     for mut entry in incoming {
         if let Some(existing) = target.iter_mut().find(|usage| {
             usage.database.conversation_id == entry.database.conversation_id
@@ -1187,7 +1218,11 @@ mod tests {
     #[test]
     fn returns_source_not_found_when_runtime_endpoint_is_missing() {
         let data_root = TempDir::new().expect("tempdir");
-        create_db(data_root.path(), AntigravityProductVariant::App, "conversation");
+        create_db(
+            data_root.path(),
+            AntigravityProductVariant::App,
+            "conversation",
+        );
         let collector = AntigravityCollector::from_parts(
             ConversationIndex::from_data_root(data_root.path()),
             RuntimeDiscovery::from_processes(Vec::new()),
@@ -1207,7 +1242,11 @@ mod tests {
     fn records_diagnostic_when_runtime_endpoint_is_missing() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
         let data_root = TempDir::new().expect("tempdir");
-        create_db(data_root.path(), AntigravityProductVariant::App, "conversation");
+        create_db(
+            data_root.path(),
+            AntigravityProductVariant::App,
+            "conversation",
+        );
         let collector = AntigravityCollector::from_parts(
             ConversationIndex::from_data_root(data_root.path()),
             RuntimeDiscovery::from_processes(Vec::new()),
@@ -1302,10 +1341,12 @@ mod tests {
         assert_eq!(result.daily_candidates().len(), 1);
         assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(55));
         let events = diagnostics.events();
-        assert!(events.iter().any(|event| event.code.as_str() == "antigravity.cache_used"));
-        assert!(events.iter().any(|event| {
-            event.code.as_str() == "antigravity.collection_completed"
-        }));
+        assert!(events
+            .iter()
+            .any(|event| event.code.as_str() == "antigravity.cache_used"));
+        assert!(events
+            .iter()
+            .any(|event| { event.code.as_str() == "antigravity.collection_completed" }));
     }
 
     #[test]
@@ -1403,13 +1444,20 @@ mod tests {
 
         assert_eq!(result.outcome(), CollectionOutcome::Complete);
         assert_eq!(result.daily_candidates().len(), 1);
-        assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(150));
+        assert_eq!(
+            result.daily_candidates()[0].tokens.input_tokens(),
+            Some(150)
+        );
     }
 
     #[test]
     fn uses_runtime_after_app_sqlite_fallback_rejects_schema_mismatch() {
         let data_root = TempDir::new().expect("tempdir");
-        create_db(data_root.path(), AntigravityProductVariant::App, "app-conversation");
+        create_db(
+            data_root.path(),
+            AntigravityProductVariant::App,
+            "app-conversation",
+        );
         let collector = AntigravityCollector::from_parts(
             ConversationIndex::from_data_root(data_root.path()),
             RuntimeDiscovery::from_processes(vec![process_for_variant(
@@ -1426,7 +1474,10 @@ mod tests {
 
         assert_eq!(result.outcome(), CollectionOutcome::Complete);
         assert_eq!(result.daily_candidates().len(), 1);
-        assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(180));
+        assert_eq!(
+            result.daily_candidates()[0].tokens.input_tokens(),
+            Some(180)
+        );
     }
 
     #[test]
@@ -1479,8 +1530,14 @@ mod tests {
 
         assert_eq!(result.outcome(), CollectionOutcome::Complete);
         assert_eq!(result.daily_candidates().len(), 1);
-        assert_eq!(result.daily_candidates()[0].tokens.input_tokens(), Some(150));
-        assert_eq!(result.daily_candidates()[0].tokens.output_tokens(), Some(25));
+        assert_eq!(
+            result.daily_candidates()[0].tokens.input_tokens(),
+            Some(150)
+        );
+        assert_eq!(
+            result.daily_candidates()[0].tokens.output_tokens(),
+            Some(25)
+        );
     }
 
     #[test]
@@ -1572,13 +1629,21 @@ mod tests {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("listener");
         let port = listener.local_addr().expect("addr").port();
         let handle = thread::spawn(move || {
-            for _ in 0..2 {
+            for _ in 0..3 {
                 let Ok((mut stream, _)) = listener.accept() else {
                     break;
                 };
                 let request_bytes = read_http_request(&mut stream);
                 let request = String::from_utf8_lossy(&request_bytes);
-                let response = if request.contains("conversation-fail") {
+                let response = if request.contains("GetAllCascadeTrajectories") {
+                    let body = br#"{"trajectorySummaries":{"conversation-fail":{"stepCount":1},"conversation-ok":{"stepCount":1}}}"#;
+                    [
+                        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len())
+                            .into_bytes(),
+                        body.to_vec(),
+                    ]
+                    .concat()
+                } else if request.contains("conversation-fail") {
                     b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_vec()
                 } else {
                     let body = br#"{"generatorMetadata":[{"chatModel":{"model":"gemini","modelDisplayName":"Gemini Flash","usage":{"model":"gemini","inputTokens":"25","outputTokens":"5","responseId":"response-ok"}}}]}"#;
@@ -1594,8 +1659,16 @@ mod tests {
         });
 
         let data_root = TempDir::new().expect("tempdir");
-        create_db(data_root.path(), AntigravityProductVariant::App, "conversation-fail");
-        create_db(data_root.path(), AntigravityProductVariant::App, "conversation-ok");
+        create_db(
+            data_root.path(),
+            AntigravityProductVariant::App,
+            "conversation-fail",
+        );
+        create_db(
+            data_root.path(),
+            AntigravityProductVariant::App,
+            "conversation-ok",
+        );
         let collector = AntigravityCollector::from_parts(
             ConversationIndex::from_data_root(data_root.path()),
             RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
@@ -1645,7 +1718,11 @@ mod tests {
     fn records_diagnostic_when_identity_probe_rejects_all_endpoints() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
         let data_root = TempDir::new().expect("tempdir");
-        create_db(data_root.path(), AntigravityProductVariant::Cli, "conversation");
+        create_db(
+            data_root.path(),
+            AntigravityProductVariant::Cli,
+            "conversation",
+        );
         let collector = AntigravityCollector::from_parts(
             ConversationIndex::from_data_root(data_root.path()),
             RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
@@ -1866,6 +1943,7 @@ mod tests {
             model_label: model_label.to_owned(),
             api_provider: Some("API_PROVIDER_GOOGLE_GEMINI".to_owned()),
             response_id: Some(format!("{conversation_id}:{raw_model_id}")),
+            observed_at: None,
             input_tokens,
             output_tokens,
             thinking_output_tokens: 0,

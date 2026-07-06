@@ -402,6 +402,19 @@ Contains adapters for external systems and technical persistence.
 ```text
 infrastructure/
 ├── collectors/
+│   ├── antigravity/
+│   │   ├── adapter.rs
+│   │   ├── app_ide_sqlite_reader.rs
+│   │   ├── cli_sqlite_reader.rs
+│   │   ├── conversation_index.rs
+│   │   ├── discovery.rs
+│   │   ├── mapper.rs
+│   │   ├── protobuf_usage.rs
+│   │   ├── runtime_client.rs
+│   │   ├── runtime_metadata_client.rs
+│   │   ├── usage_cache.rs
+│   │   ├── usage_extractor.rs
+│   │   └── mod.rs
 │   └── ccusage/
 │       ├── capability_profiles/
 │       ├── envelopes/
@@ -443,6 +456,20 @@ It must not:
 - `mapper.rs` produces canonical candidate records.
 
 Do not expose envelope structs outside the adapter.
+
+`collectors/antigravity/` keeps Antigravity runtime discovery, SQLite/protobuf
+reads, runtime metadata sync, cache supplement, and mapping isolated:
+
+- `discovery.rs` and `runtime_client.rs` find and probe local runtime endpoints.
+- `runtime_metadata_client.rs` reads generator metadata RPC responses.
+- `cli_sqlite_reader.rs` and `app_ide_sqlite_reader.rs` read conversation DB
+  usage metadata.
+- `protobuf_usage.rs` parses bounded usage-only protobuf fields.
+- `usage_cache.rs` supplements collection from the durable normalized cache.
+- `adapter.rs` orchestrates collection priority and redacted diagnostics.
+
+Do not expose Antigravity ports, CSRF tokens, protobuf blobs, or conversation
+paths outside the collector adapter.
 
 #### Database adapter layout
 

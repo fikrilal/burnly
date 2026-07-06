@@ -35,7 +35,10 @@ pub(crate) enum AntigravityUsageCacheError {
 }
 
 pub(crate) trait AntigravityUsageCache: Send + Sync {
-    fn upsert(&self, records: &[AntigravityUsageCacheUpsert]) -> Result<(), AntigravityUsageCacheError>;
+    fn upsert(
+        &self,
+        records: &[AntigravityUsageCacheUpsert],
+    ) -> Result<(), AntigravityUsageCacheError>;
 
     fn read_for_scope(
         &self,

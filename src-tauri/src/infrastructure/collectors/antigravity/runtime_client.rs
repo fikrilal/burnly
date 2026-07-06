@@ -57,13 +57,15 @@ impl RuntimeClient {
             return Err(RuntimeClientError::InvalidCascadeId);
         }
         let request = json!({ "cascadeId": cascade_id });
-        let body =
-            serde_json::to_vec(&request).map_err(|_| RuntimeClientError::InvalidJson)?;
+        let body = serde_json::to_vec(&request).map_err(|_| RuntimeClientError::InvalidJson)?;
         let response = post_json(endpoint, GENERATOR_METADATA_PATH, &body, ContentType::Json)?;
         serde_json::from_slice(&response).map_err(|_| RuntimeClientError::InvalidJson)
     }
 
-    pub(crate) fn probe_identity(&self, endpoint: &RuntimeEndpoint) -> Result<(), RuntimeClientError> {
+    pub(crate) fn probe_identity(
+        &self,
+        endpoint: &RuntimeEndpoint,
+    ) -> Result<(), RuntimeClientError> {
         if let Ok(value) = self.retrieve_user_quota_summary(endpoint) {
             if quota_response_is_valid(&value) {
                 return Ok(());
@@ -122,6 +124,29 @@ fn post_json(
     body: &[u8],
     content_type: ContentType,
 ) -> Result<Vec<u8>, RuntimeClientError> {
+    match post_json_http(endpoint, path, body, content_type) {
+        Ok(response) => Ok(response),
+        Err(http_error)
+            if matches!(
+                http_error,
+                RuntimeClientError::ConnectionFailed | RuntimeClientError::MalformedHttp
+            ) =>
+        {
+            match post_json_https(endpoint, path, body, content_type) {
+                Ok(response) => Ok(response),
+                Err(_) => Err(http_error),
+            }
+        }
+        Err(http_error) => Err(http_error),
+    }
+}
+
+fn post_json_http(
+    endpoint: &RuntimeEndpoint,
+    path: &str,
+    body: &[u8],
+    content_type: ContentType,
+) -> Result<Vec<u8>, RuntimeClientError> {
     let mut stream = connect(endpoint)?;
     let mut request = format!(
         "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
@@ -144,6 +169,51 @@ fn post_json(
     request.push_str("\r\n");
     write_request_body(&mut stream, &request, body)?;
     read_http_response(stream)
+}
+
+fn post_json_https(
+    endpoint: &RuntimeEndpoint,
+    path: &str,
+    body: &[u8],
+    content_type: ContentType,
+) -> Result<Vec<u8>, RuntimeClientError> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(TIMEOUT)
+        .tls_danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
+    let url = format!(
+        "https://{}{}",
+        host_header(endpoint.host, endpoint.port),
+        path
+    );
+    let mut request = client
+        .post(url)
+        .header("Content-Type", content_type.as_header())
+        .body(body.to_vec());
+    if content_type == ContentType::ConnectJson {
+        request = request.header("Connect-Protocol-Version", "1");
+    }
+    if let Some(token) = endpoint
+        .csrf_token
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        request = request.header("x-codeium-csrf-token", token);
+    }
+    let response = request
+        .send()
+        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
+    if !response.status().is_success() {
+        return Err(RuntimeClientError::HttpStatus);
+    }
+    let bytes = response
+        .bytes()
+        .map_err(|_| RuntimeClientError::ConnectionFailed)?;
+    if bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(RuntimeClientError::ResponseTooLarge);
+    }
+    Ok(bytes.to_vec())
 }
 
 fn post_connect_stream(
@@ -443,7 +513,10 @@ fn quota_response_is_valid(value: &Value) -> bool {
 }
 
 fn trajectories_response_is_valid(value: &Value) -> bool {
-    value.get("trajectorySummaries").and_then(Value::as_object).is_some()
+    value
+        .get("trajectorySummaries")
+        .and_then(Value::as_object)
+        .is_some()
 }
 
 fn decode_connect_frames(body: &[u8]) -> Result<Vec<Value>, RuntimeClientError> {
@@ -558,7 +631,8 @@ mod tests {
         let server = TestServer::start_streaming(
             |request, stream| {
                 assert!(request.contains("Content-Type: application/connect+json"));
-                let payload = encode_connect_frame(br#"{"response":{"open":true}}"#).expect("frame");
+                let payload =
+                    encode_connect_frame(br#"{"response":{"open":true}}"#).expect("frame");
                 let response = [
                     b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec(),
                     format!("{:x}\r\n", payload.len()).into_bytes(),
@@ -612,7 +686,10 @@ mod tests {
 
         let client = RuntimeClient::new();
         let response = client
-            .get_cascade_trajectory_generator_metadata(&endpoint(server.port(), None), "conversation-1")
+            .get_cascade_trajectory_generator_metadata(
+                &endpoint(server.port(), None),
+                "conversation-1",
+            )
             .expect("generator metadata");
 
         assert!(response.get("generatorMetadata").is_some());
@@ -729,10 +806,13 @@ mod tests {
         }
 
         fn start_with_connections(handler: fn(String) -> Vec<u8>, connections: usize) -> Self {
-            Self::start_streaming(move |request, stream| {
-                let response = handler(request);
-                stream.write_all(&response).expect("write response");
-            }, connections)
+            Self::start_streaming(
+                move |request, stream| {
+                    let response = handler(request);
+                    stream.write_all(&response).expect("write response");
+                },
+                connections,
+            )
         }
 
         fn start_streaming(

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use super::product_variant::AntigravityProductVariant;
@@ -143,6 +144,9 @@ fn to_usage_record(
         model_label: parsed.model_label,
         api_provider: None,
         response_id: parsed.response_id,
+        observed_at: parsed
+            .observed_at_ms
+            .and_then(DateTime::<Utc>::from_timestamp_millis),
         input_tokens: parsed.input_tokens,
         output_tokens: parsed.output_tokens,
         thinking_output_tokens: parsed.thinking_output_tokens,
@@ -164,7 +168,8 @@ fn token_field(blob: &[u8], field: u64) -> Result<u64, ProtobufUsageError> {
 }
 
 fn checked_add_tokens(left: u64, right: u64) -> Result<u64, ProtobufUsageError> {
-    left.checked_add(right).ok_or(ProtobufUsageError::TokenOverflow)
+    left.checked_add(right)
+        .ok_or(ProtobufUsageError::TokenOverflow)
 }
 
 fn proto_timestamp_ms(blob: &[u8]) -> Option<i64> {
@@ -173,9 +178,7 @@ fn proto_timestamp_ms(blob: &[u8]) -> Option<i64> {
     if !(0..=999_999_999).contains(&nanos) {
         return None;
     }
-    seconds
-        .checked_mul(1000)?
-        .checked_add(nanos / 1_000_000)
+    seconds.checked_mul(1000)?.checked_add(nanos / 1_000_000)
 }
 
 enum Wire<'a> {
@@ -221,18 +224,27 @@ impl<'a> ProtoReader<'a> {
         let wire = match tag & 0x7 {
             0 => Wire::Varint(self.read_varint()?),
             1 => {
-                self.pos = self.pos.checked_add(8).filter(|pos| *pos <= self.buf.len())?;
+                self.pos = self
+                    .pos
+                    .checked_add(8)
+                    .filter(|pos| *pos <= self.buf.len())?;
                 Wire::Fixed64
             }
             2 => {
                 let len = usize::try_from(self.read_varint()?).ok()?;
-                let end = self.pos.checked_add(len).filter(|pos| *pos <= self.buf.len())?;
+                let end = self
+                    .pos
+                    .checked_add(len)
+                    .filter(|pos| *pos <= self.buf.len())?;
                 let bytes = &self.buf[self.pos..end];
                 self.pos = end;
                 Wire::Len(bytes)
             }
             5 => {
-                self.pos = self.pos.checked_add(4).filter(|pos| *pos <= self.buf.len())?;
+                self.pos = self
+                    .pos
+                    .checked_add(4)
+                    .filter(|pos| *pos <= self.buf.len())?;
                 Wire::Fixed32
             }
             _ => return None,
@@ -266,8 +278,7 @@ fn varint_field(blob: &[u8], field: u64) -> Option<u64> {
 }
 
 fn string_field(blob: &[u8], field: u64) -> Option<&str> {
-    message_field(blob, field)
-        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+    message_field(blob, field).and_then(|bytes| std::str::from_utf8(bytes).ok())
 }
 
 #[cfg(test)]
@@ -332,7 +343,7 @@ pub(crate) mod tests {
             AntigravityProductVariant::Cli,
             "conversation-a",
             &[sample_gen_metadata_blob("response-1")],
-            0,
+            1_781_502_653_000,
         )
         .expect("records");
 
@@ -344,6 +355,10 @@ pub(crate) mod tests {
         assert_eq!(records[0].output_tokens, 25);
         assert_eq!(records[0].response_id.as_deref(), Some("response-1"));
         assert_eq!(records[0].model_label, "gemini-3-flash-a");
+        assert_eq!(
+            records[0].observed_at,
+            DateTime::<Utc>::from_timestamp_millis(1_781_502_653_000)
+        );
     }
 
     #[test]
@@ -375,8 +390,8 @@ pub(crate) mod tests {
 
     #[test]
     fn parses_trajectory_created_timestamp() {
-        let timestamp = parse_trajectory_created_ms(&sample_trajectory_metadata_blob())
-            .expect("timestamp");
+        let timestamp =
+            parse_trajectory_created_ms(&sample_trajectory_metadata_blob()).expect("timestamp");
         assert_eq!(timestamp, 1_781_502_653_000);
     }
 }

@@ -4,8 +4,8 @@ mod cli_sqlite_reader;
 mod conversation_index;
 mod discovery;
 mod mapper;
-mod protobuf_usage;
 pub(crate) mod product_variant;
+mod protobuf_usage;
 mod runtime_client;
 mod runtime_metadata_client;
 mod usage_cache;
@@ -15,6 +15,4 @@ pub(crate) use adapter::AntigravityCollector;
 pub(crate) use conversation_index::{ConversationDatabase, ConversationIndex};
 pub(crate) use discovery::{RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint};
 pub(crate) use runtime_client::RuntimeClient;
-pub(crate) use usage_extractor::{
-    extract_usage_from_generator_metadata, AntigravityUsageRecord,
-};
+pub(crate) use usage_extractor::{extract_usage_from_generator_metadata, AntigravityUsageRecord};

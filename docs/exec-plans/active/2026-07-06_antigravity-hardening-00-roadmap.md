@@ -2,7 +2,7 @@
 
 ## Status
 
-Active. Phase 05 completed on July 6, 2026. Next queued phase: product docs.
+Completed on July 6, 2026. All six hardening phases are done.
 
 ## Objective
 
@@ -22,7 +22,7 @@ primary collection mechanism.
 3. `2026-07-06_antigravity-hardening-03-usage-cache.md` (completed)
 4. `2026-07-06_antigravity-hardening-04-cli-sqlite-reader.md` (completed)
 5. `2026-07-06_antigravity-hardening-05-app-ide-sqlite-fallback.md` (completed)
-6. `2026-07-06_antigravity-hardening-06-product-docs.md`
+6. `2026-07-06_antigravity-hardening-06-product-docs.md` (completed)
 
 ## Invariants
 

@@ -316,6 +316,46 @@ It is not responsible for:
 
 One source-projection collection is one job. Jobs may run concurrently only within a small configured limit.
 
+### Antigravity native collector
+
+The Antigravity adapter is an infrastructure implementation of the collector
+port for Google Antigravity local usage across three product variants:
+
+- Antigravity 2.0
+- Antigravity IDE
+- Antigravity CLI
+
+It is responsible for:
+
+- Discovering recent conversation artifacts under known `~/.gemini` variant roots
+- Reading CLI usage from local SQLite/protobuf metadata (`gen_metadata`,
+  `trajectory_metadata_blob`)
+- Syncing App/IDE usage from running local runtime metadata RPC when endpoints are
+  available
+- Applying an experimental App/IDE SQLite/protobuf fallback behind strict schema
+  validation
+- Supplementing missing runtime data from a durable normalized usage cache
+- Mapping extracted usage into canonical candidate records with variant metadata
+- Emitting redacted collector diagnostics (cache recovery, fallback acceptance,
+  runtime unavailability)
+
+It is not responsible for:
+
+- Launching Antigravity processes
+- Parsing prompt, response, tool, or file-content fields from protobuf blobs
+- Capturing network traffic
+- Writing usage records directly
+
+Collection priority:
+
+1. CLI SQLite/protobuf reader for `antigravity-cli` conversations
+2. Experimental App/IDE SQLite fallback when schema validation passes
+3. Runtime metadata sync for remaining App/IDE conversations
+4. Durable cache supplement when runtime metadata is partial or unavailable
+
+Antigravity remains experimental until runtime evidence proves stable behavior
+across upstream releases.
+
 ## Refresh Coordinator
 
 One process-wide refresh coordinator owns all collection work.

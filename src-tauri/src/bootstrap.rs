@@ -419,7 +419,7 @@ mod tests {
         );
 
         let connection = Connection::open(database_path).expect("reopen database");
-        assert_eq!(pragma_i64(&connection, "user_version"), 4);
+        assert_eq!(pragma_i64(&connection, "user_version"), 5);
         assert_eq!(settings_count(&connection), 1);
         assert_eq!(
             setting_text(&connection, "reporting_timezone"),
@@ -546,7 +546,7 @@ mod tests {
         let database_path = directory.path().join("burnly.sqlite3");
         let connection = Connection::open(&database_path).expect("create database");
         connection
-            .pragma_update(None, "user_version", 5)
+            .pragma_update(None, "user_version", 6)
             .expect("set newer version");
         drop(connection);
 
@@ -560,7 +560,7 @@ mod tests {
             StartupErrorKind::Persistence(PersistenceErrorKind::Migration)
         );
         let connection = Connection::open(database_path).expect("reopen database");
-        assert_eq!(pragma_i64(&connection, "user_version"), 5);
+        assert_eq!(pragma_i64(&connection, "user_version"), 6);
     }
 
     #[test]

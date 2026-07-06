@@ -1,11 +1,11 @@
 # Antigravity Runtime Evidence
 
-Date: July 2, 2026
+Date: July 2, 2026. Updated July 6, 2026 after collector hardening.
 
 This evidence supports the experimental Antigravity native collector. The
-inspection used only local runtime metadata and usage counters. No prompt,
-response, system prompt, tool input, tool result, source-code, or file-content
-payloads were saved.
+inspection used only local runtime metadata, SQLite/protobuf usage metadata, and
+usage counters. No prompt, response, system prompt, tool input, tool result,
+source-code, or file-content payloads were saved.
 
 ## Scope
 
@@ -20,13 +20,15 @@ Verified local surfaces:
 - `~/.gemini/antigravity/conversations/*.db`
 - `~/.gemini/antigravity-ide/conversations/*.db`
 - `~/.gemini/antigravity-cli/conversations/*.db`
+- `GEMINI_CLI_HOME/conversations/*.db` when set
 - running loopback local runtime endpoints owned by Antigravity processes
+- `GetCascadeTrajectoryGeneratorMetadata`
 - `RetrieveUserQuotaSummary`
-- `StreamAgentStateUpdates`
 
 ## Sanitized Usage Shape
 
-The runtime stream exposed usage-only fields that Burnly can collect:
+Runtime metadata and SQLite/protobuf metadata expose usage-only fields that
+Burnly can collect:
 
 ```text
 model
@@ -58,29 +60,34 @@ remain extractor-level data for future schema work.
 
 ## Runtime Behavior
 
-Antigravity 2.0 and Antigravity IDE keep local runtime endpoints available while
-the app is running. Antigravity CLI is narrower: `agy` can exit after command
-completion, closing the endpoint before Burnly refreshes.
+Collection behavior after hardening:
 
-Burnly therefore treats Antigravity as runtime-dependent:
+- **CLI**: Burnly reads usage from local conversation databases. A running `agy`
+  process is not required once the conversation DB is written.
+- **2.0 and IDE**: Burnly prefers runtime metadata while the app is running.
+  When runtime metadata is unavailable, Burnly may use experimental SQLite
+  fallback or cached usage from earlier successful syncs.
+- **All variants**: repeated refreshes dedupe by `responseId`.
+- **Unavailable refresh**: when no trustworthy local source can produce records,
+  Burnly reports source unavailable and keeps previous stored usage intact.
 
-- runtime available -> collect recent conversation usage
-- runtime unavailable -> report source unavailable and keep previous stored
-  usage intact
-- repeated refreshes -> dedupe by `responseId`
+Recoverable collector diagnostics:
+
+- `antigravity.cache_used` means cached usage satisfied the refresh window.
+- `antigravity.sqlite_fallback_accepted` / `_rejected` report experimental
+  App/IDE SQLite outcomes by variant name only.
 
 ## Verification Commands
 
 ```text
-cargo test --manifest-path src-tauri/Cargo.toml infrastructure::collectors::antigravity --lib
+cargo test --manifest-path src-tauri/Cargo.toml antigravity --lib
 pnpm rust:check
+pnpm architecture:check
 pnpm verify:fast
-cargo test --manifest-path src-tauri/Cargo.toml --lib
-pnpm verify:runtime
 ```
 
 ## Follow-Up
 
-Offline Antigravity CLI recovery is future work. It should only be implemented
-if live runtime collection misses enough usage to justify a strict
-SQLite/protobuf decoder that extracts usage-only fields.
+Collect additional sanitized runtime evidence across Antigravity releases and
+platforms before promoting Antigravity from experimental to supported or making
+App/IDE direct SQLite parsing the preferred collection path.

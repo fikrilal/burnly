@@ -95,11 +95,7 @@ fn first_u32(values: [Option<&Value>; 3]) -> Option<u32> {
         value
             .as_u64()
             .and_then(|number| u32::try_from(number).ok())
-            .or_else(|| {
-                value
-                    .as_i64()
-                    .and_then(|number| u32::try_from(number).ok())
-            })
+            .or_else(|| value.as_i64().and_then(|number| u32::try_from(number).ok()))
             .or_else(|| value.as_str().and_then(|text| text.parse::<u32>().ok()))
     })
 }
@@ -135,8 +131,7 @@ mod tests {
 
     #[test]
     fn parses_generator_metadata_fixture() {
-        let fixture =
-            fs::read_to_string(fixture_path("generator_metadata.json")).expect("fixture");
+        let fixture = fs::read_to_string(fixture_path("generator_metadata.json")).expect("fixture");
         let response: Value = serde_json::from_str(&fixture).expect("json");
 
         let items = generator_metadata_items(&response);

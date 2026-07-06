@@ -5,6 +5,7 @@
 
 use std::collections::BTreeSet;
 
+use chrono::{DateTime, Utc};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
@@ -18,6 +19,7 @@ pub(crate) struct AntigravityUsageRecord {
     pub(crate) model_label: String,
     pub(crate) api_provider: Option<String>,
     pub(crate) response_id: Option<String>,
+    pub(crate) observed_at: Option<DateTime<Utc>>,
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
     pub(crate) thinking_output_tokens: u64,
@@ -146,6 +148,7 @@ fn record_from_object(
         model_label,
         api_provider: context.api_provider.clone(),
         response_id: context.response_id.clone(),
+        observed_at: context.observed_at,
         input_tokens: counters.input_tokens,
         output_tokens: counters.output_tokens,
         thinking_output_tokens: counters.thinking_output_tokens,
@@ -165,6 +168,7 @@ struct ExtractionContext {
     model_display_name: Option<String>,
     api_provider: Option<String>,
     response_id: Option<String>,
+    observed_at: Option<DateTime<Utc>>,
     consumed_credits: Option<String>,
     flow_credits_used: Option<String>,
     prompt_credits_used: Option<String>,
@@ -180,6 +184,7 @@ impl ExtractionContext {
                 .or_else(|| self.model_display_name.clone()),
             api_provider: string_field(object, "apiProvider").or_else(|| self.api_provider.clone()),
             response_id: string_field(object, "responseId").or_else(|| self.response_id.clone()),
+            observed_at: timestamp_field(object).or(self.observed_at),
             consumed_credits: diagnostic_field(object, "consumedCredits")
                 .or_else(|| {
                     nested_diagnostic_field(object, "creditUsageSummary", "consumedCredits")
@@ -253,6 +258,47 @@ fn u64_field(object: &Map<String, Value>, key: &str) -> Result<u64, UsageExtract
             .map_err(|_| UsageExtractionError::InvalidTokenValue);
     }
     Err(UsageExtractionError::InvalidTokenValue)
+}
+
+fn timestamp_field(object: &Map<String, Value>) -> Option<DateTime<Utc>> {
+    [
+        "timestamp",
+        "createdAt",
+        "generatedAt",
+        "startedAt",
+        "finishedAt",
+        "requestTimestamp",
+        "responseTimestamp",
+    ]
+    .into_iter()
+    .find_map(|key| object.get(key).and_then(value_to_timestamp))
+}
+
+fn value_to_timestamp(value: &Value) -> Option<DateTime<Utc>> {
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        if let Ok(parsed) = DateTime::parse_from_rfc3339(text) {
+            return Some(parsed.with_timezone(&Utc));
+        }
+        if let Ok(number) = text.parse::<i64>() {
+            return timestamp_from_number(number);
+        }
+    }
+    value.as_i64().and_then(timestamp_from_number)
+}
+
+fn timestamp_from_number(value: i64) -> Option<DateTime<Utc>> {
+    if value <= 0 {
+        return None;
+    }
+    if value > 10_000_000_000 {
+        DateTime::<Utc>::from_timestamp_millis(value)
+    } else {
+        DateTime::<Utc>::from_timestamp(value, 0)
+    }
 }
 
 fn diagnostic_field(object: &Map<String, Value>, key: &str) -> Option<String> {
@@ -396,8 +442,7 @@ mod tests {
 
     #[test]
     fn extracts_usage_records_from_generator_metadata_fixture() {
-        let fixture =
-            fs::read_to_string(fixture_path("generator_metadata.json")).expect("fixture");
+        let fixture = fs::read_to_string(fixture_path("generator_metadata.json")).expect("fixture");
         let response: serde_json::Value = serde_json::from_str(&fixture).expect("json");
         let metadata = generator_metadata_items(&response);
 
@@ -414,16 +459,12 @@ mod tests {
             .find(|record| record.response_id.as_deref() == Some("response-primary"))
             .expect("primary usage record");
         assert_eq!(primary.model_label, "Gemini 3.1 Pro (High)");
-        assert!(
-            records
-                .iter()
-                .any(|record| record.response_id.as_deref() == Some("response-retry"))
-        );
-        assert!(
-            records
-                .iter()
-                .any(|record| record.raw_model_id == "MODEL_PLACEHOLDER_M50")
-        );
+        assert!(records
+            .iter()
+            .any(|record| record.response_id.as_deref() == Some("response-retry")));
+        assert!(records
+            .iter()
+            .any(|record| record.raw_model_id == "MODEL_PLACEHOLDER_M50"));
     }
 
     #[test]

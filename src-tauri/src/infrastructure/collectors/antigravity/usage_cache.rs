@@ -22,7 +22,10 @@ pub(crate) struct AntigravityCacheSupplementReport {
 pub(crate) struct NoOpAntigravityUsageCache;
 
 impl AntigravityUsageCache for NoOpAntigravityUsageCache {
-    fn upsert(&self, _records: &[AntigravityUsageCacheUpsert]) -> Result<(), AntigravityUsageCacheError> {
+    fn upsert(
+        &self,
+        _records: &[AntigravityUsageCacheUpsert],
+    ) -> Result<(), AntigravityUsageCacheError> {
         Ok(())
     }
 
@@ -55,10 +58,7 @@ impl AntigravityUsageCacheClient {
         for conversation in usage {
             for record in &conversation.records {
                 upserts.push(AntigravityUsageCacheUpsert {
-                    record: cached_record_from_usage(
-                        record,
-                        conversation.database.modified_at,
-                    ),
+                    record: cached_record_from_usage(record, conversation.database.modified_at),
                     collector_version: collector_version.to_owned(),
                 });
             }
@@ -82,7 +82,9 @@ impl AntigravityUsageCacheClient {
                 )
             })
             .collect::<Vec<_>>();
-        let cached = self.cache.read_for_scope(scope, aggregation_timezone, &conversation_keys)?;
+        let cached = self
+            .cache
+            .read_for_scope(scope, aggregation_timezone, &conversation_keys)?;
         let records_read = cached.len().try_into().unwrap_or(u32::MAX);
         if cached.is_empty() {
             return Ok(AntigravityCacheSupplementReport {
@@ -105,24 +107,26 @@ impl AntigravityUsageCacheClient {
                 continue;
             }
 
-            let existing = usage
-                .iter()
-                .find(|entry| entry.database.conversation_id == conversation.conversation_id)
-                .map(|entry| entry.records.len())
-                .unwrap_or(0);
-            if existing > 0 {
-                continue;
-            }
-
             let records = cached_for_conversation
                 .into_iter()
                 .filter_map(|record| usage_record_from_cached(record, conversation.variant))
                 .collect::<Vec<_>>();
-            records_used = records_used.saturating_add(records.len().try_into().unwrap_or(u32::MAX));
-            usage.push(ConversationUsage {
-                database: conversation.clone(),
-                records,
-            });
+            if records.is_empty() {
+                continue;
+            }
+            records_used =
+                records_used.saturating_add(records.len().try_into().unwrap_or(u32::MAX));
+            if let Some(existing) = usage.iter_mut().find(|entry| {
+                entry.database.conversation_id == conversation.conversation_id
+                    && entry.database.variant == conversation.variant
+            }) {
+                existing.records.extend(records);
+            } else {
+                usage.push(ConversationUsage {
+                    database: conversation.clone(),
+                    records,
+                });
+            }
         }
 
         Ok(AntigravityCacheSupplementReport {
@@ -150,7 +154,7 @@ fn cached_record_from_usage(
         response_output_tokens: record.response_output_tokens,
         cache_read_tokens: record.cache_read_tokens,
         cache_write_tokens: record.cache_write_tokens,
-        observed_at,
+        observed_at: record.observed_at.unwrap_or(observed_at),
     }
 }
 
@@ -169,6 +173,7 @@ fn usage_record_from_cached(
         model_label: record.model_label,
         api_provider: record.api_provider,
         response_id: record.response_id,
+        observed_at: Some(record.observed_at),
         input_tokens: record.input_tokens,
         output_tokens: record.output_tokens,
         thinking_output_tokens: record.thinking_output_tokens,
@@ -203,7 +208,10 @@ pub(crate) mod tests {
     }
 
     impl AntigravityUsageCache for RecordingUsageCache {
-        fn upsert(&self, records: &[AntigravityUsageCacheUpsert]) -> Result<(), AntigravityUsageCacheError> {
+        fn upsert(
+            &self,
+            records: &[AntigravityUsageCacheUpsert],
+        ) -> Result<(), AntigravityUsageCacheError> {
             self.upserts
                 .lock()
                 .expect("upserts")
@@ -300,5 +308,52 @@ pub(crate) mod tests {
         assert!(report.used_cache);
         assert_eq!(usage.len(), 1);
         assert_eq!(usage[0].records[0].input_tokens, 40);
+    }
+
+    #[test]
+    fn supplements_existing_conversation_usage_with_cached_records() {
+        let cache = RecordingUsageCache::default().seed(vec![cached_record(
+            AntigravityProductVariant::App,
+            "conversation-a",
+            "response-cached",
+            40,
+            8,
+        )]);
+        let client = AntigravityUsageCacheClient::new(Arc::new(cache));
+        let conversation = conversation(
+            AntigravityProductVariant::App,
+            "conversation-a",
+            Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0).unwrap(),
+        );
+        let mut usage = vec![ConversationUsage {
+            database: conversation.clone(),
+            records: vec![usage_record_from_cached(
+                cached_record(
+                    AntigravityProductVariant::App,
+                    "conversation-a",
+                    "response-live",
+                    10,
+                    2,
+                ),
+                AntigravityProductVariant::App,
+            )
+            .expect("record")],
+        }];
+
+        let report = client
+            .supplement_usage(&CollectionScope::Full, "UTC", &[conversation], &mut usage)
+            .expect("supplement");
+
+        assert!(report.used_cache);
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0].records.len(), 2);
+        assert!(usage[0]
+            .records
+            .iter()
+            .any(|record| record.response_id.as_deref() == Some("response-live")));
+        assert!(usage[0]
+            .records
+            .iter()
+            .any(|record| record.response_id.as_deref() == Some("response-cached")));
     }
 }

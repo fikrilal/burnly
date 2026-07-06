@@ -88,21 +88,21 @@ implied.
 
 Current source status:
 
-| Tool        | Status            | Product note                                                                            |
-| ----------- | ----------------- | --------------------------------------------------------------------------------------- |
-| Claude Code | Supported         | Collected through the bundled `ccusage` collector.                                      |
-| Codex       | Supported         | Collected through the bundled `ccusage` collector.                                      |
-| OpenCode    | Supported         | Collected through the bundled `ccusage` collector.                                      |
-| Pi          | Supported         | Collected through the bundled `ccusage` collector. Model labels keep the `[pi]` prefix. |
-| Cline CLI   | Experimental      | Collected through Burnly's native local collector.                                      |
-| ZCode       | Experimental      | Collected through Burnly's native local SQLite collector.                               |
-| Antigravity | Experimental      | Collected through Burnly's native local runtime collector while Antigravity is running. |
-| Cursor      | Not supported yet | Roadmap investigation.                                                                  |
-| Windsurf    | Not supported yet | Roadmap investigation.                                                                  |
-| Aider       | Not supported yet | Roadmap investigation.                                                                  |
-| Roo Code    | Not supported yet | Roadmap investigation.                                                                  |
-| Continue    | Not supported yet | Roadmap investigation.                                                                  |
-| Gemini CLI  | Not planned       | Deprecated upstream.                                                                    |
+| Tool        | Status            | Product note                                                                                                                                                                                                                                                                     |
+| ----------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | Supported         | Collected through the bundled `ccusage` collector.                                                                                                                                                                                                                               |
+| Codex       | Supported         | Collected through the bundled `ccusage` collector.                                                                                                                                                                                                                               |
+| OpenCode    | Supported         | Collected through the bundled `ccusage` collector.                                                                                                                                                                                                                               |
+| Pi          | Supported         | Collected through the bundled `ccusage` collector. Model labels keep the `[pi]` prefix.                                                                                                                                                                                          |
+| Cline CLI   | Experimental      | Collected through Burnly's native local collector.                                                                                                                                                                                                                               |
+| ZCode       | Experimental      | Collected through Burnly's native local SQLite collector.                                                                                                                                                                                                                        |
+| Antigravity | Experimental      | Collected through Burnly's native collector across Antigravity 2.0, IDE, and CLI variants. CLI usage is read from local SQLite/protobuf metadata. App/IDE usage prefers runtime metadata sync, with experimental SQLite fallback and cached records when runtime is unavailable. |
+| Cursor      | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                           |
+| Windsurf    | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                           |
+| Aider       | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                           |
+| Roo Code    | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                           |
+| Continue    | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                           |
+| Gemini CLI  | Not planned       | Deprecated upstream.                                                                                                                                                                                                                                                             |
 
 ### Future social features are opt-in
 

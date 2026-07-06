@@ -21,21 +21,21 @@ and gives you a quick answer to: "how much have I burned today?"
 Burnly reads local usage from supported AI coding tools. Support levels are
 explicit because each tool stores usage differently.
 
-| Tool        | Status            | Collection path                        | Notes                                                                       |
-| ----------- | ----------------- | -------------------------------------- | --------------------------------------------------------------------------- |
-| Claude Code | Supported         | Bundled `ccusage` collector            | Local usage only.                                                           |
-| Codex       | Supported         | Bundled `ccusage` collector            | Local usage only.                                                           |
-| OpenCode    | Supported         | Bundled `ccusage` collector            | Local usage only.                                                           |
-| Pi          | Supported         | Bundled `ccusage` collector            | Local usage only. Model labels keep the `[pi]` prefix from `ccusage`.       |
-| Cline CLI   | Experimental      | Native Burnly collector for `~/.cline` | Reads local session/message usage metrics. Data format may change upstream. |
-| ZCode       | Experimental      | Native Burnly collector                | Reads local SQLite usage data. Data format may change upstream.             |
-| Antigravity | Experimental      | Native Burnly local runtime collector  | Requires Antigravity 2.0, IDE, or CLI to be running during refresh.         |
-| Cursor      | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
-| Windsurf    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
-| Aider       | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
-| Roo Code    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
-| Continue    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                       |
-| Gemini CLI  | Not planned       | Deprecated upstream                    | Reconsider only if a maintained successor exposes reliable local usage.     |
+| Tool        | Status            | Collection path                        | Notes                                                                                                                                                                      |
+| ----------- | ----------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                          |
+| Codex       | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                          |
+| OpenCode    | Supported         | Bundled `ccusage` collector            | Local usage only.                                                                                                                                                          |
+| Pi          | Supported         | Bundled `ccusage` collector            | Local usage only. Model labels keep the `[pi]` prefix from `ccusage`.                                                                                                      |
+| Cline CLI   | Experimental      | Native Burnly collector for `~/.cline` | Reads local session/message usage metrics. Data format may change upstream.                                                                                                |
+| ZCode       | Experimental      | Native Burnly collector                | Reads local SQLite usage data. Data format may change upstream.                                                                                                            |
+| Antigravity | Experimental      | Native Burnly collector                | Three variants: 2.0, IDE, and CLI. CLI reads local SQLite/protobuf metadata. App/IDE use runtime metadata when available, experimental SQLite fallback, then cached usage. |
+| Cursor      | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
+| Windsurf    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
+| Aider       | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
+| Roo Code    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
+| Continue    | Not supported yet | Roadmap                                | Needs local usage-data investigation.                                                                                                                                      |
+| Gemini CLI  | Not planned       | Deprecated upstream                    | Reconsider only if a maintained successor exposes reliable local usage.                                                                                                    |
 
 Burnly does not read prompts, responses, source code, or file contents.
 
@@ -200,10 +200,18 @@ need an AppIndicator or tray extension enabled.
 Open the tray panel and use the refresh action. If the status still fails, check
 that at least one supported tool has local usage data available.
 
-For Antigravity, keep the relevant Antigravity app running while Burnly
-refreshes. The first experimental collector reads usage counters from
-Antigravity's local runtime service; completed CLI sessions may be missed if
-`agy` exits before Burnly refreshes.
+For Antigravity, refresh behavior depends on the variant:
+
+- **CLI** (`agy`): Burnly reads usage from local conversation databases under
+  `~/.gemini/antigravity-cli/conversations/` (or `GEMINI_CLI_HOME` when set).
+  A running `agy` process is not required after the session is written to disk.
+- **2.0 and IDE**: Burnly prefers live runtime metadata while the app is
+  running. When runtime metadata is unavailable, Burnly may use an experimental
+  SQLite/protobuf fallback or previously cached usage records instead of clearing
+  stored totals.
+
+Burnly never reads prompts, responses, source files, or network traffic from
+Antigravity.
 
 ### The `burnly` command is not found
 

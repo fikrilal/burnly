@@ -4,46 +4,73 @@ Tracked limitations that are accepted on purpose, with the condition that would
 let us remove them. Each entry records the cause, the current workaround, where
 it lives in the code, and the trigger to revisit it.
 
-## Antigravity collection requires a running local runtime
+## Antigravity support is experimental with mixed collection paths
 
-Status: active experimental limitation. Opened 2026-07-02.
+Status: active experimental limitation. Updated July 6, 2026 after collector
+hardening.
 
 ### Summary
 
-Burnly's first Antigravity collector reads usage counters from Antigravity's
-local runtime RPC service. Antigravity 2.0, Antigravity IDE, or `agy` must be
-running when Burnly refreshes. If the runtime is closed, Burnly leaves previously
-persisted usage intact instead of writing an empty zero-usage result.
+Burnly collects Antigravity usage across three product variants:
 
-### Cause
+- **Antigravity 2.0** (`~/.gemini/antigravity/conversations/*.db`)
+- **Antigravity IDE** (`~/.gemini/antigravity-ide/conversations/*.db`)
+- **Antigravity CLI** (`~/.gemini/antigravity-cli/conversations/*.db`, or
+  `GEMINI_CLI_HOME/conversations/*.db` when set)
 
-The reliable usage counters discovered locally are exposed through the running
-Antigravity local runtime. Completed Antigravity CLI conversations remain on
-disk, but the offline SQLite/protobuf payloads are not decoded yet because they
-may contain prompt-bearing and response-bearing data. Shipping an offline
-decoder requires a separate privacy review and sanitized fixture strategy.
+Collection priority differs by variant:
 
-### Current workaround
+1. **CLI** reads usage-only protobuf metadata from local conversation databases.
+2. **App/IDE** prefer live runtime metadata sync while the relevant app is
+   running.
+3. **App/IDE** may fall back to an experimental SQLite/protobuf reader when
+   schema validation passes.
+4. **All variants** can supplement missing runtime data from a durable
+   normalized usage cache populated by earlier successful syncs.
 
-Burnly collects Antigravity usage opportunistically while the relevant runtime is
-alive:
+If no trustworthy local source can produce records for the refresh window,
+Burnly reports source unavailable and keeps previously persisted usage intact.
 
-- Antigravity 2.0 and Antigravity IDE usually keep runtime endpoints open while
-  the app is running.
-- Antigravity CLI collection is best-effort because `agy` can exit shortly after
-  a command completes.
-- Refresh failures caused by a closed runtime are treated as source unavailable,
-  so existing stored usage is preserved.
+### Privacy boundary
+
+Burnly extracts only usage counters, model labels, response IDs, and timestamps
+needed for aggregation. It does not decode, persist, export, or fixture prompt,
+response, system prompt, tool input, tool result, source-code, or file-content
+fields from Antigravity conversation stores.
+
+Burnly does not capture Antigravity network traffic.
+
+### Diagnostics
+
+Antigravity collector diagnostics are local and redacted:
+
+- `antigravity.cache_used` (info) means the refresh recovered usage from the
+  durable cache. This is recoverable behavior, not a source failure.
+- `antigravity.sqlite_fallback_accepted` / `antigravity.sqlite_fallback_rejected`
+  (info) report experimental App/IDE SQLite fallback outcomes by variant name
+  only.
+- `antigravity.runtime_not_found`, `antigravity.metadata_rpc_unavailable`, and
+  related warning codes mean no trustworthy usage records were produced for the
+  refresh window.
 
 Code: `src-tauri/src/infrastructure/collectors/antigravity`.
 
+### Current workaround
+
+- Keep Antigravity 2.0 or IDE running during refresh when you need the freshest
+  App/IDE usage from runtime metadata.
+- CLI sessions are recoverable from disk after `agy` exits once the conversation
+  database is written.
+- Treat Antigravity totals as best-effort until more runtime evidence confirms
+  stable field mapping across Antigravity releases.
+
 ### Trigger to revisit
 
-Build an offline Antigravity CLI SQLite/protobuf decoder only if live runtime
-collection misses enough real usage to justify the maintenance and privacy risk.
-That decoder must extract only usage-bearing fields and must never decode, log,
-store, or fixture prompt, response, system prompt, tool input, or tool result
-content.
+Promote Antigravity from experimental to supported after sustained runtime
+evidence shows stable collection across variants, platforms, and upstream
+Antigravity updates. Promote App/IDE direct SQLite parsing from experimental
+fallback to the preferred path only after field mapping stays stable across
+multiple sessions.
 
 ## OpenCode-family (OpenCode and Pi) per-model daily usage is collapsed to a single row
 

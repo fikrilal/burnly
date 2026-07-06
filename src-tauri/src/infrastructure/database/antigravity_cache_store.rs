@@ -25,7 +25,10 @@ impl SqliteAntigravityUsageCacheStore {
 }
 
 impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
-    fn upsert(&self, records: &[AntigravityUsageCacheUpsert]) -> Result<(), AntigravityUsageCacheError> {
+    fn upsert(
+        &self,
+        records: &[AntigravityUsageCacheUpsert],
+    ) -> Result<(), AntigravityUsageCacheError> {
         if records.is_empty() {
             return Ok(());
         }
@@ -124,10 +127,7 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
              FROM antigravity_usage_cache
              WHERE observed_at_ms >= ?1 AND observed_at_ms < ?2 AND (",
         );
-        let mut params: Vec<Box<dyn ToSql>> = vec![
-            Box::new(start_ms),
-            Box::new(end_ms),
-        ];
+        let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(start_ms), Box::new(end_ms)];
         for (index, (variant, conversation_id)) in conversations.iter().enumerate() {
             if index > 0 {
                 query.push_str(" OR ");
@@ -194,7 +194,10 @@ fn scope_bounds(
     }
 }
 
-fn local_midnight(timezone: Tz, date: NaiveDate) -> Result<DateTime<Utc>, AntigravityUsageCacheError> {
+fn local_midnight(
+    timezone: Tz,
+    date: NaiveDate,
+) -> Result<DateTime<Utc>, AntigravityUsageCacheError> {
     timezone
         .from_local_datetime(&date.and_hms_opt(0, 0, 0).expect("midnight"))
         .single()
@@ -202,7 +205,9 @@ fn local_midnight(timezone: Tz, date: NaiveDate) -> Result<DateTime<Utc>, Antigr
         .ok_or(AntigravityUsageCacheError::InvalidScope)
 }
 
-fn map_cached_row(row: &rusqlite::Row<'_>) -> Result<CachedAntigravityUsageRecord, rusqlite::Error> {
+fn map_cached_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<CachedAntigravityUsageRecord, rusqlite::Error> {
     let observed_at_ms: i64 = row.get(12)?;
     Ok(CachedAntigravityUsageRecord {
         variant: row.get(0)?,
@@ -217,7 +222,8 @@ fn map_cached_row(row: &rusqlite::Row<'_>) -> Result<CachedAntigravityUsageRecor
         response_output_tokens: u64::try_from(row.get::<_, i64>(9)?).unwrap_or(0),
         cache_read_tokens: u64::try_from(row.get::<_, i64>(10)?).unwrap_or(0),
         cache_write_tokens: u64::try_from(row.get::<_, i64>(11)?).unwrap_or(0),
-        observed_at: DateTime::<Utc>::from_timestamp_millis(observed_at_ms).unwrap_or_else(Utc::now),
+        observed_at: DateTime::<Utc>::from_timestamp_millis(observed_at_ms)
+            .unwrap_or_else(Utc::now),
     })
 }
 
@@ -264,11 +270,8 @@ mod tests {
 
         let records = store
             .read_for_scope(
-                &CollectionScope::incremental(
-                    observed_at.date_naive(),
-                    observed_at.date_naive(),
-                )
-                .expect("scope"),
+                &CollectionScope::incremental(observed_at.date_naive(), observed_at.date_naive())
+                    .expect("scope"),
                 "UTC",
                 &[("antigravity", "conversation-a")],
             )
@@ -308,11 +311,19 @@ mod tests {
             collector_version: "local-rpc".to_owned(),
         };
 
-        store.upsert(&[upsert.clone()]).expect("first upsert");
-        store.upsert(&[upsert]).expect("second upsert");
+        store
+            .upsert(std::slice::from_ref(&upsert))
+            .expect("first upsert");
+        store
+            .upsert(std::slice::from_ref(&upsert))
+            .expect("second upsert");
 
         let records = store
-            .read_for_scope(&CollectionScope::Full, "UTC", &[("antigravity", "conversation-a")])
+            .read_for_scope(
+                &CollectionScope::Full,
+                "UTC",
+                &[("antigravity", "conversation-a")],
+            )
             .expect("read");
         assert_eq!(records.len(), 1);
     }

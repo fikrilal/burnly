@@ -77,15 +77,14 @@ pub(crate) fn map_daily(
     let mut buckets = BTreeMap::<NaiveDate, AntigravityDailyBucket>::new();
 
     for conversation in conversations {
-        let usage_date = conversation
-            .database
-            .modified_at
-            .with_timezone(&timezone)
-            .date_naive();
-        if !date_in_scope(usage_date, scope) {
-            continue;
-        }
         for record in conversation.records {
+            let activity_at = record
+                .observed_at
+                .unwrap_or(conversation.database.modified_at);
+            let usage_date = activity_at.with_timezone(&timezone).date_naive();
+            if !date_in_scope(usage_date, scope) {
+                continue;
+            }
             buckets.entry(usage_date).or_default().add(&record)?;
         }
     }
@@ -129,7 +128,19 @@ pub(crate) fn map_sessions(
     for conversation in conversations {
         let mut usage = AntigravityUsageAccumulator::default();
         let mut models = BTreeMap::<String, AntigravityUsageAccumulator>::new();
+        let mut first_activity_at = None;
+        let mut last_activity_at = None;
         for record in conversation.records {
+            let activity_at = record
+                .observed_at
+                .unwrap_or(conversation.database.modified_at);
+            first_activity_at = Some(
+                first_activity_at
+                    .map_or(activity_at, |current| std::cmp::min(current, activity_at)),
+            );
+            last_activity_at = Some(
+                last_activity_at.map_or(activity_at, |current| std::cmp::max(current, activity_at)),
+            );
             usage.add(&record)?;
             models
                 .entry(record.model_label.clone())
@@ -165,8 +176,8 @@ pub(crate) fn map_sessions(
             source_key: session_source_key(SourceKey::Antigravity, &source_session_id)?,
             source_session_id,
             project_path: None,
-            first_activity_at: Some(conversation.database.modified_at),
-            last_activity_at: Some(conversation.database.modified_at),
+            first_activity_at,
+            last_activity_at,
             tokens,
             cost: aggregate_cost,
             model_breakdowns,
@@ -335,6 +346,39 @@ mod tests {
         assert!(candidates.is_empty());
     }
 
+    #[test]
+    fn maps_daily_usage_by_record_observed_date_when_available() {
+        let mut conversations = conversations();
+        conversations[0].database.modified_at = Utc
+            .with_ymd_and_hms(2026, 7, 5, 18, 0, 0)
+            .single()
+            .expect("timestamp");
+        conversations[0].records[0].observed_at = Some(
+            Utc.with_ymd_and_hms(2026, 7, 1, 18, 0, 0)
+                .single()
+                .expect("timestamp"),
+        );
+        conversations.truncate(1);
+
+        let candidates = map_daily(
+            conversations,
+            "UTC",
+            &CollectionScope::incremental(
+                NaiveDate::from_ymd_opt(2026, 7, 1).expect("date"),
+                NaiveDate::from_ymd_opt(2026, 7, 1).expect("date"),
+            )
+            .expect("scope"),
+            &context(),
+        )
+        .expect("daily candidates");
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].source_key,
+            "antigravity:daily:v1:UTC:2026-07-01"
+        );
+    }
+
     fn conversations() -> Vec<ConversationUsage> {
         vec![
             ConversationUsage {
@@ -412,6 +456,7 @@ mod tests {
             model_label: model_label.to_owned(),
             api_provider: Some("API_PROVIDER_GOOGLE_GEMINI".to_owned()),
             response_id: Some(format!("{conversation_id}:{raw_model_id}")),
+            observed_at: None,
             input_tokens,
             output_tokens,
             thinking_output_tokens: 0,

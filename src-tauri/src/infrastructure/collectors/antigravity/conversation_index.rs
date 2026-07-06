@@ -213,11 +213,40 @@ pub(crate) enum ConversationIndexError {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use std::sync::{Mutex, MutexGuard};
 
     use chrono::TimeZone;
     use tempfile::TempDir;
 
     use super::*;
+
+    static GEMINI_CLI_HOME_LOCK: Mutex<()> = Mutex::new(());
+
+    fn gemini_cli_home_lock() -> MutexGuard<'static, ()> {
+        GEMINI_CLI_HOME_LOCK
+            .lock()
+            .expect("gemini cli home test lock")
+    }
+
+    fn with_gemini_cli_home<T>(value: Option<&Path>, run: impl FnOnce() -> T) -> T {
+        let _guard = gemini_cli_home_lock();
+        let previous = std::env::var("GEMINI_CLI_HOME").ok();
+        match value {
+            Some(path) => std::env::set_var("GEMINI_CLI_HOME", path),
+            None => std::env::remove_var("GEMINI_CLI_HOME"),
+        }
+        let result = run();
+        if let Some(value) = previous {
+            std::env::set_var("GEMINI_CLI_HOME", value);
+        } else {
+            std::env::remove_var("GEMINI_CLI_HOME");
+        }
+        result
+    }
+
+    fn with_gemini_cli_home_unset<T>(run: impl FnOnce() -> T) -> T {
+        with_gemini_cli_home(None, run)
+    }
 
     #[test]
     fn lists_conversation_databases_for_all_variants_newest_first() {
@@ -239,9 +268,11 @@ mod tests {
         );
 
         let index = ConversationIndex::from_data_root(directory.path());
-        let databases = index
-            .list(&CollectionScope::Full, "UTC")
-            .expect("conversation index");
+        let databases = with_gemini_cli_home_unset(|| {
+            index
+                .list(&CollectionScope::Full, "UTC")
+                .expect("conversation index")
+        });
 
         let mut ids = databases
             .iter()
@@ -262,9 +293,11 @@ mod tests {
         );
 
         let index = ConversationIndex::from_data_root(directory.path());
-        let databases = index
-            .list(&CollectionScope::Full, "UTC")
-            .expect("conversation index");
+        let databases = with_gemini_cli_home_unset(|| {
+            index
+                .list(&CollectionScope::Full, "UTC")
+                .expect("conversation index")
+        });
 
         assert_eq!(databases.len(), 1);
         assert_eq!(databases[0].conversation_id, "proto-session");
@@ -286,9 +319,11 @@ mod tests {
         );
 
         let index = ConversationIndex::from_data_root(directory.path());
-        let databases = index
-            .list(&CollectionScope::Full, "UTC")
-            .expect("conversation index");
+        let databases = with_gemini_cli_home_unset(|| {
+            index
+                .list(&CollectionScope::Full, "UTC")
+                .expect("conversation index")
+        });
 
         assert_eq!(databases.len(), 1);
         assert_eq!(databases[0].conversation_id, "same-session");
@@ -323,9 +358,11 @@ mod tests {
         let directory = TempDir::new().expect("tempdir");
         let index = ConversationIndex::from_data_root(directory.path());
 
-        let databases = index
-            .list(&CollectionScope::Full, "UTC")
-            .expect("conversation index");
+        let databases = with_gemini_cli_home_unset(|| {
+            index
+                .list(&CollectionScope::Full, "UTC")
+                .expect("conversation index")
+        });
 
         assert!(databases.is_empty());
     }
@@ -342,28 +379,14 @@ mod tests {
 
     #[test]
     fn gemini_cli_home_overrides_cli_variant_root() {
-        use std::sync::{Mutex, MutexGuard};
-
-        static LOCK: Mutex<()> = Mutex::new(());
-        let _guard: MutexGuard<'_, ()> = LOCK.lock().expect("gemini cli home test lock");
-
         let data_root = TempDir::new().expect("data root");
         let cli_home = TempDir::new().expect("cli home");
-        create_db_at(
-            cli_home.path(),
-            Path::new("conversations"),
-            "cli-from-env",
-        );
+        create_db_at(cli_home.path(), Path::new("conversations"), "cli-from-env");
 
-        let previous = std::env::var("GEMINI_CLI_HOME").ok();
-        std::env::set_var("GEMINI_CLI_HOME", cli_home.path());
         let index = ConversationIndex::from_data_root(data_root.path());
-        let result = index.list(&CollectionScope::Full, "UTC");
-        if let Some(value) = previous {
-            std::env::set_var("GEMINI_CLI_HOME", value);
-        } else {
-            std::env::remove_var("GEMINI_CLI_HOME");
-        }
+        let result = with_gemini_cli_home(Some(cli_home.path()), || {
+            index.list(&CollectionScope::Full, "UTC")
+        });
 
         let databases = result.expect("conversation index");
         assert_eq!(databases.len(), 1);

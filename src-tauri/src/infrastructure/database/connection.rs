@@ -305,7 +305,7 @@ mod tests {
         assert!(!settings.0); // launch_at_login
         assert_eq!(settings.1, "quit"); // close_behavior
 
-        assert_eq!(database.schema_version().expect("schema version"), 4);
+        assert_eq!(database.schema_version().expect("schema version"), 5);
     }
 
     #[test]

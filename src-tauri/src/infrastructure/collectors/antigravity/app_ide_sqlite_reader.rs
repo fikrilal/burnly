@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use crate::infrastructure::collectors::support::open_external_read_only;
 
 use super::cli_sqlite_reader::{
-    read_conversation_gen_metadata_usage, validate_gen_metadata_schema, ConversationSqliteReaderError,
-    GenMetadataSchemaValidation,
+    read_conversation_gen_metadata_usage, validate_gen_metadata_schema,
+    ConversationSqliteReaderError, GenMetadataSchemaValidation,
 };
 use super::mapper::ConversationUsage;
 use super::product_variant::AntigravityProductVariant;
@@ -92,7 +92,9 @@ fn read_app_ide_conversation(
 
     match validate_gen_metadata_schema(&connection) {
         GenMetadataSchemaValidation::Valid => {}
-        GenMetadataSchemaValidation::Missing => return Err(AppIdeSqliteFallbackOutcome::OpenFailed),
+        GenMetadataSchemaValidation::Missing => {
+            return Err(AppIdeSqliteFallbackOutcome::OpenFailed)
+        }
         GenMetadataSchemaValidation::Mismatch => {
             return Err(AppIdeSqliteFallbackOutcome::RejectedSchema);
         }
@@ -194,13 +196,13 @@ mod tests {
             .join("antigravity/conversations/app-session.db");
         write_valid_database(&path, &[sample_gen_metadata_blob("response-app")]);
 
-        let (usage, report) = collect_app_ide_sqlite_fallback(&[conversation(
-            AntigravityProductVariant::App,
-            &path,
-        )]);
+        let (usage, report) =
+            collect_app_ide_sqlite_fallback(&[conversation(AntigravityProductVariant::App, &path)]);
 
         assert_eq!(report.conversations_accepted, 1);
-        assert!(report.variants_accepted.contains(&AntigravityProductVariant::App));
+        assert!(report
+            .variants_accepted
+            .contains(&AntigravityProductVariant::App));
         assert_eq!(usage.len(), 1);
         assert_eq!(usage[0].records[0].input_tokens, 150);
     }
@@ -213,15 +215,18 @@ mod tests {
             .join("antigravity-ide/conversations/ide-session.db");
         write_valid_database(&path, &[sample_gen_metadata_blob("response-ide")]);
 
-        let (usage, report) = collect_app_ide_sqlite_fallback(&[conversation(
-            AntigravityProductVariant::Ide,
-            &path,
-        )]);
+        let (usage, report) =
+            collect_app_ide_sqlite_fallback(&[conversation(AntigravityProductVariant::Ide, &path)]);
 
         assert_eq!(report.conversations_accepted, 1);
-        assert!(report.variants_accepted.contains(&AntigravityProductVariant::Ide));
+        assert!(report
+            .variants_accepted
+            .contains(&AntigravityProductVariant::Ide));
         assert_eq!(usage.len(), 1);
-        assert_eq!(usage[0].records[0].response_id.as_deref(), Some("response-ide"));
+        assert_eq!(
+            usage[0].records[0].response_id.as_deref(),
+            Some("response-ide")
+        );
     }
 
     #[test]
@@ -235,13 +240,13 @@ mod tests {
                 .expect("schema");
         }
 
-        let (_, report) = collect_app_ide_sqlite_fallback(&[conversation(
-            AntigravityProductVariant::App,
-            &path,
-        )]);
+        let (_, report) =
+            collect_app_ide_sqlite_fallback(&[conversation(AntigravityProductVariant::App, &path)]);
 
         assert_eq!(report.conversations_accepted, 0);
         assert_eq!(report.conversations_rejected, 1);
-        assert!(report.variants_rejected.contains(&AntigravityProductVariant::App));
+        assert!(report
+            .variants_rejected
+            .contains(&AntigravityProductVariant::App));
     }
 }
