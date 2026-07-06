@@ -180,6 +180,10 @@ mod tests {
             assert!(targets.iter().any(|target| target.source == source
                 && target.projection == CollectionProjection::Session));
         }
+
+        assert!(!targets
+            .iter()
+            .any(|target| target.source == SourceKey::GrokBuild));
     }
 
     #[test]

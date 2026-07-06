@@ -6,7 +6,7 @@ Burnly is a tray-first AI coding-tool token tracker.
 
 It runs locally, watches usage from supported tools such as Claude Code, Codex,
 OpenCode, Pi, and experimental native collector sources such as Cline, ZCode,
-and Antigravity, and gives developers a compact view of their current token
+Antigravity, and Grok Build, and gives developers a compact view of their current token
 usage without requiring them to open a full desktop window.
 
 The entire local experience is a small tray/menu-bar panel. There is no full
@@ -97,6 +97,7 @@ Current source status:
 | Cline CLI   | Experimental      | Collected through Burnly's native local collector.                                                                                                                                                                                                                               |
 | ZCode       | Experimental      | Collected through Burnly's native local SQLite collector.                                                                                                                                                                                                                        |
 | Antigravity | Experimental      | Collected through Burnly's native collector across Antigravity 2.0, IDE, and CLI variants. CLI usage is read from local SQLite/protobuf metadata. App/IDE usage prefers runtime metadata sync, with experimental SQLite fallback and cached records when runtime is unavailable. |
+| Grok Build  | Experimental      | Native collector in progress. Planned to read `~/.grok/logs/unified.jsonl` inference telemetry plus session metadata. Not wired into refresh yet.                                                                                                                                |
 | Cursor      | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                           |
 | Windsurf    | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                           |
 | Aider       | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                           |

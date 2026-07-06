@@ -38,6 +38,11 @@ impl RoutedCollector {
             SourceKey::Cline => Ok(&self.cline),
             SourceKey::ZCode => Ok(&self.zcode),
             SourceKey::Antigravity => Ok(&self.antigravity),
+            SourceKey::GrokBuild => Err(CollectorFailure::new(
+                crate::application::collection::CollectorFailureCode::UnsupportedSource,
+                Some(source),
+                None,
+            )),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -139,6 +144,23 @@ mod tests {
         assert_eq!(cline.sources(), vec![SourceKey::Cline]);
         assert_eq!(zcode.sources(), vec![SourceKey::ZCode]);
         assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
+    }
+
+    #[test]
+    fn grok_build_fails_closed_until_native_collector_is_wired() {
+        let collector = RoutedCollector::new(
+            Arc::new(RecordingCollector::new("ccusage")),
+            Arc::new(RecordingCollector::new("cline")),
+            Arc::new(RecordingCollector::new("zcode")),
+            Arc::new(RecordingCollector::new("antigravity")),
+        );
+
+        let failure = collector
+            .collect(request(SourceKey::GrokBuild), &NeverCancelled)
+            .expect_err("grok-build should fail closed");
+
+        assert_eq!(failure.code, CollectorFailureCode::UnsupportedSource);
+        assert_eq!(failure.source_key, Some(SourceKey::GrokBuild));
     }
 
     #[test]

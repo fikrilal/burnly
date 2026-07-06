@@ -1,0 +1,20 @@
+{
+  "fetched_at": "2026-07-06T10:00:00.000Z",
+  "grok_version": "0.2.87",
+  "models": {
+    "grok-composer-2.5-fast": {
+      "info": {
+        "id": "grok-composer-2.5-fast",
+        "name": "Composer 2.5",
+        "context_window": 200000
+      }
+    },
+    "grok-build": {
+      "info": {
+        "id": "grok-build",
+        "name": "Grok Build",
+        "context_window": 512000
+      }
+    }
+  }
+}

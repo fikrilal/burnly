@@ -311,6 +311,7 @@ fn source_label(source: SourceKey) -> &'static str {
         SourceKey::Cline => "Cline",
         SourceKey::ZCode => "ZCode",
         SourceKey::Antigravity => "Antigravity",
+        SourceKey::GrokBuild => "Grok Build",
         #[cfg(test)]
         SourceKey::TestUnsupported => "Unsupported",
     }

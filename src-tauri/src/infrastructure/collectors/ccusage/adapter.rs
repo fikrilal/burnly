@@ -244,9 +244,10 @@ impl Collector for CcusageCollector {
                 )
                 .map_err(|_| failure(CollectorFailureCode::Internal))
             }
-            (SourceKey::Cline | SourceKey::ZCode | SourceKey::Antigravity, _) => {
-                Err(failure(CollectorFailureCode::UnsupportedSource))
-            }
+            (
+                SourceKey::Cline | SourceKey::ZCode | SourceKey::Antigravity | SourceKey::GrokBuild,
+                _,
+            ) => Err(failure(CollectorFailureCode::UnsupportedSource)),
             (SourceKey::Pi, crate::application::collection::CollectionProjection::Daily) => {
                 // Pi daily is OpenCode-family data, but ccusage can emit
                 // `totals: null` for unused Pi sources. Keep that contract

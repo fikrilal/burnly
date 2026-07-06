@@ -1,0 +1,8 @@
+{
+  "turnCount": 2,
+  "primaryModelId": "grok-composer-2.5-fast",
+  "contextTokensUsed": 18000,
+  "contextWindowTokens": 200000,
+  "totalTokensBeforeCompaction": 0,
+  "toolCallCount": 4
+}

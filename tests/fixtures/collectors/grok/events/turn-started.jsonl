@@ -1,0 +1,2 @@
+{"ts":"2026-07-06T10:00:00.000Z","type":"turn_started","session_id":"019f0000-0000-7000-8000-000000000001","turn_number":0,"model_id":"grok-composer-2.5-fast","schema_version":"1.0"}
+{"ts":"2026-07-06T10:00:30.000Z","type":"turn_started","session_id":"019f0000-0000-7000-8000-000000000001","turn_number":1,"model_id":"grok-composer-2.5-fast","schema_version":"1.0"}
