@@ -18,6 +18,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
         "../../../migrations/0005_antigravity_usage_cache.sql"
     ))
     .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0006_grok_usage_cache.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -54,8 +58,8 @@ mod tests {
             .migrate_to_latest()
             .expect("migrate database");
 
-        assert_eq!(schema_version(test_database.database()), 5);
-        assert_eq!(table_count(test_database.database()), 15);
+        assert_eq!(schema_version(test_database.database()), 6);
+        assert_eq!(table_count(test_database.database()), 17);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
         assert_integrity_ok(test_database.database());
@@ -74,8 +78,8 @@ mod tests {
             .migrate_to_latest()
             .expect("second migration");
 
-        assert_eq!(schema_version(test_database.database()), 5);
-        assert_eq!(table_count(test_database.database()), 15);
+        assert_eq!(schema_version(test_database.database()), 6);
+        assert_eq!(table_count(test_database.database()), 17);
     }
 
     #[test]
@@ -146,7 +150,7 @@ mod tests {
         test_database
             .database()
             .connection
-            .pragma_update(None, "user_version", 6)
+            .pragma_update(None, "user_version", 7)
             .expect("set newer schema version");
 
         let error = test_database
@@ -155,7 +159,7 @@ mod tests {
             .expect_err("newer schema must fail");
 
         assert_eq!(error.kind(), PersistenceErrorKind::Migration);
-        assert_eq!(schema_version(test_database.database()), 6);
+        assert_eq!(schema_version(test_database.database()), 7);
     }
 
     #[test]

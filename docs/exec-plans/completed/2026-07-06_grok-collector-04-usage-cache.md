@@ -25,10 +25,10 @@ without re-importing conversation content.
 ## Impact Areas
 
 - `src-tauri/src/infrastructure/collectors/grok/usage_cache.rs`
-- application cache port (if a new port is required)
-- infrastructure database migration/store (if persistent cache is required)
+- `src-tauri/src/application/ports/grok_usage_cache.rs`
+- `src-tauri/src/infrastructure/database/grok_cache_store.rs`
+- `src-tauri/migrations/0006_grok_usage_cache.sql`
 - `src-tauri/src/infrastructure/collectors/grok/adapter.rs`
-- architecture harness rules if new storage paths are introduced
 
 ## Design Review
 
@@ -37,12 +37,11 @@ without re-importing conversation content.
   - cache record shape excludes cwd unless needed for diagnostics metadata
   - cache is usage-only, never transcript-bearing
 - New interfaces:
-  - only if no existing cache port can be reused cleanly; prefer adapting the
-    Antigravity usage-cache shape rather than inventing a generic cache framework
+  - `GrokUsageCache` port mirroring the Antigravity cache shape
 - Special cases:
   - global log truncation must not silently drop historical usage
-  - checkpoint rewind should trigger bounded rebuild policy documented in tests
-- Update harness checks if the same storage mistake is likely to repeat.
+  - checkpoint rewind triggers bounded re-read plus cache merge
+- Harness checks unchanged; storage follows existing Antigravity cache patterns.
 
 ## Scope
 
@@ -58,8 +57,6 @@ without re-importing conversation content.
   - log offset / checkpoint metadata
 - Add truncation detection and cache fallback path in adapter collection flow.
 - Add cache unit tests and adapter fallback tests.
-- Update architecture harness if new storage or rusqlite usage boundaries are
-  touched.
 
 ## Out Of Scope
 
@@ -70,16 +67,16 @@ without re-importing conversation content.
 
 ## Checklist
 
-- [ ] Define usage-only cache record shape.
-- [ ] Implement cache upsert and scoped read.
-- [ ] Persist unified-log checkpoint metadata.
-- [ ] Detect truncation/regression and fall back to cache.
-- [ ] Emit `grok.unified_log_unavailable_cache_used` diagnostic on cache fallback.
-- [ ] Add cache and fallback tests.
-- [ ] Update harness checks if needed.
-- [ ] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`.
-- [ ] Run `pnpm architecture:check`.
-- [ ] Run `pnpm verify:fast`.
+- [x] Define usage-only cache record shape.
+- [x] Implement cache upsert and scoped read.
+- [x] Persist unified-log checkpoint metadata.
+- [x] Detect truncation/regression and fall back to cache.
+- [x] Emit `grok.unified_log_unavailable_cache_used` diagnostic on cache fallback.
+- [x] Add cache and fallback tests.
+- [x] Update harness checks if needed (not required).
+- [x] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`.
+- [x] Run `pnpm architecture:check`.
+- [x] Run `pnpm verify:fast`.
 
 ## Test Plan
 
@@ -100,22 +97,21 @@ without re-importing conversation content.
   - sanitized truncated-log fixture
 - Runtime evidence:
   - not required
-- Relevant commands:
-  - `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`
-  - `pnpm architecture:check`
-  - `pnpm verify:fast`
 
 ## Decisions
 
 - Cache fallback diagnostic:
   `grok.unified_log_unavailable_cache_used`
-- Initial rebuild policy after truncation: bounded re-read plus cache merge;
-  exact bounds to be finalized when the chunk becomes active
+- Initial rebuild policy after truncation: bounded re-read plus cache merge
 
 ## Verification
 
-- Command: not run yet
-- Outcome: not run yet
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`
+- Outcome: 38 passed; 0 failed (2026-07-06)
+- Command: `pnpm architecture:check`
+- Outcome: passed (2026-07-06)
+- Command: `pnpm verify:fast`
+- Outcome: passed (2026-07-06)
 
 ## Runtime Evidence
 
@@ -123,5 +119,6 @@ without re-importing conversation content.
 
 ## Follow-Up Debt
 
+- Chunk 05 wires `SqliteGrokUsageCacheStore` into runtime bootstrap.
 - If Grok later rotates `unified.jsonl` into multiple files, add explicit
   rotation handling in a follow-up chunk rather than guessing in this one.

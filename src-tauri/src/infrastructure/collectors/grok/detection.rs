@@ -79,8 +79,8 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::*;
     use super::super::unified_log_reader::INFERENCE_DONE_MESSAGE;
+    use super::*;
 
     #[test]
     fn inspects_grok_home_from_environment_override() {

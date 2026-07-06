@@ -67,15 +67,16 @@ port, without adding runtime refresh wiring or durable cache behavior yet.
 
 ## Checklist
 
-- [ ] Implement `model_resolver.rs` with sanitized `events.jsonl` support.
-- [ ] Implement `mapper.rs` for daily and session projections.
-- [ ] Implement `adapter.rs` with `describe`, `detect`, and `collect`.
-- [ ] Export `GrokCollector`.
-- [ ] Add tests for detection, daily collection, session collection, invalid
+- [x] Implement `model_resolver.rs` with sanitized `events.jsonl` support.
+- [x] Implement `mapper.rs` for daily and session projections.
+- [x] Implement `adapter.rs` with `describe`, `detect`, and `collect`.
+- [x] Export `GrokCollector`.
+- [x] Add tests for detection, daily collection, session collection, invalid
       source, missing home, and empty usage.
-- [ ] Add tests for dedupe and token-mapping invariants.
-- [ ] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`.
-- [ ] Run `pnpm verify:fast`.
+- [x] Add tests for dedupe and token-mapping invariants.
+- [x] Run `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`.
+- [x] Run `pnpm verify:fast` (blocked by pre-existing Prettier drift in chunk 02
+      completed plan; `pnpm rust:check` and `pnpm architecture:check` passed).
 
 ## Test Plan
 
@@ -106,8 +107,12 @@ port, without adding runtime refresh wiring or durable cache behavior yet.
 
 ## Verification
 
-- Command: not run yet
-- Outcome: not run yet
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib grok -- --nocapture`
+- Outcome: 30 passed; 0 failed (2026-07-06)
+- Command: `pnpm rust:check`
+- Outcome: passed (2026-07-06)
+- Command: `pnpm architecture:check`
+- Outcome: passed (2026-07-06)
 
 ## Runtime Evidence
 

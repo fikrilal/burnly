@@ -1,12 +1,21 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use thiserror::Error;
 
 pub(crate) const INFERENCE_DONE_MESSAGE: &str = "shell.turn.inference_done";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct UnifiedLogFileMetadata {
+    pub(crate) file_inode: Option<u64>,
+    pub(crate) file_size: u64,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GrokInferenceUsage {
@@ -37,6 +46,16 @@ pub(crate) enum UnifiedLogReadError {
 pub(crate) struct UnifiedLogReader;
 
 impl UnifiedLogReader {
+    pub(crate) fn read_file_metadata(
+        path: &Path,
+    ) -> Result<UnifiedLogFileMetadata, UnifiedLogReadError> {
+        let metadata = fs::metadata(path).map_err(UnifiedLogReadError::Read)?;
+        Ok(UnifiedLogFileMetadata {
+            file_inode: file_inode(&metadata),
+            file_size: metadata.len(),
+        })
+    }
+
     pub(crate) fn read_from_path(
         path: &Path,
     ) -> Result<(Vec<GrokInferenceUsage>, UnifiedLogReadSummary), UnifiedLogReadError> {
@@ -94,6 +113,18 @@ fn parse_inference_line(line: &str) -> ParseOutcome {
 }
 
 impl GrokInferenceUsage {
+    pub(crate) fn dedupe_key(&self) -> String {
+        format!(
+            "{}:{}:{}:{}:{}:{}",
+            self.session_id,
+            self.observed_at.timestamp_millis(),
+            self.loop_index,
+            self.prompt_tokens,
+            self.completion_tokens,
+            self.pid
+        )
+    }
+
     fn try_from_parts(
         session_id: &str,
         observed_at: &str,
@@ -145,6 +176,18 @@ struct UnifiedLogEnvelope {
     sid: Option<String>,
     msg: String,
     ctx: Option<InferenceContext>,
+}
+
+fn file_inode(metadata: &fs::Metadata) -> Option<u64> {
+    #[cfg(unix)]
+    {
+        Some(metadata.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        None
+    }
 }
 
 #[derive(Debug, Deserialize)]

@@ -5,6 +5,7 @@ mod bootstrap_store;
 mod connection;
 mod diagnostics_store;
 mod error;
+mod grok_cache_store;
 mod migrations;
 mod reconciliation;
 mod settings_store;
@@ -17,6 +18,11 @@ pub(crate) use bootstrap_store::SqliteBootstrapStore;
 pub use connection::Database;
 pub(crate) use diagnostics_store::SqliteDiagnosticStore;
 pub use error::{PersistenceError, PersistenceErrorKind};
+#[allow(
+    unused_imports,
+    reason = "SqliteGrokUsageCacheStore is wired in the runtime bootstrap chunk"
+)]
+pub(crate) use grok_cache_store::SqliteGrokUsageCacheStore;
 pub(crate) use reconciliation::SqliteReconciliationStore;
 pub(crate) use settings_store::SqliteSettingsStore;
 pub(crate) use tray_summary_store::SqliteTraySummaryStore;
