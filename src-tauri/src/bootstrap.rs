@@ -428,6 +428,7 @@ mod tests {
             setting_text(&connection, "reporting_timezone"),
             "Asia/Jakarta"
         );
+        assert_eq!(setting_i64(&connection, "launch_at_login"), 1);
         assert_eq!(setting_i64(&connection, "created_at_ms"), 100);
     }
 

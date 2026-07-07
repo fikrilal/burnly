@@ -558,18 +558,18 @@ Imported usage can be rebuilt from local source logs. The following tables conta
 
 Stores one typed settings row.
 
-| Column                       | Type    | Null | Notes                  |
-| ---------------------------- | ------- | ---- | ---------------------- |
-| `id`                         | INTEGER | No   | Fixed value `1`        |
-| `reporting_timezone`         | TEXT    | No   | IANA timezone          |
-| `background_refresh_enabled` | INTEGER | No   | Boolean                |
-| `refresh_interval_minutes`   | INTEGER | No   | Positive bounded value |
-| `launch_at_login`            | INTEGER | No   | Boolean                |
-| `close_behavior`             | TEXT    | No   | `hide` or `quit`       |
-| `notifications_enabled`      | INTEGER | No   | Boolean                |
-| `store_project_paths`        | INTEGER | No   | Boolean                |
-| `created_at_ms`              | INTEGER | No   | Creation time          |
-| `updated_at_ms`              | INTEGER | No   | Last update            |
+| Column                       | Type    | Null | Notes                    |
+| ---------------------------- | ------- | ---- | ------------------------ |
+| `id`                         | INTEGER | No   | Fixed value `1`          |
+| `reporting_timezone`         | TEXT    | No   | IANA timezone            |
+| `background_refresh_enabled` | INTEGER | No   | Boolean                  |
+| `refresh_interval_minutes`   | INTEGER | No   | Positive bounded value   |
+| `launch_at_login`            | INTEGER | No   | Boolean, default enabled |
+| `close_behavior`             | TEXT    | No   | `hide` or `quit`         |
+| `notifications_enabled`      | INTEGER | No   | Boolean                  |
+| `store_project_paths`        | INTEGER | No   | Boolean                  |
+| `created_at_ms`              | INTEGER | No   | Creation time            |
+| `updated_at_ms`              | INTEGER | No   | Last update              |
 
 Constraints:
 
@@ -582,6 +582,10 @@ Constraints:
 Settings that require strong behavior or query semantics receive typed columns through migrations. Burnly does not use a generic JSON or key-value settings table for core behavior.
 
 Purely presentational preferences may remain frontend-local until durability is required.
+
+`launch_at_login` is enabled by default for new installs. Migration `0007`
+also enables it for existing installs so packaged Burnly instances keep running
+after the next login unless the user explicitly disables the setting.
 
 ### `budgets`
 

@@ -45,7 +45,8 @@ Each environment must record:
   and KDE. A missing StatusNotifier/AppIndicator host is an explicit
   unavailable outcome, not a successful support claim.
 - Native notifications are permission-dependent on every desktop.
-- Launch at login is available in packaged builds.
+- Launch at login is available in packaged builds and enabled by default. Users
+  can disable it from Settings.
 - Windows x64 updater support requires installed runtime evidence before public
   release.
 - Windows ARM64 remains deferred until a release workflow and runtime evidence

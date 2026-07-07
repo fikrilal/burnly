@@ -70,6 +70,6 @@ mod tests {
             Database::latest_supported_schema_version()
         );
         assert_eq!(storage.settings_revision, 1);
-        assert!(!storage.launch_at_login);
+        assert!(storage.launch_at_login);
     }
 }

@@ -22,6 +22,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
         "../../../migrations/0006_grok_usage_cache.sql"
     ))
     .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0007_default_launch_at_login.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -58,7 +62,10 @@ mod tests {
             .migrate_to_latest()
             .expect("migrate database");
 
-        assert_eq!(schema_version(test_database.database()), 6);
+        assert_eq!(
+            schema_version(test_database.database()),
+            LATEST_SCHEMA_VERSION
+        );
         assert_eq!(table_count(test_database.database()), 17);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
@@ -78,7 +85,10 @@ mod tests {
             .migrate_to_latest()
             .expect("second migration");
 
-        assert_eq!(schema_version(test_database.database()), 6);
+        assert_eq!(
+            schema_version(test_database.database()),
+            LATEST_SCHEMA_VERSION
+        );
         assert_eq!(table_count(test_database.database()), 17);
     }
 
@@ -145,12 +155,44 @@ mod tests {
     }
 
     #[test]
+    fn default_launch_at_login_migration_enables_existing_settings() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 6)
+            .expect("apply prior migrations");
+        connection
+            .execute(
+                "INSERT INTO app_settings (
+                    id, reporting_timezone, background_refresh_enabled,
+                    refresh_interval_minutes, launch_at_login, close_behavior,
+                    notifications_enabled, store_project_paths,
+                    created_at_ms, updated_at_ms, revision
+                ) VALUES (1, 'Asia/Jakarta', 0, 15, 0, 'quit', 0, 0, 100, 100, 1)",
+                [],
+            )
+            .expect("insert existing settings");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply default migration");
+
+        let launch_at_login: bool = connection
+            .query_row(
+                "SELECT launch_at_login FROM app_settings WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read launch setting");
+        assert!(launch_at_login);
+    }
+
+    #[test]
     fn newer_schema_is_rejected_without_changing_version() {
         let mut test_database = TestDatabase::open();
         test_database
             .database()
             .connection
-            .pragma_update(None, "user_version", 7)
+            .pragma_update(None, "user_version", LATEST_SCHEMA_VERSION + 1)
             .expect("set newer schema version");
 
         let error = test_database
@@ -159,7 +201,10 @@ mod tests {
             .expect_err("newer schema must fail");
 
         assert_eq!(error.kind(), PersistenceErrorKind::Migration);
-        assert_eq!(schema_version(test_database.database()), 7);
+        assert_eq!(
+            schema_version(test_database.database()),
+            LATEST_SCHEMA_VERSION + 1
+        );
     }
 
     #[test]

@@ -110,7 +110,7 @@ impl Database {
                     refresh_interval_minutes, launch_at_login, close_behavior,
                     notifications_enabled, store_project_paths,
                     created_at_ms, updated_at_ms
-                ) VALUES (1, ?1, 0, ?2, 0, 'quit', 0, 0, ?3, ?3)
+                ) VALUES (1, ?1, 0, ?2, 1, 'quit', 0, 0, ?3, ?3)
                 ON CONFLICT(id) DO NOTHING",
                 (
                     reporting_timezone,
@@ -306,7 +306,7 @@ mod tests {
             .expect("seed settings");
 
         let settings = database.read_settings().expect("read settings");
-        assert!(!settings.0); // launch_at_login
+        assert!(settings.0); // launch_at_login
         assert_eq!(settings.1, "quit"); // close_behavior
 
         assert_eq!(
