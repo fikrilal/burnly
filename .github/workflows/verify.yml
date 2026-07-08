@@ -33,6 +33,10 @@ jobs:
         with:
           toolchain: 1.95.0
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri -> target
+          key: verify-ubuntu-24.04
       - name: Install Linux Tauri prerequisites
         run: |
           sudo apt-get update

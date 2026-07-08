@@ -39,6 +39,21 @@ release.
 Public release promotion remains outside this workflow. A failed, cancelled, or
 missing matrix job cannot publish a partial release.
 
+The release workflow is intentionally not a duplicate of the full verification
+workflow. `verify.yml` owns the complete `pnpm verify` gate for pull requests
+and protected branches. Release validation runs only release-specific static
+checks before the platform build matrix:
+
+- `pnpm release:version`
+- `pnpm release-workflow:check`
+- `pnpm packaging:check`
+- `pnpm release-artifacts:test`
+- `pnpm updater-metadata:test`
+
+Platform build jobs own only build, signing, staging, artifact smoke checks,
+upload, and provenance. Rust compilation outputs are cached in both verify and
+release workflows to reduce repeated Cargo rebuild time.
+
 ## Windows Preview Trust Posture
 
 Windows x64 ships as an unsigned preview for the MVP. The release workflow

@@ -39,6 +39,14 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   if (!combined.includes("xdg-utils")) {
     failures.push("Linux workflow prerequisites must include xdg-utils.");
   }
+  if (!combined.includes("Swatinem/rust-cache@")) {
+    failures.push("workflows must cache Rust build artifacts.");
+  }
+  if (releaseWorkflow.includes("pnpm verify")) {
+    failures.push(
+      "release workflow must not duplicate the full verify workflow gate.",
+    );
+  }
 
   const actionReferences = [...combined.matchAll(/uses:\s+[^@\s]+@([^\s]+)/g)];
   for (const [, reference] of actionReferences) {
@@ -97,6 +105,10 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
     "retention-days: 14",
     "if-no-files-found: error",
     "pnpm tauri signer sign",
+    "pnpm release-workflow:check",
+    "pnpm packaging:check",
+    "pnpm release-artifacts:test",
+    "pnpm updater-metadata:test",
     "pnpm release:stage ${{ matrix.target }}",
     "pnpm linux-smoke:appimage",
     "pnpm windows-smoke:exe",
