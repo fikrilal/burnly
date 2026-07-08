@@ -32,8 +32,9 @@ every matrix build succeed. It downloads the staged artifacts, verifies every
 size and SHA-256 against its manifest, writes `SHA256SUMS`, generates and
 verifies cross-platform `latest.json` updater metadata from staged signatures,
 copies the same metadata to `latest-linux.json` for already-installed Linux
-clients, rejects duplicate release tags, adds the Linux installer script, and
-creates a draft release.
+clients, rejects duplicate release tags, adds the universal POSIX installer,
+platform shell helpers, the Windows PowerShell installer, and creates a draft
+release.
 
 Public release promotion remains outside this workflow. A failed, cancelled, or
 missing matrix job cannot publish a partial release.

@@ -296,6 +296,51 @@ function validateLinuxInstaller(installLinux, releaseWorkflow, failures) {
   }
 }
 
+function validateUniversalInstallers(inputs, failures) {
+  for (const requiredText of [
+    'INSTALLER_NAME="install-linux.sh"',
+    'INSTALLER_NAME="install-macos.sh"',
+    "Windows uses the PowerShell installer",
+    'curl -fsSL "$RELEASE_BASE_URL/$INSTALLER_NAME"',
+    'sh "$TMP_DIR/$INSTALLER_NAME"',
+  ]) {
+    if (!inputs.installUniversal.includes(requiredText)) {
+      failures.push(
+        `scripts/install.sh: missing universal installer behavior ${requiredText}.`,
+      );
+    }
+  }
+
+  for (const requiredText of [
+    "$env:BURNLY_VERSION",
+    "Invoke-RestMethod",
+    "Invoke-WebRequest",
+    "SHA256SUMS",
+    "Get-FileHash",
+    "Start-Process",
+    "windows-$Architecture.exe",
+  ]) {
+    if (!inputs.installWindows.includes(requiredText)) {
+      failures.push(
+        `scripts/install.ps1: missing Windows installer behavior ${requiredText}.`,
+      );
+    }
+  }
+
+  for (const requiredText of [
+    "cp scripts/install.sh artifacts/install.sh",
+    "(cd artifacts && sha256sum install.sh >> SHA256SUMS)",
+    "cp scripts/install.ps1 artifacts/install.ps1",
+    "(cd artifacts && sha256sum install.ps1 >> SHA256SUMS)",
+  ]) {
+    if (!inputs.releaseWorkflow.includes(requiredText)) {
+      failures.push(
+        `.github/workflows/release.yml: missing universal installer artifact step ${requiredText}.`,
+      );
+    }
+  }
+}
+
 function validate(inputs) {
   const failures = [];
   validateIdentity(inputs, failures);
@@ -304,6 +349,7 @@ function validate(inputs) {
   validateGuide(inputs.packagingGuide, failures);
   validateTauriRunner(inputs.tauriRunner, failures);
   validateLinuxInstaller(inputs.installLinux, inputs.releaseWorkflow, failures);
+  validateUniversalInstallers(inputs, failures);
   return failures;
 }
 
@@ -323,8 +369,10 @@ async function loadInputs() {
     await access(path.join(root, iconPath));
   }
   for (const scriptPath of [
+    "scripts/install.sh",
     "scripts/install-linux.sh",
     "scripts/install-macos.sh",
+    "scripts/install.ps1",
     "scripts/stage-release-artifacts.mjs",
   ]) {
     await access(path.join(root, scriptPath));
@@ -354,6 +402,14 @@ async function loadInputs() {
     ),
     installLinux: await readFile(
       path.join(root, "scripts/install-linux.sh"),
+      "utf8",
+    ),
+    installUniversal: await readFile(
+      path.join(root, "scripts/install.sh"),
+      "utf8",
+    ),
+    installWindows: await readFile(
+      path.join(root, "scripts/install.ps1"),
       "utf8",
     ),
     releaseWorkflow: await readFile(

@@ -16,8 +16,8 @@ case "$OS_NAME" in
   Linux) ;;
   Darwin)
     echo "This is the Linux installer, but this machine is running macOS." >&2
-    echo "Use the macOS installer instead:" >&2
-    echo "  curl -fsSL https://github.com/$REPO/releases/latest/download/install-macos.sh | sh" >&2
+    echo "Use the universal installer instead:" >&2
+    echo "  curl -fsSL https://github.com/$REPO/releases/latest/download/install.sh | sh" >&2
     exit 1
     ;;
   *)

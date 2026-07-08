@@ -42,25 +42,53 @@ Burnly does not read prompts, responses, source code, or file contents.
 
 ## Install
 
-### Linux
+### Linux and macOS Quick Install
 
 ```bash
-curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-linux.sh | sh
+curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install.sh | sh
 ```
 
-The installer downloads the matching AppImage for your CPU architecture,
-verifies `SHA256SUMS`, installs Burnly under your user data directory, creates a
-`burnly` command, and writes a desktop entry.
+The universal installer detects Linux or macOS, downloads the matching
+platform installer, verifies release artifacts through that installer, and
+installs Burnly for your CPU architecture.
 
 For a pinned release, pass a version tag:
 
 ```bash
-curl -fsSL https://github.com/fikrilal/burnly/releases/download/vX.Y.Z/install-linux.sh | BURNLY_VERSION=vX.Y.Z sh
+curl -fsSL https://github.com/fikrilal/burnly/releases/download/vX.Y.Z/install.sh | BURNLY_VERSION=vX.Y.Z sh
+```
+
+On Linux, Burnly is installed as an AppImage under your user data directory
+with a `burnly` command and desktop entry. On macOS, Burnly is copied to
+`/Applications/Burnly.app` and the quarantine attribute is cleared for the
+unsigned preview build.
+
+Direct platform installers are also available:
+
+```bash
+curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-linux.sh | sh
+curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-macos.sh | sh
 ```
 
 ### Windows Preview
 
-Download the Windows x64 installer from the official GitHub release:
+Run PowerShell:
+
+```powershell
+irm https://github.com/fikrilal/burnly/releases/latest/download/install.ps1 | iex
+```
+
+For a pinned release:
+
+```powershell
+$env:BURNLY_VERSION = "vX.Y.Z"; irm https://github.com/fikrilal/burnly/releases/download/vX.Y.Z/install.ps1 | iex
+```
+
+The PowerShell installer downloads the Windows x64 installer, verifies
+`SHA256SUMS`, and starts the normal installer UI.
+
+Manual install is also available by downloading the Windows x64 installer from
+the official GitHub release:
 
 ```text
 burnly-vX.Y.Z-windows-x86_64.exe
@@ -76,20 +104,10 @@ https://github.com/fikrilal/burnly/releases
 
 ### macOS Preview
 
-```bash
-curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-macos.sh | sh
-```
-
 The installer downloads the matching `.dmg` for your CPU architecture, verifies
 `SHA256SUMS`, copies `Burnly.app` to `/Applications`, and clears the quarantine
 attribute required for unsigned preview builds. If `/Applications` needs
 administrator permission, the installer asks through `sudo`.
-
-For a pinned release, pass a version tag:
-
-```bash
-curl -fsSL https://github.com/fikrilal/burnly/releases/download/vX.Y.Z/install-macos.sh | BURNLY_VERSION=vX.Y.Z sh
-```
 
 Manual install is also available by downloading the `.dmg` for your CPU
 architecture from the official GitHub release:

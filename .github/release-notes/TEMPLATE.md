@@ -8,17 +8,23 @@ Short release summary.
 
 ## Install
 
-### Linux
+### Linux and macOS
 
 Run:
 
 ```bash
-curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install-linux.sh | sh
+curl -fsSL https://github.com/fikrilal/burnly/releases/latest/download/install.sh | sh
 ```
 
 ### Windows Preview
 
-Download the Windows x64 installer from this release:
+Run PowerShell:
+
+```powershell
+irm https://github.com/fikrilal/burnly/releases/latest/download/install.ps1 | iex
+```
+
+Or download the Windows x64 installer from this release:
 
 ```text
 burnly-vX.Y.Z-windows-x86_64.exe

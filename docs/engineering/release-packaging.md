@@ -17,8 +17,14 @@ desktop category is `DeveloperTool`.
 
 - macOS: one unsigned DMG containing `Burnly.app`, plus an `install-macos.sh`
   preview helper.
-- Windows: one NSIS per-user installer. Downgrades are unsupported and blocked.
+- Windows: one NSIS per-user installer, plus an `install.ps1` PowerShell
+  helper. Downgrades are unsupported and blocked.
 - Linux: one AppImage.
+
+Releases also publish `install.sh`, a universal POSIX entrypoint that delegates
+to `install-linux.sh` or `install-macos.sh` after detecting the host OS. Windows
+uses `install.ps1` because normal Windows installations do not include a POSIX
+shell.
 
 MSI and RPM are not selected for the first release. Every additional installer
 format creates another install, upgrade, uninstall, and signing path that must
@@ -54,11 +60,11 @@ records byte sizes plus SHA-256 checksums in a target-specific manifest.
 
 ## Install And Launch Locations
 
-| Platform | Package  | Application location or launch model                                                                                                  |
-| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS    | DMG      | `install-macos.sh` copies `Burnly.app` to `/Applications`; manual DMG copy remains available for preview testing.                     |
-| Windows  | NSIS     | Per-user installation under the current user's local application directory, with Start Menu and uninstall registration owned by NSIS. |
-| Linux    | AppImage | User-owned executable file. Desktop integration and stable launcher ownership are Burnly responsibilities.                            |
+| Platform | Package  | Application location or launch model                                                                                                                               |
+| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| macOS    | DMG      | `install.sh` delegates to `install-macos.sh`, which copies `Burnly.app` to `/Applications`; manual DMG copy remains available for preview testing.                 |
+| Windows  | NSIS     | `install.ps1` verifies and starts the NSIS installer. Installation is per-user under the current user's local application directory, with Start Menu registration. |
+| Linux    | AppImage | `install.sh` delegates to `install-linux.sh`, which installs a user-owned executable plus desktop integration and a stable `burnly` command.                       |
 
 The exact platform path is installer-owned. Burnly must resolve application
 resources through Tauri APIs and must not infer installation paths.
