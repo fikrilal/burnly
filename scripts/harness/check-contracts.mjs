@@ -487,6 +487,20 @@ export interface AccountSessionResponse {
   lastErrorMessage: string | null;
 }
 
+export type CollectSyncStatus =
+  | "signed_out"
+  | "idle"
+  | "syncing"
+  | "error";
+
+export interface CollectSyncStatusResponse {
+  status: CollectSyncStatus;
+  lastAcceptedAt: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  lastErrorRetryable: boolean | null;
+}
+
 export type BudgetLimit =
   | {
       kind: "tokens";
@@ -829,6 +843,10 @@ export type AccountSessionChangeReason =
 
 export interface AccountSessionChangedEvent {
   reason: AccountSessionChangeReason;
+}
+
+export interface CollectSyncChangedEvent {
+  status: string;
 }
 
 export interface PlatformStateChangedEvent {

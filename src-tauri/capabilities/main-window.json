@@ -28,6 +28,8 @@
     "allow-account-start-login",
     "allow-account-cancel-login",
     "allow-account-logout",
+    "allow-collect-sync-get-status",
+    "allow-collect-sync-retry",
     "allow-settings-get",
     "allow-settings-update",
     "allow-refresh-get-state",

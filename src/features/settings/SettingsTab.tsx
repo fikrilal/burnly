@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type {
   AccountSessionResponse,
   AppCapabilitiesResponse,
+  CollectSyncStatusResponse,
   SettingsResponse,
 } from "../../ipc/generated/contracts";
 import { ErrorState } from "../../components/burnly";
@@ -25,6 +26,7 @@ import {
   useLogoutAccount,
   useStartAccountLogin,
 } from "./use-account";
+import { useCollectSyncStatus, useRetryCollectSync } from "./use-collect-sync";
 import { useSettings, useUpdateSettings } from "./use-settings";
 
 export function SettingsTab({
@@ -334,31 +336,142 @@ function AccountSettingActive({
   const startLogin = useStartAccountLogin();
   const cancelLogin = useCancelAccountLogin();
   const logout = useLogoutAccount();
+  const signedIn = session.status === "signed_in";
+  const collectSync = useCollectSyncStatus(signedIn);
+  const retryCollectSync = useRetryCollectSync();
 
   const { status, actionPending, errorText, detail, showRetry } =
     deriveAccountSettingViewState(session, startLogin, cancelLogin, logout);
 
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
-      <div className="flex min-w-0 flex-col gap-1">
-        <span className="text-sm font-medium">Account</span>
-        <span className="truncate text-xs text-muted-foreground leading-normal">
-          {detail}
-        </span>
-        {errorText ? (
-          <span className="text-xs text-destructive leading-normal">
-            {errorText}
+    <div className="flex flex-col gap-2 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-sm font-medium">Account</span>
+          <span className="truncate text-xs text-muted-foreground leading-normal">
+            {detail}
           </span>
-        ) : null}
+          {errorText ? (
+            <span className="text-xs text-destructive leading-normal">
+              {errorText}
+            </span>
+          ) : null}
+        </div>
+        <AccountSettingActions
+          status={status}
+          showRetry={showRetry}
+          actionPending={actionPending}
+          startLogin={startLogin}
+          cancelLogin={cancelLogin}
+          logout={logout}
+        />
       </div>
-      <AccountSettingActions
-        status={status}
-        showRetry={showRetry}
-        actionPending={actionPending}
-        startLogin={startLogin}
-        cancelLogin={cancelLogin}
-        logout={logout}
-      />
+      {signedIn ? (
+        <CollectSyncStatusRow
+          status={collectSync.data}
+          isLoading={collectSync.isPending}
+          isError={collectSync.isError}
+          retryPending={retryCollectSync.isPending}
+          onRetry={() => {
+            retryCollectSync.reset();
+            retryCollectSync.mutate();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function collectSyncDetail(status: CollectSyncStatusResponse): string {
+  if (status.status === "syncing") {
+    return "Uploading daily usage…";
+  }
+  if (status.status === "error") {
+    return (
+      status.lastErrorMessage ??
+      "Could not upload usage. Your local tracker is still available."
+    );
+  }
+  if (status.lastAcceptedAt) {
+    return `Last uploaded ${formatUploadTime(status.lastAcceptedAt)}`;
+  }
+  return "Daily usage uploads while signed in";
+}
+
+function formatUploadTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function shouldShowCollectSyncRetry(
+  status: CollectSyncStatusResponse,
+  retryPending: boolean,
+): boolean {
+  if (retryPending || status.status !== "error") {
+    return false;
+  }
+  return status.lastErrorRetryable !== false;
+}
+
+function CollectSyncStatusRow({
+  status,
+  isLoading,
+  isError,
+  retryPending,
+  onRetry,
+}: {
+  status: CollectSyncStatusResponse | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  retryPending: boolean;
+  onRetry: () => void;
+}) {
+  if (isLoading && status === undefined) {
+    return (
+      <p className="text-xs text-muted-foreground leading-normal pl-0">
+        Checking upload status…
+      </p>
+    );
+  }
+
+  if (isError || status === undefined || status.status === "signed_out") {
+    return null;
+  }
+
+  const showRetry = shouldShowCollectSyncRetry(status, retryPending);
+  const isErrorStatus = status.status === "error";
+
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+      <div className="min-w-0 flex flex-col gap-0.5">
+        <span className="text-xs font-medium text-foreground">
+          Cloud upload
+        </span>
+        <span
+          className={
+            isErrorStatus
+              ? "text-xs text-destructive leading-normal"
+              : "text-xs text-muted-foreground leading-normal"
+          }
+        >
+          {collectSyncDetail(status)}
+        </span>
+      </div>
+      {showRetry ? (
+        <AccountActionButton
+          disabled={retryPending}
+          onClick={onRetry}
+          label={retryPending ? "Retrying…" : "Retry"}
+        />
+      ) : null}
     </div>
   );
 }

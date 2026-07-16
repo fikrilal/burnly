@@ -16,6 +16,8 @@ import {
   invokeAccountGetSession,
   invokeAccountLogout,
   invokeAccountStartLogin,
+  invokeCollectSyncGetStatus,
+  invokeCollectSyncRetry,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeRefreshCancel,
@@ -45,6 +47,7 @@ import {
   type TraySummaryRequest,
   type TraySummaryResponse,
   type AccountSessionResponse,
+  type CollectSyncStatusResponse,
   type SettingsResponse,
   type UpdateStatusResponse,
   type UpdateSettingsRequest,
@@ -193,6 +196,15 @@ const accountSessionDataSchema: z.ZodType<AccountSessionResponse> = z.object({
   lastErrorCode: z.string().min(1).nullable(),
   lastErrorMessage: z.string().min(1).nullable(),
 });
+
+const collectSyncStatusDataSchema: z.ZodType<CollectSyncStatusResponse> =
+  z.object({
+    status: z.enum(["signed_out", "idle", "syncing", "error"]),
+    lastAcceptedAt: z.iso.datetime({ offset: true }).nullable(),
+    lastErrorCode: z.string().min(1).nullable(),
+    lastErrorMessage: z.string().min(1).nullable(),
+    lastErrorRetryable: z.boolean().nullable(),
+  });
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
   status: z.enum([
@@ -453,6 +465,34 @@ export async function logoutAccount(
   try {
     const response = await invokeAccountLogout(invoker);
     return unwrapResponse(validateResponse(response, accountSessionDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function getCollectSyncStatus(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<CollectSyncStatusResponse>> {
+  try {
+    const response = await invokeCollectSyncGetStatus(invoker);
+    return unwrapResponse(
+      validateResponse(response, collectSyncStatusDataSchema),
+    );
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function retryCollectSync(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<CollectSyncStatusResponse>> {
+  try {
+    const response = await invokeCollectSyncRetry(invoker);
+    return unwrapResponse(
+      validateResponse(response, collectSyncStatusDataSchema),
+    );
   } catch (error) {
     if (error instanceof BurnlyClientError) throw error;
     throw transportError(error);

@@ -6,9 +6,7 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use crate::application::account::{AccountLifecycleListener, AccountService};
 use crate::application::cloud_session::CloudSession;
-use crate::application::collect_sync::{
-    CollectSync, CollectSyncConfig, CollectSyncStatusSink, NoopCollectSyncStatusSink,
-};
+use crate::application::collect_sync::{CollectSync, CollectSyncConfig, CollectSyncStatusSink};
 use crate::application::ports::collect_sync_remote::CollectSyncPlatform;
 use crate::application::refresh::{CommittedDailyUploadSink, RefreshCoordinator};
 use crate::infrastructure::cloud::client::CloudClient;
@@ -16,6 +14,7 @@ use crate::infrastructure::cloud::daily_usage_push::HttpCollectSyncRemote;
 use crate::infrastructure::database::{
     Database, SqliteCollectSyncStore, SqliteDailyUsageExportStore,
 };
+use crate::ipc::CollectSyncEventSink;
 use crate::platform::system_clock::SystemClock;
 
 struct CollectSyncBridge {
@@ -98,7 +97,8 @@ pub(crate) fn install_collect_sync<R: Runtime>(
     let export_store = Arc::new(SqliteDailyUsageExportStore::new(export_db));
     let collect_store = Arc::new(SqliteCollectSyncStore::new(database));
     let remote = Arc::new(HttpCollectSyncRemote::new(client));
-    let status_sink: Arc<dyn CollectSyncStatusSink> = Arc::new(NoopCollectSyncStatusSink);
+    let status_sink: Arc<dyn CollectSyncStatusSink> =
+        Arc::new(CollectSyncEventSink::new(app.clone()));
 
     let service = CollectSync::new(
         session,

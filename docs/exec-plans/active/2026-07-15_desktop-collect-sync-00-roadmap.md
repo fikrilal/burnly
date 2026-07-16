@@ -89,13 +89,13 @@ pnpm evidence:desktop
 
 ## Progress
 
-| Chunk                      | Status    | Notes                              |
-| -------------------------- | --------- | ---------------------------------- |
-| 01 Export + outbox         | completed | local-only foundation implemented  |
-| 02 Cloud adapters          | completed | device PUT + daily POST adapters   |
-| 03 Orchestration + refresh | completed | CollectSync + refresh scope hook   |
-| 04 IPC + Settings          | queued    | depends on Chunk 03 status service |
-| 05 Runtime + hardening     | queued    | depends on Chunks 01-04            |
+| Chunk                      | Status    | Notes                             |
+| -------------------------- | --------- | --------------------------------- |
+| 01 Export + outbox         | completed | local-only foundation implemented |
+| 02 Cloud adapters          | completed | device PUT + daily POST adapters  |
+| 03 Orchestration + refresh | completed | CollectSync + refresh scope hook  |
+| 04 IPC + Settings          | completed | status IPC + Settings Account UI  |
+| 05 Runtime + hardening     | queued    | depends on Chunks 01-04           |
 
 ## Decisions
 

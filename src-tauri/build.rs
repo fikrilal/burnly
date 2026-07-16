@@ -13,6 +13,8 @@ fn main() {
             "account_start_login",
             "account_cancel_login",
             "account_logout",
+            "collect_sync_get_status",
+            "collect_sync_retry",
             "settings_get",
             "settings_update",
             "refresh_get_state",

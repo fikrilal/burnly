@@ -2,8 +2,7 @@
 
 ## Status
 
-Queued. Activate only after Chunk 03 completes and records the application
-status/retry surface.
+Completed.
 
 ## Objective
 
@@ -83,14 +82,14 @@ the underlying delivery behavior.
 
 ## Checklist
 
-- [ ] Add Rust IPC DTOs, query, retry command, and command registration.
-- [ ] Add status-change event to the contract/event registries.
-- [ ] Generate and verify TypeScript contracts.
-- [ ] Add typed client wrappers and event/query integration.
-- [ ] Integrate compact status and Retry into Settings → Account.
-- [ ] Add Rust mapping/command tests and frontend behavior tests.
-- [ ] Verify no secrets or delivery internals cross IPC.
-- [ ] Run focused, contract, architecture, and full frontend gates.
+- [x] Add Rust IPC DTOs, query, retry command, and command registration.
+- [x] Add status-change event to the contract/event registries.
+- [x] Generate and verify TypeScript contracts.
+- [x] Add typed client wrappers and event/query integration.
+- [x] Integrate compact status and Retry into Settings → Account.
+- [x] Add Rust mapping/command tests and frontend behavior tests.
+- [x] Verify no secrets or delivery internals cross IPC.
+- [x] Run focused, contract, architecture, and full frontend gates.
 
 ## Test Plan
 
@@ -124,8 +123,10 @@ the underlying delivery behavior.
 
 ## Verification
 
-- Command: not run yet.
-- Outcome: queued.
+- Command: `pnpm contracts:generate` / `pnpm contracts:check` — passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib ipc::collect_sync` — 2 passed.
+- Command: `pnpm lint` / `pnpm typecheck` / `pnpm test` (98) — passed.
+- Command: `pnpm rust:clippy` / `pnpm security:check` / `pnpm verify:fast` — passed.
 
 ## Runtime Evidence
 
@@ -133,9 +134,24 @@ the underlying delivery behavior.
 
 ## Handoff To Chunk 05
 
-- Record final command/event names, visible states, and any runtime-only paths
-  still unproven.
-- Move this plan to `completed/` before activating Chunk 05.
+### IPC surface
+
+| Item          | Value                                                          |
+| ------------- | -------------------------------------------------------------- |
+| Get status    | `collect_sync_get_status` → `CollectSyncStatusResponse`        |
+| Retry         | `collect_sync_retry` → same response                           |
+| Event         | `burnly://v1/collect-sync-changed` (`CollectSyncChangedEvent`) |
+| Status values | `signed_out` \| `idle` \| `syncing` \| `error`                 |
+| Fields        | status, lastAcceptedAt, lastErrorCode/Message/Retryable        |
+
+### UI
+
+- Settings → Account (signed-in only): compact **Cloud upload** row with last success / uploading / error + Retry.
+- No upload toggle.
+
+### Remaining for Chunk 05
+
+- Real API runtime evidence, restart recovery, offline tray behavior, multi-platform notes.
 
 ## Follow-Up Debt
 

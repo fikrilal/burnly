@@ -82,6 +82,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "AccountSessionResponse",
     },
     CommandSpec {
+        name: "collect_sync_get_status",
+        export_name: "invokeCollectSyncGetStatus",
+        request_type: "Record<string, never>",
+        response_type: "CollectSyncStatusResponse",
+    },
+    CommandSpec {
+        name: "collect_sync_retry",
+        export_name: "invokeCollectSyncRetry",
+        request_type: "Record<string, never>",
+        response_type: "CollectSyncStatusResponse",
+    },
+    CommandSpec {
         name: "settings_get",
         export_name: "invokeSettingsGet",
         request_type: "Record<string, never>",
@@ -163,6 +175,11 @@ pub(super) const EVENTS: &[EventSpec] = &[
         name: "burnly://v1/account-session-changed",
         export_name: "accountSessionChanged",
         payload_type: "AccountSessionChangedEvent",
+    },
+    EventSpec {
+        name: "burnly://v1/collect-sync-changed",
+        export_name: "collectSyncChanged",
+        payload_type: "CollectSyncChangedEvent",
     },
     EventSpec {
         name: "burnly://v1/platform-state-changed",

@@ -31,6 +31,10 @@ const accountSessionChangedSchema = z.object({
   ]),
 });
 
+const collectSyncChangedSchema = z.object({
+  status: z.string(),
+});
+
 const platformStateChangedSchema = z.object({
   kind: z.string(),
 });
@@ -50,6 +54,7 @@ const eventSchemas: {
   [EVENT_NAMES.dataInvalidated]: dataInvalidatedSchema,
   [EVENT_NAMES.settingsChanged]: settingsChangedSchema,
   [EVENT_NAMES.accountSessionChanged]: accountSessionChangedSchema,
+  [EVENT_NAMES.collectSyncChanged]: collectSyncChangedSchema,
   [EVENT_NAMES.platformStateChanged]: platformStateChangedSchema,
   [EVENT_NAMES.updateProgress]: updateProgressSchema,
 };

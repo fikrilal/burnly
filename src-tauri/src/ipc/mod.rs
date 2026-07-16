@@ -4,6 +4,7 @@
 //! infrastructure behavior.
 
 mod account;
+mod collect_sync;
 mod commands;
 mod contract;
 mod diagnostics;
@@ -20,6 +21,7 @@ mod settings;
 mod update;
 mod usage;
 
+pub(crate) use collect_sync::CollectSyncEventSink;
 pub(crate) use commands::refresh_event_sink;
 pub(crate) use response::CONTRACT_VERSION;
 
@@ -34,6 +36,8 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         account::account_start_login,
         account::account_cancel_login,
         account::account_logout,
+        collect_sync::collect_sync_get_status,
+        collect_sync::collect_sync_retry,
         diagnostics::diagnostics_get_health,
         diagnostics::diagnostics_export_report,
         diagnostics::diagnostics_copy_report,

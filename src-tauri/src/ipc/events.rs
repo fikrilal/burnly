@@ -11,6 +11,7 @@ pub(crate) mod names {
     pub(crate) const DATA_INVALIDATED: &str = "burnly://v1/data-invalidated";
     pub(crate) const SETTINGS_CHANGED: &str = "burnly://v1/settings-changed";
     pub(crate) const ACCOUNT_SESSION_CHANGED: &str = "burnly://v1/account-session-changed";
+    pub(crate) const COLLECT_SYNC_CHANGED: &str = "burnly://v1/collect-sync-changed";
     #[expect(dead_code, reason = "reserved until platform-state emitters ship")]
     pub(crate) const PLATFORM_STATE_CHANGED: &str = "burnly://v1/platform-state-changed";
     #[expect(dead_code, reason = "reserved until update-progress emitters ship")]
@@ -52,6 +53,13 @@ pub(crate) struct AccountSessionChangedEvent {
     pub(crate) reason: AccountSessionChangeReason,
 }
 
+/// Lossy notification that collect-sync status may have changed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CollectSyncChangedEvent {
+    pub(crate) status: &'static str,
+}
+
 /// Reserved for future platform capability / lifecycle notifications.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,5 +94,13 @@ mod tests {
     fn settings_changed_payload_includes_revision() {
         let json = serde_json::to_value(SettingsChangedEvent { revision: 7 }).expect("serialize");
         assert_eq!(json["revision"], 7);
+    }
+
+    #[test]
+    fn collect_sync_changed_payload_is_object() {
+        let json = serde_json::to_value(CollectSyncChangedEvent { status: "syncing" })
+            .expect("serialize");
+        assert!(json.is_object());
+        assert_eq!(json["status"], "syncing");
     }
 }

@@ -331,6 +331,16 @@ export interface AccountSessionResponse {
   lastErrorMessage: string | null;
 }
 
+export type CollectSyncStatus = "signed_out" | "idle" | "syncing" | "error";
+
+export interface CollectSyncStatusResponse {
+  status: CollectSyncStatus;
+  lastAcceptedAt: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  lastErrorRetryable: boolean | null;
+}
+
 export type BudgetLimit =
   | {
       kind: "tokens";
@@ -678,6 +688,10 @@ export interface AccountSessionChangedEvent {
   reason: AccountSessionChangeReason;
 }
 
+export interface CollectSyncChangedEvent {
+  status: string;
+}
+
 export interface PlatformStateChangedEvent {
   kind: string;
 }
@@ -699,6 +713,8 @@ export const COMMAND_NAMES = {
   accountStartLogin: "account_start_login",
   accountCancelLogin: "account_cancel_login",
   accountLogout: "account_logout",
+  collectSyncGetStatus: "collect_sync_get_status",
+  collectSyncRetry: "collect_sync_retry",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
   refreshGetState: "refresh_get_state",
@@ -726,6 +742,8 @@ export interface CommandRequests {
   [COMMAND_NAMES.accountStartLogin]: Record<string, never>;
   [COMMAND_NAMES.accountCancelLogin]: Record<string, never>;
   [COMMAND_NAMES.accountLogout]: Record<string, never>;
+  [COMMAND_NAMES.collectSyncGetStatus]: Record<string, never>;
+  [COMMAND_NAMES.collectSyncRetry]: Record<string, never>;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
@@ -751,6 +769,8 @@ export interface CommandResponses {
   [COMMAND_NAMES.accountStartLogin]: IpcResponse<AccountSessionResponse>;
   [COMMAND_NAMES.accountCancelLogin]: IpcResponse<AccountSessionResponse>;
   [COMMAND_NAMES.accountLogout]: IpcResponse<AccountSessionResponse>;
+  [COMMAND_NAMES.collectSyncGetStatus]: IpcResponse<CollectSyncStatusResponse>;
+  [COMMAND_NAMES.collectSyncRetry]: IpcResponse<CollectSyncStatusResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
@@ -837,6 +857,18 @@ export function invokeAccountLogout(invoke: CommandInvoker): Promise<unknown> {
   return invoke(COMMAND_NAMES.accountLogout, {});
 }
 
+export function invokeCollectSyncGetStatus(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.collectSyncGetStatus, {});
+}
+
+export function invokeCollectSyncRetry(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.collectSyncRetry, {});
+}
+
 export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {
   return invoke(COMMAND_NAMES.settingsGet, {});
 }
@@ -890,6 +922,7 @@ export const EVENT_NAMES = {
   dataInvalidated: "burnly://v1/data-invalidated",
   settingsChanged: "burnly://v1/settings-changed",
   accountSessionChanged: "burnly://v1/account-session-changed",
+  collectSyncChanged: "burnly://v1/collect-sync-changed",
   platformStateChanged: "burnly://v1/platform-state-changed",
   updateProgress: "burnly://v1/update-progress",
 } as const;
@@ -901,6 +934,7 @@ export interface EventPayloads {
   [EVENT_NAMES.dataInvalidated]: DataInvalidatedEvent;
   [EVENT_NAMES.settingsChanged]: SettingsChangedEvent;
   [EVENT_NAMES.accountSessionChanged]: AccountSessionChangedEvent;
+  [EVENT_NAMES.collectSyncChanged]: CollectSyncChangedEvent;
   [EVENT_NAMES.platformStateChanged]: PlatformStateChangedEvent;
   [EVENT_NAMES.updateProgress]: UpdateProgressEvent;
 }
