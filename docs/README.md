@@ -6,6 +6,7 @@ This directory is the source of truth for Burnly product and engineering decisio
 
 - [Product definition](./product/product.md)
 - [Refresh policy](./product/refresh-policy.md)
+- [Upload policy](./product/upload-policy.md)
 - [Tray panel product contract](./product/tray-panel-contract.md)
 
 ## Architecture
@@ -48,5 +49,6 @@ This directory is the source of truth for Burnly product and engineering decisio
 - [Cloud sync backend handoff](./planning/_WIP/cloud-sync-backend-handoff.md)
 - [Desktop collect API requirements](./planning/_WIP/desktop-collect-api-requirements.md)
 - [Desktop cloud core engineering proposal](./planning/_WIP/desktop-cloud-core-engineering-proposal.md)
+- [Desktop collect sync engineering proposal (Phase 3)](./planning/_WIP/desktop-collect-sync-engineering-proposal.md)
 - [Desktop cloud core (implementer map)](./engineering/desktop-cloud-core.md)
 - [Execution plans](./exec-plans/README.md)

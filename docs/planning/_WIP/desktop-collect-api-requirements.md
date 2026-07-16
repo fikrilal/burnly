@@ -2,9 +2,10 @@
 
 ## Status
 
-Desktop client requirements for the **collect / upload** side of cloud sync.
+Implemented desktop contract for the **collect / upload** side of cloud sync.
 
-Drafted 2026-07-09. This document answers only:
+Drafted 2026-07-09 and implemented in burnly-api through commit `b0dccff`. This
+document answers only:
 
 ```text
 What HTTP APIs does the Burnly desktop app need so it can sign a user in and
@@ -34,7 +35,7 @@ This is a requirements handoff, not a desktop implementation plan.
 
 Desktop remains local-first.
 
-When the user opts in:
+When the user creates an account and signs in:
 
 1. User signs into a Burnly account from the tray Settings surface.
 2. Desktop registers this installation as a sync device.
@@ -113,14 +114,13 @@ Notes:
 
 Before any sync write, desktop must have:
 
-| Value            | Meaning                                     | Storage                          |
-| ---------------- | ------------------------------------------- | -------------------------------- |
-| `clientDeviceId` | Stable per-install UUID/string              | Local durable settings/db        |
-| `deviceName`     | Human label (hostname / user-editable)      | Local, also sent to API          |
-| `accessToken`    | Short-lived JWT                             | OS secure storage / memory       |
-| `refreshToken`   | Long-lived opaque secret                    | OS secure storage only           |
-| `syncEnabled`    | User opt-in flag                            | Local settings (default `false`) |
-| `clientRevision` | Monotonic int per successful export attempt | Local                            |
+| Value            | Meaning                                     | Storage                    |
+| ---------------- | ------------------------------------------- | -------------------------- |
+| `clientDeviceId` | Stable per-install UUID/string              | Local durable settings/db  |
+| `deviceName`     | Human label (hostname / user-editable)      | Local, also sent to API    |
+| `accessToken`    | Short-lived JWT                             | OS secure storage / memory |
+| `refreshToken`   | Long-lived opaque secret                    | OS secure storage only     |
+| `clientRevision` | Monotonic int per successful export attempt | Local                      |
 
 `clientDeviceId` should be created once on first launch (or first sign-in) and
 never regenerated on ordinary app updates. Reinstall may create a new id; that
@@ -213,14 +213,8 @@ This is the only usage write path for v1. Everything collect-side converges here
 
 **When desktop calls it**
 
-Only if:
-
-- user is signed in,
-- `syncEnabled === true`,
-- local refresh for the export window succeeded enough to have durable daily facts,
-- network appears available (best effort).
-
-Suggested triggers (desktop implementation later):
+Call timing and upload scope are owned by
+`docs/product/upload-policy.md`. This document only defines the wire contract.
 
 1. After a successful local refresh (coalesced, not per-source).
 2. Manual "Sync now".
@@ -246,7 +240,7 @@ Suggested triggers (desktop implementation later):
   "window": {
     "startDate": "2026-06-10",
     "endDate": "2026-07-09",
-    "scope": "rolling"
+    "scope": "incremental"
   },
   "facts": [
     {
@@ -294,17 +288,17 @@ Suggested triggers (desktop implementation later):
 
 #### Top-level fields
 
-| Field               | Required | Meaning                                                    |
-| ------------------- | -------- | ---------------------------------------------------------- |
-| `contractVersion`   | yes      | desktop↔API sync contract; start at `1`                    |
-| `clientDeviceId`    | yes      | same install id used in device `PUT`                       |
-| `appVersion`        | yes      | desktop version for diagnostics                            |
-| `reportingTimezone` | yes      | current local reporting timezone                           |
-| `clientRevision`    | yes      | monotonic integer; higher wins on conflict for same device |
-| `window.startDate`  | yes      | inclusive `YYYY-MM-DD` covered by this batch               |
-| `window.endDate`    | yes      | inclusive `YYYY-MM-DD`                                     |
-| `window.scope`      | yes      | v1: always `"rolling"`                                     |
-| `facts`             | yes      | array; may be empty (heartbeat / no data)                  |
+| Field               | Required | Meaning                                                                                                       |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------------------- |
+| `contractVersion`   | yes      | desktop↔API sync contract; start at `1`                                                                       |
+| `clientDeviceId`    | yes      | same install id used in device `PUT`                                                                          |
+| `appVersion`        | yes      | desktop version for diagnostics                                                                               |
+| `reportingTimezone` | yes      | current local reporting timezone                                                                              |
+| `clientRevision`    | yes      | monotonic integer; higher wins on conflict for same device                                                    |
+| `window.startDate`  | yes      | inclusive `YYYY-MM-DD` covered by this batch                                                                  |
+| `window.endDate`    | yes      | inclusive `YYYY-MM-DD`                                                                                        |
+| `window.scope`      | yes      | `"full"` for a baseline/resync; `"incremental"` otherwise; backend temporarily accepts deprecated `"rolling"` |
+| `facts`             | yes      | array; may be empty (heartbeat / no data)                                                                     |
 
 #### Each fact
 
@@ -377,21 +371,21 @@ claude-code:daily:v1:Asia/Jakarta:2026-07-08
 
 #### Window / tombstone rules for desktop
 
-v1 desktop always uses:
+Scope is determined by `docs/product/upload-policy.md`:
 
 ```json
-"window": { "scope": "rolling", "startDate": "…", "endDate": "…" }
+"window": { "scope": "incremental", "startDate": "…", "endDate": "…" }
 ```
+
+Use `"full"` instead for an initial baseline or explicit full resync.
 
 Desktop should include:
 
-- all `active` / `missing` daily facts in the rolling window,
-- recent `removed` facts still needed so server can soft-delete.
+- all `active` / `missing` daily facts in the declared date and target scope,
+- `removed` facts needed so the server can soft-delete.
 
-Desktop must **not** expect the server to delete out-of-window history on a
-rolling push. Full-history wipe is not a desktop collect operation.
-
-Recommended initial window: **last 90 days** (final value can be config).
+The server must not infer deletion from a fact missing from one request. Full
+exports can be split into batches; deletion is explicit through `recordState`.
 
 #### Batch limits desktop should assume
 
@@ -403,10 +397,11 @@ Backend should publish exact limits; desktop needs at least:
 | Max models per fact                        | 100                  |
 | Max body size                              | 1–2 MiB              |
 | Max concurrent in-flight pushes per device | 1 (desktop-enforced) |
+| Push rate per user                         | 60 per 15 minutes    |
 
-If the rolling window exceeds the fact limit, desktop splits chronologically into
-multiple batches, each with its own `Idempotency-Key`, same `clientRevision`
-family or strictly increasing revisions.
+If an export exceeds the fact limit, desktop splits it chronologically into
+multiple batches, each with its own `Idempotency-Key` and strictly increasing
+revision.
 
 **Success response (`200`)**
 
@@ -419,7 +414,7 @@ family or strictly increasing revisions.
     "window": {
       "startDate": "2026-06-10",
       "endDate": "2026-07-09",
-      "scope": "rolling"
+      "scope": "incremental"
     },
     "counts": {
       "received": 12,
@@ -549,9 +544,8 @@ Rules for desktop:
 POST /v1/auth/logout
 ```
 
-Then wipe local tokens. Keep `clientDeviceId`. Keep local usage DB. Set
-`syncEnabled` according to product choice (recommend leave preference but stop
-pushing until signed in again).
+Then wipe local tokens. Keep `clientDeviceId` and the local usage DB. Stop new
+collect requests as required by `docs/product/upload-policy.md`.
 
 ### Who am I
 
@@ -561,26 +555,11 @@ GET /v1/me
 
 Used to populate Settings account row and to detect suspended/deleted accounts.
 
-## Desktop collect state machine (API-facing)
+## Desktop collect state
 
-```text
-signed_out
-  -> sign_in APIs
-signed_in_sync_disabled
-  -> user enables opt-in (local only)
-signed_in_sync_enabled
-  -> PUT device (if needed)
-  -> POST daily-usage after local refresh
-sync_error
-  -> refresh token / retry push / surface error
-```
-
-Local-only flags (not API):
-
-- `syncEnabled` default `false`
-- last push attempt status
-- last successful `acceptedAt`
-- pending batch idempotency key + payload hash
+Product states and triggers are owned by `docs/product/upload-policy.md`.
+Durable retry state is a desktop implementation concern defined by the desktop
+collect engineering proposal, not part of this API contract.
 
 ## Mapping: local SQLite → push DTO
 
@@ -612,7 +591,7 @@ AND aggregation_timezone = current reporting timezone
 AND record_state in (active, missing, removed)  -- include recent removed
 ```
 
-Exact removed retention for export can match the rolling window.
+Exact removed retention for export follows the product upload scope.
 
 ## Error and retry contract desktop depends on
 
@@ -707,7 +686,7 @@ Backend Phase 1 is complete for desktop when:
   "window": {
     "startDate": "2026-07-08",
     "endDate": "2026-07-08",
-    "scope": "rolling"
+    "scope": "incremental"
   },
   "facts": [
     {
@@ -763,8 +742,8 @@ match.
 Desktop collect needs three things from burnly-api:
 
 1. **Auth** (already exists): login / OIDC / refresh / logout / me.
-2. **Device upsert** (new): `PUT /v1/sync/devices/{clientDeviceId}`.
-3. **Daily usage push** (new): `POST /v1/sync/daily-usage` with idempotency.
+2. **Device upsert**: `PUT /v1/sync/devices/{clientDeviceId}`.
+3. **Daily usage push**: `POST /v1/sync/daily-usage` with idempotency.
 
 That is the entire collect-side API surface for v1. Everything else can wait for
 the web product.

@@ -105,10 +105,11 @@ Current source status:
 | Continue    | Not supported yet | Roadmap investigation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Gemini CLI  | Not planned       | Deprecated upstream.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-### Future social features are opt-in
+### Cloud upload and social features
 
-Sync, leaderboard, public profiles, and community features are future optional
-experiences.
+Accounts are optional. Under `upload-policy.md`, a signed-in desktop uploads
+allowed daily aggregates automatically. Leaderboards, public profiles, and
+community features remain separate opt-in experiences.
 
 Nothing local should become public without explicit user action.
 
@@ -119,8 +120,8 @@ Nothing local should become public without explicit user action.
 - Developers who use AI coding tools daily.
 - Developers who use more than one coding assistant.
 - Developers who want a lightweight token tracker in the tray/menu bar.
-- Developers who want private local tracking before opting into any web/social
-  feature.
+- Developers who want private local tracking before creating an account or
+  using any web/social feature.
 
 ### Future Users
 
@@ -184,8 +185,7 @@ useful on its own and never requires an account.
 
 Burnly may later connect to a website for:
 
-- optional account,
-- optional sync,
+- optional account with automatic signed-in upload,
 - public profile,
 - leaderboard,
 - streaks,
@@ -271,12 +271,12 @@ future web product; the rest are removed:
 3. For history and deeper reporting, the user opens the future web product.
 4. The user identifies what caused the usage.
 
-### Future Opt-In Sync
+### Future Account And Upload
 
-1. The user opens account/sync setup.
-2. Burnly explains exactly which metrics can sync.
-3. The user opts in.
-4. Only selected aggregate metrics are synced.
+1. The user creates an account on Burnly Web and accepts its terms.
+2. The user signs in on desktop.
+3. Burnly uploads only the aggregates allowed by `upload-policy.md`.
+4. Signing out stops new uploads; local tracking continues.
 
 ## Design Direction
 
@@ -325,7 +325,7 @@ optional full details.
 Improve sessions, history, source/model/project breakdowns, and data-quality
 explanations inside the full window.
 
-### Stage 3: Optional Sync Foundation
+### Stage 3: Account And Upload Foundation
 
 Add account and sync only for selected aggregate metrics.
 

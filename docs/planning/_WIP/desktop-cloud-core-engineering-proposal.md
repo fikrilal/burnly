@@ -327,6 +327,9 @@ Introduce account IPC in chunk 01 (or as specified in those plans):
 
 Device upsert + daily usage push after local refresh; local sync status UX.
 
+**Engineering proposal (2026-07-15):**
+`docs/planning/_WIP/desktop-collect-sync-engineering-proposal.md`
+
 Do not start Phase 2 or 3 with ad-hoc `reqwest` outside `infrastructure/cloud`
 (except existing non-cloud uses such as Antigravity runtime probing).
 

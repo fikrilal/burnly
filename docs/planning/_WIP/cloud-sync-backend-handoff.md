@@ -35,8 +35,9 @@ Related backend sources:
 
 ## Recommendation (short)
 
-Build cloud as an **opt-in projection of desktop daily usage facts**, not as a
-mirror of the full local SQLite database.
+Build cloud as an **account-backed projection of desktop daily usage facts**,
+not as a mirror of the full local SQLite database. Desktop upload behavior is
+owned by `docs/product/upload-policy.md`.
 
 | Decision                    | Choice                                                    |
 | --------------------------- | --------------------------------------------------------- |
@@ -57,7 +58,7 @@ The desktop MVP already answers "how much today / this week / this month?" in
 the tray. Product intent for cloud is:
 
 1. optional account,
-2. optional sync of **selected aggregate metrics**,
+2. automatic signed-in upload of **selected aggregate metrics**,
 3. web surfaces for calendar, history, trends, later leaderboard,
 4. privacy-preserving defaults.
 
@@ -266,21 +267,21 @@ Web app can show:
 
 ### Privacy defaults (must ship)
 
-| Data class                            | Sync?                                       |
-| ------------------------------------- | ------------------------------------------- |
-| Daily totals + model breakdown tokens | Yes (opt-in)                                |
-| Cost estimates when present           | Yes (opt-in), labeled estimated/unavailable |
-| Product source keys and model ids     | Yes                                         |
-| Reporting / aggregation timezone      | Yes (needed for calendar correctness)       |
-| Device display name / app version     | Yes (support/debug)                         |
-| Raw project paths                     | **No**                                      |
-| Path fingerprints                     | **No**                                      |
-| Source session identifiers            | **No** (v1)                                 |
-| Session rows                          | **No** (v1)                                 |
-| Collector raw JSON / protobuf         | **No**                                      |
-| Prompts / responses / code / files    | **Never**                                   |
-| Credentials / API keys                | **Never**                                   |
-| Local diagnostics payloads            | **No**                                      |
+| Data class                            | Sync?                                              |
+| ------------------------------------- | -------------------------------------------------- |
+| Daily totals + model breakdown tokens | Yes while signed in                                |
+| Cost estimates when present           | Yes while signed in, labeled estimated/unavailable |
+| Product source keys and model ids     | Yes                                                |
+| Reporting / aggregation timezone      | Yes (needed for calendar correctness)              |
+| Device display name / app version     | Yes (support/debug)                                |
+| Raw project paths                     | **No**                                             |
+| Path fingerprints                     | **No**                                             |
+| Source session identifiers            | **No** (v1)                                        |
+| Session rows                          | **No** (v1)                                        |
+| Collector raw JSON / protobuf         | **No**                                             |
+| Prompts / responses / code / files    | **Never**                                          |
+| Credentials / API keys                | **Never**                                          |
+| Local diagnostics payloads            | **No**                                             |
 
 Future optional expansions (require explicit user consent UI):
 
@@ -288,13 +289,8 @@ Future optional expansions (require explicit user consent UI):
 - Session aggregates with **hashed** session ids
 - Public leaderboard aggregates (further reduced metrics)
 
-### Suggested user consent statement
-
-Something the desktop and web can both show:
-
-> Burnly will upload daily token totals by coding tool and model for the
-> reporting timezone you choose. Project paths, chat content, and session
-> identifiers stay on this device.
+Account consent and desktop-visible upload behavior are owned by
+`docs/product/upload-policy.md`; web owns the final policy language.
 
 ## Proposed cloud domain model
 
@@ -516,7 +512,7 @@ Body sketch:
   "window": {
     "startDate": "2026-06-01",
     "endDate": "2026-07-09",
-    "scope": "rolling"
+    "scope": "incremental"
   },
   "facts": [
     {
@@ -569,14 +565,9 @@ Server behavior:
 4. Upsert each fact by `(user, device, identityKey)`.
 5. Replace model children for each upserted parent (scoped replace).
 6. For `recordState = removed`, mark cloud row removed (soft).
-7. Optionally process tombstones for identities absent from a **full** window
-   only if client declares `scope: "full"` (dangerous; keep off in v1 rolling
-   pushes).
+7. Apply deletion only for explicit `recordState: "removed"`; never infer it
+   from absence because full exports may be split across requests.
 8. Return accepted counts + server `syncedAt`.
-
-**v1 rolling window recommendation:** desktop sends last N days (suggest 30–90)
-of non-removed + recently removed facts. Do not server-delete out-of-window
-history on rolling pushes.
 
 #### Read APIs for web (v1)
 
@@ -687,7 +678,7 @@ Out of scope for backend-only work, but backend must not paint into a corner:
 - Secure token storage
 - Export mapper from SQLite → sync DTO
 - Push after refresh / retry policy
-- Explicit opt-in toggle default **off**
+- Upload status and retry under the signed-in account
 
 ### Phase 4 — Hardening and later expansions
 
@@ -738,7 +729,7 @@ One active Claude day with one model:
   "window": {
     "startDate": "2026-07-08",
     "endDate": "2026-07-08",
-    "scope": "rolling"
+    "scope": "incremental"
   },
   "facts": [
     {
@@ -782,26 +773,24 @@ One active Claude day with one model:
 
 These should be decided before or during Phase 1 ADR:
 
-1. **Default rolling window length** for desktop push (30 vs 90 days)?
-2. **Timezone authority:** always use desktop `aggregationTimezone` on each fact
+1. **Timezone authority:** always use desktop `aggregationTimezone` on each fact
    (recommended) vs user profile timezone override on web?
-3. **Multi-device total policy:** confirm sum-across-devices for user reports.
-4. **Experimental sources:** sync experimental sources with a `sourceStatus`
+2. **Multi-device total policy:** confirm sum-across-devices for user reports.
+3. **Experimental sources:** sync experimental sources with a `sourceStatus`
    field, or only supported sources in v1?
-5. **Cost on web:** show estimated cost at all in v1, or tokens-only first?
-6. **Retention:** keep full history forever vs rolling cloud retention (e.g. 2
+4. **Cost on web:** show estimated cost at all in v1, or tokens-only first?
+5. **Retention:** keep full history forever vs time-based cloud retention (e.g. 2
    years)?
-7. **Anonymous/public metrics:** out of scope until leaderboard phase?
+6. **Anonymous/public metrics:** out of scope until leaderboard phase?
 
 Recommended defaults if we need to move:
 
-1. 90-day rolling push window, keep full cloud history until retention policy exists.
-2. Fact-level aggregation timezone is authority; web default filter = last device tz.
-3. Sum across devices.
-4. Sync all sources the desktop has active facts for; mark experimental in docs/UI.
-5. Tokens first in web MVP; cost optional secondary when `estimated`/`available`.
-6. Soft retention TBD; hard requirement is account-deletion wipe.
-7. Leaderboard later with separate consent.
+1. Fact-level aggregation timezone is authority; web default filter = last device tz.
+2. Sum across devices.
+3. Sync all sources the desktop has active facts for; mark experimental in docs/UI.
+4. Tokens first in web MVP; cost optional secondary when `estimated`/`available`.
+5. Soft retention TBD; hard requirement is account-deletion wipe.
+6. Leaderboard later with separate consent.
 
 ## Handoff checklist for burnly-api agent
 
@@ -823,7 +812,7 @@ After backend Phase 1 is stable:
 
 1. Engineering proposal / exec plans for desktop account+sync client
 2. Mapper from SQLite `daily_usage` (+ models) → sync DTO
-3. Settings: sign in, opt-in toggle, last sync status
+3. Settings: sign in and last upload status
 4. Secure credential storage
 5. Push integration with refresh coordinator success path
 6. Runtime evidence that tray totals and web day totals match for a fixture
