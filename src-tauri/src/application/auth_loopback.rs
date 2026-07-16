@@ -73,10 +73,7 @@ pub(crate) struct LoopbackServer {
 }
 
 impl LoopbackServer {
-    pub(crate) fn bind(
-        redirect_uri: &str,
-        cancel: Arc<AtomicBool>,
-    ) -> Result<Self, LoopbackError> {
+    pub(crate) fn bind(redirect_uri: &str, cancel: Arc<AtomicBool>) -> Result<Self, LoopbackError> {
         let bind = parse_loopback_redirect(redirect_uri)?;
         let listener = TcpListener::bind(bind.addr).map_err(|_| LoopbackError::BindFailed)?;
         listener
@@ -90,10 +87,7 @@ impl LoopbackServer {
     }
 
     /// Accepts a single matching callback request or times out / cancels.
-    pub(crate) fn accept_once(
-        self,
-        timeout: Duration,
-    ) -> Result<(String, String), LoopbackError> {
+    pub(crate) fn accept_once(self, timeout: Duration) -> Result<(String, String), LoopbackError> {
         let deadline = Instant::now() + timeout;
         loop {
             if self.cancel.load(Ordering::SeqCst) {
@@ -143,7 +137,10 @@ fn parse_callback_request(
     request: &str,
     expected_path: &str,
 ) -> Result<(String, String), LoopbackError> {
-    let first_line = request.lines().next().ok_or(LoopbackError::InvalidRequest)?;
+    let first_line = request
+        .lines()
+        .next()
+        .ok_or(LoopbackError::InvalidRequest)?;
     let mut parts = first_line.split_whitespace();
     let method = parts.next().ok_or(LoopbackError::InvalidRequest)?;
     let target = parts.next().ok_or(LoopbackError::InvalidRequest)?;

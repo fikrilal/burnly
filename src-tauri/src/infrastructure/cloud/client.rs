@@ -8,9 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::application::cloud_session::{
-    CloudSessionError, ACCESS_TOKEN_EXPIRY_LEEWAY_MS,
-};
+use crate::application::cloud_session::{CloudSessionError, ACCESS_TOKEN_EXPIRY_LEEWAY_MS};
 use crate::application::ports::clock::Clock;
 use crate::application::ports::cloud_auth_credentials::CloudAuthCredentials;
 
@@ -63,6 +61,7 @@ pub(crate) struct CloudRequest {
     pub method: CloudHttpMethod,
     pub path: String,
     pub auth: CloudAuthMode,
+    pub expected_user_id: Option<String>,
     pub idempotency_key: Option<String>,
     pub body: Option<CloudRequestBody>,
 }
@@ -205,6 +204,7 @@ impl CloudClient {
             method: CloudHttpMethod::Get,
             path: path.to_owned(),
             auth,
+            expected_user_id: None,
             idempotency_key: None,
             body: None,
         })
@@ -217,11 +217,13 @@ impl CloudClient {
         auth: CloudAuthMode,
         idempotency_key: Option<String>,
     ) -> Result<CloudEnvelope<T>, CloudApiError> {
-        let body = serde_json::to_value(body).map_err(|error| CloudApiError::decode(error.to_string()))?;
+        let body =
+            serde_json::to_value(body).map_err(|error| CloudApiError::decode(error.to_string()))?;
         self.request_json(CloudRequest {
             method: CloudHttpMethod::Post,
             path: path.to_owned(),
             auth,
+            expected_user_id: None,
             idempotency_key,
             body: Some(CloudRequestBody::Json(body)),
         })
@@ -233,12 +235,14 @@ impl CloudClient {
         path: &str,
         raw_body: &[u8],
         auth: CloudAuthMode,
+        expected_user_id: Option<String>,
         idempotency_key: Option<String>,
     ) -> Result<CloudEnvelope<T>, CloudApiError> {
         self.request_json(CloudRequest {
             method: CloudHttpMethod::Post,
             path: path.to_owned(),
             auth,
+            expected_user_id,
             idempotency_key,
             body: Some(CloudRequestBody::RawJson(raw_body.to_vec())),
         })
@@ -249,13 +253,16 @@ impl CloudClient {
         path: &str,
         body: &B,
         auth: CloudAuthMode,
+        expected_user_id: Option<String>,
         idempotency_key: Option<String>,
     ) -> Result<CloudEnvelope<T>, CloudApiError> {
-        let body = serde_json::to_value(body).map_err(|error| CloudApiError::decode(error.to_string()))?;
+        let body =
+            serde_json::to_value(body).map_err(|error| CloudApiError::decode(error.to_string()))?;
         self.request_json(CloudRequest {
             method: CloudHttpMethod::Put,
             path: path.to_owned(),
             auth,
+            expected_user_id,
             idempotency_key,
             body: Some(CloudRequestBody::Json(body)),
         })
@@ -276,6 +283,7 @@ impl CloudClient {
                 method: CloudHttpMethod::Post,
                 path: path.to_owned(),
                 auth,
+                expected_user_id: None,
                 idempotency_key,
                 body: Some(CloudRequestBody::Json(body)),
             },
@@ -302,10 +310,22 @@ impl CloudClient {
     ) -> Result<CloudRawResponse, CloudApiError> {
         if request.auth == CloudAuthMode::Authenticated {
             if let Some(credentials) = &self.credentials {
-                if credentials
-                    .is_access_expiring_soon(self.clock.now_epoch_ms(), ACCESS_TOKEN_EXPIRY_LEEWAY_MS)
-                {
-                    let _ = credentials.refresh_single_flight();
+                if let Some(expected_user_id) = request.expected_user_id.as_deref() {
+                    if credentials
+                        .access_token_for_user(expected_user_id)
+                        .is_none()
+                    {
+                        return Err(expected_account_error());
+                    }
+                }
+                if credentials.is_access_expiring_soon(
+                    self.clock.now_epoch_ms(),
+                    ACCESS_TOKEN_EXPIRY_LEEWAY_MS,
+                ) {
+                    let _ = match request.expected_user_id.as_deref() {
+                        Some(expected) => credentials.refresh_single_flight_for_user(expected),
+                        None => credentials.refresh_single_flight(),
+                    };
                 }
             }
         }
@@ -331,7 +351,19 @@ impl CloudClient {
             return ensure_success_status(&response).map(|()| response);
         };
 
-        match credentials.refresh_single_flight() {
+        if request
+            .expected_user_id
+            .as_deref()
+            .is_some_and(|expected| credentials.access_token_for_user(expected).is_none())
+        {
+            return Err(expected_account_error());
+        }
+
+        let refresh_result = match request.expected_user_id.as_deref() {
+            Some(expected) => credentials.refresh_single_flight_for_user(expected),
+            None => credentials.refresh_single_flight(),
+        };
+        match refresh_result {
             Ok(()) => self.execute_with_auth_policy(request, true),
             Err(CloudSessionError::RefreshFailed { code })
                 if code.as_deref().is_some_and(|value| {
@@ -374,20 +406,23 @@ impl CloudClient {
         }
 
         if request.auth == CloudAuthMode::Authenticated {
-            let token = self
-                .credentials
-                .as_ref()
-                .and_then(|credentials| credentials.access_token())
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| {
-                    CloudApiError::from_problem(
-                        401,
-                        Some("UNAUTHORIZED".into()),
-                        "not signed in".into(),
-                        None,
-                        Vec::new(),
-                    )
-                })?;
+            let credentials = self.credentials.as_ref();
+            let token = match request.expected_user_id.as_deref() {
+                Some(expected) => {
+                    credentials.and_then(|value| value.access_token_for_user(expected))
+                }
+                None => credentials.and_then(|value| value.access_token()),
+            }
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CloudApiError::from_problem(
+                    401,
+                    Some("UNAUTHORIZED".into()),
+                    "not signed in".into(),
+                    None,
+                    Vec::new(),
+                )
+            })?;
             headers.push(("Authorization".to_owned(), format!("Bearer {token}")));
         }
 
@@ -400,13 +435,19 @@ impl CloudClient {
             None => None,
         };
 
-        self.transport.send(
-            &url,
-            request.method,
-            &headers,
-            body_bytes.as_deref(),
-        )
+        self.transport
+            .send(&url, request.method, &headers, body_bytes.as_deref())
     }
+}
+
+fn expected_account_error() -> CloudApiError {
+    CloudApiError::from_problem(
+        401,
+        Some("AUTH_ACCOUNT_CHANGED".into()),
+        "signed-in account changed".into(),
+        None,
+        Vec::new(),
+    )
 }
 
 pub(crate) fn parse_success_envelope<T: DeserializeOwned>(
@@ -464,10 +505,7 @@ pub(crate) fn parse_problem(response: &CloudRawResponse) -> CloudApiError {
         );
     };
 
-    let code = root
-        .get("code")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let code = root.get("code").and_then(Value::as_str).map(str::to_owned);
     let trace_id = root
         .get("traceId")
         .and_then(Value::as_str)
@@ -572,6 +610,7 @@ mod tests {
 
     struct FakeCredentials {
         token: Mutex<String>,
+        user_id: Mutex<String>,
         refresh_calls: AtomicUsize,
         expiring: bool,
         refresh_ok: bool,
@@ -580,6 +619,11 @@ mod tests {
     impl CloudAuthCredentials for FakeCredentials {
         fn access_token(&self) -> Option<String> {
             Some(self.token.lock().expect("lock").clone())
+        }
+
+        fn access_token_for_user(&self, expected_user_id: &str) -> Option<String> {
+            (self.user_id.lock().expect("lock").as_str() == expected_user_id)
+                .then(|| self.token.lock().expect("lock").clone())
         }
 
         fn is_access_expiring_soon(&self, _now_epoch_ms: i64, _leeway_ms: i64) -> bool {
@@ -596,6 +640,16 @@ mod tests {
                     code: Some("AUTH_REFRESH_TOKEN_EXPIRED".into()),
                 })
             }
+        }
+
+        fn refresh_single_flight_for_user(
+            &self,
+            expected_user_id: &str,
+        ) -> Result<(), CloudSessionError> {
+            if self.user_id.lock().expect("lock").as_str() != expected_user_id {
+                return Err(CloudSessionError::AccountChanged);
+            }
+            self.refresh_single_flight()
         }
     }
 
@@ -661,6 +715,7 @@ mod tests {
         ]));
         let credentials = Arc::new(FakeCredentials {
             token: Mutex::new("access-old".into()),
+            user_id: Mutex::new("user-a".into()),
             refresh_calls: AtomicUsize::new(0),
             expiring: false,
             refresh_ok: true,
@@ -698,6 +753,7 @@ mod tests {
         }]));
         let credentials = Arc::new(FakeCredentials {
             token: Mutex::new("access-old".into()),
+            user_id: Mutex::new("user-a".into()),
             refresh_calls: AtomicUsize::new(0),
             expiring: false,
             refresh_ok: true,
@@ -738,6 +794,7 @@ mod tests {
         ]));
         let credentials = Arc::new(FakeCredentials {
             token: Mutex::new("access-old".into()),
+            user_id: Mutex::new("user-a".into()),
             refresh_calls: AtomicUsize::new(0),
             expiring: false,
             refresh_ok: true,
@@ -764,5 +821,37 @@ mod tests {
         assert!(envelope.data.accepted);
         assert_eq!(transport.calls.load(Ordering::SeqCst), 2);
         assert_eq!(credentials.refresh_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn account_bound_write_rejects_a_token_from_another_user() {
+        let transport = Arc::new(ScriptedTransport::new(Vec::new()));
+        let credentials = Arc::new(FakeCredentials {
+            token: Mutex::new("access-b".into()),
+            user_id: Mutex::new("user-b".into()),
+            refresh_calls: AtomicUsize::new(0),
+            expiring: false,
+            refresh_ok: true,
+        });
+        let client = CloudClient::new(
+            config(),
+            transport.clone(),
+            Some(credentials),
+            Arc::new(FixedClock { now_ms: 1_000 }),
+        );
+
+        let error = client
+            .post_raw_json::<serde_json::Value>(
+                "/v1/sync/daily-usage",
+                br#"{}"#,
+                CloudAuthMode::Authenticated,
+                Some("user-a".into()),
+                Some("idem-1".into()),
+            )
+            .expect_err("account mismatch");
+
+        assert_eq!(error.kind, CloudApiErrorKind::Unauthorized);
+        assert_eq!(error.code.as_deref(), Some("AUTH_ACCOUNT_CHANGED"));
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
     }
 }

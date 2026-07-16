@@ -84,6 +84,7 @@ impl HttpDailyUsagePushClient {
                 "/v1/sync/daily-usage",
                 request.request_body.as_bytes(),
                 CloudAuthMode::Authenticated,
+                Some(request.expected_user_id),
                 Some(request.idempotency_key),
             )
             .map_err(map_cloud_api_error)?;
@@ -149,8 +150,8 @@ impl crate::application::ports::collect_sync_remote::CollectSyncRemote for HttpC
 mod tests {
     use super::*;
     use crate::application::cloud_session::CloudSessionError;
-    use crate::application::ports::cloud_auth_credentials::CloudAuthCredentials;
     use crate::application::ports::clock::Clock;
+    use crate::application::ports::cloud_auth_credentials::CloudAuthCredentials;
     use crate::application::ports::collect_sync_remote::CollectSyncRemote;
     use crate::infrastructure::cloud::client::{
         CloudHttpMethod, CloudHttpTransport, CloudRawResponse,
@@ -224,6 +225,9 @@ mod tests {
         fn access_token(&self) -> Option<String> {
             Some(self.token.lock().expect("lock").clone())
         }
+        fn access_token_for_user(&self, expected_user_id: &str) -> Option<String> {
+            (expected_user_id == "user-1").then(|| self.token.lock().expect("lock").clone())
+        }
         fn is_access_expiring_soon(&self, _: i64, _: i64) -> bool {
             false
         }
@@ -237,6 +241,15 @@ mod tests {
                     code: Some("AUTH_REFRESH_TOKEN_EXPIRED".into()),
                 })
             }
+        }
+        fn refresh_single_flight_for_user(
+            &self,
+            expected_user_id: &str,
+        ) -> Result<(), CloudSessionError> {
+            if expected_user_id != "user-1" {
+                return Err(CloudSessionError::AccountChanged);
+            }
+            self.refresh_single_flight()
         }
     }
 
@@ -275,6 +288,7 @@ mod tests {
         let remote = HttpCollectSyncRemote::new(client(transport.clone(), credentials));
         let result = remote
             .push_daily_usage(PushDailyUsageRequest {
+                expected_user_id: "user-1".into(),
                 request_body: exact_body.to_owned(),
                 idempotency_key: "idem-1".into(),
             })
@@ -316,11 +330,15 @@ mod tests {
         let remote = HttpCollectSyncRemote::new(client(transport.clone(), credentials));
         let error = remote
             .push_daily_usage(PushDailyUsageRequest {
+                expected_user_id: "user-1".into(),
                 request_body: r#"{"contractVersion":1}"#.into(),
                 idempotency_key: "idem-1".into(),
             })
             .expect_err("device missing");
-        assert!(matches!(error, CollectSyncRemoteError::DeviceNotFound { .. }));
+        assert!(matches!(
+            error,
+            CollectSyncRemoteError::DeviceNotFound { .. }
+        ));
         // Only the daily-usage path was called; no implicit device PUT.
         let calls = transport.calls.lock().expect("lock");
         assert_eq!(calls.len(), 1);
@@ -343,6 +361,7 @@ mod tests {
         let remote = HttpCollectSyncRemote::new(client(transport, credentials));
         let result = remote
             .push_daily_usage(PushDailyUsageRequest {
+                expected_user_id: "user-1".into(),
                 request_body: r#"{"contractVersion":1}"#.into(),
                 idempotency_key: "idem-1".into(),
             })
@@ -366,6 +385,7 @@ mod tests {
         let remote = HttpCollectSyncRemote::new(client(transport, credentials));
         let error = remote
             .push_daily_usage(PushDailyUsageRequest {
+                expected_user_id: "user-1".into(),
                 request_body: r#"{"contractVersion":1}"#.into(),
                 idempotency_key: "idem-1".into(),
             })
@@ -403,6 +423,7 @@ mod tests {
         let remote = HttpCollectSyncRemote::new(client(transport.clone(), credentials.clone()));
         let result = remote
             .push_daily_usage(PushDailyUsageRequest {
+                expected_user_id: "user-1".into(),
                 request_body: r#"{"contractVersion":1}"#.into(),
                 idempotency_key: "idem-1".into(),
             })

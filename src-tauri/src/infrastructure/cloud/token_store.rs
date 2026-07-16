@@ -62,8 +62,7 @@ impl CloudTokenStore for KeyringCloudTokenStore {
             user_id: session.account.user_id.clone(),
             email: session.account.email.clone(),
         };
-        let secret =
-            serde_json::to_string(&payload).map_err(|_| CloudTokenStoreError::Backend)?;
+        let secret = serde_json::to_string(&payload).map_err(|_| CloudTokenStoreError::Backend)?;
         self.entry
             .set_password(&secret)
             .map_err(|_| CloudTokenStoreError::Backend)

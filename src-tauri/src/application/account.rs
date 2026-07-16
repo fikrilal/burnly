@@ -106,7 +106,10 @@ pub(crate) enum AccountServiceError {
     #[error("missing authorization code")]
     EmptyCode,
     #[error("token exchange failed")]
-    ExchangeFailed { code: Option<String>, message: String },
+    ExchangeFailed {
+        code: Option<String>,
+        message: String,
+    },
     #[error("failed to store session")]
     StorageFailed,
 }
@@ -422,10 +425,7 @@ impl AccountService {
     }
 
     pub(crate) fn peek_pending_login(&self) -> Option<PendingLogin> {
-        self.pending
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone())
+        self.pending.lock().ok().and_then(|guard| guard.clone())
     }
 
     fn has_pending_login(&self) -> bool {
@@ -523,8 +523,7 @@ pub(crate) fn user_visible_login_error(error: &AccountServiceError) -> Option<Ac
                 message: message.into(),
             })
         }
-        AccountServiceError::LogoutFailed
-        | AccountServiceError::AlreadySignedIn => None,
+        AccountServiceError::LogoutFailed | AccountServiceError::AlreadySignedIn => None,
     }
 }
 
@@ -638,9 +637,7 @@ mod tests {
         ))
     }
 
-    fn service_with(
-        exchanger: Arc<FakeExchanger>,
-    ) -> (AccountService, Arc<MemoryStore>) {
+    fn service_with(exchanger: Arc<FakeExchanger>) -> (AccountService, Arc<MemoryStore>) {
         let store = Arc::new(MemoryStore::new());
         let service = AccountService::from_session(
             session(store.clone()),
@@ -660,15 +657,9 @@ mod tests {
         });
         let (service, _) = service_with(exchanger);
         let started = service.start_login().expect("start");
-        assert_eq!(
-            started.view.status,
-            AccountSessionStatus::WaitingForBrowser
-        );
+        assert_eq!(started.view.status, AccountSessionStatus::WaitingForBrowser);
         assert!(started.login_url.contains("client=desktop"));
-        assert_eq!(
-            started.redirect_uri,
-            "http://127.0.0.1:39201/callback"
-        );
+        assert_eq!(started.redirect_uri, "http://127.0.0.1:39201/callback");
     }
 
     #[test]

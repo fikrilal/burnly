@@ -4,8 +4,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
 
 /// Unreserved characters used for PKCE verifiers and CSRF state (RFC 3986).
-const UNRESERVED: &[u8] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+const UNRESERVED: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
 
 /// Generates a CSRF `state` value (32 unreserved chars; within 8–256 web range).
 pub(crate) fn generate_state() -> String {

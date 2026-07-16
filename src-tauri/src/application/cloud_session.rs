@@ -54,6 +54,8 @@ pub(crate) enum CloudSessionError {
     LogoutFailed { code: Option<String> },
     #[error("refresh already in progress and failed")]
     RefreshInFlightFailed,
+    #[error("signed-in account changed during token refresh")]
+    AccountChanged,
 }
 
 impl From<CloudTokenStoreError> for CloudSessionError {
@@ -95,10 +97,7 @@ impl CloudSession {
 
     pub(crate) fn restore(&self) -> Result<SessionSnapshot, CloudSessionError> {
         let loaded = self.store.load()?;
-        let mut guard = self
-            .state
-            .lock()
-            .map_err(|_| CloudSessionError::Storage)?;
+        let mut guard = self.state.lock().map_err(|_| CloudSessionError::Storage)?;
         match loaded {
             Some(session) => {
                 *guard = Some(SessionState {
@@ -117,10 +116,7 @@ impl CloudSession {
     }
 
     pub(crate) fn snapshot(&self) -> Result<SessionSnapshot, CloudSessionError> {
-        let guard = self
-            .state
-            .lock()
-            .map_err(|_| CloudSessionError::Storage)?;
+        let guard = self.state.lock().map_err(|_| CloudSessionError::Storage)?;
         Ok(match guard.as_ref() {
             Some(session) => SessionSnapshot::SignedIn {
                 account: session.account.clone(),
@@ -155,26 +151,18 @@ impl CloudSession {
             return Err(CloudSessionError::Storage);
         }
 
-        let stored = StoredCloudSession {
+        let mut guard = self.state.lock().map_err(|_| CloudSessionError::Storage)?;
+        self.store.save(&StoredCloudSession {
             tokens: tokens.clone(),
             account: account.clone(),
-        };
-        self.store.save(&stored)?;
-
-        let mut guard = self
-            .state
-            .lock()
-            .map_err(|_| CloudSessionError::Storage)?;
+        })?;
         *guard = Some(SessionState { tokens, account });
         Ok(())
     }
 
     pub(crate) fn clear_local(&self) -> Result<(), CloudSessionError> {
+        let mut guard = self.state.lock().map_err(|_| CloudSessionError::Storage)?;
         self.store.clear()?;
-        let mut guard = self
-            .state
-            .lock()
-            .map_err(|_| CloudSessionError::Storage)?;
         *guard = None;
         Ok(())
     }
@@ -182,10 +170,7 @@ impl CloudSession {
     /// Clears local session and best-effort revokes the refresh token remotely.
     pub(crate) fn logout(&self) -> Result<(), CloudSessionError> {
         let refresh_token = {
-            let guard = self
-                .state
-                .lock()
-                .map_err(|_| CloudSessionError::Storage)?;
+            let guard = self.state.lock().map_err(|_| CloudSessionError::Storage)?;
             guard
                 .as_ref()
                 .map(|session| session.tokens.refresh_token.clone())
@@ -209,41 +194,74 @@ impl CloudSession {
     }
 
     pub(crate) fn refresh_single_flight(&self) -> Result<(), CloudSessionError> {
+        self.refresh_single_flight_for_expected_user(None)
+    }
+
+    fn refresh_single_flight_for_user(
+        &self,
+        expected_user_id: &str,
+    ) -> Result<(), CloudSessionError> {
+        self.refresh_single_flight_for_expected_user(Some(expected_user_id))
+    }
+
+    fn refresh_single_flight_for_expected_user(
+        &self,
+        expected_user_id: Option<&str>,
+    ) -> Result<(), CloudSessionError> {
         let _refresh_guard = self
             .refresh_lock
             .lock()
             .map_err(|_| CloudSessionError::RefreshInFlightFailed)?;
 
-        let refresh_token = {
-            let guard = self
-                .state
-                .lock()
-                .map_err(|_| CloudSessionError::Storage)?;
+        let (refresh_token, account) = {
+            let guard = self.state.lock().map_err(|_| CloudSessionError::Storage)?;
             match guard.as_ref() {
-                Some(session) => session.tokens.refresh_token.clone(),
+                Some(session)
+                    if expected_user_id
+                        .is_none_or(|expected| session.account.user_id == expected) =>
+                {
+                    (
+                        session.tokens.refresh_token.clone(),
+                        session.account.clone(),
+                    )
+                }
+                Some(_) => return Err(CloudSessionError::AccountChanged),
                 None => return Err(CloudSessionError::NotSignedIn),
             }
         };
 
         let new_tokens = self.refresher.refresh(&refresh_token)?;
-        let account = {
-            let guard = self
-                .state
-                .lock()
-                .map_err(|_| CloudSessionError::Storage)?;
-            match guard.as_ref() {
-                Some(session) => session.account.clone(),
-                None => return Err(CloudSessionError::NotSignedIn),
-            }
+        let mut guard = self.state.lock().map_err(|_| CloudSessionError::Storage)?;
+        let session_unchanged = guard.as_ref().is_some_and(|session| {
+            session.account.user_id == account.user_id
+                && session.tokens.refresh_token == refresh_token
+        });
+        if !session_unchanged {
+            return Err(CloudSessionError::AccountChanged);
         };
-
-        self.apply_tokens(new_tokens, account)
+        self.store.save(&StoredCloudSession {
+            tokens: new_tokens.clone(),
+            account: account.clone(),
+        })?;
+        *guard = Some(SessionState {
+            tokens: new_tokens,
+            account,
+        });
+        Ok(())
     }
 }
 
 impl CloudAuthCredentials for CloudSession {
     fn access_token(&self) -> Option<String> {
         CloudSession::access_token(self)
+    }
+
+    fn access_token_for_user(&self, expected_user_id: &str) -> Option<String> {
+        self.state.lock().ok().and_then(|guard| {
+            let session = guard.as_ref()?;
+            (session.account.user_id == expected_user_id)
+                .then(|| session.tokens.access_token.clone())
+        })
     }
 
     fn is_access_expiring_soon(&self, now_epoch_ms: i64, leeway_ms: i64) -> bool {
@@ -263,6 +281,13 @@ impl CloudAuthCredentials for CloudSession {
     fn refresh_single_flight(&self) -> Result<(), CloudSessionError> {
         CloudSession::refresh_single_flight(self)
     }
+
+    fn refresh_single_flight_for_user(
+        &self,
+        expected_user_id: &str,
+    ) -> Result<(), CloudSessionError> {
+        CloudSession::refresh_single_flight_for_user(self, expected_user_id)
+    }
 }
 
 #[cfg(test)]
@@ -270,6 +295,7 @@ mod tests {
     use super::*;
     use crate::application::ports::cloud_token_store::CloudTokenStoreError;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Barrier;
 
     struct MemoryStore {
         inner: Mutex<Option<StoredCloudSession>>,
@@ -322,6 +348,24 @@ mod tests {
         }
     }
 
+    struct BlockingRefresher {
+        entered: Arc<Barrier>,
+        release: Arc<Barrier>,
+    }
+
+    impl CloudTokenRefresher for BlockingRefresher {
+        fn refresh(&self, refresh_token: &str) -> Result<CloudTokens, CloudSessionError> {
+            assert_eq!(refresh_token, "refresh-1");
+            self.entered.wait();
+            self.release.wait();
+            Ok(CloudTokens {
+                access_token: "refreshed-a".into(),
+                refresh_token: "refresh-a2".into(),
+                access_expires_at_ms: Some(9_000_000),
+            })
+        }
+    }
+
     struct NoopLogout;
 
     impl CloudRemoteLogout for NoopLogout {
@@ -370,15 +414,15 @@ mod tests {
             .apply_tokens(sample_tokens(Some(2_000_000)), sample_account())
             .expect("apply");
         assert!(session.is_signed_in());
-        assert_eq!(
-            session.account().expect("account").email,
-            "dev@burnly.dev"
-        );
+        assert_eq!(session.account().expect("account").email, "dev@burnly.dev");
 
-        let restored = session_with(store, Arc::new(CountingRefresher {
-            calls: AtomicUsize::new(0),
-            tokens: sample_tokens(Some(2_000_000)),
-        }));
+        let restored = session_with(
+            store,
+            Arc::new(CountingRefresher {
+                calls: AtomicUsize::new(0),
+                tokens: sample_tokens(Some(2_000_000)),
+            }),
+        );
         assert_eq!(
             restored.restore().expect("restore"),
             SessionSnapshot::SignedIn {
@@ -414,6 +458,60 @@ mod tests {
         session.refresh_single_flight().expect("refresh");
         assert_eq!(session.access_token().as_deref(), Some("access-2"));
         assert_eq!(refresher.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn refresh_cannot_replace_a_newly_signed_in_account() {
+        let store = Arc::new(MemoryStore::new());
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let session = Arc::new(session_with(
+            store.clone(),
+            Arc::new(BlockingRefresher {
+                entered: entered.clone(),
+                release: release.clone(),
+            }),
+        ));
+        session
+            .apply_tokens(sample_tokens(Some(1_000)), sample_account())
+            .expect("apply a");
+
+        let worker = {
+            let session = session.clone();
+            std::thread::spawn(move || session.refresh_single_flight_for_user("user-1"))
+        };
+        entered.wait();
+        let account_b = AccountSummary {
+            user_id: "user-2".into(),
+            email: "other@burnly.dev".into(),
+        };
+        let tokens_b = CloudTokens {
+            access_token: "access-b".into(),
+            refresh_token: "refresh-b".into(),
+            access_expires_at_ms: Some(9_000_000),
+        };
+        session
+            .apply_tokens(tokens_b.clone(), account_b.clone())
+            .expect("apply b");
+        release.wait();
+
+        assert_eq!(
+            worker.join().expect("worker"),
+            Err(CloudSessionError::AccountChanged)
+        );
+        assert_eq!(
+            session.snapshot().expect("snapshot"),
+            SessionSnapshot::SignedIn {
+                account: account_b.clone()
+            }
+        );
+        assert_eq!(
+            store.load().expect("stored"),
+            Some(StoredCloudSession {
+                tokens: tokens_b,
+                account: account_b,
+            })
+        );
     }
 
     #[test]

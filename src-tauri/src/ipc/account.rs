@@ -12,9 +12,7 @@ use crate::application::account::{
 };
 use crate::application::auth_loopback::{LoopbackError, LoopbackServer};
 
-use super::events::{
-    names as event_names, AccountSessionChangeReason, AccountSessionChangedEvent,
-};
+use super::events::{names as event_names, AccountSessionChangeReason, AccountSessionChangedEvent};
 use super::response::{ErrorCategory, IpcError, IpcResponse};
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -95,8 +93,7 @@ pub(super) fn account_start_login<R: tauri::Runtime>(
             },
             Err(LoopbackError::Cancelled) => None,
             Err(LoopbackError::Timeout) => {
-                let _ =
-                    service.abandon_login_with_error(AccountServiceError::ExpiredPending);
+                let _ = service.abandon_login_with_error(AccountServiceError::ExpiredPending);
                 Some(AccountSessionChangeReason::LoginFailed)
             }
             Err(_) => {
@@ -211,18 +208,14 @@ fn account_error(error: AccountServiceError) -> IpcError {
             _ => "account.exchange_failed",
         };
         let message: &'static str = match code {
-            "AUTH_DESKTOP_HANDOFF_INVALID" => {
-                "Sign-in expired or was invalid. Please try again."
-            }
+            "AUTH_DESKTOP_HANDOFF_INVALID" => "Sign-in expired or was invalid. Please try again.",
             "AUTH_USER_SUSPENDED" => "This account is suspended and cannot sign in.",
             "RATE_LIMITED" => "Too many sign-in attempts. Please wait and try again.",
             "UNAUTHORIZED" => "Your session is no longer valid. Please sign in again.",
             "account.state_mismatch" => "Sign-in could not be verified. Please try again.",
             "account.login_timeout" => "Sign-in timed out. Please try again.",
             "account.invalid_callback" => "Burnly received an invalid sign-in callback.",
-            "account.login_unavailable" => {
-                "Sign-in is unavailable in this build or configuration."
-            }
+            "account.login_unavailable" => "Sign-in is unavailable in this build or configuration.",
             "account.storage_failed" => {
                 "Burnly could not save the signed-in session on this device."
             }

@@ -57,14 +57,10 @@ impl TryFrom<StoredUploadScope> for UploadScope {
                 start_date,
                 end_date,
             } => {
-                let start_date =
-                    NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").map_err(|_| {
-                        ScopeError::InvalidStoredDate
-                    })?;
-                let end_date =
-                    NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").map_err(|_| {
-                        ScopeError::InvalidStoredDate
-                    })?;
+                let start_date = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d")
+                    .map_err(|_| ScopeError::InvalidStoredDate)?;
+                let end_date = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d")
+                    .map_err(|_| ScopeError::InvalidStoredDate)?;
                 Self::incremental(source_keys, start_date, end_date)
             }
         }
@@ -188,10 +184,7 @@ mod tests {
         assert_eq!(
             merged,
             UploadScope::Incremental {
-                source_keys: BTreeSet::from([
-                    "claude-code".to_owned(),
-                    "codex".to_owned()
-                ]),
+                source_keys: BTreeSet::from(["claude-code".to_owned(), "codex".to_owned()]),
                 start_date: date(2026, 7, 1),
                 end_date: date(2026, 7, 8),
             }

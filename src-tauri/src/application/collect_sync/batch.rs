@@ -144,7 +144,9 @@ pub(crate) fn build_prepared_batches(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::collect_sync::dto::{DailyUsageCostDto, DailyUsageModelDto, ModelUsageCostDto};
+    use crate::application::collect_sync::dto::{
+        DailyUsageCostDto, DailyUsageModelDto, ModelUsageCostDto,
+    };
 
     fn fact(date: &str, identity_suffix: &str, models: usize) -> DailyUsageFactDto {
         DailyUsageFactDto {

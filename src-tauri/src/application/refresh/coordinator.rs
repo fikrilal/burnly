@@ -207,10 +207,7 @@ impl RefreshCoordinator {
         self.lock_state().snapshot()
     }
 
-    pub(crate) fn set_committed_daily_upload_sink(
-        &self,
-        sink: Arc<dyn CommittedDailyUploadSink>,
-    ) {
+    pub(crate) fn set_committed_daily_upload_sink(&self, sink: Arc<dyn CommittedDailyUploadSink>) {
         *self
             .committed_daily_upload_sink
             .lock()

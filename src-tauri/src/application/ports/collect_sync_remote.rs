@@ -28,6 +28,7 @@ impl CollectSyncPlatform {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct UpsertSyncDeviceRequest {
+    pub expected_user_id: String,
     pub client_device_id: String,
     pub display_name: Option<String>,
     pub platform: CollectSyncPlatform,
@@ -50,6 +51,7 @@ pub(crate) struct SyncDeviceSnapshot {
 /// Exact stored outbox body + idempotency key for one push attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PushDailyUsageRequest {
+    pub expected_user_id: String,
     pub request_body: String,
     pub idempotency_key: String,
 }

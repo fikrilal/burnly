@@ -13,7 +13,15 @@ use crate::application::cloud_session::CloudSessionError;
 pub(crate) trait CloudAuthCredentials: Send + Sync {
     fn access_token(&self) -> Option<String>;
 
+    /// Returns a token only when it belongs to the expected account.
+    fn access_token_for_user(&self, expected_user_id: &str) -> Option<String>;
+
     fn is_access_expiring_soon(&self, now_epoch_ms: i64, leeway_ms: i64) -> bool;
 
     fn refresh_single_flight(&self) -> Result<(), CloudSessionError>;
+
+    fn refresh_single_flight_for_user(
+        &self,
+        expected_user_id: &str,
+    ) -> Result<(), CloudSessionError>;
 }

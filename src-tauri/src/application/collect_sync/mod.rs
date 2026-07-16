@@ -24,9 +24,7 @@ pub(crate) use dto::{
     DailyUsageWindowDto, ModelUsageCostDto, WireUploadScope,
 };
 #[allow(unused_imports)]
-pub(crate) use export::{
-    map_exported_fact, ExportMapError, ExportedDailyFact, ExportedDailyModel,
-};
+pub(crate) use export::{map_exported_fact, ExportMapError, ExportedDailyFact, ExportedDailyModel};
 #[allow(unused_imports)]
 pub(crate) use scope::{merge_upload_scopes, ScopeError, StoredUploadScope, UploadScope};
 #[allow(unused_imports)]

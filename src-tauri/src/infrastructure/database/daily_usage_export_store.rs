@@ -192,7 +192,10 @@ fn load_parents_incremental(
     }
 
     let rows = statement
-        .query_map(params_from_iter(params.iter().map(|value| value.as_ref())), map_parent_row)
+        .query_map(
+            params_from_iter(params.iter().map(|value| value.as_ref())),
+            map_parent_row,
+        )
         .map_err(|_| DailyUsageExportStoreError::Backend)?;
 
     collect_parents(rows)
@@ -264,7 +267,11 @@ fn load_models(
         return Ok(BTreeMap::new());
     }
 
-    let placeholders = parent_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let placeholders = parent_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!(
         "SELECT
             dmu.daily_usage_id,
@@ -317,10 +324,7 @@ fn load_models(
     Ok(models_by_parent)
 }
 
-fn optional_u64(
-    row: &rusqlite::Row<'_>,
-    index: usize,
-) -> rusqlite::Result<Option<u64>> {
+fn optional_u64(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<u64>> {
     let value: Option<i64> = row.get(index)?;
     value
         .map(|number| {

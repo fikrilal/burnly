@@ -146,8 +146,8 @@ mod tests {
     #[test]
     fn maps_successful_auth_result() {
         use base64::Engine as _;
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(br#"{"exp":1700000000}"#);
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"exp":1700000000}"#);
         let access = format!("aaa.{payload}.sig");
         let body = format!(
             r#"{{"data":{{"user":{{"id":"user-1","email":"dev@burnly.dev"}},"accessToken":"{access}","refreshToken":"refresh-1"}}}}"#

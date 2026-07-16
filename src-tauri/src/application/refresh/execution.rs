@@ -113,7 +113,7 @@ fn execute_open_refresh(
     let mut finished_at_ms = started_at_ms;
     let mut committed_daily_upload = CommittedDailyUpload {
         targets: Vec::new(),
-        refresh_was_full: matches!(scope_policy, RefreshScopePolicy::Full),
+        full_refresh_complete: matches!(scope_policy, RefreshScopePolicy::Full),
     };
 
     for target in refresh_targets() {
@@ -139,6 +139,7 @@ fn execute_open_refresh(
         let collection = match context.collector.collect(request, &NeverCancelled) {
             Ok(collection) => collection,
             Err(failure) => {
+                committed_daily_upload.full_refresh_complete = false;
                 aggregate.record(RunOutcome::Failed);
                 finished_at_ms = context.clock.now_epoch_ms();
                 if first_error.is_none() {
@@ -155,12 +156,13 @@ fn execute_open_refresh(
             &collection,
         )?;
         aggregate.record(result.outcome);
+        if !matches!(result.outcome, RunOutcome::Succeeded) {
+            committed_daily_upload.full_refresh_complete = false;
+        }
         usage_changed = usage_changed || result.usage_changed;
         finished_at_ms = result.finished_at_ms;
-        if matches!(
-            result.outcome,
-            RunOutcome::Succeeded | RunOutcome::Partial
-        ) && matches!(collection.projection(), CollectionProjection::Daily)
+        if matches!(result.outcome, RunOutcome::Succeeded | RunOutcome::Partial)
+            && matches!(collection.projection(), CollectionProjection::Daily)
         {
             if let Some(target_upload) =
                 committed_daily_target(target.source, collection.metadata().effective_scope())

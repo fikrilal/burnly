@@ -4,9 +4,7 @@ use tauri::{Emitter, State};
 use crate::application::settings::{RuntimeSettingError, SettingsError, SettingsService};
 use crate::domain::settings::{Settings, SettingsDocument, SettingsValidationError};
 
-use super::events::{
-    names as event_names, DataInvalidatedEvent, SettingsChangedEvent,
-};
+use super::events::{names as event_names, DataInvalidatedEvent, SettingsChangedEvent};
 use super::response::{ErrorCategory, FieldError, IpcError, IpcResponse};
 
 #[derive(Debug, Serialize)]

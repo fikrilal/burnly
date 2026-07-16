@@ -98,8 +98,8 @@ mod tests {
 
     #[test]
     fn collect_sync_changed_payload_is_object() {
-        let json = serde_json::to_value(CollectSyncChangedEvent { status: "syncing" })
-            .expect("serialize");
+        let json =
+            serde_json::to_value(CollectSyncChangedEvent { status: "syncing" }).expect("serialize");
         assert!(json.is_object());
         assert_eq!(json["status"], "syncing");
     }

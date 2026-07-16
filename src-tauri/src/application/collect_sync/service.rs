@@ -58,7 +58,7 @@ impl CollectSyncStatusSink for NoopCollectSyncStatusSink {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct CommittedDailyUpload {
     pub targets: Vec<CommittedDailyTarget>,
-    pub refresh_was_full: bool,
+    pub full_refresh_complete: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,14 +79,8 @@ impl CommittedDailyUpload {
         if self.targets.is_empty() {
             return None;
         }
-        if self.refresh_was_full
-            || self.targets.iter().all(|target| target.full_history)
-        {
-            // Full-history successful targets: use Full when all sources succeeded
-            // under full collection, otherwise wide incremental for the subset.
-            if self.refresh_was_full && self.targets.iter().all(|target| target.full_history) {
-                return Some(UploadScope::Full);
-            }
+        if self.full_refresh_complete && self.targets.iter().all(|target| target.full_history) {
+            return Some(UploadScope::Full);
         }
 
         let mut source_keys = std::collections::BTreeSet::new();
@@ -123,9 +117,10 @@ pub(crate) struct CollectSync {
     status_sink: Arc<dyn CollectSyncStatusSink>,
     running: AtomicBool,
     cancel: AtomicBool,
+    terminal_blocked_epoch: AtomicU64,
     epoch: AtomicU64,
     active_user_id: Mutex<Option<String>>,
-    next_retry_not_before_ms: Mutex<Option<i64>>,
+    next_retry_not_before_ms: Mutex<Option<(u64, i64)>>,
 }
 
 impl CollectSync {
@@ -148,6 +143,7 @@ impl CollectSync {
             status_sink,
             running: AtomicBool::new(false),
             cancel: AtomicBool::new(false),
+            terminal_blocked_epoch: AtomicU64::new(u64::MAX),
             epoch: AtomicU64::new(0),
             active_user_id: Mutex::new(None),
             next_retry_not_before_ms: Mutex::new(None),
@@ -198,7 +194,9 @@ impl CollectSync {
         CollectSyncStatusSnapshot {
             status,
             last_accepted_at_ms: state.as_ref().and_then(|value| value.last_accepted_at_ms),
-            last_error_code: state.as_ref().and_then(|value| value.last_error_code.clone()),
+            last_error_code: state
+                .as_ref()
+                .and_then(|value| value.last_error_code.clone()),
             last_error_message: state
                 .as_ref()
                 .and_then(|value| value.last_error_message.clone()),
@@ -212,6 +210,8 @@ impl CollectSync {
             *guard = Some(user_id.to_owned());
         }
         self.cancel.store(false, Ordering::SeqCst);
+        self.terminal_blocked_epoch
+            .store(u64::MAX, Ordering::SeqCst);
         self.epoch.fetch_add(1, Ordering::SeqCst);
         *self.next_retry_not_before_ms.lock().expect("retry lock") = None;
 
@@ -223,11 +223,9 @@ impl CollectSync {
                     state.baseline_status,
                     BaselineStatus::None | BaselineStatus::InProgress
                 ) {
-                    let _ = self.collect_store.merge_pending_scope(
-                        &account,
-                        UploadScope::Full,
-                        now,
-                    );
+                    let _ =
+                        self.collect_store
+                            .merge_pending_scope(&account, UploadScope::Full, now);
                 }
             }
         }
@@ -258,6 +256,8 @@ impl CollectSync {
     }
 
     pub(crate) fn retry_now(self: &Arc<Self>) {
+        self.terminal_blocked_epoch
+            .store(u64::MAX, Ordering::SeqCst);
         *self.next_retry_not_before_ms.lock().expect("retry lock") = None;
         self.kick();
     }
@@ -269,6 +269,22 @@ impl CollectSync {
     }
 
     fn kick(self: &Arc<Self>) {
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        if self.cancel.load(Ordering::SeqCst)
+            || self.terminal_blocked_epoch.load(Ordering::SeqCst) == epoch
+        {
+            return;
+        }
+        if self
+            .next_retry_not_before_ms
+            .lock()
+            .expect("retry lock")
+            .is_some_and(|(retry_epoch, until)| {
+                retry_epoch == epoch && self.clock.now_epoch_ms() < until
+            })
+        {
+            return;
+        }
         if self
             .running
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -279,19 +295,71 @@ impl CollectSync {
         self.cancel.store(false, Ordering::SeqCst);
         let this = Arc::clone(self);
         let epoch = this.epoch.load(Ordering::SeqCst);
-        thread::Builder::new()
+        let spawn_result = thread::Builder::new()
             .name("burnly-collect-sync".into())
             .spawn(move || {
-                this.run_worker(epoch);
+                let exit = this.run_worker(epoch);
+                if matches!(exit, WorkerExit::Terminal) {
+                    this.terminal_blocked_epoch.store(epoch, Ordering::SeqCst);
+                }
                 this.running.store(false, Ordering::SeqCst);
                 this.publish_status();
-                // If work remains and not cancelled, schedule another pass.
-                if !this.cancel.load(Ordering::SeqCst) && this.has_work() {
-                    this.kick();
+                match exit {
+                    WorkerExit::Quiescent
+                        if !this.cancel.load(Ordering::SeqCst)
+                            && this.epoch.load(Ordering::SeqCst) == epoch
+                            && this.has_work() =>
+                    {
+                        // Work may have arrived after the worker observed an empty queue.
+                        this.kick();
+                    }
+                    WorkerExit::Stopped
+                        if !this.cancel.load(Ordering::SeqCst)
+                            && this.epoch.load(Ordering::SeqCst) != epoch
+                            && this.has_work() =>
+                    {
+                        this.kick();
+                    }
+                    WorkerExit::Backoff { until_ms } => {
+                        this.schedule_retry(until_ms, epoch);
+                    }
+                    WorkerExit::Terminal => {}
+                    WorkerExit::Quiescent | WorkerExit::StoreFailure | WorkerExit::Stopped => {}
                 }
-            })
-            .ok();
+            });
+        if spawn_result.is_err() {
+            self.running.store(false, Ordering::SeqCst);
+        }
         self.publish_status();
+    }
+
+    fn schedule_retry(self: &Arc<Self>, until_ms: i64, epoch: u64) {
+        let this = Arc::clone(self);
+        let _ = thread::Builder::new()
+            .name("burnly-collect-sync-retry".into())
+            .spawn(move || loop {
+                if this.cancel.load(Ordering::SeqCst) || this.epoch.load(Ordering::SeqCst) != epoch
+                {
+                    return;
+                }
+
+                let remaining_ms = until_ms.saturating_sub(this.clock.now_epoch_ms());
+                if remaining_ms > 0 {
+                    thread::sleep(Duration::from_millis(
+                        u64::try_from(remaining_ms.min(250)).unwrap_or(250),
+                    ));
+                    continue;
+                }
+
+                let mut retry = this.next_retry_not_before_ms.lock().expect("retry lock");
+                if *retry != Some((epoch, until_ms)) {
+                    return;
+                }
+                *retry = None;
+                drop(retry);
+                this.kick();
+                return;
+            });
     }
 
     fn has_work(&self) -> bool {
@@ -313,40 +381,51 @@ impl CollectSync {
         )
     }
 
-    fn run_worker(&self, epoch: u64) {
+    fn run_worker(&self, epoch: u64) -> WorkerExit {
         self.publish_status();
         loop {
             if self.cancel.load(Ordering::SeqCst) || self.epoch.load(Ordering::SeqCst) != epoch {
-                return;
+                return WorkerExit::Stopped;
             }
             let Some(account) = self.account_key_matching_epoch(epoch) else {
-                return;
+                return WorkerExit::Stopped;
             };
 
-            if let Some(not_before) = *self.next_retry_not_before_ms.lock().expect("retry lock") {
-                if self.clock.now_epoch_ms() < not_before {
-                    return;
+            if let Some((retry_epoch, not_before)) =
+                *self.next_retry_not_before_ms.lock().expect("retry lock")
+            {
+                if retry_epoch == epoch && self.clock.now_epoch_ms() < not_before {
+                    return WorkerExit::Backoff {
+                        until_ms: not_before,
+                    };
                 }
             }
 
-            match self.step(&account, epoch) {
+            let step = self.step(&account, epoch);
+            if self.cancel.load(Ordering::SeqCst) || self.epoch.load(Ordering::SeqCst) != epoch {
+                return WorkerExit::Stopped;
+            }
+            match step {
                 StepResult::Continue => {}
-                StepResult::Idle => return,
+                StepResult::Quiescent => return WorkerExit::Quiescent,
                 StepResult::Backoff { until_ms } => {
-                    *self.next_retry_not_before_ms.lock().expect("retry lock") = Some(until_ms);
-                    return;
+                    *self.next_retry_not_before_ms.lock().expect("retry lock") =
+                        Some((epoch, until_ms));
+                    return WorkerExit::Backoff { until_ms };
                 }
-                StepResult::Stop => return,
+                StepResult::Terminal => return WorkerExit::Terminal,
+                StepResult::StoreFailure => return WorkerExit::StoreFailure,
+                StepResult::Stop => return WorkerExit::Stopped,
             }
         }
     }
 
     fn step(&self, account: &CollectSyncAccountKey, epoch: u64) -> StepResult {
         let now = self.clock.now_epoch_ms();
-        let pending = self
-            .collect_store
-            .list_pending_batches(account)
-            .unwrap_or_default();
+        let pending = match self.collect_store.list_pending_batches(account) {
+            Ok(pending) => pending,
+            Err(_) => return StepResult::StoreFailure,
+        };
 
         if let Some(batch) = pending.into_iter().next() {
             return self.send_batch(account, epoch, batch);
@@ -359,7 +438,7 @@ impl CollectSync {
                 let _ = self.collect_store.ensure_state(account, now);
                 return StepResult::Continue;
             }
-            Err(_) => return StepResult::Idle,
+            Err(_) => return StepResult::StoreFailure,
         };
 
         let scope = match state.pending_scope.clone() {
@@ -371,7 +450,7 @@ impl CollectSync {
             {
                 UploadScope::Full
             }
-            None => return StepResult::Idle,
+            None => return StepResult::Quiescent,
         };
 
         if let Err(error) = self.ensure_device_registered(account, epoch, &state, now) {
@@ -402,7 +481,7 @@ impl CollectSync {
                 StepResult::Continue
             }
             Ok(_) => StepResult::Continue,
-            Err(StepError::Store) => StepResult::Idle,
+            Err(StepError::Store) => StepResult::StoreFailure,
             Err(StepError::Remote(error)) => self.map_remote_step_error(account, now, error),
             Err(StepError::Cancelled) => StepResult::Stop,
         }
@@ -415,7 +494,9 @@ impl CollectSync {
         now_ms: i64,
     ) -> Result<usize, StepError> {
         let query = match &scope {
-            UploadScope::Full => DailyUsageExportQuery::full(self.config.reporting_timezone.clone()),
+            UploadScope::Full => {
+                DailyUsageExportQuery::full(self.config.reporting_timezone.clone())
+            }
             UploadScope::Incremental {
                 source_keys,
                 start_date,
@@ -501,6 +582,7 @@ impl CollectSync {
         }
 
         match self.remote.push_daily_usage(PushDailyUsageRequest {
+            expected_user_id: account.user_id.clone(),
             request_body: batch.request_body.clone(),
             idempotency_key: batch.idempotency_key.clone(),
         }) {
@@ -511,12 +593,12 @@ impl CollectSync {
                     .mark_batch_accepted(account, batch.id, accepted_at)
                     .is_err()
                 {
-                    return StepResult::Idle;
+                    return StepResult::StoreFailure;
                 }
-                let remaining = self
-                    .collect_store
-                    .count_pending_batches(account)
-                    .unwrap_or(1);
+                let remaining = match self.collect_store.count_pending_batches(account) {
+                    Ok(remaining) => remaining,
+                    Err(_) => return StepResult::StoreFailure,
+                };
                 if remaining == 0 {
                     if let Ok(Some(state)) = self.collect_store.load_state(account) {
                         if matches!(state.baseline_status, BaselineStatus::InProgress) {
@@ -539,15 +621,10 @@ impl CollectSync {
             Err(CollectSyncRemoteError::DeviceNotFound { .. }) => {
                 // One recovery path: re-register device then let next step retry same batch.
                 if let Ok(Some(state)) = self.collect_store.load_state(account) {
-                    let _ = self.collect_store.set_device_registration(
-                        account,
-                        "invalidate",
-                        0,
-                        now,
-                    );
-                    if let Err(error) =
-                        self.force_device_register(account, epoch, &state, now)
-                    {
+                    let _ =
+                        self.collect_store
+                            .set_device_registration(account, "invalidate", 0, now);
+                    if let Err(error) = self.force_device_register(account, epoch, &state, now) {
                         return self.map_remote_step_error(account, now, error);
                     }
                 }
@@ -586,6 +663,7 @@ impl CollectSync {
             });
         }
         let snapshot = self.remote.upsert_device(UpsertSyncDeviceRequest {
+            expected_user_id: account.user_id.clone(),
             client_device_id: account.client_device_id.clone(),
             display_name: Some(self.config.device_name.clone()),
             platform: self.config.platform,
@@ -593,12 +671,9 @@ impl CollectSync {
             reporting_timezone: self.config.reporting_timezone.clone(),
         })?;
         let fingerprint = self.device_fingerprint();
-        let _ = self.collect_store.set_device_registration(
-            account,
-            &fingerprint,
-            1,
-            now_ms,
-        );
+        let _ = self
+            .collect_store
+            .set_device_registration(account, &fingerprint, 1, now_ms);
         let _ = snapshot;
         Ok(())
     }
@@ -643,7 +718,7 @@ impl CollectSync {
                 until_ms: now_ms.saturating_add(backoff_ms),
             }
         } else {
-            StepResult::Idle
+            StepResult::Terminal
         }
     }
 
@@ -674,16 +749,25 @@ impl CollectSync {
     }
 
     fn publish_status(&self) {
-        self.status_sink
-            .on_status_changed(self.status_snapshot());
+        self.status_sink.on_status_changed(self.status_snapshot());
     }
 }
 
 enum StepResult {
     Continue,
-    Idle,
+    Quiescent,
     Backoff { until_ms: i64 },
+    Terminal,
+    StoreFailure,
     Stop,
+}
+
+enum WorkerExit {
+    Quiescent,
+    Backoff { until_ms: i64 },
+    Terminal,
+    StoreFailure,
+    Stopped,
 }
 
 enum StepError {
@@ -694,12 +778,8 @@ enum StepError {
 
 fn classify_remote_error(error: &CollectSyncRemoteError) -> (&'static str, String, bool, i64) {
     match error {
-        CollectSyncRemoteError::Network { message } => {
-            ("NETWORK", message.clone(), true, 5_000)
-        }
-        CollectSyncRemoteError::Timeout { message } => {
-            ("TIMEOUT", message.clone(), true, 5_000)
-        }
+        CollectSyncRemoteError::Network { message } => ("NETWORK", message.clone(), true, 5_000),
+        CollectSyncRemoteError::Timeout { message } => ("TIMEOUT", message.clone(), true, 5_000),
         CollectSyncRemoteError::RateLimited {
             message,
             retry_after_seconds,
@@ -728,18 +808,14 @@ fn classify_remote_error(error: &CollectSyncRemoteError) -> (&'static str, Strin
         CollectSyncRemoteError::DeviceNotFound { message } => {
             ("SYNC_DEVICE_NOT_FOUND", message.clone(), true, 1_000)
         }
-        CollectSyncRemoteError::Conflict { message, .. } => {
-            ("CONFLICT", message.clone(), false, 0)
-        }
+        CollectSyncRemoteError::Conflict { message, .. } => ("CONFLICT", message.clone(), false, 0),
         CollectSyncRemoteError::PayloadTooLarge { message } => {
             ("PAYLOAD_TOO_LARGE", message.clone(), false, 0)
         }
         CollectSyncRemoteError::Forbidden { message, .. } => {
             ("FORBIDDEN", message.clone(), false, 0)
         }
-        CollectSyncRemoteError::Problem {
-            message, code, ..
-        } => {
+        CollectSyncRemoteError::Problem { message, code, .. } => {
             let retryable = code.as_deref().is_none_or(|value| {
                 !matches!(
                     value,
@@ -754,16 +830,8 @@ fn classify_remote_error(error: &CollectSyncRemoteError) -> (&'static str, Strin
             )
         }
         CollectSyncRemoteError::Decode { message } => ("DECODE", message.clone(), false, 0),
-        CollectSyncRemoteError::Internal { message } => {
-            ("INTERNAL", message.clone(), true, 5_000)
-        }
+        CollectSyncRemoteError::Internal { message } => ("INTERNAL", message.clone(), true, 5_000),
     }
-}
-
-// Keep sleep helper available for future bounded waits without blocking refresh.
-#[allow(dead_code)]
-fn sleep_ms(ms: u64) {
-    thread::sleep(Duration::from_millis(ms));
 }
 
 #[cfg(test)]
@@ -1005,16 +1073,18 @@ mod tests {
             accepted_at_ms: i64,
         ) -> Result<OutboxBatch, CollectSyncStoreError> {
             let mut batches = self.batches.lock().expect("batches");
-            let batch = batches
-                .iter_mut()
-                .find(|batch| batch.id == batch_id && batch.account == *account)
+            let index = batches
+                .iter()
+                .position(|batch| batch.id == batch_id && batch.account == *account)
                 .ok_or(CollectSyncStoreError::NotFound)?;
+            let mut batch = batches.remove(index);
             batch.status = OutboxBatchStatus::Accepted;
             batch.accepted_at_ms = Some(accepted_at_ms);
-            let out = batch.clone();
+            let out = batch;
             drop(batches);
             let mut states = self.states.lock().expect("states");
-            if let Some(state) = states.get_mut(&(account.user_id.clone(), account.client_device_id.clone()))
+            if let Some(state) =
+                states.get_mut(&(account.user_id.clone(), account.client_device_id.clone()))
             {
                 state.last_accepted_at_ms = Some(accepted_at_ms);
             }
@@ -1138,6 +1208,8 @@ mod tests {
         put_calls: StdMutex<u32>,
         push_calls: StdMutex<u32>,
         push_ok: bool,
+        terminal_failure: bool,
+        first_push_network_failure: StdMutex<bool>,
         /// When true, first push returns device-not-found once.
         first_push_device_missing: StdMutex<bool>,
         last_push_keys: StdMutex<Vec<String>>,
@@ -1150,6 +1222,8 @@ mod tests {
                 put_calls: StdMutex::new(0),
                 push_calls: StdMutex::new(0),
                 push_ok: true,
+                terminal_failure: false,
+                first_push_network_failure: StdMutex::new(false),
                 first_push_device_missing: StdMutex::new(false),
                 last_push_keys: StdMutex::new(Vec::new()),
                 last_push_bodies: StdMutex::new(Vec::new()),
@@ -1161,6 +1235,34 @@ mod tests {
                 put_calls: StdMutex::new(0),
                 push_calls: StdMutex::new(0),
                 push_ok: false,
+                terminal_failure: false,
+                first_push_network_failure: StdMutex::new(false),
+                first_push_device_missing: StdMutex::new(false),
+                last_push_keys: StdMutex::new(Vec::new()),
+                last_push_bodies: StdMutex::new(Vec::new()),
+            }
+        }
+
+        fn terminal_fail() -> Self {
+            Self {
+                put_calls: StdMutex::new(0),
+                push_calls: StdMutex::new(0),
+                push_ok: false,
+                terminal_failure: true,
+                first_push_network_failure: StdMutex::new(false),
+                first_push_device_missing: StdMutex::new(false),
+                last_push_keys: StdMutex::new(Vec::new()),
+                last_push_bodies: StdMutex::new(Vec::new()),
+            }
+        }
+
+        fn network_fail_once() -> Self {
+            Self {
+                put_calls: StdMutex::new(0),
+                push_calls: StdMutex::new(0),
+                push_ok: true,
+                terminal_failure: false,
+                first_push_network_failure: StdMutex::new(true),
                 first_push_device_missing: StdMutex::new(false),
                 last_push_keys: StdMutex::new(Vec::new()),
                 last_push_bodies: StdMutex::new(Vec::new()),
@@ -1208,7 +1310,24 @@ mod tests {
                     });
                 }
             }
-            if self.push_ok {
+            let network_failure = {
+                let mut first = self
+                    .first_push_network_failure
+                    .lock()
+                    .expect("network failure");
+                std::mem::take(&mut *first)
+            };
+            if network_failure {
+                Err(CollectSyncRemoteError::Network {
+                    message: "down once".into(),
+                })
+            } else if self.terminal_failure {
+                Err(CollectSyncRemoteError::Validation {
+                    code: Some("VALIDATION_FAILED".into()),
+                    message: "invalid body".into(),
+                    field_errors: Vec::new(),
+                })
+            } else if self.push_ok {
                 Ok(DailyUsagePushResult {
                     client_device_id: "dev_1".into(),
                     accepted_at: "2026-07-09T12:00:00.000Z".into(),
@@ -1301,13 +1420,16 @@ mod tests {
         for _ in 0..100 {
             thread::sleep(Duration::from_millis(10));
             if !service.running.load(Ordering::SeqCst)
-                && store.count_pending_batches(&account_key("user-a")).unwrap_or(1) == 0
+                && store
+                    .count_pending_batches(&account_key("user-a"))
+                    .unwrap_or(1)
+                    == 0
             {
                 break;
             }
         }
         assert!(*remote.put_calls.lock().expect("put") >= 1);
-        assert!(*remote.push_calls.lock().expect("push") >= 1);
+        assert_eq!(*remote.push_calls.lock().expect("push"), 1);
         let state = store
             .load_state(&account_key("user-a"))
             .expect("load")
@@ -1346,7 +1468,7 @@ mod tests {
                 end_date: NaiveDate::from_ymd_opt(2026, 7, 8).expect("d"),
                 full_history: false,
             }],
-            refresh_was_full: false,
+            full_refresh_complete: false,
         });
         wait_idle(&service, 20);
         assert_eq!(*remote.push_calls.lock().expect("push"), 0);
@@ -1391,7 +1513,11 @@ mod tests {
         service2.on_signed_in("user-a");
         for _ in 0..100 {
             thread::sleep(Duration::from_millis(10));
-            if store.count_pending_batches(&account_key("user-a")).unwrap_or(1) == 0 {
+            if store
+                .count_pending_batches(&account_key("user-a"))
+                .unwrap_or(1)
+                == 0
+            {
                 break;
             }
         }
@@ -1399,7 +1525,10 @@ mod tests {
         let bodies = remote2.last_push_bodies.lock().expect("bodies");
         assert_eq!(keys.as_slice(), &[original_key]);
         assert_eq!(bodies.as_slice(), &[original_body]);
-        assert_eq!(store.count_pending_batches(&account_key("user-a")).unwrap(), 0);
+        assert_eq!(
+            store.count_pending_batches(&account_key("user-a")).unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -1420,7 +1549,10 @@ mod tests {
             );
             service.on_signed_in("user-a");
             wait_idle(&service, 80);
-            assert_eq!(store.count_pending_batches(&account_key("user-a")).unwrap(), 1);
+            assert_eq!(
+                store.count_pending_batches(&account_key("user-a")).unwrap(),
+                1
+            );
         }
 
         let session_b = signed_in_session("user-b");
@@ -1437,8 +1569,76 @@ mod tests {
         service_b.on_signed_in("user-b");
         wait_idle(&service_b, 50);
         // User-a pending must remain; user-b empty export should not push a-batch.
-        assert_eq!(store.count_pending_batches(&account_key("user-a")).unwrap(), 1);
+        assert_eq!(
+            store.count_pending_batches(&account_key("user-a")).unwrap(),
+            1
+        );
         assert_eq!(*remote_b.push_calls.lock().expect("push"), 0);
+    }
+
+    #[test]
+    fn terminal_failure_is_not_retried_automatically() {
+        let session = signed_in_session("user-a");
+        let store = Arc::new(MemoryCollectStore::new());
+        let remote = Arc::new(ScriptedRemote::terminal_fail());
+        let service = CollectSync::new(
+            session,
+            config(),
+            Arc::new(OneFactExport),
+            store,
+            remote.clone(),
+            Arc::new(FixedClock(StdMutex::new(1_000))),
+            Arc::new(NoopCollectSyncStatusSink),
+        );
+
+        service.on_signed_in("user-a");
+        wait_idle(&service, 80);
+        thread::sleep(Duration::from_millis(50));
+
+        assert_eq!(*remote.push_calls.lock().expect("push"), 1);
+        assert_eq!(
+            service.terminal_blocked_epoch.load(Ordering::SeqCst),
+            service.epoch.load(Ordering::SeqCst)
+        );
+    }
+
+    #[test]
+    fn retryable_failure_runs_once_after_backoff_deadline() {
+        let session = signed_in_session("user-a");
+        let store = Arc::new(MemoryCollectStore::new());
+        let remote = Arc::new(ScriptedRemote::network_fail_once());
+        let clock = Arc::new(FixedClock(StdMutex::new(1_000)));
+        let service = CollectSync::new(
+            session,
+            config(),
+            Arc::new(OneFactExport),
+            store.clone(),
+            remote.clone(),
+            clock.clone(),
+            Arc::new(NoopCollectSyncStatusSink),
+        );
+
+        service.on_signed_in("user-a");
+        wait_idle(&service, 80);
+        assert_eq!(*remote.push_calls.lock().expect("push"), 1);
+
+        *clock.0.lock().expect("clock") = 6_000;
+        for _ in 0..50 {
+            thread::sleep(Duration::from_millis(10));
+            if store
+                .count_pending_batches(&account_key("user-a"))
+                .unwrap_or(1)
+                == 0
+            {
+                break;
+            }
+        }
+
+        assert_eq!(*remote.push_calls.lock().expect("push"), 2);
+        assert_eq!(
+            store.count_pending_batches(&account_key("user-a")).unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -1478,6 +1678,8 @@ mod tests {
             put_calls: StdMutex::new(0),
             push_calls: StdMutex::new(0),
             push_ok: true,
+            terminal_failure: false,
+            first_push_network_failure: StdMutex::new(false),
             first_push_device_missing: StdMutex::new(true),
             last_push_keys: StdMutex::new(Vec::new()),
             last_push_bodies: StdMutex::new(Vec::new()),
@@ -1494,7 +1696,11 @@ mod tests {
         service.on_signed_in("user-a");
         for _ in 0..120 {
             thread::sleep(Duration::from_millis(10));
-            if store.count_pending_batches(&account_key("user-a")).unwrap_or(1) == 0 {
+            if store
+                .count_pending_batches(&account_key("user-a"))
+                .unwrap_or(1)
+                == 0
+            {
                 break;
             }
         }
@@ -1516,7 +1722,7 @@ mod tests {
                 },
                 // Failed source omitted: only successful targets enter the upload.
             ],
-            refresh_was_full: false,
+            full_refresh_complete: false,
         };
         let scope = upload.into_upload_scope().expect("scope");
         assert!(matches!(
@@ -1525,6 +1731,27 @@ mod tests {
                 ref source_keys,
                 ..
             } if source_keys.len() == 1 && source_keys.contains("claude-code")
+        ));
+    }
+
+    #[test]
+    fn incomplete_full_refresh_exports_only_successful_sources() {
+        let upload = CommittedDailyUpload {
+            targets: vec![CommittedDailyTarget {
+                source_key: "claude-code".into(),
+                start_date: NaiveDate::from_ymd_opt(1970, 1, 1).expect("d"),
+                end_date: NaiveDate::from_ymd_opt(2099, 12, 31).expect("d"),
+                full_history: true,
+            }],
+            full_refresh_complete: false,
+        };
+
+        assert!(matches!(
+            upload.into_upload_scope().expect("scope"),
+            UploadScope::Incremental {
+                ref source_keys,
+                ..
+            } if source_keys == &std::collections::BTreeSet::from(["claude-code".to_owned()])
         ));
     }
 }

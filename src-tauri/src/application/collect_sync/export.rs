@@ -2,9 +2,7 @@
 
 use chrono::{SecondsFormat, TimeZone, Utc};
 
-use super::dto::{
-    DailyUsageCostDto, DailyUsageFactDto, DailyUsageModelDto, ModelUsageCostDto,
-};
+use super::dto::{DailyUsageCostDto, DailyUsageFactDto, DailyUsageModelDto, ModelUsageCostDto};
 
 /// One daily usage parent row plus model children, ready for wire mapping.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,10 +76,7 @@ pub(crate) fn map_exported_fact(
         record_state: fact.record_state,
         first_seen_at: ms_to_rfc3339(fact.first_seen_at_ms)?,
         last_seen_at: ms_to_rfc3339(fact.last_seen_at_ms)?,
-        removed_at: fact
-            .removed_at_ms
-            .map(ms_to_rfc3339)
-            .transpose()?,
+        removed_at: fact.removed_at_ms.map(ms_to_rfc3339).transpose()?,
         models: fact
             .models
             .into_iter()

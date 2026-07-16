@@ -78,7 +78,13 @@ impl HttpSyncDeviceClient {
 
         let envelope = self
             .client
-            .put_json::<_, DeviceDataBody>(&path, &body, CloudAuthMode::Authenticated, None)
+            .put_json::<_, DeviceDataBody>(
+                &path,
+                &body,
+                CloudAuthMode::Authenticated,
+                Some(request.expected_user_id),
+                None,
+            )
             .map_err(map_cloud_api_error)?;
 
         Ok(SyncDeviceSnapshot {
@@ -114,8 +120,8 @@ fn urlencoding_path_segment(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::ports::cloud_auth_credentials::CloudAuthCredentials;
     use crate::application::ports::clock::Clock;
+    use crate::application::ports::cloud_auth_credentials::CloudAuthCredentials;
     use crate::application::ports::collect_sync_remote::CollectSyncPlatform;
     use crate::infrastructure::cloud::client::{
         CloudHttpMethod, CloudHttpTransport, CloudRawResponse,
@@ -165,12 +171,24 @@ mod tests {
         fn access_token(&self) -> Option<String> {
             Some("access-token".into())
         }
+        fn access_token_for_user(&self, expected_user_id: &str) -> Option<String> {
+            (expected_user_id == "user-1").then(|| "access-token".into())
+        }
         fn is_access_expiring_soon(&self, _: i64, _: i64) -> bool {
             false
         }
         fn refresh_single_flight(
             &self,
         ) -> Result<(), crate::application::cloud_session::CloudSessionError> {
+            Ok(())
+        }
+        fn refresh_single_flight_for_user(
+            &self,
+            expected_user_id: &str,
+        ) -> Result<(), crate::application::cloud_session::CloudSessionError> {
+            if expected_user_id != "user-1" {
+                return Err(crate::application::cloud_session::CloudSessionError::AccountChanged);
+            }
             Ok(())
         }
     }
@@ -201,6 +219,7 @@ mod tests {
         let adapter = HttpSyncDeviceClient::new(client);
         let snapshot = adapter
             .upsert_device(UpsertSyncDeviceRequest {
+                expected_user_id: "user-1".into(),
                 client_device_id: "dev_1".into(),
                 display_name: Some("host".into()),
                 platform: CollectSyncPlatform::Linux,

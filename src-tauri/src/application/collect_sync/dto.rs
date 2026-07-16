@@ -177,7 +177,10 @@ mod tests {
         assert!(object.contains_key("clientRevision"));
         assert!(object.contains_key("reportingTimezone"));
         assert_eq!(value["window"]["scope"], "full");
-        assert_eq!(value["facts"][0]["identityKey"], request.facts[0].identity_key);
+        assert_eq!(
+            value["facts"][0]["identityKey"],
+            request.facts[0].identity_key
+        );
         assert!(value["facts"][0].get("projectId").is_none());
         assert!(value["facts"][0].get("project_id").is_none());
         assert!(value["facts"][0].get("sourceSessionId").is_none());

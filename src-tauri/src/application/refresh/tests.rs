@@ -4,11 +4,12 @@ use std::sync::{Arc, Condvar, Mutex};
 use chrono::{TimeZone, Utc};
 
 use super::coordinator::{
-    BudgetEvaluationError, BudgetEvaluationRunner, RefreshCoordinator, RefreshCoordinatorHooks,
-    RefreshEventSink,
+    BudgetEvaluationError, BudgetEvaluationRunner, CommittedDailyUploadSink, RefreshCoordinator,
+    RefreshCoordinatorHooks, RefreshEventSink,
 };
 use super::state::{RefreshSnapshot, RefreshStatus};
 use super::target::refresh_targets;
+use crate::application::collect_sync::{CommittedDailyUpload, UploadScope};
 use crate::application::collection::{
     CandidateProvenance, CollectionId, CollectionMetadata, CollectionOutcome, CollectionPeriod,
     CollectionProjection, CollectionRequest, CollectionResult, CollectionScope,
@@ -41,6 +42,17 @@ struct FakeRunStore {
     latest_imports: Mutex<Vec<SuccessfulImportState>>,
     failure: Mutex<Option<RunStoreFailure>>,
     next_id: AtomicUsize,
+}
+
+#[derive(Default)]
+struct RecordingUploadSink {
+    uploads: Mutex<Vec<CommittedDailyUpload>>,
+}
+
+impl CommittedDailyUploadSink for RecordingUploadSink {
+    fn on_committed_daily_upload(&self, upload: CommittedDailyUpload) {
+        self.uploads.lock().expect("lock").push(upload);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -913,8 +925,10 @@ fn collector_failure_for_one_target_keeps_later_targets_and_marks_partial() {
         Ok(empty_collection_for_request(&request))
     }));
     let (coordinator, run_store, usage_store) = coordinator_with(collector.clone());
+    let upload_sink = Arc::new(RecordingUploadSink::default());
+    coordinator.set_committed_daily_upload_sink(upload_sink.clone());
 
-    coordinator.request_refresh(RefreshTrigger::Manual);
+    coordinator.request_full_refresh(RefreshTrigger::Manual);
     let snapshot = await_terminal(&coordinator);
 
     assert_eq!(snapshot.status, RefreshStatus::Partial);
@@ -928,6 +942,15 @@ fn collector_failure_for_one_target_keeps_later_targets_and_marks_partial() {
         usage_store.reconciled_outcomes(),
         vec![CollectionOutcome::Empty; refresh_targets().len() - 1]
     );
+    let uploads = upload_sink.uploads.lock().expect("lock");
+    assert_eq!(uploads.len(), 1);
+    assert!(!uploads[0].full_refresh_complete);
+    assert!(matches!(
+        uploads[0].clone().into_upload_scope().expect("scope"),
+        UploadScope::Incremental { ref source_keys, .. }
+            if !source_keys.contains(SourceKey::Pi.as_str())
+                && source_keys.len() == 7
+    ));
 }
 
 #[test]

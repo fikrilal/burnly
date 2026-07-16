@@ -261,6 +261,13 @@ impl CollectSyncStore for SqliteCollectSyncStore {
         let batch =
             load_batch(&transaction, account, batch_id)?.ok_or(CollectSyncStoreError::NotFound)?;
         transaction
+            .execute(
+                "DELETE FROM collect_sync_outbox
+                 WHERE id = ?1 AND user_id = ?2 AND client_device_id = ?3 AND status = 'accepted'",
+                params![batch_id, account.user_id, account.client_device_id],
+            )
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        transaction
             .commit()
             .map_err(|_| CollectSyncStoreError::Backend)?;
         Ok(batch)
@@ -803,6 +810,18 @@ mod tests {
             .expect("accept first");
         assert_eq!(accepted.status, OutboxBatchStatus::Accepted);
         assert_eq!(store.count_pending_batches(&a).expect("count"), 1);
+        let retained: i64 = store
+            .database
+            .lock()
+            .expect("database")
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM collect_sync_outbox WHERE id = ?1",
+                params![accepted.id],
+                |row| row.get(0),
+            )
+            .expect("retained count");
+        assert_eq!(retained, 0, "accepted payload must be removed");
     }
 
     #[test]

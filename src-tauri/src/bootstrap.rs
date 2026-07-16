@@ -214,9 +214,7 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         refresh_coordinator.clone(),
         Arc::new(SystemClock),
     );
-    tray_open_refresh.request_startup_refresh_if_stale();
     app.manage(tray_summary_query.clone());
-    app.manage(tray_open_refresh);
     app.manage(UpdateService::new(Arc::new(
         updater::TauriUpdateRuntime::new(app.handle().clone()),
     )));
@@ -245,23 +243,25 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         runtime,
         Arc::new(SystemClock),
     ));
-    let installed_account = account_runtime::install_account_service(
-        app.handle(),
-        env!("CARGO_PKG_VERSION"),
-    );
-    let _ = collect_sync_runtime::install_collect_sync(collect_sync_runtime::CollectSyncInstallArgs {
-        app: app.handle(),
-        database_path: &database_path,
-        reporting_timezone: &reporting_timezone,
-        app_version: env!("CARGO_PKG_VERSION"),
-        session: installed_account.session,
-        authenticated_client: installed_account.authenticated_client,
-        account: &installed_account.service,
-        refresh_coordinator: &refresh_coordinator,
-        device_id: installed_account.device_id,
-        device_name: installed_account.device_name,
-    });
+    let installed_account =
+        account_runtime::install_account_service(app.handle(), env!("CARGO_PKG_VERSION"));
+    let _ =
+        collect_sync_runtime::install_collect_sync(collect_sync_runtime::CollectSyncInstallArgs {
+            app: app.handle(),
+            database_path: &database_path,
+            reporting_timezone: &reporting_timezone,
+            app_version: env!("CARGO_PKG_VERSION"),
+            session: installed_account.session,
+            authenticated_client: installed_account.authenticated_client,
+            account: &installed_account.service,
+            refresh_coordinator: &refresh_coordinator,
+            device_id: installed_account.device_id,
+            device_name: installed_account.device_name,
+        });
     app.manage(installed_account.service);
+    // Install the committed-upload sink before startup can launch a refresh.
+    tray_open_refresh.request_startup_refresh_if_stale();
+    app.manage(tray_open_refresh);
 
     Ok(())
 }
