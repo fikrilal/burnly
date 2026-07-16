@@ -9,7 +9,9 @@
 )]
 
 pub(crate) mod client;
+pub(crate) mod collect_sync_error_map;
 pub(crate) mod config;
+pub(crate) mod daily_usage_push;
 pub(crate) mod desktop_token;
 pub(crate) mod device_id;
 pub(crate) mod error;
@@ -17,4 +19,5 @@ pub(crate) mod jwt;
 pub(crate) mod logout;
 pub(crate) mod memory_token_store;
 pub(crate) mod refresh;
+pub(crate) mod sync_device;
 pub(crate) mod token_store;

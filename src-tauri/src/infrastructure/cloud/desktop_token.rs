@@ -158,6 +158,7 @@ mod tests {
                 status: 200,
                 body: body.into_bytes(),
                 request_id: None,
+                retry_after_seconds: None,
             })),
             calls: AtomicUsize::new(0),
         });

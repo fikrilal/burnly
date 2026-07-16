@@ -51,12 +51,20 @@ pub(crate) enum CloudAuthMode {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) enum CloudRequestBody {
+    /// Serialized via serde_json from a value (normal API adapters).
+    Json(Value),
+    /// Exact bytes for immutable outbox bodies (must not be re-shaped).
+    RawJson(Vec<u8>),
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct CloudRequest {
     pub method: CloudHttpMethod,
     pub path: String,
     pub auth: CloudAuthMode,
     pub idempotency_key: Option<String>,
-    pub body: Option<Value>,
+    pub body: Option<CloudRequestBody>,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +72,7 @@ pub(crate) struct CloudRawResponse {
     pub status: u16,
     pub body: Vec<u8>,
     pub request_id: Option<String>,
+    pub retry_after_seconds: Option<u64>,
 }
 
 pub(crate) trait CloudHttpTransport: Send + Sync {
@@ -128,6 +137,11 @@ impl CloudHttpTransport for ReqwestTransport {
             .get("x-request-id")
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
+        let retry_after_seconds = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_retry_after_seconds);
         let body = response
             .bytes()
             .map_err(|error| CloudApiError::network(error.to_string()))?
@@ -136,8 +150,17 @@ impl CloudHttpTransport for ReqwestTransport {
             status,
             body,
             request_id,
+            retry_after_seconds,
         })
     }
+}
+
+fn parse_retry_after_seconds(value: &str) -> Option<u64> {
+    let trimmed = value.trim();
+    if let Ok(seconds) = trimmed.parse::<u64>() {
+        return Some(seconds);
+    }
+    None
 }
 
 #[derive(Debug, Clone)]
@@ -200,7 +223,24 @@ impl CloudClient {
             path: path.to_owned(),
             auth,
             idempotency_key,
-            body: Some(body),
+            body: Some(CloudRequestBody::Json(body)),
+        })
+    }
+
+    /// POST exact JSON bytes (used for immutable outbox request bodies).
+    pub(crate) fn post_raw_json<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        raw_body: &[u8],
+        auth: CloudAuthMode,
+        idempotency_key: Option<String>,
+    ) -> Result<CloudEnvelope<T>, CloudApiError> {
+        self.request_json(CloudRequest {
+            method: CloudHttpMethod::Post,
+            path: path.to_owned(),
+            auth,
+            idempotency_key,
+            body: Some(CloudRequestBody::RawJson(raw_body.to_vec())),
         })
     }
 
@@ -217,7 +257,7 @@ impl CloudClient {
             path: path.to_owned(),
             auth,
             idempotency_key,
-            body: Some(body),
+            body: Some(CloudRequestBody::Json(body)),
         })
     }
 
@@ -237,7 +277,7 @@ impl CloudClient {
                 path: path.to_owned(),
                 auth,
                 idempotency_key,
-                body: Some(body),
+                body: Some(CloudRequestBody::Json(body)),
             },
             false,
         )?;
@@ -311,6 +351,7 @@ impl CloudClient {
                     status: Some(401),
                     trace_id: response.request_id.clone(),
                     field_errors: Vec::new(),
+                    retry_after_seconds: None,
                 })
             }
             Err(_) => ensure_success_status(&response).map(|()| response),
@@ -351,10 +392,11 @@ impl CloudClient {
         }
 
         let body_bytes = match &request.body {
-            Some(value) => Some(
+            Some(CloudRequestBody::Json(value)) => Some(
                 serde_json::to_vec(value)
                     .map_err(|error| CloudApiError::decode(error.to_string()))?,
             ),
+            Some(CloudRequestBody::RawJson(bytes)) => Some(bytes.clone()),
             None => None,
         };
 
@@ -399,23 +441,26 @@ pub(crate) fn ensure_success_status(response: &CloudRawResponse) -> Result<(), C
 
 pub(crate) fn parse_problem(response: &CloudRawResponse) -> CloudApiError {
     let trace_from_header = response.request_id.clone();
+    let retry_after_seconds = response.retry_after_seconds;
     if response.body.is_empty() {
-        return CloudApiError::from_problem(
+        return CloudApiError::from_problem_with_retry(
             response.status,
             None,
             format!("HTTP {}", response.status),
             trace_from_header,
             Vec::new(),
+            retry_after_seconds,
         );
     }
 
     let Ok(root) = serde_json::from_slice::<Value>(&response.body) else {
-        return CloudApiError::from_problem(
+        return CloudApiError::from_problem_with_retry(
             response.status,
             None,
             format!("HTTP {}", response.status),
             trace_from_header,
             Vec::new(),
+            retry_after_seconds,
         );
     };
 
@@ -460,7 +505,14 @@ pub(crate) fn parse_problem(response: &CloudRawResponse) -> CloudApiError {
         })
         .unwrap_or_default();
 
-    CloudApiError::from_problem(response.status, code, message, trace_id, field_errors)
+    CloudApiError::from_problem_with_retry(
+        response.status,
+        code,
+        message,
+        trace_id,
+        field_errors,
+        retry_after_seconds,
+    )
 }
 
 #[cfg(test)]
@@ -564,6 +616,7 @@ mod tests {
             status: 200,
             body,
             request_id: Some("req_1".into()),
+            retry_after_seconds: None,
         };
         #[derive(Debug, serde::Deserialize, PartialEq)]
         struct Data {
@@ -582,6 +635,7 @@ mod tests {
             status: 401,
             body,
             request_id: Some("hdr".into()),
+            retry_after_seconds: None,
         };
         let error = parse_problem(&response);
         assert_eq!(error.kind, CloudApiErrorKind::Unauthorized);
@@ -596,11 +650,13 @@ mod tests {
                 status: 401,
                 body: br#"{"code":"UNAUTHORIZED","title":"Unauthorized"}"#.to_vec(),
                 request_id: None,
+                retry_after_seconds: None,
             },
             CloudRawResponse {
                 status: 200,
                 body: br#"{"data":{"value":7}}"#.to_vec(),
                 request_id: None,
+                retry_after_seconds: None,
             },
         ]));
         let credentials = Arc::new(FakeCredentials {
@@ -638,6 +694,7 @@ mod tests {
             status: 401,
             body: br#"{"code":"UNAUTHORIZED","title":"Unauthorized"}"#.to_vec(),
             request_id: None,
+            retry_after_seconds: None,
         }]));
         let credentials = Arc::new(FakeCredentials {
             token: Mutex::new("access-old".into()),
@@ -670,11 +727,13 @@ mod tests {
                 status: 401,
                 body: br#"{"code":"UNAUTHORIZED","title":"Unauthorized"}"#.to_vec(),
                 request_id: None,
+                retry_after_seconds: None,
             },
             CloudRawResponse {
                 status: 200,
                 body: br#"{"data":{"accepted":true}}"#.to_vec(),
                 request_id: None,
+                retry_after_seconds: None,
             },
         ]));
         let credentials = Arc::new(FakeCredentials {

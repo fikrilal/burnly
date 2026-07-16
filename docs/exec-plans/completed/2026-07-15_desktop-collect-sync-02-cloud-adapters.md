@@ -2,8 +2,7 @@
 
 ## Status
 
-Queued. Activate only after Chunk 01 is completed and its request types are
-stable.
+Completed.
 
 ## Objective
 
@@ -86,15 +85,15 @@ or durable state transitions.
 
 ## Checklist
 
-- [ ] Confirm current burnly-api OpenAPI and record commit/version.
-- [ ] Add narrow application remote port(s) and fake(s).
-- [ ] Add device upsert adapter and exact request/response tests.
-- [ ] Add daily push adapter using stored body/key unchanged.
-- [ ] Add scope parsing for `full`, `incremental`, and deprecated response-only
+- [x] Confirm current burnly-api OpenAPI and record commit/version.
+- [x] Add narrow application remote port(s) and fake(s).
+- [x] Add device upsert adapter and exact request/response tests.
+- [x] Add daily push adapter using stored body/key unchanged.
+- [x] Add scope parsing for `full`, `incremental`, and deprecated response-only
       `rolling` compatibility.
-- [ ] Map stable backend problems and retry metadata.
-- [ ] Add tests for auth, headers, envelopes, errors, limits, and redaction.
-- [ ] Run focused and fast verification; record actual outcomes below.
+- [x] Map stable backend problems and retry metadata.
+- [x] Add tests for auth, headers, envelopes, errors, limits, and redaction.
+- [x] Run focused and fast verification; record actual outcomes below.
 
 ## Test Plan
 
@@ -125,8 +124,13 @@ or durable state transitions.
 
 ## Verification
 
-- Command: not run yet.
-- Outcome: queued.
+- Backend contract reference: burnly-api commit `b0dccff` (per phase docs) +
+  `docs/planning/_WIP/desktop-collect-api-requirements.md`.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib cloud` —
+  21 passed.
+- Command: `pnpm rust:clippy` (`-D warnings`) — passed.
+- Command: `pnpm architecture:check` — passed.
+- Command: `pnpm verify:fast` — passed.
 
 ## Runtime Evidence
 
@@ -134,9 +138,42 @@ or durable state transitions.
 
 ## Handoff To Chunk 03
 
-- Record exact port methods, typed failure categories, retry metadata, and any
-  backend contract deviation.
-- Move this plan to `completed/` before activating Chunk 03.
+### Module paths
+
+| Concern            | Path                                                                    |
+| ------------------ | ----------------------------------------------------------------------- |
+| Remote port        | `application/ports/collect_sync_remote.rs`                              |
+| Error map          | `infrastructure/cloud/collect_sync_error_map.rs`                        |
+| Device adapter     | `infrastructure/cloud/sync_device.rs` (`HttpSyncDeviceClient`)          |
+| Daily push adapter | `infrastructure/cloud/daily_usage_push.rs` (`HttpDailyUsagePushClient`) |
+| Combined remote    | `HttpCollectSyncRemote` in `daily_usage_push.rs`                        |
+
+### Port API
+
+- `CollectSyncRemote::upsert_device(UpsertSyncDeviceRequest) -> SyncDeviceSnapshot`
+- `CollectSyncRemote::push_daily_usage(PushDailyUsageRequest) -> DailyUsagePushResult`
+- `PushDailyUsageRequest { request_body, idempotency_key }` — body is the exact
+  outbox JSON string; never rebuilt in the adapter.
+- Cloud client helpers: `CloudClient::post_raw_json`, `put_json`;
+  `CloudRequestBody::{Json, RawJson}`; `CloudRawResponse.retry_after_seconds`.
+
+### Failure categories (`CollectSyncRemoteError`)
+
+Network, Timeout, Unauthorized, Forbidden, Validation (+ field errors),
+RateLimited (+ `retry_after_seconds`), DeviceNotFound, ContractUnsupported,
+IdempotencyInProgress, Conflict, PayloadTooLarge, Problem, Decode, Internal.
+
+### Contract notes
+
+- Desktop request scopes remain `full` \| `incremental` only.
+- Response may echo deprecated `rolling`; mapped to `WireUploadScope::Incremental`.
+- Push does **not** auto-register devices; `SYNC_DEVICE_NOT_FOUND` is returned
+  for orchestration to re-PUT.
+- GET device omitted (no caller yet).
+
+### Remaining for Chunk 03
+
+- Compose export/outbox + remote into `CollectSync` lifecycle service.
 
 ## Follow-Up Debt
 

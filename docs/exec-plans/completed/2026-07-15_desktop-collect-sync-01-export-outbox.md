@@ -155,14 +155,14 @@ start_date, end_date }` forms.
 
 ### Module paths
 
-| Concern | Path |
-| ------- | ---- |
+| Concern                    | Path                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------- |
 | Pure types / batch / scope | `src-tauri/src/application/collect_sync/` (`scope`, `dto`, `batch`, `export`) |
-| Export port | `application/ports/daily_usage_export_store.rs` |
-| Outbox port | `application/ports/collect_sync_store.rs` |
-| SQLite export | `infrastructure/database/daily_usage_export_store.rs` |
-| SQLite outbox | `infrastructure/database/collect_sync_store.rs` |
-| Migration | `src-tauri/migrations/0008_collect_sync.sql` (schema v8; 19 product tables) |
+| Export port                | `application/ports/daily_usage_export_store.rs`                               |
+| Outbox port                | `application/ports/collect_sync_store.rs`                                     |
+| SQLite export              | `infrastructure/database/daily_usage_export_store.rs`                         |
+| SQLite outbox              | `infrastructure/database/collect_sync_store.rs`                               |
+| Migration                  | `src-tauri/migrations/0008_collect_sync.sql` (schema v8; 19 product tables)   |
 
 ### Request DTO (wire)
 
@@ -176,8 +176,8 @@ start_date, end_date }` forms.
 
 - `DailyUsageExportStore::export_daily_facts(DailyUsageExportQuery)`
 - `CollectSyncStore::{load_state, ensure_state, merge_pending_scope,
-  create_generation, list_pending_batches, mark_batch_accepted,
-  count_pending_batches}`
+create_generation, list_pending_batches, mark_batch_accepted,
+count_pending_batches}`
 - Account isolation key: `CollectSyncAccountKey { user_id, client_device_id }`
 - `create_generation` rejects when pending outbox rows exist; validates
   embedded `clientRevision` sequence against `next_client_revision`.
