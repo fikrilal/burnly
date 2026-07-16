@@ -1,13 +1,13 @@
 //! Composes the Phase 1 cloud core into `AccountService` at startup.
 //!
 //! Cloud composition failures are non-fatal: the tray keeps running and account
-//! APIs report signed-out.
+//! APIs report signed-out / login unavailable.
 
 use std::sync::Arc;
 
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::application::account::AccountService;
+use crate::application::account::{AccountService, DesktopLoginConfig};
 use crate::application::cloud_session::CloudSession;
 use crate::application::ports::cloud_token_store::CloudTokenStore;
 use crate::infrastructure::cloud::client::{CloudClient, ReqwestTransport};
@@ -40,16 +40,32 @@ pub(crate) fn install_account_service<R: Runtime>(
         }
     };
 
+    let login_config = match CloudConfig::from_env(app_version) {
+        Ok(config) => Some(DesktopLoginConfig {
+            web_origin: config.web_origin().to_owned(),
+            redirect_uri: config.redirect_uri().to_owned(),
+        }),
+        Err(error) => {
+            eprintln!("Burnly cloud config unavailable: {error}");
+            None
+        }
+    };
+
     match compose_cloud_session(app_version) {
         Ok(session) => {
             if let Err(error) = session.restore() {
                 eprintln!("Burnly cloud session restore failed: {error}");
             }
-            AccountService::from_session(session, device_id, device_name)
+            match login_config {
+                Some(config) => {
+                    AccountService::from_session(session, device_id, device_name, config)
+                }
+                None => AccountService::unavailable(device_id, device_name, None),
+            }
         }
         Err(error) => {
             eprintln!("Burnly cloud account runtime unavailable: {error}");
-            AccountService::unavailable(device_id, device_name)
+            AccountService::unavailable(device_id, device_name, login_config)
         }
     }
 }

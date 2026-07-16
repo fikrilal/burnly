@@ -473,7 +473,10 @@ export interface SettingsResponse {
   revision: number;
 }
 
-export type AccountSessionStatus = "signed_out" | "signed_in";
+export type AccountSessionStatus =
+  | "signed_out"
+  | "waiting_for_browser"
+  | "signed_in";
 
 export interface AccountSessionResponse {
   status: AccountSessionStatus;

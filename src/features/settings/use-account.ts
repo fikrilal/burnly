@@ -1,7 +1,12 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getAccountSession, logoutAccount } from "../../ipc/client";
+import {
+  cancelAccountLogin,
+  getAccountSession,
+  logoutAccount,
+  startAccountLogin,
+} from "../../ipc/client";
 import { EVENT_NAMES, subscribeToEvent } from "../../ipc/events";
 import type { AccountSessionResponse } from "../../ipc/generated/contracts";
 
@@ -34,13 +39,26 @@ export function useAccountSession() {
   });
 }
 
-export function useLogoutAccount() {
+function useAccountMutation(
+  mutationFn: () => Promise<AccountSessionResponse>,
+) {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: async () => (await logoutAccount()).data,
+    mutationFn,
     onSuccess: (session: AccountSessionResponse) => {
       queryClient.setQueryData(accountQueryKey, session);
     },
   });
+}
+
+export function useStartAccountLogin() {
+  return useAccountMutation(async () => (await startAccountLogin()).data);
+}
+
+export function useCancelAccountLogin() {
+  return useAccountMutation(async () => (await cancelAccountLogin()).data);
+}
+
+export function useLogoutAccount() {
+  return useAccountMutation(async () => (await logoutAccount()).data);
 }

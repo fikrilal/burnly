@@ -12,8 +12,10 @@ import {
   invokeDiagnosticsCopyReport,
   invokeDiagnosticsExportReport,
   invokeDiagnosticsGetHealth,
+  invokeAccountCancelLogin,
   invokeAccountGetSession,
   invokeAccountLogout,
+  invokeAccountStartLogin,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeRefreshCancel,
@@ -180,7 +182,7 @@ const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
 });
 
 const accountSessionDataSchema: z.ZodType<AccountSessionResponse> = z.object({
-  status: z.enum(["signed_out", "signed_in"]),
+  status: z.enum(["signed_out", "waiting_for_browser", "signed_in"]),
   email: z.string().min(1).nullable(),
   userId: z.string().min(1).nullable(),
 });
@@ -407,6 +409,30 @@ export async function getAccountSession(
 ): Promise<CommandResult<AccountSessionResponse>> {
   try {
     const response = await invokeAccountGetSession(invoker);
+    return unwrapResponse(validateResponse(response, accountSessionDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function startAccountLogin(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<AccountSessionResponse>> {
+  try {
+    const response = await invokeAccountStartLogin(invoker);
+    return unwrapResponse(validateResponse(response, accountSessionDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function cancelAccountLogin(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<AccountSessionResponse>> {
+  try {
+    const response = await invokeAccountCancelLogin(invoker);
     return unwrapResponse(validateResponse(response, accountSessionDataSchema));
   } catch (error) {
     if (error instanceof BurnlyClientError) throw error;

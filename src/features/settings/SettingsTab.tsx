@@ -13,7 +13,12 @@ import {
   DiagnosticsPage,
 } from "../diagnostics/DiagnosticsPage";
 import { UpdateSetting } from "../update/UpdateSetting";
-import { useAccountSession, useLogoutAccount } from "./use-account";
+import {
+  useAccountSession,
+  useCancelAccountLogin,
+  useLogoutAccount,
+  useStartAccountLogin,
+} from "./use-account";
 import { useSettings, useUpdateSettings } from "./use-settings";
 
 export function SettingsTab({
@@ -216,6 +221,8 @@ function SettingsList({
 
 function AccountSetting() {
   const account = useAccountSession();
+  const startLogin = useStartAccountLogin();
+  const cancelLogin = useCancelAccountLogin();
   const logout = useLogoutAccount();
 
   if (account.isPending) {
@@ -248,39 +255,86 @@ function AccountSetting() {
   }
 
   const session = account.data;
-  const signedIn = session?.status === "signed_in";
+  const status = session?.status ?? "signed_out";
+  const actionPending =
+    startLogin.isPending || cancelLogin.isPending || logout.isPending;
+  const actionError =
+    startLogin.error ?? cancelLogin.error ?? logout.error ?? null;
+
+  let detail = "Not signed in";
+  if (status === "signed_in") {
+    detail = session?.email ?? "Signed in";
+  } else if (status === "waiting_for_browser") {
+    detail = "Complete sign-in in your browser…";
+  }
 
   return (
     <div className="flex items-center justify-between gap-4 py-3">
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-sm font-medium">Account</span>
         <span className="truncate text-xs text-muted-foreground leading-normal">
-          {signedIn
-            ? (session.email ?? "Signed in")
-            : "Not signed in"}
+          {detail}
         </span>
-        {logout.isError ? (
+        {actionError ? (
           <span className="text-xs text-destructive leading-normal">
             {userSafeErrorMessage(
-              logout.error,
-              "Burnly could not sign out.",
+              actionError,
+              "Burnly could not update account status.",
             )}
           </span>
         ) : null}
       </div>
-      {signedIn ? (
-        <button
-          type="button"
-          disabled={logout.isPending}
-          onClick={() => {
-            logout.mutate();
-          }}
-          className="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
-        >
-          {logout.isPending ? "Signing out…" : "Sign out"}
-        </button>
-      ) : null}
+      <div className="flex shrink-0 items-center gap-2">
+        {status === "signed_out" ? (
+          <AccountActionButton
+            disabled={actionPending}
+            onClick={() => {
+              startLogin.mutate();
+            }}
+            label={startLogin.isPending ? "Opening…" : "Sign in"}
+          />
+        ) : null}
+        {status === "waiting_for_browser" ? (
+          <AccountActionButton
+            disabled={actionPending}
+            onClick={() => {
+              cancelLogin.mutate();
+            }}
+            label={cancelLogin.isPending ? "Cancelling…" : "Cancel"}
+          />
+        ) : null}
+        {status === "signed_in" ? (
+          <AccountActionButton
+            disabled={actionPending}
+            onClick={() => {
+              logout.mutate();
+            }}
+            label={logout.isPending ? "Signing out…" : "Sign out"}
+          />
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+function AccountActionButton({
+  label,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+    >
+      {label}
+    </button>
   );
 }
 

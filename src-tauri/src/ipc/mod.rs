@@ -30,6 +30,8 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::app_hide_tray_panel,
         commands::app_open_external_url,
         account::account_get_session,
+        account::account_start_login,
+        account::account_cancel_login,
         account::account_logout,
         diagnostics::diagnostics_get_health,
         diagnostics::diagnostics_export_report,

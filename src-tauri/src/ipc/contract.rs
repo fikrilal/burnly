@@ -64,6 +64,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "AccountSessionResponse",
     },
     CommandSpec {
+        name: "account_start_login",
+        export_name: "invokeAccountStartLogin",
+        request_type: "Record<string, never>",
+        response_type: "AccountSessionResponse",
+    },
+    CommandSpec {
+        name: "account_cancel_login",
+        export_name: "invokeAccountCancelLogin",
+        request_type: "Record<string, never>",
+        response_type: "AccountSessionResponse",
+    },
+    CommandSpec {
         name: "account_logout",
         export_name: "invokeAccountLogout",
         request_type: "Record<string, never>",

@@ -317,7 +317,10 @@ export interface SettingsResponse {
   revision: number;
 }
 
-export type AccountSessionStatus = "signed_out" | "signed_in";
+export type AccountSessionStatus =
+  | "signed_out"
+  | "waiting_for_browser"
+  | "signed_in";
 
 export interface AccountSessionResponse {
   status: AccountSessionStatus;
@@ -661,6 +664,8 @@ export const COMMAND_NAMES = {
   diagnosticsExportReport: "diagnostics_export_report",
   diagnosticsCopyReport: "diagnostics_copy_report",
   accountGetSession: "account_get_session",
+  accountStartLogin: "account_start_login",
+  accountCancelLogin: "account_cancel_login",
   accountLogout: "account_logout",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
@@ -686,6 +691,8 @@ export interface CommandRequests {
   [COMMAND_NAMES.diagnosticsExportReport]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsCopyReport]: Record<string, never>;
   [COMMAND_NAMES.accountGetSession]: Record<string, never>;
+  [COMMAND_NAMES.accountStartLogin]: Record<string, never>;
+  [COMMAND_NAMES.accountCancelLogin]: Record<string, never>;
   [COMMAND_NAMES.accountLogout]: Record<string, never>;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
@@ -709,6 +716,8 @@ export interface CommandResponses {
   [COMMAND_NAMES.diagnosticsExportReport]: IpcResponse<DiagnosticsExportResponse>;
   [COMMAND_NAMES.diagnosticsCopyReport]: IpcResponse<DiagnosticsCopyResponse>;
   [COMMAND_NAMES.accountGetSession]: IpcResponse<AccountSessionResponse>;
+  [COMMAND_NAMES.accountStartLogin]: IpcResponse<AccountSessionResponse>;
+  [COMMAND_NAMES.accountCancelLogin]: IpcResponse<AccountSessionResponse>;
   [COMMAND_NAMES.accountLogout]: IpcResponse<AccountSessionResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
@@ -778,6 +787,18 @@ export function invokeAccountGetSession(
   invoke: CommandInvoker,
 ): Promise<unknown> {
   return invoke(COMMAND_NAMES.accountGetSession, {});
+}
+
+export function invokeAccountStartLogin(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.accountStartLogin, {});
+}
+
+export function invokeAccountCancelLogin(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.accountCancelLogin, {});
 }
 
 export function invokeAccountLogout(invoke: CommandInvoker): Promise<unknown> {

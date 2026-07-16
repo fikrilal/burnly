@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cancelAccountLogin,
   getAccountSession,
   getAppBootstrap,
   getAppCapabilities,
@@ -12,6 +13,7 @@ import {
   openExternalUrl,
   getTraySummary,
   probeContract,
+  startAccountLogin,
   validateInt64String,
   validateUint64String,
 } from "./client";
@@ -96,6 +98,38 @@ describe("IPC command responses", () => {
 
     const result = await logoutAccount(invoker);
     expect(result.data.status).toBe("signed_out");
+  });
+
+  it("validates account start and cancel login responses", async () => {
+    const startInvoker: CommandInvoker = (command) => {
+      expect(command).toBe(COMMAND_NAMES.accountStartLogin);
+      return Promise.resolve({
+        ok: true,
+        data: {
+          status: "waiting_for_browser",
+          email: null,
+          userId: null,
+        },
+        meta,
+      });
+    };
+    const started = await startAccountLogin(startInvoker);
+    expect(started.data.status).toBe("waiting_for_browser");
+
+    const cancelInvoker: CommandInvoker = (command) => {
+      expect(command).toBe(COMMAND_NAMES.accountCancelLogin);
+      return Promise.resolve({
+        ok: true,
+        data: {
+          status: "signed_out",
+          email: null,
+          userId: null,
+        },
+        meta,
+      });
+    };
+    const cancelled = await cancelAccountLogin(cancelInvoker);
+    expect(cancelled.data.status).toBe("signed_out");
   });
 
   it("hides the tray panel through the dedicated app command", async () => {
