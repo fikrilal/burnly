@@ -5,6 +5,7 @@ import type {
   SettingsResponse,
 } from "../../ipc/generated/contracts";
 import { ErrorState } from "../../components/burnly";
+import { Button } from "../../components/ui/button";
 import { Switch } from "../../components/ui/switch";
 import { ThemeToggle } from "../../components/ui/theme-toggle";
 import { userSafeErrorMessage } from "../../lib/user-safe-error";
@@ -361,14 +362,9 @@ function AccountActionButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
-    >
-      {label}
-    </button>
+    <Button variant="outline" size="xs" disabled={disabled} onClick={onClick}>
+      <span className="text-xs leading-none">{label}</span>
+    </Button>
   );
 }
 
@@ -434,13 +430,9 @@ function SettingsLoadError({
           "Burnly could not load settings.",
         )}
       />
-      <button
-        type="button"
-        onClick={onRetry}
-        className="w-fit rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      >
+      <Button variant="outline" size="sm" onClick={onRetry} className="w-fit">
         Retry
-      </button>
+      </Button>
     </div>
   );
 }
