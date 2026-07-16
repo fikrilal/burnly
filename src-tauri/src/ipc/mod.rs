@@ -7,6 +7,7 @@ mod account;
 mod commands;
 mod contract;
 mod diagnostics;
+mod events;
 #[cfg_attr(
     not(test),
     expect(

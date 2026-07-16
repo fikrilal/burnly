@@ -1013,7 +1013,34 @@ The centralized frontend event module maps scopes to semantic TanStack Query key
 
 Used when durable settings change outside the current form, such as through a future secondary window or platform integration.
 
-The payload contains only the new revision and changed setting groups. React re-runs `settings_get`.
+Payload (JSON object, never unit/`null`):
+
+```ts
+type SettingsChangedEvent = {
+  revision: number;
+};
+```
+
+React re-runs `settings_get`. Command responses remain authoritative for the mutator path.
+
+### `account-session-changed`
+
+Notifies that desktop cloud account session state may have changed (login lifecycle, logout). Tokens never appear on the wire.
+
+Payload (JSON object, never unit/`null`):
+
+```ts
+type AccountSessionChangedEvent = {
+  reason:
+    | "login_started"
+    | "login_completed"
+    | "login_cancelled"
+    | "login_failed"
+    | "logged_out";
+};
+```
+
+React re-runs `account_get_session`. The reason is a hint only.
 
 ### `platform-state-changed`
 

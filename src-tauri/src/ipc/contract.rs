@@ -147,32 +147,32 @@ pub(super) const EVENTS: &[EventSpec] = &[
     EventSpec {
         name: "burnly://v1/refresh-progress",
         export_name: "refreshProgress",
-        payload_type: "UnknownEventPayload",
+        payload_type: "RefreshProgressEvent",
     },
     EventSpec {
         name: "burnly://v1/data-invalidated",
         export_name: "dataInvalidated",
-        payload_type: "UnknownEventPayload",
+        payload_type: "DataInvalidatedEvent",
     },
     EventSpec {
         name: "burnly://v1/settings-changed",
         export_name: "settingsChanged",
-        payload_type: "UnknownEventPayload",
+        payload_type: "SettingsChangedEvent",
     },
     EventSpec {
         name: "burnly://v1/account-session-changed",
         export_name: "accountSessionChanged",
-        payload_type: "UnknownEventPayload",
+        payload_type: "AccountSessionChangedEvent",
     },
     EventSpec {
         name: "burnly://v1/platform-state-changed",
         export_name: "platformStateChanged",
-        payload_type: "UnknownEventPayload",
+        payload_type: "PlatformStateChangedEvent",
     },
     EventSpec {
         name: "burnly://v1/update-progress",
         export_name: "updateProgress",
-        payload_type: "UnknownEventPayload",
+        payload_type: "UpdateProgressEvent",
     },
 ];
 

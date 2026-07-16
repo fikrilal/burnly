@@ -4,6 +4,9 @@ use tauri::{Emitter, State};
 use crate::application::settings::{RuntimeSettingError, SettingsError, SettingsService};
 use crate::domain::settings::{Settings, SettingsDocument, SettingsValidationError};
 
+use super::events::{
+    names as event_names, DataInvalidatedEvent, SettingsChangedEvent,
+};
 use super::response::{ErrorCategory, FieldError, IpcError, IpcResponse};
 
 #[derive(Debug, Serialize)]
@@ -45,12 +48,18 @@ pub(super) fn settings_update<R: tauri::Runtime>(
 
     match service.update(request.expected_revision, settings) {
         Ok(updated) => {
-            let _ = app.emit("burnly://v1/settings-changed", ());
+            let response = SettingsResponse::from(updated);
             let _ = app.emit(
-                "burnly://v1/data-invalidated",
-                serde_json::json!({ "scope": "budgets" }),
+                event_names::SETTINGS_CHANGED,
+                SettingsChangedEvent {
+                    revision: response.revision,
+                },
             );
-            IpcResponse::success(updated.into())
+            let _ = app.emit(
+                event_names::DATA_INVALIDATED,
+                DataInvalidatedEvent { scope: "budgets" },
+            );
+            IpcResponse::success(response)
         }
         Err(error) => IpcResponse::failure(settings_error(error)),
     }

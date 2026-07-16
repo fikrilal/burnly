@@ -320,12 +320,15 @@ export interface SettingsResponse {
 export type AccountSessionStatus =
   | "signed_out"
   | "waiting_for_browser"
+  | "exchanging"
   | "signed_in";
 
 export interface AccountSessionResponse {
   status: AccountSessionStatus;
   email: string | null;
   userId: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
 }
 
 export type BudgetLimit =
@@ -652,7 +655,36 @@ export interface SessionDetailResponse {
   models: SessionModelUsageResponse[];
 }
 
-export type UnknownEventPayload = Record<string, unknown>;
+export interface RefreshProgressEvent {
+  status: string;
+}
+
+export interface DataInvalidatedEvent {
+  scope: string;
+}
+
+export interface SettingsChangedEvent {
+  revision: number;
+}
+
+export type AccountSessionChangeReason =
+  | "login_started"
+  | "login_completed"
+  | "login_cancelled"
+  | "login_failed"
+  | "logged_out";
+
+export interface AccountSessionChangedEvent {
+  reason: AccountSessionChangeReason;
+}
+
+export interface PlatformStateChangedEvent {
+  kind: string;
+}
+
+export interface UpdateProgressEvent {
+  status: string;
+}
 
 export const COMMAND_NAMES = {
   contractProbe: "__burnly_contract_probe",
@@ -865,10 +897,10 @@ export const EVENT_NAMES = {
 export type EventName = (typeof EVENT_NAMES)[keyof typeof EVENT_NAMES];
 
 export interface EventPayloads {
-  [EVENT_NAMES.refreshProgress]: UnknownEventPayload;
-  [EVENT_NAMES.dataInvalidated]: UnknownEventPayload;
-  [EVENT_NAMES.settingsChanged]: UnknownEventPayload;
-  [EVENT_NAMES.accountSessionChanged]: UnknownEventPayload;
-  [EVENT_NAMES.platformStateChanged]: UnknownEventPayload;
-  [EVENT_NAMES.updateProgress]: UnknownEventPayload;
+  [EVENT_NAMES.refreshProgress]: RefreshProgressEvent;
+  [EVENT_NAMES.dataInvalidated]: DataInvalidatedEvent;
+  [EVENT_NAMES.settingsChanged]: SettingsChangedEvent;
+  [EVENT_NAMES.accountSessionChanged]: AccountSessionChangedEvent;
+  [EVENT_NAMES.platformStateChanged]: PlatformStateChangedEvent;
+  [EVENT_NAMES.updateProgress]: UpdateProgressEvent;
 }

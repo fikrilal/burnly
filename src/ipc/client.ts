@@ -182,9 +182,16 @@ const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
 });
 
 const accountSessionDataSchema: z.ZodType<AccountSessionResponse> = z.object({
-  status: z.enum(["signed_out", "waiting_for_browser", "signed_in"]),
+  status: z.enum([
+    "signed_out",
+    "waiting_for_browser",
+    "exchanging",
+    "signed_in",
+  ]),
   email: z.string().min(1).nullable(),
   userId: z.string().min(1).nullable(),
+  lastErrorCode: z.string().min(1).nullable(),
+  lastErrorMessage: z.string().min(1).nullable(),
 });
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({

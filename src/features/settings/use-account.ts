@@ -39,9 +39,7 @@ export function useAccountSession() {
   });
 }
 
-function useAccountMutation(
-  mutationFn: () => Promise<AccountSessionResponse>,
-) {
+function useAccountMutation(mutationFn: () => Promise<AccountSessionResponse>) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,

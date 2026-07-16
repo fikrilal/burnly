@@ -354,18 +354,6 @@ pub(super) fn refresh_cancel(
     IpcResponse::success(coordinator.cancel().into())
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RefreshProgressEvent {
-    status: &'static str,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DataInvalidatedEvent {
-    scope: &'static str,
-}
-
 /// Publishes refresh notifications. Events carry only hints; the frontend must
 /// re-query authoritative state after `data-invalidated`.
 struct TauriRefreshEventSink<R: tauri::Runtime> {
@@ -375,16 +363,16 @@ struct TauriRefreshEventSink<R: tauri::Runtime> {
 impl<R: tauri::Runtime> RefreshEventSink for TauriRefreshEventSink<R> {
     fn publish(&self, snapshot: RefreshSnapshot, usage_changed: bool) {
         let _ = self.app.emit(
-            "burnly://v1/refresh-progress",
-            RefreshProgressEvent {
+            super::events::names::REFRESH_PROGRESS,
+            super::events::RefreshProgressEvent {
                 status: refresh_lifecycle_value(snapshot.status),
             },
         );
 
         if usage_changed {
             let _ = self.app.emit(
-                "burnly://v1/data-invalidated",
-                DataInvalidatedEvent { scope: "usage" },
+                super::events::names::DATA_INVALIDATED,
+                super::events::DataInvalidatedEvent { scope: "usage" },
             );
         }
     }

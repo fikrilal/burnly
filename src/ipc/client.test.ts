@@ -72,6 +72,8 @@ describe("IPC command responses", () => {
           status: "signed_in",
           email: "dev@burnly.dev",
           userId: "user-1",
+          lastErrorCode: null,
+          lastErrorMessage: null,
         },
         meta,
       });
@@ -91,6 +93,8 @@ describe("IPC command responses", () => {
           status: "signed_out",
           email: null,
           userId: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
         },
         meta,
       });
@@ -109,6 +113,8 @@ describe("IPC command responses", () => {
           status: "waiting_for_browser",
           email: null,
           userId: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
         },
         meta,
       });
@@ -124,6 +130,8 @@ describe("IPC command responses", () => {
           status: "signed_out",
           email: null,
           userId: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
         },
         meta,
       });

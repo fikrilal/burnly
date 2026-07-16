@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   EVENT_NAMES,
+  parseEventPayload,
   subscribeToEvent,
   type EventListenerTransport,
 } from "./events";
@@ -12,7 +13,7 @@ describe("IPC event subscriptions", () => {
     const callback = vi.fn();
     const listen: EventListenerTransport = (event, received) => {
       expect(event).toBe(EVENT_NAMES.dataInvalidated);
-      received({ reason: "settings_changed" });
+      received({ scope: "usage" });
       return Promise.resolve(cleanup);
     };
 
@@ -23,7 +24,7 @@ describe("IPC event subscriptions", () => {
     );
     unlisten();
 
-    expect(callback).toHaveBeenCalledWith({ reason: "settings_changed" });
+    expect(callback).toHaveBeenCalledWith({ scope: "usage" });
     expect(cleanup).toHaveBeenCalledOnce();
   });
 
@@ -38,19 +39,42 @@ describe("IPC event subscriptions", () => {
     ).rejects.toThrow();
   });
 
+  it("rejects unit/null payloads (must be typed objects)", () => {
+    expect(() =>
+      parseEventPayload(EVENT_NAMES.accountSessionChanged, null),
+    ).toThrow();
+    expect(() =>
+      parseEventPayload(EVENT_NAMES.accountSessionChanged, {}),
+    ).toThrow();
+  });
+
+  it("parses account session change reasons", () => {
+    expect(
+      parseEventPayload(EVENT_NAMES.accountSessionChanged, {
+        reason: "login_completed",
+      }),
+    ).toEqual({ reason: "login_completed" });
+  });
+
+  it("parses settings-changed revision", () => {
+    expect(
+      parseEventPayload(EVENT_NAMES.settingsChanged, { revision: 3 }),
+    ).toEqual({ revision: 3 });
+  });
+
   it("keeps duplicate and missed notifications as harmless invalidations", async () => {
     const callback = vi.fn();
     const listen: EventListenerTransport = (_event, received) => {
-      received({ revision: 1 });
-      received({ revision: 1 });
+      received({ scope: "usage" });
+      received({ scope: "usage" });
       return Promise.resolve(() => undefined);
     };
 
     await subscribeToEvent(EVENT_NAMES.dataInvalidated, callback, listen);
 
     expect(callback).toHaveBeenCalledTimes(2);
-    expect(callback).toHaveBeenNthCalledWith(1, { revision: 1 });
-    expect(callback).toHaveBeenNthCalledWith(2, { revision: 1 });
+    expect(callback).toHaveBeenNthCalledWith(1, { scope: "usage" });
+    expect(callback).toHaveBeenNthCalledWith(2, { scope: "usage" });
   });
 
   it("installs one listener and delegates cleanup to the transport once", async () => {

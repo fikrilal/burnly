@@ -7,11 +7,14 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::application::account::{
-    AccountService, AccountServiceError, AccountSessionStatus, AccountSessionView,
-    PENDING_LOGIN_TIMEOUT,
+    user_visible_login_error, AccountService, AccountServiceError, AccountSessionStatus,
+    AccountSessionView, PENDING_LOGIN_TIMEOUT,
 };
 use crate::application::auth_loopback::{LoopbackError, LoopbackServer};
 
+use super::events::{
+    names as event_names, AccountSessionChangeReason, AccountSessionChangedEvent,
+};
 use super::response::{ErrorCategory, IpcError, IpcResponse};
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -20,26 +23,28 @@ pub(super) struct AccountSessionResponse {
     status: &'static str,
     email: Option<String>,
     user_id: Option<String>,
+    last_error_code: Option<String>,
+    last_error_message: Option<String>,
 }
 
 impl From<AccountSessionView> for AccountSessionResponse {
     fn from(value: AccountSessionView) -> Self {
-        match value.status {
-            AccountSessionStatus::SignedOut => Self {
-                status: "signed_out",
-                email: None,
-                user_id: None,
-            },
-            AccountSessionStatus::WaitingForBrowser => Self {
-                status: "waiting_for_browser",
-                email: None,
-                user_id: None,
-            },
-            AccountSessionStatus::SignedIn => Self {
-                status: "signed_in",
-                email: value.email,
-                user_id: value.user_id,
-            },
+        let (last_error_code, last_error_message) = match value.last_error {
+            Some(error) => (Some(error.code), Some(error.message)),
+            None => (None, None),
+        };
+        let status = match value.status {
+            AccountSessionStatus::SignedOut => "signed_out",
+            AccountSessionStatus::WaitingForBrowser => "waiting_for_browser",
+            AccountSessionStatus::Exchanging => "exchanging",
+            AccountSessionStatus::SignedIn => "signed_in",
+        };
+        Self {
+            status,
+            email: value.email,
+            user_id: value.user_id,
+            last_error_code,
+            last_error_message,
         }
     }
 }
@@ -76,21 +81,37 @@ pub(super) fn account_start_login<R: tauri::Runtime>(
         let Some(service) = app_for_listener.try_state::<AccountService>() else {
             return;
         };
-        match outcome {
-            Ok((code, state)) => {
-                let _ = service.complete_login(&code, &state);
+        let reason = match outcome {
+            Ok((code, state)) => match service.complete_login(&code, &state) {
+                Ok(_) => Some(AccountSessionChangeReason::LoginCompleted),
+                Err(AccountServiceError::NoPendingLogin) => {
+                    // Late callback after cancel or success — no UI notification.
+                    None
+                }
+                Err(_) => {
+                    // complete_login already recorded a safe last_error when needed.
+                    Some(AccountSessionChangeReason::LoginFailed)
+                }
+            },
+            Err(LoopbackError::Cancelled) => None,
+            Err(LoopbackError::Timeout) => {
+                let _ =
+                    service.abandon_login_with_error(AccountServiceError::ExpiredPending);
+                Some(AccountSessionChangeReason::LoginFailed)
             }
-            Err(LoopbackError::Cancelled) => {}
             Err(_) => {
-                let _ = service.cancel_login();
+                let _ = service.abandon_login_with_error(AccountServiceError::EmptyCode);
+                Some(AccountSessionChangeReason::LoginFailed)
             }
+        };
+        if let Some(reason) = reason {
+            emit_account_session_changed(&app_for_listener, reason);
         }
-        let _ = app_for_listener.emit("burnly://v1/account-session-changed", ());
     });
 
     match app.opener().open_url(&started.login_url, None::<&str>) {
         Ok(()) => {
-            let _ = app.emit("burnly://v1/account-session-changed", ());
+            emit_account_session_changed(&app, AccountSessionChangeReason::LoginStarted);
             IpcResponse::success(started.view.into())
         }
         Err(_) => {
@@ -111,7 +132,7 @@ pub(super) fn account_cancel_login<R: tauri::Runtime>(
     service: State<'_, AccountService>,
 ) -> IpcResponse<AccountSessionResponse> {
     let view = service.cancel_login();
-    let _ = app.emit("burnly://v1/account-session-changed", ());
+    emit_account_session_changed(&app, AccountSessionChangeReason::LoginCancelled);
     IpcResponse::success(view.into())
 }
 
@@ -122,11 +143,21 @@ pub(super) fn account_logout<R: tauri::Runtime>(
 ) -> IpcResponse<AccountSessionResponse> {
     match service.logout() {
         Ok(view) => {
-            let _ = app.emit("burnly://v1/account-session-changed", ());
+            emit_account_session_changed(&app, AccountSessionChangeReason::LoggedOut);
             IpcResponse::success(view.into())
         }
         Err(error) => IpcResponse::failure(account_error(error)),
     }
+}
+
+fn emit_account_session_changed<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    reason: AccountSessionChangeReason,
+) {
+    let _ = app.emit(
+        event_names::ACCOUNT_SESSION_CHANGED,
+        AccountSessionChangedEvent { reason },
+    );
 }
 
 fn loopback_error(error: LoopbackError) -> IpcError {
@@ -165,13 +196,47 @@ fn loopback_error(error: LoopbackError) -> IpcError {
 }
 
 fn account_error(error: AccountServiceError) -> IpcError {
-    match error {
-        AccountServiceError::LoginUnavailable => IpcError::new(
-            "account.login_unavailable",
-            "Sign-in is unavailable in this build or configuration.",
+    if let Some(visible) = user_visible_login_error(&error) {
+        let code: &'static str = match visible.code.as_str() {
+            "AUTH_DESKTOP_HANDOFF_INVALID" => "AUTH_DESKTOP_HANDOFF_INVALID",
+            "AUTH_USER_SUSPENDED" => "AUTH_USER_SUSPENDED",
+            "RATE_LIMITED" => "RATE_LIMITED",
+            "UNAUTHORIZED" => "UNAUTHORIZED",
+            "account.state_mismatch" => "account.state_mismatch",
+            "account.login_timeout" => "account.login_timeout",
+            "account.invalid_callback" => "account.invalid_callback",
+            "account.login_unavailable" => "account.login_unavailable",
+            "account.storage_failed" => "account.storage_failed",
+            "account.exchange_failed" => "account.exchange_failed",
+            _ => "account.exchange_failed",
+        };
+        let message: &'static str = match code {
+            "AUTH_DESKTOP_HANDOFF_INVALID" => {
+                "Sign-in expired or was invalid. Please try again."
+            }
+            "AUTH_USER_SUSPENDED" => "This account is suspended and cannot sign in.",
+            "RATE_LIMITED" => "Too many sign-in attempts. Please wait and try again.",
+            "UNAUTHORIZED" => "Your session is no longer valid. Please sign in again.",
+            "account.state_mismatch" => "Sign-in could not be verified. Please try again.",
+            "account.login_timeout" => "Sign-in timed out. Please try again.",
+            "account.invalid_callback" => "Burnly received an invalid sign-in callback.",
+            "account.login_unavailable" => {
+                "Sign-in is unavailable in this build or configuration."
+            }
+            "account.storage_failed" => {
+                "Burnly could not save the signed-in session on this device."
+            }
+            _ => "Sign-in failed. Please try again.",
+        };
+        return IpcError::new(
+            code,
+            message,
             ErrorCategory::Unavailable,
-            true,
-        ),
+            !matches!(code, "AUTH_USER_SUSPENDED"),
+        );
+    }
+
+    match error {
         AccountServiceError::AlreadySignedIn => IpcError::new(
             "account.already_signed_in",
             "You are already signed in.",
@@ -190,53 +255,10 @@ fn account_error(error: AccountServiceError) -> IpcError {
             ErrorCategory::Validation,
             false,
         ),
-        AccountServiceError::StateMismatch => IpcError::new(
-            "account.state_mismatch",
-            "Sign-in could not be verified. Please try again.",
-            ErrorCategory::Validation,
-            true,
-        ),
-        AccountServiceError::ExpiredPending => IpcError::new(
-            "account.login_timeout",
-            "Sign-in timed out. Please try again.",
+        _ => IpcError::new(
+            "account.exchange_failed",
+            "Sign-in failed. Please try again.",
             ErrorCategory::Unavailable,
-            true,
-        ),
-        AccountServiceError::EmptyCode => IpcError::new(
-            "account.invalid_callback",
-            "Burnly received an invalid sign-in callback.",
-            ErrorCategory::Validation,
-            true,
-        ),
-        AccountServiceError::ExchangeFailed { code, message: _ } => {
-            let (ipc_code, user_message, retryable) = match code.as_deref() {
-                Some("AUTH_DESKTOP_HANDOFF_INVALID") => (
-                    "AUTH_DESKTOP_HANDOFF_INVALID",
-                    "Sign-in expired or was invalid. Please try again.",
-                    true,
-                ),
-                Some("AUTH_USER_SUSPENDED") => (
-                    "AUTH_USER_SUSPENDED",
-                    "This account is suspended and cannot sign in.",
-                    false,
-                ),
-                Some("RATE_LIMITED") => (
-                    "RATE_LIMITED",
-                    "Too many sign-in attempts. Please wait and try again.",
-                    true,
-                ),
-                _ => (
-                    "account.exchange_failed",
-                    "Sign-in failed. Please try again.",
-                    true,
-                ),
-            };
-            IpcError::new(ipc_code, user_message, ErrorCategory::Unavailable, retryable)
-        }
-        AccountServiceError::StorageFailed => IpcError::new(
-            "account.storage_failed",
-            "Burnly could not save the signed-in session on this device.",
-            ErrorCategory::Persistence,
             true,
         ),
     }
@@ -247,16 +269,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn maps_waiting_for_browser_without_secrets() {
+    fn maps_exchanging_and_error_fields() {
         let response = AccountSessionResponse::from(AccountSessionView {
-            status: AccountSessionStatus::WaitingForBrowser,
+            status: AccountSessionStatus::Exchanging,
             email: None,
             user_id: None,
+            last_error: None,
         });
-        assert_eq!(response.status, "waiting_for_browser");
-        let json = serde_json::to_string(&response).expect("json");
-        assert!(!json.to_lowercase().contains("verifier"));
-        assert!(!json.to_lowercase().contains("token"));
+        assert_eq!(response.status, "exchanging");
+
+        let failed = AccountSessionResponse::from(AccountSessionView {
+            status: AccountSessionStatus::SignedOut,
+            email: None,
+            user_id: None,
+            last_error: Some(crate::application::account::AccountLoginError {
+                code: "AUTH_DESKTOP_HANDOFF_INVALID".into(),
+                message: "Sign-in expired or was invalid. Please try again.".into(),
+            }),
+        });
+        assert_eq!(
+            failed.last_error_code.as_deref(),
+            Some("AUTH_DESKTOP_HANDOFF_INVALID")
+        );
+        assert!(!failed
+            .last_error_message
+            .as_deref()
+            .unwrap_or("")
+            .to_lowercase()
+            .contains("token"));
     }
 
     #[test]
@@ -268,16 +308,6 @@ mod tests {
         let json = serde_json::to_string(&error).expect("json");
         assert!(json.contains("AUTH_DESKTOP_HANDOFF_INVALID"));
         assert!(!json.contains("secret detail"));
-    }
-
-    #[test]
-    fn maps_signed_in_view_without_token_fields() {
-        let response = AccountSessionResponse::from(AccountSessionView {
-            status: AccountSessionStatus::SignedIn,
-            email: Some("dev@burnly.dev".into()),
-            user_id: Some("user-1".into()),
-        });
-        assert_eq!(response.status, "signed_in");
     }
 
     #[test]

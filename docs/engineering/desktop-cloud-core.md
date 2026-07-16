@@ -29,11 +29,20 @@ infrastructure/cloud/
 
 ## Config env overrides
 
-| Variable | Default (dev) |
-| --- | --- |
-| `BURNLY_API_BASE_URL` | `http://127.0.0.1:4000` |
-| `BURNLY_WEB_ORIGIN` | `http://127.0.0.1:3000` |
+| Variable                      | Default (dev)                     |
+| ----------------------------- | --------------------------------- |
+| `BURNLY_API_BASE_URL`         | `http://127.0.0.1:4000`           |
+| `BURNLY_WEB_ORIGIN`           | `http://127.0.0.1:3000`           |
 | `BURNLY_DESKTOP_REDIRECT_URI` | `http://127.0.0.1:39201/callback` |
+
+Local files (optional):
+
+- Template: `.env.example` (committed)
+- Your overrides: `.env` or `.env.local` (gitignored)
+- Loaded by `pnpm tauri` / `pnpm tauri dev` via `scripts/run-tauri.mjs`
+- Process env already set in the shell wins over the file
+
+If you use the defaults above and API/web match them, **no `.env` is required**.
 
 ## Construction sketch (later wiring)
 

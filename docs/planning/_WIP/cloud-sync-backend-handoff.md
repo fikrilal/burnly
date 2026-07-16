@@ -38,16 +38,16 @@ Related backend sources:
 Build cloud as an **opt-in projection of desktop daily usage facts**, not as a
 mirror of the full local SQLite database.
 
-| Decision | Choice |
-| --- | --- |
-| Source of truth for usage | Local coding-tool logs → desktop SQLite |
-| Cloud role | Durable, queryable projection for web reports |
-| First sync grain | **Daily usage** + **daily model breakdown** |
-| Session detail | **Deferred** (privacy + identity complexity) |
-| Project paths / session IDs | **Never synced by default** |
-| Auth | Reuse existing burnly-api account stack |
-| Sync direction (v1) | Desktop **push** after local refresh |
-| Multi-device (v1) | Per-device streams; web sums device projections carefully |
+| Decision                    | Choice                                                    |
+| --------------------------- | --------------------------------------------------------- |
+| Source of truth for usage   | Local coding-tool logs → desktop SQLite                   |
+| Cloud role                  | Durable, queryable projection for web reports             |
+| First sync grain            | **Daily usage** + **daily model breakdown**               |
+| Session detail              | **Deferred** (privacy + identity complexity)              |
+| Project paths / session IDs | **Never synced by default**                               |
+| Auth                        | Reuse existing burnly-api account stack                   |
+| Sync direction (v1)         | Desktop **push** after local refresh                      |
+| Multi-device (v1)           | Per-device streams; web sums device projections carefully |
 
 Local tracking must keep working with zero account and zero network.
 
@@ -100,16 +100,16 @@ Important invariants:
 
 Stable `source_key` strings (desktop `SourceKey`):
 
-| source_key | Product status | Collector path |
-| --- | --- | --- |
-| `claude-code` | supported | ccusage |
-| `codex` | supported | ccusage |
-| `opencode` | supported | ccusage |
-| `pi` | supported | ccusage |
-| `cline` | experimental | native |
-| `zcode` | experimental | native |
-| `antigravity` | experimental | native (multi-variant) |
-| `grok-build` | experimental | native |
+| source_key    | Product status | Collector path         |
+| ------------- | -------------- | ---------------------- |
+| `claude-code` | supported      | ccusage                |
+| `codex`       | supported      | ccusage                |
+| `opencode`    | supported      | ccusage                |
+| `pi`          | supported      | ccusage                |
+| `cline`       | experimental   | native                 |
+| `zcode`       | experimental   | native                 |
+| `antigravity` | experimental   | native (multi-variant) |
+| `grok-build`  | experimental   | native                 |
 
 Backend should treat `source_key` as a closed-but-versioned enum string. New
 sources will appear over time; unknown keys should not crash ingest, but v1
@@ -145,51 +145,51 @@ Notes:
 
 Sync-relevant:
 
-| Local table | Role |
-| --- | --- |
-| `sources` | Product source registry (`source_key`, display name) |
-| `source_models` | Raw model ids per source |
-| `daily_usage` | Authoritative daily totals per source/date/timezone |
-| `daily_model_usage` | Optional model breakdown under a daily parent |
-| `app_settings.reporting_timezone` | User reporting timezone (local) |
+| Local table                       | Role                                                 |
+| --------------------------------- | ---------------------------------------------------- |
+| `sources`                         | Product source registry (`source_key`, display name) |
+| `source_models`                   | Raw model ids per source                             |
+| `daily_usage`                     | Authoritative daily totals per source/date/timezone  |
+| `daily_model_usage`               | Optional model breakdown under a daily parent        |
+| `app_settings.reporting_timezone` | User reporting timezone (local)                      |
 
 Local-only (do **not** mirror wholesale):
 
-| Local table | Why local-only |
-| --- | --- |
-| `projects` | Paths/fingerprints are sensitive |
+| Local table                        | Why local-only                            |
+| ---------------------------------- | ----------------------------------------- |
+| `projects`                         | Paths/fingerprints are sensitive          |
 | `sessions` / `session_model_usage` | Session ids + activity metadata; deferred |
-| `refresh_runs` / `import_runs` | Collector diagnostics / provenance |
-| `diagnostic_events` | Local ops diagnostics |
-| `*_usage_cache` (antigravity/grok) | Collector recovery caches |
-| `budgets*` | Removed from local product; not cloud v1 |
+| `refresh_runs` / `import_runs`     | Collector diagnostics / provenance        |
+| `diagnostic_events`                | Local ops diagnostics                     |
+| `*_usage_cache` (antigravity/grok) | Collector recovery caches                 |
+| `budgets*`                         | Removed from local product; not cloud v1  |
 
 ### Daily parent fields (canonical meaning)
 
 From `daily_usage` (conceptual field set for export):
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `sourceKey` | string | e.g. `claude-code` |
-| `identityKey` | string | deterministic daily `source_key` |
-| `identityVersion` | int | currently `1` |
-| `usageDate` | `YYYY-MM-DD` | local calendar date |
-| `aggregationTimezone` | IANA tz | e.g. `Asia/Jakarta` |
-| `inputTokens` | int? | nullable category |
-| `outputTokens` | int? | nullable category |
-| `cacheCreationTokens` | int? | nullable category |
-| `cacheReadTokens` | int? | nullable category |
-| `totalTokens` | int | required, authoritative |
-| `unclassifiedTokens` | int? | present only when all categories known |
-| `costAmountMicros` | int? | required when cost valued |
-| `costCurrency` | `AAA`? | ISO 4217 uppercase |
-| `costKind` | enum | see below |
-| `costStatus` | enum | see below |
-| `dataQuality` | string/enum | e.g. complete/partial |
-| `recordState` | enum | `active` \| `missing` \| `removed` |
-| `firstSeenAtMs` | int | local observation provenance |
-| `lastSeenAtMs` | int | local observation provenance |
-| `removedAtMs` | int? | when removed |
+| Field                 | Type         | Notes                                  |
+| --------------------- | ------------ | -------------------------------------- |
+| `sourceKey`           | string       | e.g. `claude-code`                     |
+| `identityKey`         | string       | deterministic daily `source_key`       |
+| `identityVersion`     | int          | currently `1`                          |
+| `usageDate`           | `YYYY-MM-DD` | local calendar date                    |
+| `aggregationTimezone` | IANA tz      | e.g. `Asia/Jakarta`                    |
+| `inputTokens`         | int?         | nullable category                      |
+| `outputTokens`        | int?         | nullable category                      |
+| `cacheCreationTokens` | int?         | nullable category                      |
+| `cacheReadTokens`     | int?         | nullable category                      |
+| `totalTokens`         | int          | required, authoritative                |
+| `unclassifiedTokens`  | int?         | present only when all categories known |
+| `costAmountMicros`    | int?         | required when cost valued              |
+| `costCurrency`        | `AAA`?       | ISO 4217 uppercase                     |
+| `costKind`            | enum         | see below                              |
+| `costStatus`          | enum         | see below                              |
+| `dataQuality`         | string/enum  | e.g. complete/partial                  |
+| `recordState`         | enum         | `active` \| `missing` \| `removed`     |
+| `firstSeenAtMs`       | int          | local observation provenance           |
+| `lastSeenAtMs`        | int          | local observation provenance           |
+| `removedAtMs`         | int?         | when removed                           |
 
 Cost enums (desktop):
 
@@ -210,14 +210,14 @@ Cost invariant:
 
 From `daily_model_usage` + `source_models`:
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `rawModelId` | string? | exact source-reported model id; null = unknown bucket |
-| `displayName` | string? | optional display override |
-| `providerKey` | string? | optional normalized provider |
-| token fields | int? | same null semantics as parent |
-| `totalTokens` | int? | breakdown only; **do not sum to replace parent** |
-| `costAmountMicros` / `costCurrency` / `costStatus` | | model cost is only `estimated` or `unavailable` |
+| Field                                              | Type    | Notes                                                 |
+| -------------------------------------------------- | ------- | ----------------------------------------------------- |
+| `rawModelId`                                       | string? | exact source-reported model id; null = unknown bucket |
+| `displayName`                                      | string? | optional display override                             |
+| `providerKey`                                      | string? | optional normalized provider                          |
+| token fields                                       | int?    | same null semantics as parent                         |
+| `totalTokens`                                      | int?    | breakdown only; **do not sum to replace parent**      |
+| `costAmountMicros` / `costCurrency` / `costStatus` |         | model cost is only `estimated` or `unavailable`       |
 
 **Invariant for web and API:** period totals must come from parent `totalTokens`,
 never from summing model children. Model charts may disclose unattributed
@@ -266,21 +266,21 @@ Web app can show:
 
 ### Privacy defaults (must ship)
 
-| Data class | Sync? |
-| --- | --- |
-| Daily totals + model breakdown tokens | Yes (opt-in) |
-| Cost estimates when present | Yes (opt-in), labeled estimated/unavailable |
-| Product source keys and model ids | Yes |
-| Reporting / aggregation timezone | Yes (needed for calendar correctness) |
-| Device display name / app version | Yes (support/debug) |
-| Raw project paths | **No** |
-| Path fingerprints | **No** |
-| Source session identifiers | **No** (v1) |
-| Session rows | **No** (v1) |
-| Collector raw JSON / protobuf | **No** |
-| Prompts / responses / code / files | **Never** |
-| Credentials / API keys | **Never** |
-| Local diagnostics payloads | **No** |
+| Data class                            | Sync?                                       |
+| ------------------------------------- | ------------------------------------------- |
+| Daily totals + model breakdown tokens | Yes (opt-in)                                |
+| Cost estimates when present           | Yes (opt-in), labeled estimated/unavailable |
+| Product source keys and model ids     | Yes                                         |
+| Reporting / aggregation timezone      | Yes (needed for calendar correctness)       |
+| Device display name / app version     | Yes (support/debug)                         |
+| Raw project paths                     | **No**                                      |
+| Path fingerprints                     | **No**                                      |
+| Source session identifiers            | **No** (v1)                                 |
+| Session rows                          | **No** (v1)                                 |
+| Collector raw JSON / protobuf         | **No**                                      |
+| Prompts / responses / code / files    | **Never**                                   |
+| Credentials / API keys                | **Never**                                   |
+| Local diagnostics payloads            | **No**                                      |
 
 Future optional expansions (require explicit user consent UI):
 
@@ -320,11 +320,11 @@ Why device scope in v1:
 
 **Multi-device counting rule (explicit product choice):**
 
-| Option | Meaning | v1 recommendation |
-| --- | --- | --- |
-| A. Per-device reporting | Web shows devices separately; totals are per device | Safest |
-| B. Cross-device union by identity | Merge same source+date+tz across devices | **Wrong** — same day on two machines is different real work |
-| C. Cross-device sum | Sum tokens across devices for a user day | Product-correct for "all my machines" |
+| Option                            | Meaning                                             | v1 recommendation                                           |
+| --------------------------------- | --------------------------------------------------- | ----------------------------------------------------------- |
+| A. Per-device reporting           | Web shows devices separately; totals are per device | Safest                                                      |
+| B. Cross-device union by identity | Merge same source+date+tz across devices            | **Wrong** — same day on two machines is different real work |
+| C. Cross-device sum               | Sum tokens across devices for a user day            | Product-correct for "all my machines"                       |
 
 **Recommend C for user-level reports**, with device filter available. Each
 device uploads its own facts; web totals sum active facts across devices for the
@@ -340,41 +340,41 @@ These are handoff sketches, not final Prisma. Backend owns final schema/ADRs.
 
 #### `sync_devices`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid pk | server id |
-| `user_id` | uuid fk | owner |
-| `client_device_id` | text | stable id generated by desktop install |
-| `display_name` | text? | e.g. hostname label user can edit later |
-| `platform` | text | `linux` \| `macos` \| `windows` |
-| `app_version` | text | last seen desktop version |
-| `reporting_timezone` | text | last known IANA tz from client |
-| `last_sync_at` | timestamptz | last successful push |
-| `created_at` / `updated_at` | timestamptz | |
+| Column                      | Type        | Notes                                   |
+| --------------------------- | ----------- | --------------------------------------- |
+| `id`                        | uuid pk     | server id                               |
+| `user_id`                   | uuid fk     | owner                                   |
+| `client_device_id`          | text        | stable id generated by desktop install  |
+| `display_name`              | text?       | e.g. hostname label user can edit later |
+| `platform`                  | text        | `linux` \| `macos` \| `windows`         |
+| `app_version`               | text        | last seen desktop version               |
+| `reporting_timezone`        | text        | last known IANA tz from client          |
+| `last_sync_at`              | timestamptz | last successful push                    |
+| `created_at` / `updated_at` | timestamptz |                                         |
 
 Unique: `(user_id, client_device_id)`.
 
 #### `daily_usage_facts`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid pk | server id only |
-| `user_id` | uuid | denormalized for query |
-| `device_id` | uuid fk | sync_devices |
-| `source_key` | text | product source |
-| `identity_key` | text | desktop deterministic key |
-| `identity_version` | int | currently 1 |
-| `usage_date` | date | |
-| `aggregation_timezone` | text | IANA |
-| token columns | bigint null / not null | mirror desktop semantics |
-| cost columns | | mirror desktop semantics |
-| `data_quality` | text | |
-| `record_state` | text | `active`/`missing`/`removed` |
-| `client_first_seen_at` | timestamptz | from ms |
-| `client_last_seen_at` | timestamptz | from ms |
-| `client_removed_at` | timestamptz? | |
-| `synced_at` | timestamptz | server receive time |
-| `client_revision` | bigint | monotonic per device export revision |
+| Column                 | Type                   | Notes                                |
+| ---------------------- | ---------------------- | ------------------------------------ |
+| `id`                   | uuid pk                | server id only                       |
+| `user_id`              | uuid                   | denormalized for query               |
+| `device_id`            | uuid fk                | sync_devices                         |
+| `source_key`           | text                   | product source                       |
+| `identity_key`         | text                   | desktop deterministic key            |
+| `identity_version`     | int                    | currently 1                          |
+| `usage_date`           | date                   |                                      |
+| `aggregation_timezone` | text                   | IANA                                 |
+| token columns          | bigint null / not null | mirror desktop semantics             |
+| cost columns           |                        | mirror desktop semantics             |
+| `data_quality`         | text                   |                                      |
+| `record_state`         | text                   | `active`/`missing`/`removed`         |
+| `client_first_seen_at` | timestamptz            | from ms                              |
+| `client_last_seen_at`  | timestamptz            | from ms                              |
+| `client_removed_at`    | timestamptz?           |                                      |
+| `synced_at`            | timestamptz            | server receive time                  |
+| `client_revision`      | bigint                 | monotonic per device export revision |
 
 Unique identity for upsert:
 
@@ -393,15 +393,15 @@ Indexes for web:
 
 #### `daily_model_usage_facts`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid pk | |
-| `daily_usage_fact_id` | uuid fk cascade | |
-| `user_id` | uuid | denormalized |
-| `raw_model_id` | text? | null = unknown model bucket |
-| `display_name` | text? | |
-| `provider_key` | text? | |
-| token/cost columns | | breakdown only |
+| Column                | Type            | Notes                       |
+| --------------------- | --------------- | --------------------------- |
+| `id`                  | uuid pk         |                             |
+| `daily_usage_fact_id` | uuid fk cascade |                             |
+| `user_id`             | uuid            | denormalized                |
+| `raw_model_id`        | text?           | null = unknown model bucket |
+| `display_name`        | text?           |                             |
+| `provider_key`        | text?           |                             |
+| token/cost columns    |                 | breakdown only              |
 
 Unique:
 
@@ -413,16 +413,16 @@ UNIQUE (daily_usage_fact_id, raw_model_id)  -- with partial unique for NULL if n
 
 Audit each push for support and idempotency:
 
-| Column | Notes |
-| --- | --- |
-| `id` | uuid |
-| `user_id` / `device_id` | |
-| `client_batch_id` | uuid/string from desktop; idempotency key |
-| `window_start_date` / `window_end_date` | what client claims to cover |
-| `records_upserted` / `records_removed` | |
-| `app_version` / `contract_version` | |
-| `status` | accepted / rejected |
-| `created_at` | |
+| Column                                  | Notes                                     |
+| --------------------------------------- | ----------------------------------------- |
+| `id`                                    | uuid                                      |
+| `user_id` / `device_id`                 |                                           |
+| `client_batch_id`                       | uuid/string from desktop; idempotency key |
+| `window_start_date` / `window_end_date` | what client claims to cover               |
+| `records_upserted` / `records_removed`  |                                           |
+| `app_version` / `contract_version`      |                                           |
+| `status`                                | accepted / rejected                       |
+| `created_at`                            |                                           |
 
 Reuse burnly-api HTTP idempotency middleware where it fits; still keep batch
 audit for product diagnostics.
@@ -633,14 +633,14 @@ other because device is part of uniqueness.
 
 ## Web product mapping
 
-| Web surface | Data source |
-| --- | --- |
-| History calendar | `daily_usage_facts.total_tokens` by date |
-| Day detail | parent facts for date + model children |
-| Source breakdown | group by `source_key` |
-| Model breakdown | group by model fields; disclose unattributed remainder |
-| Streaks / active days | distinct dates with `total_tokens > 0` |
-| Leaderboard (later) | further aggregated metrics only, separate opt-in |
+| Web surface           | Data source                                            |
+| --------------------- | ------------------------------------------------------ |
+| History calendar      | `daily_usage_facts.total_tokens` by date               |
+| Day detail            | parent facts for date + model children                 |
+| Source breakdown      | group by `source_key`                                  |
+| Model breakdown       | group by model fields; disclose unattributed remainder |
+| Streaks / active days | distinct dates with `total_tokens > 0`                 |
+| Leaderboard (later)   | further aggregated metrics only, separate opt-in       |
 
 Never build web period totals from session tables (they are not synced in v1
 anyway).
@@ -710,19 +710,19 @@ No residual usage metrics may remain after deletion completes.
 
 ## Mapping guide for backend implementers
 
-| Desktop concept | Cloud concept |
-| --- | --- |
-| Local SQLite | Not mirrored |
-| `sources.source_key` | `source_key` text on facts |
-| `daily_usage.source_key` (identity string) | `identity_key` |
-| `daily_usage.usage_date` | `usage_date` |
-| `daily_usage.aggregation_timezone` | `aggregation_timezone` |
-| `daily_usage.total_tokens` | authoritative total |
-| `daily_model_usage` | child breakdown |
-| `sessions` | not in v1 |
-| `projects.raw_path` | never |
-| Local `id` integers | ignore |
-| Tray sum query | user-level sum of active facts across devices |
+| Desktop concept                            | Cloud concept                                 |
+| ------------------------------------------ | --------------------------------------------- |
+| Local SQLite                               | Not mirrored                                  |
+| `sources.source_key`                       | `source_key` text on facts                    |
+| `daily_usage.source_key` (identity string) | `identity_key`                                |
+| `daily_usage.usage_date`                   | `usage_date`                                  |
+| `daily_usage.aggregation_timezone`         | `aggregation_timezone`                        |
+| `daily_usage.total_tokens`                 | authoritative total                           |
+| `daily_model_usage`                        | child breakdown                               |
+| `sessions`                                 | not in v1                                     |
+| `projects.raw_path`                        | never                                         |
+| Local `id` integers                        | ignore                                        |
+| Tray sum query                             | user-level sum of active facts across devices |
 
 ## Example fixture (minimal)
 

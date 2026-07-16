@@ -476,12 +476,15 @@ export interface SettingsResponse {
 export type AccountSessionStatus =
   | "signed_out"
   | "waiting_for_browser"
+  | "exchanging"
   | "signed_in";
 
 export interface AccountSessionResponse {
   status: AccountSessionStatus;
   email: string | null;
   userId: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
 }
 
 export type BudgetLimit =
@@ -805,7 +808,36 @@ export interface SessionDetailResponse {
   models: SessionModelUsageResponse[];
 }
 
-export type UnknownEventPayload = Record<string, unknown>;
+export interface RefreshProgressEvent {
+  status: string;
+}
+
+export interface DataInvalidatedEvent {
+  scope: string;
+}
+
+export interface SettingsChangedEvent {
+  revision: number;
+}
+
+export type AccountSessionChangeReason =
+  | "login_started"
+  | "login_completed"
+  | "login_cancelled"
+  | "login_failed"
+  | "logged_out";
+
+export interface AccountSessionChangedEvent {
+  reason: AccountSessionChangeReason;
+}
+
+export interface PlatformStateChangedEvent {
+  kind: string;
+}
+
+export interface UpdateProgressEvent {
+  status: string;
+}
 
 export const COMMAND_NAMES = {
 ${commandNameEntries}

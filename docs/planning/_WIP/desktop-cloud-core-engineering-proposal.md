@@ -64,13 +64,13 @@ hold tokens, one refresh path. Features stay thin on top.
 
 From Burnly design principles:
 
-| Principle | Application here |
-| --- | --- |
-| Lower complexity | One HTTP module, one session type, few ports |
-| Deep modules | Features call `CloudSession` / `CloudClient`, not raw `reqwest` |
-| Hide information | Envelope, problem+json, keychain keys stay inside infrastructure |
-| YAGNI | No port/folder until a second implementation or test fake needs it |
-| No generic names | Prefer `cloud`, `session`, `token_store`—not `manager` / `utils` |
+| Principle        | Application here                                                   |
+| ---------------- | ------------------------------------------------------------------ |
+| Lower complexity | One HTTP module, one session type, few ports                       |
+| Deep modules     | Features call `CloudSession` / `CloudClient`, not raw `reqwest`    |
+| Hide information | Envelope, problem+json, keychain keys stay inside infrastructure   |
+| YAGNI            | No port/folder until a second implementation or test fake needs it |
+| No generic names | Prefer `cloud`, `session`, `token_store`—not `manager` / `utils`   |
 
 ## Recommendation: minimal cloud core in Rust
 
@@ -85,12 +85,12 @@ coding tools → collectors → SQLite       config → client → token store
 
 ### Ownership
 
-| Concern | Owner |
-| --- | --- |
-| Tokens, refresh, cloud HTTP, device id, PKCE secrets | **Rust** |
-| Sign-in CTA, email label, loading/error copy | **React** via IPC |
-| Local usage truth | Existing local stack (unchanged) |
-| Cloud usage projection | `burnly-api` |
+| Concern                                              | Owner                            |
+| ---------------------------------------------------- | -------------------------------- |
+| Tokens, refresh, cloud HTTP, device id, PKCE secrets | **Rust**                         |
+| Sign-in CTA, email label, loading/error copy         | **React** via IPC                |
+| Local usage truth                                    | Existing local stack (unchanged) |
+| Cloud usage projection                               | `burnly-api`                     |
 
 Do **not** implement cloud HTTP or token storage in TypeScript.
 
@@ -143,12 +143,12 @@ at the session/token ports.
 
 #### `config.rs`
 
-| Key | Purpose |
-| --- | --- |
-| `api_base_url` | burnly-api origin |
-| `web_origin` | browser login base (auth feature) |
+| Key            | Purpose                           |
+| -------------- | --------------------------------- |
+| `api_base_url` | burnly-api origin                 |
+| `web_origin`   | browser login base (auth feature) |
 | `redirect_uri` | exact allowlisted callback string |
-| `app_version` | client metadata on requests |
+| `app_version`  | client metadata on requests       |
 
 Dev overrides via env; release defaults baked in. `redirect_uri` must be
 identical wherever it is used (login URL, token exchange, API allowlist).
@@ -176,12 +176,12 @@ optional booleans with inconsistent defaults.
 
 Persist:
 
-| Field | Cleared on logout? |
-| --- | --- |
-| access token | yes |
-| refresh token | yes |
-| access expiry (`exp` → ms) | yes |
-| cached email / user id for UI | yes |
+| Field                         | Cleared on logout? |
+| ----------------------------- | ------------------ |
+| access token                  | yes                |
+| refresh token                 | yes                |
+| access expiry (`exp` → ms)    | yes                |
+| cached email / user id for UI | yes                |
 
 Implementation: OS credential store (e.g. `keyring`) behind
 `CloudTokenStore`. In-memory fake for tests.
@@ -217,15 +217,15 @@ authenticated call may need refresh, and logout is session-owned.
 
 ### Explicitly **not** in cloud core
 
-| Item | Where it belongs |
-| --- | --- |
-| PKCE generate / pending login state | Auth feature |
-| Build web `/login` URL | Auth feature |
-| Open system browser | Auth feature + existing opener |
-| Deep link / loopback receive | `platform` + auth feature |
-| `POST /v1/auth/desktop/token` | Auth feature (uses public `CloudClient`) |
-| Daily usage export + push | Collect feature |
-| Sign-in Settings UI | `src/features/account/` |
+| Item                                | Where it belongs                         |
+| ----------------------------------- | ---------------------------------------- |
+| PKCE generate / pending login state | Auth feature                             |
+| Build web `/login` URL              | Auth feature                             |
+| Open system browser                 | Auth feature + existing opener           |
+| Deep link / loopback receive        | `platform` + auth feature                |
+| `POST /v1/auth/desktop/token`       | Auth feature (uses public `CloudClient`) |
+| Daily usage export + push           | Collect feature                          |
+| Sign-in Settings UI                 | `src/features/account/`                  |
 
 ## Runtime model (HTTP concurrency)
 
@@ -343,14 +343,14 @@ Do not start Phase 2 or 3 with ad-hoc `reqwest` outside `infrastructure/cloud`
 
 ## Testing
 
-| Layer | Approach |
-| --- | --- |
+| Layer                    | Approach                                          |
+| ------------------------ | ------------------------------------------------- |
 | Envelope / problem parse | Unit tests + JSON fixtures shaped like burnly-api |
-| Auth retry policy | Fake transport or mock server |
-| Token store | In-memory fake |
-| Session | Fake store + controlled refresh responses |
-| Auth / collect features | Later; mock `CloudSession` / client at boundaries |
-| Live API | Manual smoke only; not required for core CI |
+| Auth retry policy        | Fake transport or mock server                     |
+| Token store              | In-memory fake                                    |
+| Session                  | Fake store + controlled refresh responses         |
+| Auth / collect features  | Later; mock `CloudSession` / client at boundaries |
+| Live API                 | Manual smoke only; not required for core CI       |
 
 ## Alternatives considered
 
@@ -400,14 +400,14 @@ Defaults if we need to move without more debate:
 
 ## Related documents
 
-| Doc | Role |
-| --- | --- |
-| `docs/planning/desktop-auth-via-web-handoff.md` | Auth product flow (consumes core) |
-| `docs/planning/_WIP/desktop-collect-api-requirements.md` | Collect APIs (consumes core) |
-| `docs/planning/_WIP/cloud-sync-backend-handoff.md` | Cloud data model / privacy |
-| `docs/engineering/architecture-boundaries.md` | Layer dependency rules |
-| `docs/engineering/design-principles.md` | Complexity bar |
-| burnly-api OpenAPI + auth/sync docs | Server contracts |
+| Doc                                                      | Role                              |
+| -------------------------------------------------------- | --------------------------------- |
+| `docs/planning/desktop-auth-via-web-handoff.md`          | Auth product flow (consumes core) |
+| `docs/planning/_WIP/desktop-collect-api-requirements.md` | Collect APIs (consumes core)      |
+| `docs/planning/_WIP/cloud-sync-backend-handoff.md`       | Cloud data model / privacy        |
+| `docs/engineering/architecture-boundaries.md`            | Layer dependency rules            |
+| `docs/engineering/design-principles.md`                  | Complexity bar                    |
+| burnly-api OpenAPI + auth/sync docs                      | Server contracts                  |
 
 ## One-page summary
 

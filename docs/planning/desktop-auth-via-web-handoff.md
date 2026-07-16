@@ -4,12 +4,12 @@
 
 **Planning / ready to implement on burnly (desktop).**
 
-| Layer | Status |
-| ----- | ------ |
-| Product decision | Login on **web**, return to **desktop** (WakaTime-style) |
-| burnly-api | **Done** — `POST /v1/auth/desktop/handoff` + `POST /v1/auth/desktop/token` (ADR 0022) |
-| burnly-web | **Done for handoff path** — desktop query params, Google login, handoff create, redirect with `code`+`state` |
-| **Desktop (this repo)** | **In progress** — exec plans under `docs/exec-plans/` (roadmap + chunks 01–04) |
+| Layer                   | Status                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Product decision        | Login on **web**, return to **desktop** (WakaTime-style)                                                     |
+| burnly-api              | **Done** — `POST /v1/auth/desktop/handoff` + `POST /v1/auth/desktop/token` (ADR 0022)                        |
+| burnly-web              | **Done for handoff path** — desktop query params, Google login, handoff create, redirect with `code`+`state` |
+| **Desktop (this repo)** | **Implemented** — phase complete (`docs/exec-plans/completed/2026-07-14_desktop-auth-via-web-*`)               |
 
 Date: 2026-07-14  
 Primary repo for this work: **burnly** (desktop)  
@@ -59,13 +59,13 @@ Desktop                         burnly-web                         burnly-api
 
 ## Prerequisites (already shipped elsewhere)
 
-| Dependency | Where | What you need |
-| ---------- | ----- | ------------- |
-| Handoff create | burnly-api | Allowlist includes your `redirect_uri` (`AUTH_DESKTOP_REDIRECT_URIS`) |
-| Token exchange | burnly-api | `POST /v1/auth/desktop/token` live; Redis for handoff codes |
-| Web login + handoff | burnly-web | Builds login URL targets; returns `code`+`state` only |
-| API base URL | env | e.g. `https://api…` or `http://127.0.0.1:4000` local |
-| Web origin | env | e.g. `https://burnly.dev` or `http://localhost:3000` local |
+| Dependency          | Where      | What you need                                                         |
+| ------------------- | ---------- | --------------------------------------------------------------------- |
+| Handoff create      | burnly-api | Allowlist includes your `redirect_uri` (`AUTH_DESKTOP_REDIRECT_URIS`) |
+| Token exchange      | burnly-api | `POST /v1/auth/desktop/token` live; Redis for handoff codes           |
+| Web login + handoff | burnly-web | Builds login URL targets; returns `code`+`state` only                 |
+| API base URL        | env        | e.g. `https://api…` or `http://127.0.0.1:4000` local                  |
+| Web origin          | env        | e.g. `https://burnly.dev` or `http://localhost:3000` local            |
 
 Local smoke requires **API + web + desktop** running with matching allowlist URIs.
 
@@ -75,12 +75,12 @@ Local smoke requires **API + web + desktop** running with matching allowlist URI
 
 ### 1. Configuration
 
-| Config | Purpose | Examples |
-| ------ | ------- | -------- |
-| Web origin | Base for login URL | `https://burnly.dev`, `http://127.0.0.1:3000` |
-| API base URL | Token exchange + later collect | `http://127.0.0.1:4000` |
-| `redirect_uri` | Exact allowlisted callback | `burnly://auth/callback` or `http://127.0.0.1:39201/callback` |
-| Device id / name | Optional but recommended on token exchange | Stable install id, hostname |
+| Config           | Purpose                                    | Examples                                                      |
+| ---------------- | ------------------------------------------ | ------------------------------------------------------------- |
+| Web origin       | Base for login URL                         | `https://burnly.dev`, `http://127.0.0.1:3000`                 |
+| API base URL     | Token exchange + later collect             | `http://127.0.0.1:4000`                                       |
+| `redirect_uri`   | Exact allowlisted callback                 | `burnly://auth/callback` or `http://127.0.0.1:39201/callback` |
+| Device id / name | Optional but recommended on token exchange | Stable install id, hostname                                   |
 
 `redirect_uri` on login URL, handoff create (web), and token exchange **must be identical** and **allowlisted** on the API.
 
@@ -124,11 +124,11 @@ Tauri: e.g. `shell.open(url)` / platform open-url APIs.
 
 ### 4. Validate callback
 
-| Check | Action on failure |
-| ----- | ----------------- |
-| Pending login exists | Error: “No sign-in in progress” |
-| `state` matches pending | Abort (CSRF); clear pending |
-| `code` present non-empty | Abort |
+| Check                                           | Action on failure                |
+| ----------------------------------------------- | -------------------------------- |
+| Pending login exists                            | Error: “No sign-in in progress”  |
+| `state` matches pending                         | Abort (CSRF); clear pending      |
+| `code` present non-empty                        | Abort                            |
 | Optional: timeout (e.g. > 5–10 min since start) | Abort; user should restart login |
 
 Do **not** log full `code` or `code_verifier`.
@@ -186,13 +186,13 @@ Use **OS keychain / credential store** (or the project’s existing secure stora
 
 ### 8. UX states (product)
 
-| State | UX |
-| ----- | --- |
-| Idle / signed out | Sign-in CTA |
-| Browser opened | “Complete sign-in in your browser…” + cancel |
-| Exchanging | Loading |
-| Signed in | Show account (email); enable sync if product needs it |
-| Error | Friendly copy from API `code` (see below); retry = restart full login |
+| State             | UX                                                                    |
+| ----------------- | --------------------------------------------------------------------- |
+| Idle / signed out | Sign-in CTA                                                           |
+| Browser opened    | “Complete sign-in in your browser…” + cancel                          |
+| Exchanging        | Loading                                                               |
+| Signed in         | Show account (email); enable sync if product needs it                 |
+| Error             | Friendly copy from API `code` (see below); retry = restart full login |
 
 Cancel: clear pending login; ignore late callbacks for old `state`.
 
@@ -206,33 +206,33 @@ Cancel: clear pending login; ignore late callbacks for old `state`.
 POST /v1/auth/desktop/token
 ```
 
-| Field | Required | Notes |
-| ----- | -------- | ----- |
-| `code` | yes | From web redirect |
-| `codeVerifier` | yes | PKCE verifier (not the challenge) |
-| `redirectUri` | yes | Exact match to create + allowlist |
-| `client` | yes | `"desktop"` |
-| `deviceId` | no | Stable install id (recommended) |
-| `deviceName` | no | Human-friendly |
+| Field          | Required | Notes                             |
+| -------------- | -------- | --------------------------------- |
+| `code`         | yes      | From web redirect                 |
+| `codeVerifier` | yes      | PKCE verifier (not the challenge) |
+| `redirectUri`  | yes      | Exact match to create + allowlist |
+| `client`       | yes      | `"desktop"`                       |
+| `deviceId`     | no       | Stable install id (recommended)   |
+| `deviceName`   | no       | Human-friendly                    |
 
 Relevant error codes:
 
-| Code | When |
-| ---- | ---- |
-| `VALIDATION_FAILED` | Bad body |
+| Code                           | When                                                |
+| ------------------------------ | --------------------------------------------------- |
+| `VALIDATION_FAILED`            | Bad body                                            |
 | `AUTH_DESKTOP_HANDOFF_INVALID` | Bad/expired/used code, PKCE fail, redirect mismatch |
-| `AUTH_USER_SUSPENDED` | Suspended account |
-| `RATE_LIMITED` | Too many attempts |
-| `INTERNAL` | Server error |
+| `AUTH_USER_SUSPENDED`          | Suspended account                                   |
+| `RATE_LIMITED`                 | Too many attempts                                   |
+| `INTERNAL`                     | Server error                                        |
 
 Parse `application/problem+json` with stable `code` (same pattern as other Burnly clients).
 
 ### Do not call from desktop
 
-| Endpoint | Caller |
-| -------- | ------ |
-| `POST /v1/auth/desktop/handoff` | **burnly-web only** (needs browser session Bearer) |
-| `POST /v1/auth/oidc/exchange` | Web (Google `id_token`); not primary desktop product path |
+| Endpoint                        | Caller                                                    |
+| ------------------------------- | --------------------------------------------------------- |
+| `POST /v1/auth/desktop/handoff` | **burnly-web only** (needs browser session Bearer)        |
+| `POST /v1/auth/oidc/exchange`   | Web (Google `id_token`); not primary desktop product path |
 
 ### Refresh / logout (after tokens exist)
 
@@ -287,12 +287,12 @@ Wire collect/sync HTTP clients to read access token from the same session servic
 
 ## Tests (desktop)
 
-| Layer | What to prove |
-| ----- | ------------- |
-| Unit | PKCE S256 challenge matches known vector; login URL encoding; state mismatch rejects callback |
-| Unit | Token client sends correct JSON body; maps problem codes |
-| Integration (optional) | Mock API token endpoint; full pending → callback → store |
-| Manual / runtime evidence | Real browser + API + web round-trip once |
+| Layer                     | What to prove                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| Unit                      | PKCE S256 challenge matches known vector; login URL encoding; state mismatch rejects callback |
+| Unit                      | Token client sends correct JSON body; maps problem codes                                      |
+| Integration (optional)    | Mock API token endpoint; full pending → callback → store                                      |
+| Manual / runtime evidence | Real browser + API + web round-trip once                                                      |
 
 Do not require live Google in unit CI; manual E2E is enough for first ship.
 
@@ -321,17 +321,17 @@ Do not require live Google in unit CI; manual E2E is enough for first ship.
 
 ## Related documents
 
-| Doc | Repo |
-| --- | ---- |
-| Multi-repo design | burnly-api `docs/planning/desktop-auth-via-web.md` |
-| API ADR | burnly-api `docs/adr/0022-desktop-auth-web-handoff.md` |
-| OpenAPI | burnly-api `docs/openapi/openapi.yaml` (`auth.desktop.handoff`, `auth.desktop.token`) |
-| Web implementer handoff | burnly-web `docs/planning/desktop-auth-web-handoff.md` |
-| Web implementation plan | burnly-web `docs/planning/desktop-auth-web-implementation-plan.md` |
-| Auth standard | burnly-api `docs/standards/authentication.md` |
-| Desktop phase roadmap | burnly `docs/exec-plans/active/2026-07-14_desktop-auth-via-web-00-roadmap.md` |
+| Doc                                | Repo                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| Multi-repo design                  | burnly-api `docs/planning/desktop-auth-via-web.md`                                          |
+| API ADR                            | burnly-api `docs/adr/0022-desktop-auth-web-handoff.md`                                      |
+| OpenAPI                            | burnly-api `docs/openapi/openapi.yaml` (`auth.desktop.handoff`, `auth.desktop.token`)       |
+| Web implementer handoff            | burnly-web `docs/planning/desktop-auth-web-handoff.md`                                      |
+| Web implementation plan            | burnly-web `docs/planning/desktop-auth-web-implementation-plan.md`                          |
+| Auth standard                      | burnly-api `docs/standards/authentication.md`                                               |
+| Desktop phase roadmap              | burnly `docs/exec-plans/active/2026-07-14_desktop-auth-via-web-00-roadmap.md`               |
 | Chunk 01 (bootstrap + session IPC) | burnly `docs/exec-plans/active/2026-07-14_desktop-auth-via-web-01-bootstrap-session-ipc.md` |
-| Chunks 02–04 | burnly `docs/exec-plans/queued/2026-07-14_desktop-auth-via-web-0{2,3,4}-*.md` |
+| Chunks 02–04                       | burnly `docs/exec-plans/queued/2026-07-14_desktop-auth-via-web-0{2,3,4}-*.md`               |
 
 ---
 

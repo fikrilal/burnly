@@ -67,18 +67,18 @@ coding tools
 
 ### Already exists in burnly-api (desktop will call)
 
-| Method | Path | Desktop need |
-| --- | --- | --- |
-| `POST` | `/v1/auth/password/register` | Optional email/password sign-up |
-| `POST` | `/v1/auth/password/login` | Email/password sign-in |
-| `POST` | `/v1/auth/oidc/exchange` | Google sign-in (primary) |
-| `POST` | `/v1/auth/refresh` | Rotate access/refresh tokens |
-| `POST` | `/v1/auth/logout` | Sign out this session |
-| `GET` | `/v1/me` | Confirm session + show account email |
-| `GET` | `/v1/me/sessions` | Optional: list sessions / multi-device sign-in UI later |
-| `POST` | `/v1/me/sessions/{sessionId}/revoke` | Optional: revoke other session |
-| `POST` | `/v1/me/account-deletion/request` | Optional: start account deletion from desktop |
-| `POST` | `/v1/me/account-deletion/cancel` | Optional: cancel pending deletion |
+| Method | Path                                 | Desktop need                                            |
+| ------ | ------------------------------------ | ------------------------------------------------------- |
+| `POST` | `/v1/auth/password/register`         | Optional email/password sign-up                         |
+| `POST` | `/v1/auth/password/login`            | Email/password sign-in                                  |
+| `POST` | `/v1/auth/oidc/exchange`             | Google sign-in (primary)                                |
+| `POST` | `/v1/auth/refresh`                   | Rotate access/refresh tokens                            |
+| `POST` | `/v1/auth/logout`                    | Sign out this session                                   |
+| `GET`  | `/v1/me`                             | Confirm session + show account email                    |
+| `GET`  | `/v1/me/sessions`                    | Optional: list sessions / multi-device sign-in UI later |
+| `POST` | `/v1/me/sessions/{sessionId}/revoke` | Optional: revoke other session                          |
+| `POST` | `/v1/me/account-deletion/request`    | Optional: start account deletion from desktop           |
+| `POST` | `/v1/me/account-deletion/cancel`     | Optional: cancel pending deletion                       |
 
 Notes:
 
@@ -92,35 +92,35 @@ Notes:
 
 ### Must be added for collect v1
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `PUT` | `/v1/sync/devices/{clientDeviceId}` | Register/update this desktop install as a sync device |
-| `POST` | `/v1/sync/daily-usage` | Push a batch of daily usage facts |
-| `GET` | `/v1/sync/devices/{clientDeviceId}` | Read this device's last accepted sync metadata (optional but useful) |
+| Method | Path                                | Purpose                                                              |
+| ------ | ----------------------------------- | -------------------------------------------------------------------- |
+| `PUT`  | `/v1/sync/devices/{clientDeviceId}` | Register/update this desktop install as a sync device                |
+| `POST` | `/v1/sync/daily-usage`              | Push a batch of daily usage facts                                    |
+| `GET`  | `/v1/sync/devices/{clientDeviceId}` | Read this device's last accepted sync metadata (optional but useful) |
 
 ### Explicitly out of scope for desktop collect v1
 
-| Capability | Why out |
-| --- | --- |
-| `GET /v1/usage/*` report queries | Web read side |
-| Session usage upload | Deferred privacy |
-| Project path upload | Forbidden by default |
-| Server "pull latest from tools" | Desktop owns collection |
-| Webhook/callback to desktop | Desktop is not a server |
-| Real-time streaming | Not needed for aggregates |
+| Capability                       | Why out                   |
+| -------------------------------- | ------------------------- |
+| `GET /v1/usage/*` report queries | Web read side             |
+| Session usage upload             | Deferred privacy          |
+| Project path upload              | Forbidden by default      |
+| Server "pull latest from tools"  | Desktop owns collection   |
+| Webhook/callback to desktop      | Desktop is not a server   |
+| Real-time streaming              | Not needed for aggregates |
 
 ## Client identity prerequisites
 
 Before any sync write, desktop must have:
 
-| Value | Meaning | Storage |
-| --- | --- | --- |
-| `clientDeviceId` | Stable per-install UUID/string | Local durable settings/db |
-| `deviceName` | Human label (hostname / user-editable) | Local, also sent to API |
-| `accessToken` | Short-lived JWT | OS secure storage / memory |
-| `refreshToken` | Long-lived opaque secret | OS secure storage only |
-| `syncEnabled` | User opt-in flag | Local settings (default `false`) |
-| `clientRevision` | Monotonic int per successful export attempt | Local |
+| Value            | Meaning                                     | Storage                          |
+| ---------------- | ------------------------------------------- | -------------------------------- |
+| `clientDeviceId` | Stable per-install UUID/string              | Local durable settings/db        |
+| `deviceName`     | Human label (hostname / user-editable)      | Local, also sent to API          |
+| `accessToken`    | Short-lived JWT                             | OS secure storage / memory       |
+| `refreshToken`   | Long-lived opaque secret                    | OS secure storage only           |
+| `syncEnabled`    | User opt-in flag                            | Local settings (default `false`) |
+| `clientRevision` | Monotonic int per successful export attempt | Local                            |
 
 `clientDeviceId` should be created once on first launch (or first sign-in) and
 never regenerated on ordinary app updates. Reinstall may create a new id; that
@@ -156,12 +156,12 @@ Content-Type: application/json
 }
 ```
 
-| Field | Required | Rules |
-| --- | --- | --- |
-| `displayName` | no | short string; may be hostname |
-| `platform` | yes | `linux` \| `macos` \| `windows` |
-| `appVersion` | yes | desktop semver string |
-| `reportingTimezone` | yes | non-empty IANA timezone |
+| Field               | Required | Rules                           |
+| ------------------- | -------- | ------------------------------- |
+| `displayName`       | no       | short string; may be hostname   |
+| `platform`          | yes      | `linux` \| `macos` \| `windows` |
+| `appVersion`        | yes      | desktop semver string           |
+| `reportingTimezone` | yes      | non-empty IANA timezone         |
 
 Path `clientDeviceId`:
 
@@ -188,13 +188,13 @@ Path `clientDeviceId`:
 
 **Errors desktop must handle**
 
-| HTTP | Code (example) | Client action |
-| --- | --- | --- |
-| `401` | `UNAUTHORIZED` | refresh token, retry once, else sign out |
-| `400` | `VALIDATION_FAILED` | surface field errors; do not retry blindly |
-| `403` | `FORBIDDEN` / suspended user | disable sync UI; sign out if needed |
-| `429` | rate limit | backoff |
-| `5xx` | | retry with backoff |
+| HTTP  | Code (example)               | Client action                              |
+| ----- | ---------------------------- | ------------------------------------------ |
+| `401` | `UNAUTHORIZED`               | refresh token, retry once, else sign out   |
+| `400` | `VALIDATION_FAILED`          | surface field errors; do not retry blindly |
+| `403` | `FORBIDDEN` / suspended user | disable sync UI; sign out if needed        |
+| `429` | rate limit                   | backoff                                    |
+| `5xx` |                              | retry with backoff                         |
 
 Idempotency: repeated `PUT` with same id updates metadata; safe to call often.
 
@@ -228,11 +228,11 @@ Suggested triggers (desktop implementation later):
 
 **Headers**
 
-| Header | Required | Notes |
-| --- | --- | --- |
-| `Authorization` | yes | Bearer access token |
-| `Idempotency-Key` | yes | new UUID per logical batch; reuse on retry of same batch |
-| `Content-Type` | yes | `application/json` |
+| Header            | Required | Notes                                                    |
+| ----------------- | -------- | -------------------------------------------------------- |
+| `Authorization`   | yes      | Bearer access token                                      |
+| `Idempotency-Key` | yes      | new UUID per logical batch; reuse on retry of same batch |
+| `Content-Type`    | yes      | `application/json`                                       |
 
 **Request body**
 
@@ -294,46 +294,46 @@ Suggested triggers (desktop implementation later):
 
 #### Top-level fields
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `contractVersion` | yes | desktop↔API sync contract; start at `1` |
-| `clientDeviceId` | yes | same install id used in device `PUT` |
-| `appVersion` | yes | desktop version for diagnostics |
-| `reportingTimezone` | yes | current local reporting timezone |
-| `clientRevision` | yes | monotonic integer; higher wins on conflict for same device |
-| `window.startDate` | yes | inclusive `YYYY-MM-DD` covered by this batch |
-| `window.endDate` | yes | inclusive `YYYY-MM-DD` |
-| `window.scope` | yes | v1: always `"rolling"` |
-| `facts` | yes | array; may be empty (heartbeat / no data) |
+| Field               | Required | Meaning                                                    |
+| ------------------- | -------- | ---------------------------------------------------------- |
+| `contractVersion`   | yes      | desktop↔API sync contract; start at `1`                    |
+| `clientDeviceId`    | yes      | same install id used in device `PUT`                       |
+| `appVersion`        | yes      | desktop version for diagnostics                            |
+| `reportingTimezone` | yes      | current local reporting timezone                           |
+| `clientRevision`    | yes      | monotonic integer; higher wins on conflict for same device |
+| `window.startDate`  | yes      | inclusive `YYYY-MM-DD` covered by this batch               |
+| `window.endDate`    | yes      | inclusive `YYYY-MM-DD`                                     |
+| `window.scope`      | yes      | v1: always `"rolling"`                                     |
+| `facts`             | yes      | array; may be empty (heartbeat / no data)                  |
 
 #### Each fact
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `identityKey` | yes | deterministic desktop key |
-| `identityVersion` | yes | currently `1` |
-| `sourceKey` | yes | e.g. `claude-code` |
-| `usageDate` | yes | `YYYY-MM-DD` |
-| `aggregationTimezone` | yes | IANA tz used to bucket the date |
-| token categories | no | null = unavailable, `0` = measured zero |
-| `totalTokens` | yes | authoritative parent total |
-| `unclassifiedTokens` | no | only when all categories known |
-| `cost` | yes | object with status/kind/amount rules |
-| `dataQuality` | yes | e.g. `complete` / `partial` |
-| `recordState` | yes | `active` \| `missing` \| `removed` |
-| `firstSeenAt` | yes | RFC 3339 UTC from local first seen |
-| `lastSeenAt` | yes | RFC 3339 UTC from local last seen |
-| `removedAt` | no | required when `recordState = removed` |
-| `models` | yes | array; may be empty |
+| Field                 | Required | Meaning                                 |
+| --------------------- | -------- | --------------------------------------- |
+| `identityKey`         | yes      | deterministic desktop key               |
+| `identityVersion`     | yes      | currently `1`                           |
+| `sourceKey`           | yes      | e.g. `claude-code`                      |
+| `usageDate`           | yes      | `YYYY-MM-DD`                            |
+| `aggregationTimezone` | yes      | IANA tz used to bucket the date         |
+| token categories      | no       | null = unavailable, `0` = measured zero |
+| `totalTokens`         | yes      | authoritative parent total              |
+| `unclassifiedTokens`  | no       | only when all categories known          |
+| `cost`                | yes      | object with status/kind/amount rules    |
+| `dataQuality`         | yes      | e.g. `complete` / `partial`             |
+| `recordState`         | yes      | `active` \| `missing` \| `removed`      |
+| `firstSeenAt`         | yes      | RFC 3339 UTC from local first seen      |
+| `lastSeenAt`          | yes      | RFC 3339 UTC from local last seen       |
+| `removedAt`           | no       | required when `recordState = removed`   |
+| `models`              | yes      | array; may be empty                     |
 
 #### Cost object
 
-| `status` | `kind` | `amountMicros` | `currency` |
-| --- | --- | --- | --- |
-| `available` | required | required ≥ 0 | required `AAA` |
-| `estimated` | required | required ≥ 0 | required `AAA` |
-| `not_applicable` | required | omit/null | omit/null |
-| `unavailable` | required | omit/null | omit/null |
+| `status`         | `kind`   | `amountMicros` | `currency`     |
+| ---------------- | -------- | -------------- | -------------- |
+| `available`      | required | required ≥ 0   | required `AAA` |
+| `estimated`      | required | required ≥ 0   | required `AAA` |
+| `not_applicable` | required | omit/null      | omit/null      |
+| `unavailable`    | required | omit/null      | omit/null      |
 
 `kind` values desktop may send:
 
@@ -343,14 +343,14 @@ source_reported | collector_calculated | collector_mixed | burnly_calculated | u
 
 #### Model child object
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `rawModelId` | no | null/omitted = unknown-model bucket |
-| `displayName` | no | optional |
-| `providerKey` | no | optional |
-| token fields | no | same null semantics |
-| `totalTokens` | no | breakdown only |
-| `cost` | yes | model cost only `estimated` or `unavailable` in desktop today |
+| Field         | Required | Notes                                                         |
+| ------------- | -------- | ------------------------------------------------------------- |
+| `rawModelId`  | no       | null/omitted = unknown-model bucket                           |
+| `displayName` | no       | optional                                                      |
+| `providerKey` | no       | optional                                                      |
+| token fields  | no       | same null semantics                                           |
+| `totalTokens` | no       | breakdown only                                                |
+| `cost`        | yes      | model cost only `estimated` or `unavailable` in desktop today |
 
 **Forbidden in request body (must not be accepted if present)**
 
@@ -397,11 +397,11 @@ Recommended initial window: **last 90 days** (final value can be config).
 
 Backend should publish exact limits; desktop needs at least:
 
-| Limit | Suggested default |
-| --- | --- |
-| Max facts per request | 1000 |
-| Max models per fact | 100 |
-| Max body size | 1–2 MiB |
+| Limit                                      | Suggested default    |
+| ------------------------------------------ | -------------------- |
+| Max facts per request                      | 1000                 |
+| Max models per fact                        | 100                  |
+| Max body size                              | 1–2 MiB              |
 | Max concurrent in-flight pushes per device | 1 (desktop-enforced) |
 
 If the rolling window exceeds the fact limit, desktop splits chronologically into
@@ -452,17 +452,17 @@ stable contract version bump. Desktop v1 should not depend on partial accept.
 
 **Errors desktop must handle**
 
-| HTTP | Code (examples) | Client action |
-| --- | --- | --- |
-| `401` | `UNAUTHORIZED` | refresh + retry same `Idempotency-Key` once |
-| `400` | `VALIDATION_FAILED` | log; do not infinite-retry same bad payload |
-| `400` | `SYNC_CONTRACT_UNSUPPORTED` | force app update messaging |
-| `404` | `SYNC_DEVICE_NOT_FOUND` | re-`PUT` device, then retry |
-| `409` | `IDEMPOTENCY_IN_PROGRESS` | wait/retry same key |
-| `409` | `CONFLICT` | if revision conflict, rebuild export with higher revision |
-| `413` | payload too large | split window and retry |
-| `429` | rate limited | exponential backoff |
-| `5xx` / network | | retry same key with backoff |
+| HTTP            | Code (examples)             | Client action                                             |
+| --------------- | --------------------------- | --------------------------------------------------------- |
+| `401`           | `UNAUTHORIZED`              | refresh + retry same `Idempotency-Key` once               |
+| `400`           | `VALIDATION_FAILED`         | log; do not infinite-retry same bad payload               |
+| `400`           | `SYNC_CONTRACT_UNSUPPORTED` | force app update messaging                                |
+| `404`           | `SYNC_DEVICE_NOT_FOUND`     | re-`PUT` device, then retry                               |
+| `409`           | `IDEMPOTENCY_IN_PROGRESS`   | wait/retry same key                                       |
+| `409`           | `CONFLICT`                  | if revision conflict, rebuild export with higher revision |
+| `413`           | payload too large           | split window and retry                                    |
+| `429`           | rate limited                | exponential backoff                                       |
+| `5xx` / network |                             | retry same key with backoff                               |
 
 ### 3. Read this device's sync metadata (optional collect helper)
 
@@ -586,15 +586,15 @@ Local-only flags (not API):
 
 Desktop exporter (future) reads only:
 
-| Local | Push field |
-| --- | --- |
-| `sources.source_key` | `fact.sourceKey` |
-| `daily_usage.source_key` | `fact.identityKey` |
-| `daily_usage.identity_version` | `fact.identityVersion` |
-| `daily_usage.usage_date` | `fact.usageDate` |
-| `daily_usage.aggregation_timezone` | `fact.aggregationTimezone` |
-| token/cost/quality/state columns | same meaning on fact |
-| `daily_model_usage` + `source_models` | `fact.models[]` |
+| Local                                 | Push field                 |
+| ------------------------------------- | -------------------------- |
+| `sources.source_key`                  | `fact.sourceKey`           |
+| `daily_usage.source_key`              | `fact.identityKey`         |
+| `daily_usage.identity_version`        | `fact.identityVersion`     |
+| `daily_usage.usage_date`              | `fact.usageDate`           |
+| `daily_usage.aggregation_timezone`    | `fact.aggregationTimezone` |
+| token/cost/quality/state columns      | same meaning on fact       |
+| `daily_model_usage` + `source_models` | `fact.models[]`            |
 
 Do **not** export:
 
@@ -626,14 +626,14 @@ From burnly-api auth/reliability docs, desktop requires:
 
 Desktop retry policy (suggested):
 
-| Failure class | Retry |
-| --- | --- |
-| network / `5xx` | yes, exponential backoff, same idempotency key |
-| `429` | yes, honor retry-after if present |
-| `401` | refresh once, then retry |
-| `400` validation | no automatic retry |
-| `404` device missing | re-register device, then retry once |
-| `SYNC_CONTRACT_UNSUPPORTED` | no retry; prompt update |
+| Failure class               | Retry                                          |
+| --------------------------- | ---------------------------------------------- |
+| network / `5xx`             | yes, exponential backoff, same idempotency key |
+| `429`                       | yes, honor retry-after if present              |
+| `401`                       | refresh once, then retry                       |
+| `400` validation            | no automatic retry                             |
+| `404` device missing        | re-register device, then retry once            |
+| `SYNC_CONTRACT_UNSUPPORTED` | no retry; prompt update                        |
 
 ## Minimal sequence (happy path)
 
@@ -659,14 +659,14 @@ retry on next opportunity with same pending idempotency key
 In addition to global codes, desktop collect UX benefits from stable feature
 codes:
 
-| Code | When |
-| --- | --- |
-| `SYNC_CONTRACT_UNSUPPORTED` | `contractVersion` not supported |
-| `SYNC_DEVICE_NOT_FOUND` | push references unknown device for user |
-| `SYNC_DEVICE_MISMATCH` | device belongs to another user (should be rare) |
-| `SYNC_PAYLOAD_TOO_LARGE` | over batch limits |
-| `SYNC_IDENTITY_INVALID` | identityKey does not match reconstructed key |
-| `SYNC_REVISION_STALE` | optional if backend rejects lower revision |
+| Code                        | When                                            |
+| --------------------------- | ----------------------------------------------- |
+| `SYNC_CONTRACT_UNSUPPORTED` | `contractVersion` not supported                 |
+| `SYNC_DEVICE_NOT_FOUND`     | push references unknown device for user         |
+| `SYNC_DEVICE_MISMATCH`      | device belongs to another user (should be rare) |
+| `SYNC_PAYLOAD_TOO_LARGE`    | over batch limits                               |
+| `SYNC_IDENTITY_INVALID`     | identityKey does not match reconstructed key    |
+| `SYNC_REVISION_STALE`       | optional if backend rejects lower revision      |
 
 ## Non-requirements (so backend does not overbuild for desktop)
 
@@ -749,10 +749,10 @@ Backend Phase 1 is complete for desktop when:
 
 ## Relationship to the broader handoff doc
 
-| Document | Audience | Focus |
-| --- | --- | --- |
-| `cloud-sync-backend-handoff.md` | backend overall | storage model, privacy, multi-device, web later |
-| **this doc** | backend + desktop client | **exact APIs desktop will call to collect/upload** |
+| Document                        | Audience                 | Focus                                              |
+| ------------------------------- | ------------------------ | -------------------------------------------------- |
+| `cloud-sync-backend-handoff.md` | backend overall          | storage model, privacy, multi-device, web later    |
+| **this doc**                    | backend + desktop client | **exact APIs desktop will call to collect/upload** |
 
 If the two disagree on payload shape, **this document wins for request/response
 field names** on collect endpoints; the broader handoff should be updated to

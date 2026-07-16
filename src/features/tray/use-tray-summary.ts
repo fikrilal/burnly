@@ -82,7 +82,7 @@ function useTraySummaryEvents(
   }, [queryClient, setRefreshStatus]);
 }
 
-function refreshStatusFromPayload(payload: Record<string, unknown>) {
+function refreshStatusFromPayload(payload: { status: string }) {
   const status = payload.status;
 
   switch (status) {

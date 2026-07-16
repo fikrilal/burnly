@@ -49,13 +49,22 @@ pub(crate) struct AccountService {
     token_exchanger: Option<Arc<dyn DesktopTokenExchanger>>,
     pending: Mutex<Option<PendingLogin>>,
     loopback_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    exchanging: AtomicBool,
+    last_error: Mutex<Option<AccountLoginError>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AccountSessionStatus {
     SignedOut,
     WaitingForBrowser,
+    Exchanging,
     SignedIn,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AccountLoginError {
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +72,7 @@ pub(crate) struct AccountSessionView {
     pub status: AccountSessionStatus,
     pub email: Option<String>,
     pub user_id: Option<String>,
+    pub last_error: Option<AccountLoginError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +118,8 @@ impl AccountService {
             token_exchanger: None,
             pending: Mutex::new(None),
             loopback_cancel: Mutex::new(None),
+            exchanging: AtomicBool::new(false),
+            last_error: Mutex::new(None),
         }
     }
 
@@ -126,6 +138,8 @@ impl AccountService {
             token_exchanger: Some(token_exchanger),
             pending: Mutex::new(None),
             loopback_cancel: Mutex::new(None),
+            exchanging: AtomicBool::new(false),
+            last_error: Mutex::new(None),
         }
     }
 
@@ -144,14 +158,26 @@ impl AccountService {
     }
 
     pub(crate) fn session_view(&self) -> AccountSessionView {
+        let last_error = self.last_error.lock().ok().and_then(|guard| guard.clone());
+
         if let Some(session) = &self.session {
             if let Ok(SessionSnapshot::SignedIn { account }) = session.snapshot() {
                 return AccountSessionView {
                     status: AccountSessionStatus::SignedIn,
                     email: Some(account.email),
                     user_id: Some(account.user_id),
+                    last_error: None,
                 };
             }
+        }
+
+        if self.exchanging.load(Ordering::SeqCst) {
+            return AccountSessionView {
+                status: AccountSessionStatus::Exchanging,
+                email: None,
+                user_id: None,
+                last_error: None,
+            };
         }
 
         if self.has_pending_login() {
@@ -159,22 +185,30 @@ impl AccountService {
                 status: AccountSessionStatus::WaitingForBrowser,
                 email: None,
                 user_id: None,
+                last_error: None,
             };
         }
 
-        AccountSessionView::signed_out()
+        AccountSessionView {
+            status: AccountSessionStatus::SignedOut,
+            email: None,
+            user_id: None,
+            last_error,
+        }
     }
 
     pub(crate) fn logout(&self) -> Result<AccountSessionView, AccountServiceError> {
         self.cancel_loopback();
         self.clear_pending();
+        self.exchanging.store(false, Ordering::SeqCst);
+        self.clear_last_error();
         let Some(session) = &self.session else {
-            return Ok(AccountSessionView::signed_out());
+            return Ok(self.session_view());
         };
         session
             .logout()
             .map_err(|_| AccountServiceError::LogoutFailed)?;
-        Ok(AccountSessionView::signed_out())
+        Ok(self.session_view())
     }
 
     /// Starts PKCE login. A second start **replaces** any existing pending login.
@@ -189,6 +223,9 @@ impl AccountService {
             .login_config
             .as_ref()
             .ok_or(AccountServiceError::LoginUnavailable)?;
+
+        self.clear_last_error();
+        self.exchanging.store(false, Ordering::SeqCst);
 
         let state = generate_state();
         let code_verifier = generate_code_verifier();
@@ -212,11 +249,7 @@ impl AccountService {
             .map_err(|_| AccountServiceError::LoginUnavailable)? = Some(pending);
 
         Ok(StartLoginResult {
-            view: AccountSessionView {
-                status: AccountSessionStatus::WaitingForBrowser,
-                email: None,
-                user_id: None,
-            },
+            view: self.session_view(),
             login_url,
             redirect_uri: config.redirect_uri.clone(),
         })
@@ -225,7 +258,35 @@ impl AccountService {
     pub(crate) fn cancel_login(&self) -> AccountSessionView {
         self.cancel_loopback();
         self.clear_pending();
+        self.exchanging.store(false, Ordering::SeqCst);
+        self.clear_last_error();
         self.session_view()
+    }
+
+    /// Ends a pending login with a user-visible error (timeout / invalid callback).
+    pub(crate) fn abandon_login_with_error(
+        &self,
+        error: AccountServiceError,
+    ) -> AccountSessionView {
+        self.cancel_loopback();
+        self.clear_pending();
+        self.exchanging.store(false, Ordering::SeqCst);
+        self.record_login_error(&error);
+        self.session_view()
+    }
+
+    /// Records a user-visible login failure (never secrets).
+    pub(crate) fn record_login_error(&self, error: &AccountServiceError) {
+        if matches!(error, AccountServiceError::NoPendingLogin) {
+            // Late callback after cancel/success — ignore quietly.
+            return;
+        }
+        if let Some(view_error) = user_visible_login_error(error) {
+            if let Ok(mut guard) = self.last_error.lock() {
+                *guard = Some(view_error);
+            }
+        }
+        self.exchanging.store(false, Ordering::SeqCst);
     }
 
     /// Arms a new cancel flag for the loopback listener; cancels any previous one.
@@ -245,47 +306,77 @@ impl AccountService {
         code: &str,
         state: &str,
     ) -> Result<AccountSessionView, AccountServiceError> {
-        let pending = self
-            .take_pending_login()
-            .ok_or(AccountServiceError::NoPendingLogin)?;
+        let pending = match self.take_pending_login() {
+            Some(pending) => pending,
+            None => return Err(AccountServiceError::NoPendingLogin),
+        };
 
         if pending.started_at.elapsed() > PENDING_LOGIN_TIMEOUT {
-            return Err(AccountServiceError::ExpiredPending);
+            let error = AccountServiceError::ExpiredPending;
+            self.record_login_error(&error);
+            return Err(error);
         }
         if pending.state != state {
-            return Err(AccountServiceError::StateMismatch);
+            let error = AccountServiceError::StateMismatch;
+            self.record_login_error(&error);
+            return Err(error);
         }
         if code.trim().is_empty() {
-            return Err(AccountServiceError::EmptyCode);
+            let error = AccountServiceError::EmptyCode;
+            self.record_login_error(&error);
+            return Err(error);
         }
 
-        let session = self
-            .session
-            .as_ref()
-            .ok_or(AccountServiceError::LoginUnavailable)?;
-        let exchanger = self
-            .token_exchanger
-            .as_ref()
-            .ok_or(AccountServiceError::LoginUnavailable)?;
+        let session = match self.session.as_ref() {
+            Some(session) => session,
+            None => {
+                let error = AccountServiceError::LoginUnavailable;
+                self.record_login_error(&error);
+                return Err(error);
+            }
+        };
+        let exchanger = match self.token_exchanger.as_ref() {
+            Some(exchanger) => exchanger,
+            None => {
+                let error = AccountServiceError::LoginUnavailable;
+                self.record_login_error(&error);
+                return Err(error);
+            }
+        };
 
-        let exchanged = exchanger
-            .exchange(DesktopTokenExchangeRequest {
-                code: code.to_owned(),
-                code_verifier: pending.code_verifier,
-                redirect_uri: pending.redirect_uri,
-                device_id: self.device_id.clone(),
-                device_name: self.device_name.clone(),
-            })
-            .map_err(|error| AccountServiceError::ExchangeFailed {
-                code: error.code,
-                message: error.message,
-            })?;
+        self.clear_last_error();
+        self.exchanging.store(true, Ordering::SeqCst);
 
-        session
+        let exchanged = match exchanger.exchange(DesktopTokenExchangeRequest {
+            code: code.to_owned(),
+            code_verifier: pending.code_verifier,
+            redirect_uri: pending.redirect_uri,
+            device_id: self.device_id.clone(),
+            device_name: self.device_name.clone(),
+        }) {
+            Ok(result) => result,
+            Err(error) => {
+                let error = AccountServiceError::ExchangeFailed {
+                    code: error.code,
+                    message: error.message,
+                };
+                self.record_login_error(&error);
+                return Err(error);
+            }
+        };
+
+        if session
             .apply_tokens(exchanged.tokens, exchanged.account)
-            .map_err(|_| AccountServiceError::StorageFailed)?;
+            .is_err()
+        {
+            let error = AccountServiceError::StorageFailed;
+            self.record_login_error(&error);
+            return Err(error);
+        }
 
+        self.exchanging.store(false, Ordering::SeqCst);
         self.cancel_loopback();
+        self.clear_last_error();
         Ok(self.session_view())
     }
 
@@ -320,6 +411,12 @@ impl AccountService {
             }
         }
     }
+
+    fn clear_last_error(&self) {
+        if let Ok(mut guard) = self.last_error.lock() {
+            *guard = None;
+        }
+    }
 }
 
 impl AccountSessionView {
@@ -328,7 +425,69 @@ impl AccountSessionView {
             status: AccountSessionStatus::SignedOut,
             email: None,
             user_id: None,
+            last_error: None,
         }
+    }
+}
+
+/// User-visible login error copy. Never includes raw server secrets.
+pub(crate) fn user_visible_login_error(error: &AccountServiceError) -> Option<AccountLoginError> {
+    match error {
+        AccountServiceError::NoPendingLogin => None,
+        AccountServiceError::StateMismatch => Some(AccountLoginError {
+            code: "account.state_mismatch".into(),
+            message: "Sign-in could not be verified. Please try again.".into(),
+        }),
+        AccountServiceError::ExpiredPending => Some(AccountLoginError {
+            code: "account.login_timeout".into(),
+            message: "Sign-in timed out. Please try again.".into(),
+        }),
+        AccountServiceError::EmptyCode => Some(AccountLoginError {
+            code: "account.invalid_callback".into(),
+            message: "Burnly received an invalid sign-in callback.".into(),
+        }),
+        AccountServiceError::LoginUnavailable => Some(AccountLoginError {
+            code: "account.login_unavailable".into(),
+            message: "Sign-in is unavailable in this build or configuration.".into(),
+        }),
+        AccountServiceError::StorageFailed => Some(AccountLoginError {
+            code: "account.storage_failed".into(),
+            message: "Burnly could not save the signed-in session on this device.".into(),
+        }),
+        AccountServiceError::ExchangeFailed { code, .. } => {
+            let (code, message) = match code.as_deref() {
+                Some("AUTH_DESKTOP_HANDOFF_INVALID") => (
+                    "AUTH_DESKTOP_HANDOFF_INVALID",
+                    "Sign-in expired or was invalid. Please try again.",
+                ),
+                Some("AUTH_USER_SUSPENDED") => (
+                    "AUTH_USER_SUSPENDED",
+                    "This account is suspended and cannot sign in.",
+                ),
+                Some("RATE_LIMITED") => (
+                    "RATE_LIMITED",
+                    "Too many sign-in attempts. Please wait and try again.",
+                ),
+                Some("AUTH_REFRESH_TOKEN_INVALID")
+                | Some("AUTH_REFRESH_TOKEN_EXPIRED")
+                | Some("AUTH_REFRESH_TOKEN_REUSED")
+                | Some("AUTH_SESSION_REVOKED")
+                | Some("UNAUTHORIZED") => (
+                    "UNAUTHORIZED",
+                    "Your session is no longer valid. Please sign in again.",
+                ),
+                _ => (
+                    "account.exchange_failed",
+                    "Sign-in failed. Please try again.",
+                ),
+            };
+            Some(AccountLoginError {
+                code: code.into(),
+                message: message.into(),
+            })
+        }
+        AccountServiceError::LogoutFailed
+        | AccountServiceError::AlreadySignedIn => None,
     }
 }
 

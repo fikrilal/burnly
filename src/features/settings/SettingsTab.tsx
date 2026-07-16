@@ -14,6 +14,10 @@ import {
 } from "../diagnostics/DiagnosticsPage";
 import { UpdateSetting } from "../update/UpdateSetting";
 import {
+  accountErrorMessage,
+  accountSessionErrorMessage,
+} from "./account-errors";
+import {
   useAccountSession,
   useCancelAccountLogin,
   useLogoutAccount,
@@ -244,29 +248,52 @@ function AccountSetting() {
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium">Account</span>
           <span className="text-xs text-muted-foreground leading-normal">
-            {userSafeErrorMessage(
+            {accountErrorMessage(
               account.error,
               "Account status is unavailable.",
             )}
           </span>
         </div>
+        <AccountActionButton
+          disabled={false}
+          onClick={() => {
+            void account.refetch();
+          }}
+          label="Retry"
+        />
       </div>
     );
   }
 
+  // After pending/error guards, React Query types `data` as defined.
   const session = account.data;
-  const status = session?.status ?? "signed_out";
+  const status = session.status;
   const actionPending =
     startLogin.isPending || cancelLogin.isPending || logout.isPending;
-  const actionError =
+  const mutationError =
     startLogin.error ?? cancelLogin.error ?? logout.error ?? null;
+  const sessionError =
+    session.lastErrorCode !== null || session.lastErrorMessage !== null
+      ? accountSessionErrorMessage(
+          session.lastErrorCode,
+          session.lastErrorMessage,
+        )
+      : null;
+  const errorText = mutationError
+    ? accountErrorMessage(mutationError)
+    : sessionError;
 
   let detail = "Not signed in";
   if (status === "signed_in") {
-    detail = session?.email ?? "Signed in";
+    detail = session.email ?? "Signed in";
   } else if (status === "waiting_for_browser") {
     detail = "Complete sign-in in your browser…";
+  } else if (status === "exchanging") {
+    detail = "Signing in…";
   }
+
+  const showRetry =
+    status === "signed_out" && Boolean(errorText) && !actionPending;
 
   return (
     <div className="flex items-center justify-between gap-4 py-3">
@@ -275,12 +302,9 @@ function AccountSetting() {
         <span className="truncate text-xs text-muted-foreground leading-normal">
           {detail}
         </span>
-        {actionError ? (
+        {errorText ? (
           <span className="text-xs text-destructive leading-normal">
-            {userSafeErrorMessage(
-              actionError,
-              "Burnly could not update account status.",
-            )}
+            {errorText}
           </span>
         ) : null}
       </div>
@@ -289,9 +313,16 @@ function AccountSetting() {
           <AccountActionButton
             disabled={actionPending}
             onClick={() => {
+              startLogin.reset();
               startLogin.mutate();
             }}
-            label={startLogin.isPending ? "Opening…" : "Sign in"}
+            label={
+              startLogin.isPending
+                ? "Opening…"
+                : showRetry
+                  ? "Try again"
+                  : "Sign in"
+            }
           />
         ) : null}
         {status === "waiting_for_browser" ? (
@@ -302,6 +333,9 @@ function AccountSetting() {
             }}
             label={cancelLogin.isPending ? "Cancelling…" : "Cancel"}
           />
+        ) : null}
+        {status === "exchanging" ? (
+          <span className="text-xs text-muted-foreground">Please wait…</span>
         ) : null}
         {status === "signed_in" ? (
           <AccountActionButton

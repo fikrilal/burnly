@@ -147,6 +147,8 @@ export function accountSessionResult(
       status: "signed_out",
       email: null,
       userId: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
       ...overrides,
     },
     meta: responseMeta,
