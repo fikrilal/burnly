@@ -4,6 +4,7 @@ pub(crate) mod cloud_auth_credentials;
 pub(crate) mod cloud_remote_logout;
 pub(crate) mod cloud_token_refresher;
 pub(crate) mod cloud_token_store;
+pub(crate) mod desktop_token_exchanger;
 pub(crate) mod collector;
 pub(crate) mod diagnostic_recorder;
 pub(crate) mod diagnostics_report_store;

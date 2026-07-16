@@ -10,8 +10,10 @@ use tauri::{AppHandle, Manager, Runtime};
 use crate::application::account::{AccountService, DesktopLoginConfig};
 use crate::application::cloud_session::CloudSession;
 use crate::application::ports::cloud_token_store::CloudTokenStore;
+use crate::application::ports::desktop_token_exchanger::DesktopTokenExchanger;
 use crate::infrastructure::cloud::client::{CloudClient, ReqwestTransport};
 use crate::infrastructure::cloud::config::CloudConfig;
+use crate::infrastructure::cloud::desktop_token::HttpDesktopTokenExchanger;
 use crate::infrastructure::cloud::device_id::DeviceIdentity;
 use crate::infrastructure::cloud::logout::HttpCloudRemoteLogout;
 use crate::infrastructure::cloud::refresh::HttpCloudTokenRefresher;
@@ -51,14 +53,22 @@ pub(crate) fn install_account_service<R: Runtime>(
         }
     };
 
-    match compose_cloud_session(app_version) {
-        Ok(session) => {
+    match compose_cloud_stack(app_version) {
+        Ok((session, public_client)) => {
             if let Err(error) = session.restore() {
                 eprintln!("Burnly cloud session restore failed: {error}");
             }
             match login_config {
                 Some(config) => {
-                    AccountService::from_session(session, device_id, device_name, config)
+                    let exchanger: Arc<dyn DesktopTokenExchanger> =
+                        Arc::new(HttpDesktopTokenExchanger::new(public_client));
+                    AccountService::from_session(
+                        session,
+                        device_id,
+                        device_name,
+                        config,
+                        exchanger,
+                    )
                 }
                 None => AccountService::unavailable(device_id, device_name, None),
             }
@@ -70,7 +80,9 @@ pub(crate) fn install_account_service<R: Runtime>(
     }
 }
 
-fn compose_cloud_session(app_version: &str) -> Result<Arc<CloudSession>, String> {
+fn compose_cloud_stack(
+    app_version: &str,
+) -> Result<(Arc<CloudSession>, Arc<CloudClient>), String> {
     let config = CloudConfig::from_env(app_version).map_err(|error| error.to_string())?;
     let transport = ReqwestTransport::new().map_err(|error| error.message.clone())?;
     let clock = Arc::new(SystemClock);
@@ -81,16 +93,17 @@ fn compose_cloud_session(app_version: &str) -> Result<Arc<CloudSession>, String>
         clock.clone(),
     ));
     let refresher = Arc::new(HttpCloudTokenRefresher::new(public_client.clone()));
-    let remote_logout = Arc::new(HttpCloudRemoteLogout::new(public_client));
+    let remote_logout = Arc::new(HttpCloudRemoteLogout::new(public_client.clone()));
     let store: Arc<dyn CloudTokenStore> =
         Arc::new(KeyringCloudTokenStore::new().map_err(|_| "keyring unavailable".to_owned())?);
 
-    Ok(Arc::new(CloudSession::new(
+    let session = Arc::new(CloudSession::new(
         store,
         refresher,
         remote_logout,
         clock,
-    )))
+    ));
+    Ok((session, public_client))
 }
 
 fn resolve_device_name() -> String {

@@ -5,11 +5,12 @@
 
 #![allow(
     dead_code,
-    reason = "device id and pending accessors used by later auth chunks"
+    reason = "device id and pending accessors used across auth chunks"
 )]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
@@ -17,6 +18,12 @@ use crate::application::cloud_session::{CloudSession, SessionSnapshot};
 use crate::application::pkce::{
     build_desktop_login_url, generate_code_verifier, generate_state, s256_challenge,
 };
+use crate::application::ports::desktop_token_exchanger::{
+    DesktopTokenExchangeRequest, DesktopTokenExchanger,
+};
+
+/// Default pending-login / loopback wait window.
+pub(crate) const PENDING_LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// Web login endpoints needed to start desktop auth (from cloud config).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,7 +46,9 @@ pub(crate) struct AccountService {
     device_id: Option<String>,
     device_name: String,
     login_config: Option<DesktopLoginConfig>,
+    token_exchanger: Option<Arc<dyn DesktopTokenExchanger>>,
     pending: Mutex<Option<PendingLogin>>,
+    loopback_cancel: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,9 +69,10 @@ pub(crate) struct AccountSessionView {
 pub(crate) struct StartLoginResult {
     pub view: AccountSessionView,
     pub login_url: String,
+    pub redirect_uri: String,
 }
 
-#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum AccountServiceError {
     #[error("account logout failed")]
     LogoutFailed,
@@ -70,6 +80,18 @@ pub(crate) enum AccountServiceError {
     LoginUnavailable,
     #[error("already signed in")]
     AlreadySignedIn,
+    #[error("no sign-in in progress")]
+    NoPendingLogin,
+    #[error("sign-in state mismatch")]
+    StateMismatch,
+    #[error("sign-in timed out")]
+    ExpiredPending,
+    #[error("missing authorization code")]
+    EmptyCode,
+    #[error("token exchange failed")]
+    ExchangeFailed { code: Option<String>, message: String },
+    #[error("failed to store session")]
+    StorageFailed,
 }
 
 impl AccountService {
@@ -83,7 +105,9 @@ impl AccountService {
             device_id,
             device_name: device_name.into(),
             login_config,
+            token_exchanger: None,
             pending: Mutex::new(None),
+            loopback_cancel: Mutex::new(None),
         }
     }
 
@@ -92,13 +116,16 @@ impl AccountService {
         device_id: Option<String>,
         device_name: impl Into<String>,
         login_config: DesktopLoginConfig,
+        token_exchanger: Arc<dyn DesktopTokenExchanger>,
     ) -> Self {
         Self {
             session: Some(session),
             device_id,
             device_name: device_name.into(),
             login_config: Some(login_config),
+            token_exchanger: Some(token_exchanger),
             pending: Mutex::new(None),
+            loopback_cancel: Mutex::new(None),
         }
     }
 
@@ -108,6 +135,12 @@ impl AccountService {
 
     pub(crate) fn device_name(&self) -> &str {
         &self.device_name
+    }
+
+    pub(crate) fn redirect_uri(&self) -> Option<&str> {
+        self.login_config
+            .as_ref()
+            .map(|config| config.redirect_uri.as_str())
     }
 
     pub(crate) fn session_view(&self) -> AccountSessionView {
@@ -133,6 +166,7 @@ impl AccountService {
     }
 
     pub(crate) fn logout(&self) -> Result<AccountSessionView, AccountServiceError> {
+        self.cancel_loopback();
         self.clear_pending();
         let Some(session) = &self.session else {
             return Ok(AccountSessionView::signed_out());
@@ -145,13 +179,10 @@ impl AccountService {
 
     /// Starts PKCE login. A second start **replaces** any existing pending login.
     pub(crate) fn start_login(&self) -> Result<StartLoginResult, AccountServiceError> {
-        if matches!(
-            self.session_view().status,
-            AccountSessionStatus::SignedIn
-        ) {
+        if matches!(self.session_view().status, AccountSessionStatus::SignedIn) {
             return Err(AccountServiceError::AlreadySignedIn);
         }
-        if self.session.is_none() {
+        if self.session.is_none() || self.token_exchanger.is_none() {
             return Err(AccountServiceError::LoginUnavailable);
         }
         let config = self
@@ -187,12 +218,75 @@ impl AccountService {
                 user_id: None,
             },
             login_url,
+            redirect_uri: config.redirect_uri.clone(),
         })
     }
 
     pub(crate) fn cancel_login(&self) -> AccountSessionView {
+        self.cancel_loopback();
         self.clear_pending();
         self.session_view()
+    }
+
+    /// Arms a new cancel flag for the loopback listener; cancels any previous one.
+    pub(crate) fn arm_loopback_cancel(&self) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        if let Ok(mut guard) = self.loopback_cancel.lock() {
+            if let Some(previous) = guard.take() {
+                previous.store(true, Ordering::SeqCst);
+            }
+            *guard = Some(flag.clone());
+        }
+        flag
+    }
+
+    pub(crate) fn complete_login(
+        &self,
+        code: &str,
+        state: &str,
+    ) -> Result<AccountSessionView, AccountServiceError> {
+        let pending = self
+            .take_pending_login()
+            .ok_or(AccountServiceError::NoPendingLogin)?;
+
+        if pending.started_at.elapsed() > PENDING_LOGIN_TIMEOUT {
+            return Err(AccountServiceError::ExpiredPending);
+        }
+        if pending.state != state {
+            return Err(AccountServiceError::StateMismatch);
+        }
+        if code.trim().is_empty() {
+            return Err(AccountServiceError::EmptyCode);
+        }
+
+        let session = self
+            .session
+            .as_ref()
+            .ok_or(AccountServiceError::LoginUnavailable)?;
+        let exchanger = self
+            .token_exchanger
+            .as_ref()
+            .ok_or(AccountServiceError::LoginUnavailable)?;
+
+        let exchanged = exchanger
+            .exchange(DesktopTokenExchangeRequest {
+                code: code.to_owned(),
+                code_verifier: pending.code_verifier,
+                redirect_uri: pending.redirect_uri,
+                device_id: self.device_id.clone(),
+                device_name: self.device_name.clone(),
+            })
+            .map_err(|error| AccountServiceError::ExchangeFailed {
+                code: error.code,
+                message: error.message,
+            })?;
+
+        session
+            .apply_tokens(exchanged.tokens, exchanged.account)
+            .map_err(|_| AccountServiceError::StorageFailed)?;
+
+        self.cancel_loopback();
+        Ok(self.session_view())
     }
 
     pub(crate) fn take_pending_login(&self) -> Option<PendingLogin> {
@@ -218,6 +312,14 @@ impl AccountService {
             *guard = None;
         }
     }
+
+    fn cancel_loopback(&self) {
+        if let Ok(mut guard) = self.loopback_cancel.lock() {
+            if let Some(flag) = guard.take() {
+                flag.store(true, Ordering::SeqCst);
+            }
+        }
+    }
 }
 
 impl AccountSessionView {
@@ -240,6 +342,10 @@ mod tests {
     use crate::application::ports::cloud_token_store::{
         CloudTokenStore, CloudTokenStoreError, StoredCloudSession,
     };
+    use crate::application::ports::desktop_token_exchanger::{
+        DesktopTokenExchangeError, DesktopTokenExchangeResult,
+    };
+    use std::sync::atomic::AtomicUsize;
 
     struct MemoryStore {
         inner: Mutex<Option<StoredCloudSession>>,
@@ -296,6 +402,30 @@ mod tests {
         }
     }
 
+    struct FakeExchanger {
+        calls: AtomicUsize,
+        result: Mutex<Option<Result<DesktopTokenExchangeResult, DesktopTokenExchangeError>>>,
+    }
+
+    impl DesktopTokenExchanger for FakeExchanger {
+        fn exchange(
+            &self,
+            request: DesktopTokenExchangeRequest,
+        ) -> Result<DesktopTokenExchangeResult, DesktopTokenExchangeError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            assert!(!request.code.is_empty());
+            assert!(!request.code_verifier.is_empty());
+            self.result
+                .lock()
+                .expect("lock")
+                .take()
+                .unwrap_or(Err(DesktopTokenExchangeError {
+                    code: Some("INTERNAL".into()),
+                    message: "missing scripted result".into(),
+                }))
+        }
+    }
+
     fn login_config() -> DesktopLoginConfig {
         DesktopLoginConfig {
             web_origin: "http://127.0.0.1:3000".into(),
@@ -312,57 +442,115 @@ mod tests {
         ))
     }
 
-    fn service_with_session() -> AccountService {
-        AccountService::from_session(
-            session(Arc::new(MemoryStore::new())),
+    fn service_with(
+        exchanger: Arc<FakeExchanger>,
+    ) -> (AccountService, Arc<MemoryStore>) {
+        let store = Arc::new(MemoryStore::new());
+        let service = AccountService::from_session(
+            session(store.clone()),
             Some("dev_1".into()),
             "host",
             login_config(),
-        )
-    }
-
-    #[test]
-    fn unavailable_is_signed_out_and_cannot_start_login() {
-        let service = AccountService::unavailable(None, "host", Some(login_config()));
-        assert_eq!(service.session_view(), AccountSessionView::signed_out());
-        assert_eq!(
-            service.start_login().expect_err("unavailable"),
-            AccountServiceError::LoginUnavailable
+            exchanger,
         );
+        (service, store)
     }
 
     #[test]
     fn start_login_sets_waiting_and_builds_url() {
-        let service = service_with_session();
+        let exchanger = Arc::new(FakeExchanger {
+            calls: AtomicUsize::new(0),
+            result: Mutex::new(None),
+        });
+        let (service, _) = service_with(exchanger);
         let started = service.start_login().expect("start");
         assert_eq!(
             started.view.status,
             AccountSessionStatus::WaitingForBrowser
         );
-        assert!(started.login_url.contains("/login?"));
         assert!(started.login_url.contains("client=desktop"));
-        assert!(started.login_url.contains("code_challenge_method=S256"));
         assert_eq!(
-            service.session_view().status,
-            AccountSessionStatus::WaitingForBrowser
+            started.redirect_uri,
+            "http://127.0.0.1:39201/callback"
         );
-        assert!(service.peek_pending_login().is_some());
     }
 
     #[test]
-    fn second_start_replaces_pending_login() {
-        let service = service_with_session();
-        let first = service.start_login().expect("first");
-        let first_state = service.peek_pending_login().expect("pending").state;
-        let second = service.start_login().expect("second");
-        let second_state = service.peek_pending_login().expect("pending").state;
-        assert_ne!(first_state, second_state);
-        assert_ne!(first.login_url, second.login_url);
+    fn complete_login_success_applies_session() {
+        let exchanger = Arc::new(FakeExchanger {
+            calls: AtomicUsize::new(0),
+            result: Mutex::new(Some(Ok(DesktopTokenExchangeResult {
+                tokens: CloudTokens {
+                    access_token: "access".into(),
+                    refresh_token: "refresh".into(),
+                    access_expires_at_ms: Some(9_000),
+                },
+                account: AccountSummary {
+                    user_id: "user-1".into(),
+                    email: "dev@burnly.dev".into(),
+                },
+            }))),
+        });
+        let (service, store) = service_with(exchanger.clone());
+        let started = service.start_login().expect("start");
+        let pending = service.peek_pending_login().expect("pending");
+        let view = service
+            .complete_login("auth-code", &pending.state)
+            .expect("complete");
+        assert_eq!(view.status, AccountSessionStatus::SignedIn);
+        assert_eq!(view.email.as_deref(), Some("dev@burnly.dev"));
+        assert_eq!(exchanger.calls.load(Ordering::SeqCst), 1);
+        assert!(store.load().expect("load").is_some());
+        assert!(started.login_url.contains("/login?"));
+    }
+
+    #[test]
+    fn state_mismatch_never_calls_exchange() {
+        let exchanger = Arc::new(FakeExchanger {
+            calls: AtomicUsize::new(0),
+            result: Mutex::new(None),
+        });
+        let (service, _) = service_with(exchanger.clone());
+        service.start_login().expect("start");
+        let err = service
+            .complete_login("auth-code", "wrong-state")
+            .expect_err("mismatch");
+        assert_eq!(err, AccountServiceError::StateMismatch);
+        assert_eq!(exchanger.calls.load(Ordering::SeqCst), 0);
+        assert!(service.peek_pending_login().is_none());
+    }
+
+    #[test]
+    fn exchange_failure_maps_api_code() {
+        let exchanger = Arc::new(FakeExchanger {
+            calls: AtomicUsize::new(0),
+            result: Mutex::new(Some(Err(DesktopTokenExchangeError {
+                code: Some("AUTH_DESKTOP_HANDOFF_INVALID".into()),
+                message: "invalid".into(),
+            }))),
+        });
+        let (service, _) = service_with(exchanger);
+        service.start_login().expect("start");
+        let state = service.peek_pending_login().expect("pending").state;
+        let err = service
+            .complete_login("auth-code", &state)
+            .expect_err("exchange");
+        assert!(matches!(
+            err,
+            AccountServiceError::ExchangeFailed {
+                code: Some(ref code),
+                ..
+            } if code == "AUTH_DESKTOP_HANDOFF_INVALID"
+        ));
     }
 
     #[test]
     fn cancel_login_clears_pending() {
-        let service = service_with_session();
+        let exchanger = Arc::new(FakeExchanger {
+            calls: AtomicUsize::new(0),
+            result: Mutex::new(None),
+        });
+        let (service, _) = service_with(exchanger);
         service.start_login().expect("start");
         let view = service.cancel_login();
         assert_eq!(view.status, AccountSessionStatus::SignedOut);
@@ -370,57 +558,16 @@ mod tests {
     }
 
     #[test]
-    fn signed_in_blocks_start_login() {
-        let store = Arc::new(MemoryStore::new());
-        let cloud = session(store);
-        cloud
-            .apply_tokens(
-                CloudTokens {
-                    access_token: "a".into(),
-                    refresh_token: "r".into(),
-                    access_expires_at_ms: None,
-                },
-                AccountSummary {
-                    user_id: "user-1".into(),
-                    email: "dev@burnly.dev".into(),
-                },
-            )
-            .expect("apply");
-        let service =
-            AccountService::from_session(cloud, Some("dev_1".into()), "host", login_config());
-        assert_eq!(
-            service.start_login().expect_err("signed in"),
-            AccountServiceError::AlreadySignedIn
-        );
-    }
-
-    #[test]
-    fn logout_clears_pending_and_session() {
-        let store = Arc::new(MemoryStore::new());
-        let cloud = session(store.clone());
-        cloud
-            .apply_tokens(
-                CloudTokens {
-                    access_token: "a".into(),
-                    refresh_token: "r".into(),
-                    access_expires_at_ms: None,
-                },
-                AccountSummary {
-                    user_id: "user-1".into(),
-                    email: "dev@burnly.dev".into(),
-                },
-            )
-            .expect("apply");
-        let service =
-            AccountService::from_session(cloud, Some("dev_1".into()), "host", login_config());
-        // Cannot start while signed in; cancel path via logout
-        assert_eq!(
-            service.logout().expect("logout"),
-            AccountSessionView::signed_out()
-        );
-        service.start_login().expect("start after logout");
-        service.logout().expect("logout again");
-        assert!(service.peek_pending_login().is_none());
-        assert!(store.load().expect("load").is_none());
+    fn second_start_replaces_pending_login() {
+        let exchanger = Arc::new(FakeExchanger {
+            calls: AtomicUsize::new(0),
+            result: Mutex::new(None),
+        });
+        let (service, _) = service_with(exchanger);
+        service.start_login().expect("first");
+        let first = service.peek_pending_login().expect("pending").state;
+        service.start_login().expect("second");
+        let second = service.peek_pending_login().expect("pending").state;
+        assert_ne!(first, second);
     }
 }

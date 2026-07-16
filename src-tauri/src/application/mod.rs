@@ -4,6 +4,7 @@
 //! infrastructure implementations.
 
 pub(crate) mod account;
+pub(crate) mod auth_loopback;
 pub(crate) mod bootstrap;
 pub(crate) mod cloud_session;
 pub(crate) mod pkce;

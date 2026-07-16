@@ -24,8 +24,8 @@ in Settings—without passwords in the app and without tokens in deep-link URLs.
 
 1. `2026-07-14_desktop-auth-via-web-01-bootstrap-session-ipc.md` (completed)
 2. `2026-07-14_desktop-auth-via-web-02-pkce-start-login.md` (completed)
-3. `2026-07-14_desktop-auth-via-web-03-callback-token-exchange.md` (**active**)
-4. `2026-07-14_desktop-auth-via-web-04-settings-polish-evidence.md` (queued)
+3. `2026-07-14_desktop-auth-via-web-03-callback-token-exchange.md` (completed)
+4. `2026-07-14_desktop-auth-via-web-04-settings-polish-evidence.md` (**active**)
 
 ## Invariants
 
@@ -95,8 +95,8 @@ Phase 2 is complete when all of the following are true:
 | --- | --- | --- |
 | 01 Bootstrap + session IPC | completed | verified 2026-07-14 |
 | 02 PKCE + start login | completed | verified 2026-07-14 |
-| 03 Callback + token exchange | pending | current |
-| 04 Settings polish + evidence | queued | |
+| 03 Callback + token exchange | completed | verified 2026-07-14 |
+| 04 Settings polish + evidence | pending | current |
 
 ## Decisions
 
@@ -104,6 +104,7 @@ Phase 2 is complete when all of the following are true:
 - Loopback-first callback for reliable local development.
 - Phase 1 cloud core is a hard prerequisite (already completed).
 - Chunk 02: concurrent `start_login` **replaces** pending PKCE state.
+- Chunk 03: loopback bind-before-browser; localhost-only; 10-minute timeout.
 
 ## Follow-Up Debt (out of this phase)
 

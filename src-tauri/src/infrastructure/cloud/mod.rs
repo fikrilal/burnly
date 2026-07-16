@@ -10,6 +10,7 @@
 
 pub(crate) mod client;
 pub(crate) mod config;
+pub(crate) mod desktop_token;
 pub(crate) mod device_id;
 pub(crate) mod error;
 pub(crate) mod jwt;

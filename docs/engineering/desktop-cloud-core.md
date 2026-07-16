@@ -62,11 +62,17 @@ attach.
 - Never log tokens or put them on IPC
 - Device id is not a secret; not cleared on logout
 
+## Related account auth (outside pure core, uses core)
+
+- PKCE + pending login: `application/pkce.rs`, `application/account.rs`
+- Loopback callback: `application/auth_loopback.rs` (localhost only)
+- Token exchange: `infrastructure/cloud/desktop_token.rs` → `POST /v1/auth/desktop/token`
+- API allowlist must include exact `BURNLY_DESKTOP_REDIRECT_URI` (default
+  `http://127.0.0.1:39201/callback`)
+
 ## Not in this core
 
-- PKCE, browser open, deep link / loopback
-- `POST /v1/auth/desktop/token`
 - Daily usage push
-- Account Settings UI / IPC
+- Production custom URL scheme (`burnly://`) — optional later
 
 See `docs/planning/_WIP/desktop-cloud-core-engineering-proposal.md`.
