@@ -81,7 +81,12 @@ attach.
 
 ## Not in this core
 
-- Daily usage push
 - Production custom URL scheme (`burnly://`) — optional later
+
+Collect/upload product feature (Phase 3) lives outside this module map:
+
+- Policy: `docs/product/upload-policy.md`
+- Engineering: `docs/planning/_WIP/desktop-collect-sync-engineering-proposal.md`
+- Runtime evidence: `docs/runtime-evidence/2026-07-15-desktop-collect-sync/`
 
 See `docs/planning/_WIP/desktop-cloud-core-engineering-proposal.md`.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Active. Chunk 01 is the only active implementation chunk in this phase.
+Completed. Phase closed after chunks 01–05 (2026-07-15/16).
 
 ## Objective
 
@@ -95,7 +95,7 @@ pnpm evidence:desktop
 | 02 Cloud adapters          | completed | device PUT + daily POST adapters  |
 | 03 Orchestration + refresh | completed | CollectSync + refresh scope hook  |
 | 04 IPC + Settings          | completed | status IPC + Settings Account UI  |
-| 05 Runtime + hardening     | queued    | depends on Chunks 01-04           |
+| 05 Runtime + hardening     | completed | evidence pack + regression suite  |
 
 ## Decisions
 

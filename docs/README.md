@@ -50,5 +50,6 @@ This directory is the source of truth for Burnly product and engineering decisio
 - [Desktop collect API requirements](./planning/_WIP/desktop-collect-api-requirements.md)
 - [Desktop cloud core engineering proposal](./planning/_WIP/desktop-cloud-core-engineering-proposal.md)
 - [Desktop collect sync engineering proposal (Phase 3)](./planning/_WIP/desktop-collect-sync-engineering-proposal.md)
+- [Desktop collect sync runtime evidence](./runtime-evidence/2026-07-15-desktop-collect-sync/README.md)
 - [Desktop cloud core (implementer map)](./engineering/desktop-cloud-core.md)
 - [Execution plans](./exec-plans/README.md)

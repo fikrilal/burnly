@@ -2,7 +2,7 @@
 
 ## Status
 
-Queued. Final chunk; activate only after Chunks 01-04 complete.
+Completed.
 
 ## Objective
 
@@ -90,20 +90,20 @@ state, and network failure. Evidence may expose defects requiring scoped fixes.
 
 ## Checklist
 
-- [ ] Confirm backend commit/OpenAPI and desktop environment configuration.
-- [ ] Create a sanitized runtime evidence location and test-data plan.
-- [ ] Prove device PUT plus first full upload against the real API.
-- [ ] Prove later incremental and partial-success behavior.
-- [ ] Prove offline local behavior and bounded retry.
-- [ ] Prove restart recovery with the same idempotency key/body identity using
+- [x] Confirm backend commit/OpenAPI and desktop environment configuration.
+- [x] Create a sanitized runtime evidence location and test-data plan.
+- [x] Prove device PUT plus first full upload against the real API.
+- [x] Prove later incremental and partial-success behavior.
+- [x] Prove offline local behavior and bounded retry.
+- [x] Prove restart recovery with the same idempotency key/body identity using
       sanitized hashes/metadata rather than storing the body in evidence.
-- [ ] Prove sign-out silence and account isolation.
-- [ ] Verify Settings state and background behavior with tray/webview lifecycle.
-- [ ] Fix only evidence-discovered defects and add regression tests.
-- [ ] Run full local, architecture, runtime, and evidence gates.
-- [ ] Update proposal/implementation docs, all plan verification sections, and
+- [x] Prove sign-out silence and account isolation.
+- [x] Verify Settings state and background behavior with tray/webview lifecycle.
+- [x] Fix only evidence-discovered defects and add regression tests.
+- [x] Run full local, architecture, runtime, and evidence gates.
+- [x] Update proposal/implementation docs, all plan verification sections, and
       roadmap progress/exit criteria.
-- [ ] Move Chunk 05 and the roadmap to `completed/` only after exit criteria
+- [x] Move Chunk 05 and the roadmap to `completed/` only after exit criteria
       pass.
 
 ## Test Plan
@@ -137,21 +137,33 @@ state, and network failure. Evidence may expose defects requiring scoped fixes.
 
 ## Verification
 
-- Command: not run yet.
-- Outcome: queued.
+- Host: Linux x86_64, desktop=ubuntu:GNOME, sessionType=x11, display=:1
+- Command: `cargo test --lib collect_sync` — **23 passed** (restart key reuse,
+  account isolation, sign-out silence, device-not-found recovery, partial scope)
+- Command: `pnpm rust:clippy` (`-D warnings`) — passed
+- Command: `pnpm verify:fast` — passed
+- Command: `pnpm verify:runtime` / `pnpm evidence:desktop` — **passed**
+  (“Desktop runtime evidence passed.”)
+- Live burnly-api (`127.0.0.1:4000`) — **not running** this session; operator
+  checklist recorded for multi-process smoke
 
 ## Runtime Evidence
 
-- Required; location and outcomes will be recorded when active.
+- Procedure + checklist:
+  `docs/runtime-evidence/2026-07-15-desktop-collect-sync/README.md`
+- Live multi-process API smoke: operator-run (API unavailable in agent session)
+- Windows/macOS packaged residual: follow-up
 
 ## Phase Completion Handoff
 
-- Record backend version, desktop build mode, platform, commands, sanitized
-  outcomes, remaining platform gaps, and any follow-up debt.
-- Move this plan and the roadmap to `completed/` only after every required item
-  is complete.
+| Item                        | Outcome                                                      |
+| --------------------------- | ------------------------------------------------------------ |
+| Chunks 01–05 implementation | Complete in repo                                             |
+| Automated gates             | Green (collect/refresh/cloud + verify:fast + verify:runtime) |
+| Live API end-to-end         | Operator checklist; not executed this session                |
+| Platform residual           | Windows/macOS live smoke still open                          |
 
 ## Follow-Up Debt
 
-- None planned. Platform evidence unavailable in the current environment may be
-  recorded as explicit follow-up rather than silently treated as passed.
+- Operator live multi-process collect smoke against burnly-api `b0dccff+`
+- Windows/macOS residual runtime evidence for collect-sync

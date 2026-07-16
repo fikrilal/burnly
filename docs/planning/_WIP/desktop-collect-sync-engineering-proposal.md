@@ -3,7 +3,10 @@
 ## Status
 
 Engineering proposal for **Phase 3** of the desktop cloud program (usage
-collect / push). **Accepted for implementation on 2026-07-15.**
+collect / push). **Accepted for implementation on 2026-07-15.** Desktop
+implementation chunks 01–05 completed; see
+`docs/exec-plans/completed/2026-07-15_desktop-collect-sync-00-roadmap.md` and
+`docs/runtime-evidence/2026-07-15-desktop-collect-sync/`.
 
 Drafted 2026-07-15 after Phase 1 (cloud core) and Phase 2 (desktop auth via web)
 shipped in this repo. Product behavior is accepted separately in

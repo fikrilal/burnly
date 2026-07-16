@@ -1138,6 +1138,34 @@ mod tests {
         put_calls: StdMutex<u32>,
         push_calls: StdMutex<u32>,
         push_ok: bool,
+        /// When true, first push returns device-not-found once.
+        first_push_device_missing: StdMutex<bool>,
+        last_push_keys: StdMutex<Vec<String>>,
+        last_push_bodies: StdMutex<Vec<String>>,
+    }
+
+    impl ScriptedRemote {
+        fn ok() -> Self {
+            Self {
+                put_calls: StdMutex::new(0),
+                push_calls: StdMutex::new(0),
+                push_ok: true,
+                first_push_device_missing: StdMutex::new(false),
+                last_push_keys: StdMutex::new(Vec::new()),
+                last_push_bodies: StdMutex::new(Vec::new()),
+            }
+        }
+
+        fn network_fail() -> Self {
+            Self {
+                put_calls: StdMutex::new(0),
+                push_calls: StdMutex::new(0),
+                push_ok: false,
+                first_push_device_missing: StdMutex::new(false),
+                last_push_keys: StdMutex::new(Vec::new()),
+                last_push_bodies: StdMutex::new(Vec::new()),
+            }
+        }
     }
 
     impl CollectSyncRemote for ScriptedRemote {
@@ -1160,9 +1188,26 @@ mod tests {
 
         fn push_daily_usage(
             &self,
-            _request: PushDailyUsageRequest,
+            request: PushDailyUsageRequest,
         ) -> Result<DailyUsagePushResult, CollectSyncRemoteError> {
             *self.push_calls.lock().expect("push") += 1;
+            self.last_push_keys
+                .lock()
+                .expect("keys")
+                .push(request.idempotency_key.clone());
+            self.last_push_bodies
+                .lock()
+                .expect("bodies")
+                .push(request.request_body.clone());
+            {
+                let mut missing = self.first_push_device_missing.lock().expect("missing");
+                if *missing {
+                    *missing = false;
+                    return Err(CollectSyncRemoteError::DeviceNotFound {
+                        message: "missing".into(),
+                    });
+                }
+            }
             if self.push_ok {
                 Ok(DailyUsagePushResult {
                     client_device_id: "dev_1".into(),
@@ -1187,6 +1232,22 @@ mod tests {
         }
     }
 
+    fn wait_idle(service: &CollectSync, max_iters: usize) {
+        for _ in 0..max_iters {
+            thread::sleep(Duration::from_millis(10));
+            if !service.running.load(Ordering::SeqCst) {
+                return;
+            }
+        }
+    }
+
+    fn account_key(user: &str) -> CollectSyncAccountKey {
+        CollectSyncAccountKey {
+            user_id: user.into(),
+            client_device_id: "dev_1".into(),
+        }
+    }
+
     fn config() -> CollectSyncConfig {
         CollectSyncConfig {
             device_id: "dev_1".into(),
@@ -1201,11 +1262,7 @@ mod tests {
     fn sign_in_without_data_completes_baseline() {
         let session = signed_in_session("user-a");
         let store = Arc::new(MemoryCollectStore::new());
-        let remote = Arc::new(ScriptedRemote {
-            put_calls: StdMutex::new(0),
-            push_calls: StdMutex::new(0),
-            push_ok: true,
-        });
+        let remote = Arc::new(ScriptedRemote::ok());
         let service = CollectSync::new(
             session,
             config(),
@@ -1216,17 +1273,9 @@ mod tests {
             Arc::new(NoopCollectSyncStatusSink),
         );
         service.on_signed_in("user-a");
-        for _ in 0..50 {
-            thread::sleep(Duration::from_millis(10));
-            if !service.running.load(Ordering::SeqCst) {
-                break;
-            }
-        }
+        wait_idle(&service, 50);
         let state = store
-            .load_state(&CollectSyncAccountKey {
-                user_id: "user-a".into(),
-                client_device_id: "dev_1".into(),
-            })
+            .load_state(&account_key("user-a"))
             .expect("load")
             .expect("state");
         assert_eq!(state.baseline_status, BaselineStatus::Complete);
@@ -1238,11 +1287,7 @@ mod tests {
     fn baseline_with_facts_puts_device_and_pushes() {
         let session = signed_in_session("user-a");
         let store = Arc::new(MemoryCollectStore::new());
-        let remote = Arc::new(ScriptedRemote {
-            put_calls: StdMutex::new(0),
-            push_calls: StdMutex::new(0),
-            push_ok: true,
-        });
+        let remote = Arc::new(ScriptedRemote::ok());
         let service = CollectSync::new(
             session,
             config(),
@@ -1256,13 +1301,7 @@ mod tests {
         for _ in 0..100 {
             thread::sleep(Duration::from_millis(10));
             if !service.running.load(Ordering::SeqCst)
-                && store
-                    .count_pending_batches(&CollectSyncAccountKey {
-                        user_id: "user-a".into(),
-                        client_device_id: "dev_1".into(),
-                    })
-                    .unwrap_or(1)
-                    == 0
+                && store.count_pending_batches(&account_key("user-a")).unwrap_or(1) == 0
             {
                 break;
             }
@@ -1270,10 +1309,7 @@ mod tests {
         assert!(*remote.put_calls.lock().expect("put") >= 1);
         assert!(*remote.push_calls.lock().expect("push") >= 1);
         let state = store
-            .load_state(&CollectSyncAccountKey {
-                user_id: "user-a".into(),
-                client_device_id: "dev_1".into(),
-            })
+            .load_state(&account_key("user-a"))
             .expect("load")
             .expect("state");
         assert_eq!(state.baseline_status, BaselineStatus::Complete);
@@ -1289,16 +1325,13 @@ mod tests {
             Arc::new(NoopLogout),
             Arc::new(FixedClock(StdMutex::new(1))),
         ));
+        let remote = Arc::new(ScriptedRemote::ok());
         let service = CollectSync::new(
             session,
             config(),
             Arc::new(OneFactExport),
             Arc::new(MemoryCollectStore::new()),
-            Arc::new(ScriptedRemote {
-                put_calls: StdMutex::new(0),
-                push_calls: StdMutex::new(0),
-                push_ok: true,
-            }),
+            remote.clone(),
             Arc::new(FixedClock(StdMutex::new(1))),
             Arc::new(NoopCollectSyncStatusSink),
         );
@@ -1315,7 +1348,183 @@ mod tests {
             }],
             refresh_was_full: false,
         });
-        thread::sleep(Duration::from_millis(30));
-        assert!(!service.running.load(Ordering::SeqCst));
+        wait_idle(&service, 20);
+        assert_eq!(*remote.push_calls.lock().expect("push"), 0);
+    }
+
+    #[test]
+    fn network_failure_preserves_pending_batch_for_retry_same_key() {
+        let session = signed_in_session("user-a");
+        let store = Arc::new(MemoryCollectStore::new());
+        let remote = Arc::new(ScriptedRemote::network_fail());
+        let service = CollectSync::new(
+            session,
+            config(),
+            Arc::new(OneFactExport),
+            store.clone(),
+            remote.clone(),
+            Arc::new(FixedClock(StdMutex::new(1_000))),
+            Arc::new(NoopCollectSyncStatusSink),
+        );
+        service.on_signed_in("user-a");
+        wait_idle(&service, 80);
+        let pending = store
+            .list_pending_batches(&account_key("user-a"))
+            .expect("list");
+        assert_eq!(pending.len(), 1);
+        let original_key = pending[0].idempotency_key.clone();
+        let original_body = pending[0].request_body.clone();
+        assert!(*remote.push_calls.lock().expect("push") >= 1);
+
+        // "Restart": new service over the same durable store resumes exact batch.
+        let session2 = signed_in_session("user-a");
+        let remote2 = Arc::new(ScriptedRemote::ok());
+        let service2 = CollectSync::new(
+            session2,
+            config(),
+            Arc::new(EmptyExport),
+            store.clone(),
+            remote2.clone(),
+            Arc::new(FixedClock(StdMutex::new(2_000))),
+            Arc::new(NoopCollectSyncStatusSink),
+        );
+        service2.on_signed_in("user-a");
+        for _ in 0..100 {
+            thread::sleep(Duration::from_millis(10));
+            if store.count_pending_batches(&account_key("user-a")).unwrap_or(1) == 0 {
+                break;
+            }
+        }
+        let keys = remote2.last_push_keys.lock().expect("keys");
+        let bodies = remote2.last_push_bodies.lock().expect("bodies");
+        assert_eq!(keys.as_slice(), &[original_key]);
+        assert_eq!(bodies.as_slice(), &[original_body]);
+        assert_eq!(store.count_pending_batches(&account_key("user-a")).unwrap(), 0);
+    }
+
+    #[test]
+    fn account_switch_does_not_drain_other_user_pending() {
+        let store = Arc::new(MemoryCollectStore::new());
+        // Seed user-a pending batch without network.
+        {
+            let session = signed_in_session("user-a");
+            let remote = Arc::new(ScriptedRemote::network_fail());
+            let service = CollectSync::new(
+                session,
+                config(),
+                Arc::new(OneFactExport),
+                store.clone(),
+                remote,
+                Arc::new(FixedClock(StdMutex::new(1_000))),
+                Arc::new(NoopCollectSyncStatusSink),
+            );
+            service.on_signed_in("user-a");
+            wait_idle(&service, 80);
+            assert_eq!(store.count_pending_batches(&account_key("user-a")).unwrap(), 1);
+        }
+
+        let session_b = signed_in_session("user-b");
+        let remote_b = Arc::new(ScriptedRemote::ok());
+        let service_b = CollectSync::new(
+            session_b,
+            config(),
+            Arc::new(EmptyExport),
+            store.clone(),
+            remote_b.clone(),
+            Arc::new(FixedClock(StdMutex::new(3_000))),
+            Arc::new(NoopCollectSyncStatusSink),
+        );
+        service_b.on_signed_in("user-b");
+        wait_idle(&service_b, 50);
+        // User-a pending must remain; user-b empty export should not push a-batch.
+        assert_eq!(store.count_pending_batches(&account_key("user-a")).unwrap(), 1);
+        assert_eq!(*remote_b.push_calls.lock().expect("push"), 0);
+    }
+
+    #[test]
+    fn sign_out_stops_further_pushes() {
+        let session = signed_in_session("user-a");
+        let store = Arc::new(MemoryCollectStore::new());
+        let remote = Arc::new(ScriptedRemote::network_fail());
+        let service = CollectSync::new(
+            session.clone(),
+            config(),
+            Arc::new(OneFactExport),
+            store.clone(),
+            remote.clone(),
+            Arc::new(FixedClock(StdMutex::new(1_000))),
+            Arc::new(NoopCollectSyncStatusSink),
+        );
+        service.on_signed_in("user-a");
+        wait_idle(&service, 80);
+        let pushes_before = *remote.push_calls.lock().expect("push");
+        assert!(pushes_before >= 1);
+        service.on_signed_out();
+        let _ = session.clear_local();
+        service.retry_now();
+        wait_idle(&service, 30);
+        assert_eq!(*remote.push_calls.lock().expect("push"), pushes_before);
+        assert_eq!(
+            service.status_snapshot().status,
+            CollectSyncUiStatus::SignedOut
+        );
+    }
+
+    #[test]
+    fn device_not_found_triggers_put_then_reuses_same_push_key() {
+        let session = signed_in_session("user-a");
+        let store = Arc::new(MemoryCollectStore::new());
+        let remote = Arc::new(ScriptedRemote {
+            put_calls: StdMutex::new(0),
+            push_calls: StdMutex::new(0),
+            push_ok: true,
+            first_push_device_missing: StdMutex::new(true),
+            last_push_keys: StdMutex::new(Vec::new()),
+            last_push_bodies: StdMutex::new(Vec::new()),
+        });
+        let service = CollectSync::new(
+            session,
+            config(),
+            Arc::new(OneFactExport),
+            store.clone(),
+            remote.clone(),
+            Arc::new(FixedClock(StdMutex::new(1_000))),
+            Arc::new(NoopCollectSyncStatusSink),
+        );
+        service.on_signed_in("user-a");
+        for _ in 0..120 {
+            thread::sleep(Duration::from_millis(10));
+            if store.count_pending_batches(&account_key("user-a")).unwrap_or(1) == 0 {
+                break;
+            }
+        }
+        let keys = remote.last_push_keys.lock().expect("keys");
+        assert!(keys.len() >= 2, "expected device-missing retry push");
+        assert_eq!(keys[0], keys[1], "same idempotency key on recovery push");
+        assert!(*remote.put_calls.lock().expect("put") >= 2);
+    }
+
+    #[test]
+    fn committed_partial_scope_is_incremental_not_full() {
+        let upload = CommittedDailyUpload {
+            targets: vec![
+                CommittedDailyTarget {
+                    source_key: "claude-code".into(),
+                    start_date: NaiveDate::from_ymd_opt(2026, 7, 8).expect("d"),
+                    end_date: NaiveDate::from_ymd_opt(2026, 7, 8).expect("d"),
+                    full_history: false,
+                },
+                // Failed source omitted: only successful targets enter the upload.
+            ],
+            refresh_was_full: false,
+        };
+        let scope = upload.into_upload_scope().expect("scope");
+        assert!(matches!(
+            scope,
+            UploadScope::Incremental {
+                ref source_keys,
+                ..
+            } if source_keys.len() == 1 && source_keys.contains("claude-code")
+        ));
     }
 }
