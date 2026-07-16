@@ -4,6 +4,7 @@
 //! infrastructure implementations.
 
 pub(crate) mod bootstrap;
+pub(crate) mod cloud_session;
 pub(crate) mod collection;
 pub(crate) mod diagnostics;
 pub(crate) mod ports;

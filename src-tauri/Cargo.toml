@@ -36,6 +36,14 @@ tempfile = "=3.27.0"
 reqwest = { version = "=0.13.4", default-features = false, features = [
     "blocking",
     "rustls",
+    "json",
+] }
+base64 = "=0.22.1"
+keyring = { version = "=3.6.2", features = [
+    "apple-native",
+    "windows-native",
+    "sync-secret-service",
+    "crypto-rust",
 ] }
 tauri-plugin-single-instance = "=2.4.2"
 tauri-plugin-notification = "=2.3.3"
