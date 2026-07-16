@@ -73,6 +73,23 @@ describe("App", () => {
   });
 });
 
+function rejectWithAppError(code: string, message: string, retryable: boolean) {
+  return Promise.reject(
+    new BurnlyClientError({
+      kind: "application",
+      error: {
+        code,
+        message,
+        category: "persistence",
+        retryable,
+        details: null,
+      },
+      requestId: meta.requestId,
+      generatedAt: meta.generatedAt,
+    }),
+  );
+}
+
 describe("App startup failures", () => {
   it("renders a failure state when runtime state cannot be loaded", async () => {
     render(
@@ -90,19 +107,10 @@ describe("App startup failures", () => {
     render(
       <App
         loadBootstrap={() =>
-          Promise.reject(
-            new BurnlyClientError({
-              kind: "application",
-              error: {
-                code: "bootstrap.storage_unavailable",
-                message: "Burnly could not read local application state.",
-                category: "persistence",
-                retryable: true,
-                details: null,
-              },
-              requestId: meta.requestId,
-              generatedAt: meta.generatedAt,
-            }),
+          rejectWithAppError(
+            "bootstrap.storage_unavailable",
+            "Burnly could not read local application state.",
+            true,
           )
         }
         loadCapabilities={() => Promise.resolve(capabilitiesResult())}
@@ -119,19 +127,10 @@ describe("App startup failures", () => {
     render(
       <App
         loadBootstrap={() =>
-          Promise.reject(
-            new BurnlyClientError({
-              kind: "application",
-              error: {
-                code: "bootstrap.recovery_required",
-                message: "Database recovery is required.",
-                category: "persistence",
-                retryable: false,
-                details: null,
-              },
-              requestId: meta.requestId,
-              generatedAt: meta.generatedAt,
-            }),
+          rejectWithAppError(
+            "bootstrap.recovery_required",
+            "Database recovery is required.",
+            false,
           )
         }
         loadCapabilities={() => Promise.resolve(capabilitiesResult())}

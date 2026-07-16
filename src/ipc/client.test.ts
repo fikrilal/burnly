@@ -20,6 +20,8 @@ import {
 import {
   COMMAND_NAMES,
   CONTRACT_VERSION,
+  type AppBootstrapResponse,
+  type AppCapabilitiesResponse,
   type CommandInvoker,
   type IpcResponse,
   type TraySummaryResponse,
@@ -61,7 +63,9 @@ describe("IPC command responses", () => {
     expect(result.data.diagnostics.desktopEvidence).toBe(true);
     expect(result.data.diagnostics.sendReport.supported).toBe(false);
   });
+});
 
+describe("IPC command responses - account", () => {
   it("validates account session without token fields", async () => {
     const invoker: CommandInvoker = (command, request) => {
       expect(command).toBe(COMMAND_NAMES.accountGetSession);
@@ -103,7 +107,9 @@ describe("IPC command responses", () => {
     const result = await logoutAccount(invoker);
     expect(result.data.status).toBe("signed_out");
   });
+});
 
+describe("IPC command responses - account login flow", () => {
   it("validates account start and cancel login responses", async () => {
     const startInvoker: CommandInvoker = (command) => {
       expect(command).toBe(COMMAND_NAMES.accountStartLogin);
@@ -139,7 +145,9 @@ describe("IPC command responses", () => {
     const cancelled = await cancelAccountLogin(cancelInvoker);
     expect(cancelled.data.status).toBe("signed_out");
   });
+});
 
+describe("IPC command responses - app and tray actions", () => {
   it("hides the tray panel through the dedicated app command", async () => {
     const invoker: CommandInvoker = (command, request) => {
       expect(command).toBe(COMMAND_NAMES.appHideTrayPanel);
@@ -178,7 +186,9 @@ describe("IPC command responses", () => {
 
     expect(result.data.status).toBe("opened");
   });
+});
 
+describe("IPC command responses - diagnostics", () => {
   it("validates diagnostics health responses", async () => {
     const invoker: CommandInvoker = (command, request) => {
       expect(command).toBe(COMMAND_NAMES.diagnosticsGetHealth);
@@ -234,7 +244,9 @@ describe("IPC command responses", () => {
       data: { status: "copied" },
     });
   });
+});
 
+describe("IPC command responses - usage", () => {
   it("validates tray summary from the desktop runtime", async () => {
     const invoker: CommandInvoker = (command, request) => {
       expect(command).toBe(COMMAND_NAMES.usageGetTraySummary);
@@ -400,7 +412,3 @@ describe("IPC integer strings", () => {
     expect(() => validateUint64String("-1")).toThrow(TypeError);
   });
 });
-import type {
-  AppBootstrapResponse,
-  AppCapabilitiesResponse,
-} from "./generated/contracts";

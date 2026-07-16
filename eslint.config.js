@@ -84,4 +84,14 @@ export default tseslint.config(
       "no-restricted-imports": "off",
     },
   },
+  {
+    // src/components/ui holds shadcn/ui primitives, a component library
+    // rather than Fast Refresh boundaries. These files intentionally
+    // re-export cva variant helpers and Radix members alongside
+    // components, which the rule cannot distinguish from app code.
+    files: ["src/components/ui/**/*.{ts,tsx}"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
 );

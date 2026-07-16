@@ -18,6 +18,12 @@ interface MotionTabsProps {
   hoverLayoutId?: string | undefined;
 }
 
+const TAB_TRANSITION = {
+  type: "spring",
+  stiffness: 400,
+  damping: 30,
+} as const;
+
 export function MotionTabs({
   tabs,
   activeTab,
@@ -40,58 +46,79 @@ export function MotionTabs({
         setHoveredTab(null);
       }}
     >
-      {tabs.map((tab) => {
-        const isActive = activeTab === tab.id;
-        const isHovered = hoveredTab === tab.id;
-
-        return (
-          <button
-            key={tab.id}
-            onClick={() => {
-              onTabChange(tab.id);
-            }}
-            onMouseEnter={() => {
-              setHoveredTab(tab.id);
-            }}
-            aria-pressed={isActive}
-            className={cn(
-              "relative z-10 flex-none px-2 py-0.5 font-medium transition-colors text-xs",
-              isActive ? "text-foreground" : "text-muted-foreground",
-              tabClassName,
-              isActive && activeTabClassName,
-            )}
-            style={{
-              WebkitTapHighlightColor: "transparent",
-            }}
-          >
-            {isActive && (
-              <motion.div
-                layoutId={layoutId}
-                className="absolute inset-0 z-0 rounded-md bg-background shadow-sm"
-                transition={{
-                  type: "spring",
-                  stiffness: 400,
-                  damping: 30,
-                }}
-              />
-            )}
-            {!isActive && isHovered && (
-              <motion.div
-                layoutId={hoverLayoutId}
-                className="absolute inset-0 z-0 rounded-md bg-muted-foreground/10"
-                transition={{
-                  type: "spring",
-                  stiffness: 400,
-                  damping: 30,
-                }}
-              />
-            )}
-            <span className="relative z-10 text-xs leading-none">
-              {tab.label}
-            </span>
-          </button>
-        );
-      })}
+      {tabs.map((tab) => (
+        <MotionTabItem
+          key={tab.id}
+          tab={tab}
+          isActive={activeTab === tab.id}
+          isHovered={hoveredTab === tab.id}
+          onClick={() => {
+            onTabChange(tab.id);
+          }}
+          onMouseEnter={() => {
+            setHoveredTab(tab.id);
+          }}
+          tabClassName={tabClassName}
+          activeTabClassName={activeTabClassName}
+          layoutId={layoutId}
+          hoverLayoutId={hoverLayoutId}
+        />
+      ))}
     </div>
+  );
+}
+
+function MotionTabItem({
+  tab,
+  isActive,
+  isHovered,
+  onClick,
+  onMouseEnter,
+  tabClassName,
+  activeTabClassName,
+  layoutId,
+  hoverLayoutId,
+}: {
+  tab: Tab;
+  isActive: boolean;
+  isHovered: boolean;
+  onClick: () => void;
+  onMouseEnter: () => void;
+  tabClassName?: string | undefined;
+  activeTabClassName?: string | undefined;
+  layoutId: string;
+  hoverLayoutId: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      aria-pressed={isActive}
+      className={cn(
+        "relative z-10 flex-none px-2 py-0.5 font-medium transition-colors text-xs",
+        isActive ? "text-foreground" : "text-muted-foreground",
+        tabClassName,
+        isActive && activeTabClassName,
+      )}
+      style={{
+        WebkitTapHighlightColor: "transparent",
+      }}
+    >
+      {isActive && (
+        <motion.div
+          layoutId={layoutId}
+          className="absolute inset-0 z-0 rounded-md bg-background shadow-sm"
+          transition={TAB_TRANSITION}
+        />
+      )}
+      {!isActive && isHovered && (
+        <motion.div
+          layoutId={hoverLayoutId}
+          className="absolute inset-0 z-0 rounded-md bg-muted-foreground/10"
+          transition={TAB_TRANSITION}
+        />
+      )}
+      <span className="relative z-10 text-xs leading-none">{tab.label}</span>
+    </button>
   );
 }

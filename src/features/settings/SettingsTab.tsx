@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type {
+  AccountSessionResponse,
   AppCapabilitiesResponse,
   SettingsResponse,
 } from "../../ipc/generated/contracts";
@@ -226,75 +227,116 @@ function SettingsList({
 
 function AccountSetting() {
   const account = useAccountSession();
-  const startLogin = useStartAccountLogin();
-  const cancelLogin = useCancelAccountLogin();
-  const logout = useLogoutAccount();
 
   if (account.isPending) {
-    return (
-      <div className="flex items-center justify-between gap-4 py-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Account</span>
-          <span className="text-xs text-muted-foreground leading-normal">
-            Loading account status
-          </span>
-        </div>
-      </div>
-    );
+    return <AccountSettingLoading />;
   }
 
   if (account.isError) {
     return (
-      <div className="flex items-center justify-between gap-4 py-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Account</span>
-          <span className="text-xs text-muted-foreground leading-normal">
-            {accountErrorMessage(
-              account.error,
-              "Account status is unavailable.",
-            )}
-          </span>
-        </div>
-        <AccountActionButton
-          disabled={false}
-          onClick={() => {
-            void account.refetch();
-          }}
-          label="Retry"
-        />
-      </div>
+      <AccountSettingError
+        error={account.error}
+        onRetry={() => {
+          void account.refetch();
+        }}
+      />
     );
   }
 
   // After pending/error guards, React Query types `data` as defined.
-  const session = account.data;
+  return <AccountSettingActive session={account.data} />;
+}
+
+function AccountSettingLoading() {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Account</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          Loading account status
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AccountSettingError({
+  error,
+  onRetry,
+}: {
+  error: unknown;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Account</span>
+        <span className="text-xs text-muted-foreground leading-normal">
+          {accountErrorMessage(error, "Account status is unavailable.")}
+        </span>
+      </div>
+      <AccountActionButton disabled={false} onClick={onRetry} label="Retry" />
+    </div>
+  );
+}
+
+function accountDetail(
+  status: AccountSessionResponse["status"],
+  email: string | null,
+): string {
+  if (status === "signed_in") return email ?? "Signed in";
+  if (status === "waiting_for_browser") {
+    return "Complete sign-in in your browser…";
+  }
+  if (status === "exchanging") return "Signing in…";
+  return "Not signed in";
+}
+
+function accountErrorText(
+  session: AccountSessionResponse,
+  mutationError: Error | null,
+): string | null {
+  if (mutationError) return accountErrorMessage(mutationError);
+  if (session.lastErrorCode !== null || session.lastErrorMessage !== null) {
+    return accountSessionErrorMessage(
+      session.lastErrorCode,
+      session.lastErrorMessage,
+    );
+  }
+  return null;
+}
+
+type AccountMutation = ReturnType<typeof useStartAccountLogin>;
+
+function deriveAccountSettingViewState(
+  session: AccountSessionResponse,
+  startLogin: AccountMutation,
+  cancelLogin: AccountMutation,
+  logout: AccountMutation,
+) {
   const status = session.status;
   const actionPending =
     startLogin.isPending || cancelLogin.isPending || logout.isPending;
   const mutationError =
     startLogin.error ?? cancelLogin.error ?? logout.error ?? null;
-  const sessionError =
-    session.lastErrorCode !== null || session.lastErrorMessage !== null
-      ? accountSessionErrorMessage(
-          session.lastErrorCode,
-          session.lastErrorMessage,
-        )
-      : null;
-  const errorText = mutationError
-    ? accountErrorMessage(mutationError)
-    : sessionError;
-
-  let detail = "Not signed in";
-  if (status === "signed_in") {
-    detail = session.email ?? "Signed in";
-  } else if (status === "waiting_for_browser") {
-    detail = "Complete sign-in in your browser…";
-  } else if (status === "exchanging") {
-    detail = "Signing in…";
-  }
-
+  const errorText = accountErrorText(session, mutationError);
+  const detail = accountDetail(status, session.email);
   const showRetry =
     status === "signed_out" && Boolean(errorText) && !actionPending;
+  return { status, actionPending, errorText, detail, showRetry };
+}
+
+function AccountSettingActive({
+  session,
+}: {
+  session: AccountSessionResponse;
+}) {
+  const startLogin = useStartAccountLogin();
+  const cancelLogin = useCancelAccountLogin();
+  const logout = useLogoutAccount();
+
+  const { status, actionPending, errorText, detail, showRetry } =
+    deriveAccountSettingViewState(session, startLogin, cancelLogin, logout);
 
   return (
     <div className="flex items-center justify-between gap-4 py-3">
@@ -309,45 +351,72 @@ function AccountSetting() {
           </span>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {status === "signed_out" ? (
-          <AccountActionButton
-            disabled={actionPending}
-            onClick={() => {
-              startLogin.reset();
-              startLogin.mutate();
-            }}
-            label={
-              startLogin.isPending
-                ? "Opening…"
-                : showRetry
-                  ? "Try again"
-                  : "Sign in"
-            }
-          />
-        ) : null}
-        {status === "waiting_for_browser" ? (
-          <AccountActionButton
-            disabled={actionPending}
-            onClick={() => {
-              cancelLogin.mutate();
-            }}
-            label={cancelLogin.isPending ? "Cancelling…" : "Cancel"}
-          />
-        ) : null}
-        {status === "exchanging" ? (
-          <span className="text-xs text-muted-foreground">Please wait…</span>
-        ) : null}
-        {status === "signed_in" ? (
-          <AccountActionButton
-            disabled={actionPending}
-            onClick={() => {
-              logout.mutate();
-            }}
-            label={logout.isPending ? "Signing out…" : "Sign out"}
-          />
-        ) : null}
-      </div>
+      <AccountSettingActions
+        status={status}
+        showRetry={showRetry}
+        actionPending={actionPending}
+        startLogin={startLogin}
+        cancelLogin={cancelLogin}
+        logout={logout}
+      />
+    </div>
+  );
+}
+
+function AccountSettingActions({
+  status,
+  showRetry,
+  actionPending,
+  startLogin,
+  cancelLogin,
+  logout,
+}: {
+  status: AccountSessionResponse["status"];
+  showRetry: boolean;
+  actionPending: boolean;
+  startLogin: AccountMutation;
+  cancelLogin: AccountMutation;
+  logout: AccountMutation;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      {status === "signed_out" ? (
+        <AccountActionButton
+          disabled={actionPending}
+          onClick={() => {
+            startLogin.reset();
+            startLogin.mutate();
+          }}
+          label={
+            startLogin.isPending
+              ? "Opening…"
+              : showRetry
+                ? "Try again"
+                : "Sign in"
+          }
+        />
+      ) : null}
+      {status === "waiting_for_browser" ? (
+        <AccountActionButton
+          disabled={actionPending}
+          onClick={() => {
+            cancelLogin.mutate();
+          }}
+          label={cancelLogin.isPending ? "Cancelling…" : "Cancel"}
+        />
+      ) : null}
+      {status === "exchanging" ? (
+        <span className="text-xs text-muted-foreground">Please wait…</span>
+      ) : null}
+      {status === "signed_in" ? (
+        <AccountActionButton
+          disabled={actionPending}
+          onClick={() => {
+            logout.mutate();
+          }}
+          label={logout.isPending ? "Signing out…" : "Sign out"}
+        />
+      ) : null}
     </div>
   );
 }

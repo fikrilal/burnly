@@ -9,7 +9,7 @@
 | Product decision        | Login on **web**, return to **desktop** (WakaTime-style)                                                     |
 | burnly-api              | **Done** — `POST /v1/auth/desktop/handoff` + `POST /v1/auth/desktop/token` (ADR 0022)                        |
 | burnly-web              | **Done for handoff path** — desktop query params, Google login, handoff create, redirect with `code`+`state` |
-| **Desktop (this repo)** | **Implemented** — phase complete (`docs/exec-plans/completed/2026-07-14_desktop-auth-via-web-*`)               |
+| **Desktop (this repo)** | **Implemented** — phase complete (`docs/exec-plans/completed/2026-07-14_desktop-auth-via-web-*`)             |
 
 Date: 2026-07-14  
 Primary repo for this work: **burnly** (desktop)  

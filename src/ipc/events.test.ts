@@ -38,7 +38,9 @@ describe("IPC event subscriptions", () => {
       subscribeToEvent(EVENT_NAMES.refreshProgress, vi.fn(), listen),
     ).rejects.toThrow();
   });
+});
 
+describe("IPC event payloads", () => {
   it("rejects unit/null payloads (must be typed objects)", () => {
     expect(() =>
       parseEventPayload(EVENT_NAMES.accountSessionChanged, null),
@@ -61,7 +63,9 @@ describe("IPC event subscriptions", () => {
       parseEventPayload(EVENT_NAMES.settingsChanged, { revision: 3 }),
     ).toEqual({ revision: 3 });
   });
+});
 
+describe("IPC event subscriptions - behavior and cleanup", () => {
   it("keeps duplicate and missed notifications as harmless invalidations", async () => {
     const callback = vi.fn();
     const listen: EventListenerTransport = (_event, received) => {
