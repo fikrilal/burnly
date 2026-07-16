@@ -91,16 +91,16 @@ start_date, end_date }` forms.
 
 ## Checklist
 
-- [ ] Add and register migration `0008_collect_sync.sql`.
-- [ ] Add typed upload scope, request DTO, generation, batch, and status values.
-- [ ] Add scoped daily export port and SQLite adapter.
-- [ ] Add collect state/outbox port and SQLite adapter.
-- [ ] Implement deterministic allowlisted mapping and chronological splitting.
-- [ ] Implement transactional revision allocation and immutable batch storage.
-- [ ] Implement pending-scope merge/coalescing per account/device.
-- [ ] Add migration, mapping, privacy, ordering, transaction, and account
+- [x] Add and register migration `0008_collect_sync.sql`.
+- [x] Add typed upload scope, request DTO, generation, batch, and status values.
+- [x] Add scoped daily export port and SQLite adapter.
+- [x] Add collect state/outbox port and SQLite adapter.
+- [x] Implement deterministic allowlisted mapping and chronological splitting.
+- [x] Implement transactional revision allocation and immutable batch storage.
+- [x] Implement pending-scope merge/coalescing per account/device.
+- [x] Add migration, mapping, privacy, ordering, transaction, and account
       isolation tests.
-- [ ] Run focused and fast verification; record actual outcomes below.
+- [x] Run focused and fast verification; record actual outcomes below.
 
 ## Test Plan
 
@@ -139,8 +139,13 @@ start_date, end_date }` forms.
 
 ## Verification
 
-- Command: not run yet.
-- Outcome: pending implementation.
+- Command: `pnpm migrations:check` — passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib collect_sync` — 12 passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib daily_usage_export` — 2 passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib migrations` — 16 passed.
+- Command: `pnpm rust:clippy` (`-D warnings`) — passed.
+- Command: `pnpm architecture:check` — passed.
+- Command: `pnpm verify:fast` — passed.
 
 ## Runtime Evidence
 
@@ -148,8 +153,44 @@ start_date, end_date }` forms.
 
 ## Handoff To Chunk 02
 
-- Record final request/response types and module paths.
-- Record schema deviations and exact store APIs consumed by later orchestration.
+### Module paths
+
+| Concern | Path |
+| ------- | ---- |
+| Pure types / batch / scope | `src-tauri/src/application/collect_sync/` (`scope`, `dto`, `batch`, `export`) |
+| Export port | `application/ports/daily_usage_export_store.rs` |
+| Outbox port | `application/ports/collect_sync_store.rs` |
+| SQLite export | `infrastructure/database/daily_usage_export_store.rs` |
+| SQLite outbox | `infrastructure/database/collect_sync_store.rs` |
+| Migration | `src-tauri/migrations/0008_collect_sync.sql` (schema v8; 19 product tables) |
+
+### Request DTO (wire)
+
+- `DailyUsagePushRequestDto` + nested window/fact/model/cost types in
+  `application/collect_sync/dto.rs` (`camelCase`, contract version `1`).
+- Scope on wire: `WireUploadScope::{Full, Incremental}` only.
+- Build with `build_prepared_batches` → immutable `request_body`,
+  `payload_hash` (sha256 hex), `idempotency_key` (uuid v4).
+
+### Store APIs for orchestration
+
+- `DailyUsageExportStore::export_daily_facts(DailyUsageExportQuery)`
+- `CollectSyncStore::{load_state, ensure_state, merge_pending_scope,
+  create_generation, list_pending_batches, mark_batch_accepted,
+  count_pending_batches}`
+- Account isolation key: `CollectSyncAccountKey { user_id, client_device_id }`
+- `create_generation` rejects when pending outbox rows exist; validates
+  embedded `clientRevision` sequence against `next_client_revision`.
+
+### Schema notes
+
+- Dedicated tables only; no `app_settings` / usage-table changes.
+- Pending scope stored as `StoredUploadScope` JSON (`kind` tagged).
+- No schema deviations from the plan.
+
+### Remaining for Chunk 02
+
+- Cloud adapters for device PUT and daily POST using stored body/key unchanged.
 - Move this plan to `completed/` before activating Chunk 02.
 
 ## Follow-Up Debt

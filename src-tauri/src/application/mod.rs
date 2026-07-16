@@ -7,6 +7,7 @@ pub(crate) mod account;
 pub(crate) mod auth_loopback;
 pub(crate) mod bootstrap;
 pub(crate) mod cloud_session;
+pub(crate) mod collect_sync;
 pub(crate) mod pkce;
 pub(crate) mod collection;
 pub(crate) mod diagnostics;

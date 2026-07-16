@@ -26,6 +26,7 @@ const MIGRATION_LIST: &[M<'static>] = &[
         "../../../migrations/0007_default_launch_at_login.sql"
     ))
     .foreign_key_check(),
+    M::up(include_str!("../../../migrations/0008_collect_sync.sql")).foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -66,7 +67,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 17);
+        assert_eq!(table_count(test_database.database()), 19);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
         assert_integrity_ok(test_database.database());
@@ -89,7 +90,36 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 17);
+        assert_eq!(table_count(test_database.database()), 19);
+    }
+
+    #[test]
+    fn collect_sync_migration_creates_dedicated_tables() {
+        let mut test_database = TestDatabase::open();
+        test_database
+            .database_mut()
+            .migrate_to_latest()
+            .expect("migrate database");
+
+        let connection = &test_database.database().connection;
+        let collect_sync_state: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema
+                 WHERE type = 'table' AND name = 'collect_sync_state'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count collect_sync_state");
+        let collect_sync_outbox: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema
+                 WHERE type = 'table' AND name = 'collect_sync_outbox'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count collect_sync_outbox");
+        assert_eq!(collect_sync_state, 1);
+        assert_eq!(collect_sync_outbox, 1);
     }
 
     #[test]
