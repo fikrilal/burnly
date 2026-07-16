@@ -12,6 +12,7 @@ mod batch;
 mod dto;
 mod export;
 mod scope;
+mod service;
 
 #[allow(unused_imports)] // re-exported for later chunks and store adapters
 pub(crate) use batch::{
@@ -28,3 +29,8 @@ pub(crate) use export::{
 };
 #[allow(unused_imports)]
 pub(crate) use scope::{merge_upload_scopes, ScopeError, StoredUploadScope, UploadScope};
+#[allow(unused_imports)]
+pub(crate) use service::{
+    CollectSync, CollectSyncConfig, CollectSyncStatusSink, CollectSyncStatusSnapshot,
+    CollectSyncUiStatus, CommittedDailyTarget, CommittedDailyUpload, NoopCollectSyncStatusSink,
+};

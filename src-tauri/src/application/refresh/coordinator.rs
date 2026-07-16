@@ -81,9 +81,27 @@ impl BudgetEvaluationRunner for NoopBudgetEvaluationRunner {
     }
 }
 
+pub(crate) trait CommittedDailyUploadSink: Send + Sync {
+    fn on_committed_daily_upload(
+        &self,
+        upload: crate::application::collect_sync::CommittedDailyUpload,
+    );
+}
+
+pub(crate) struct NoopCommittedDailyUploadSink;
+
+impl CommittedDailyUploadSink for NoopCommittedDailyUploadSink {
+    fn on_committed_daily_upload(
+        &self,
+        _upload: crate::application::collect_sync::CommittedDailyUpload,
+    ) {
+    }
+}
+
 pub(crate) struct RefreshCoordinatorHooks {
     event_sink: Arc<dyn RefreshEventSink>,
     budget_evaluator: Arc<dyn BudgetEvaluationRunner>,
+    committed_daily_upload_sink: Arc<Mutex<Arc<dyn CommittedDailyUploadSink>>>,
 }
 
 impl RefreshCoordinatorHooks {
@@ -94,6 +112,9 @@ impl RefreshCoordinatorHooks {
         Self {
             event_sink,
             budget_evaluator,
+            committed_daily_upload_sink: Arc::new(Mutex::new(Arc::new(
+                NoopCommittedDailyUploadSink,
+            ))),
         }
     }
 }
@@ -106,6 +127,7 @@ pub(crate) struct RefreshCoordinator {
     budget_evaluator: Arc<dyn BudgetEvaluationRunner>,
     clock: Arc<dyn Clock>,
     event_sink: Arc<dyn RefreshEventSink>,
+    committed_daily_upload_sink: Arc<Mutex<Arc<dyn CommittedDailyUploadSink>>>,
     app_version: String,
     aggregation_timezone: Arc<Mutex<String>>,
     sequence: Arc<AtomicU64>,
@@ -168,6 +190,7 @@ impl RefreshCoordinator {
             budget_evaluator: hooks.budget_evaluator,
             clock,
             event_sink: hooks.event_sink,
+            committed_daily_upload_sink: hooks.committed_daily_upload_sink,
             app_version: app_version.into(),
             aggregation_timezone: Arc::new(Mutex::new(aggregation_timezone.into())),
             sequence: Arc::new(AtomicU64::new(0)),
@@ -182,6 +205,16 @@ impl RefreshCoordinator {
 
     pub(crate) fn snapshot(&self) -> RefreshSnapshot {
         self.lock_state().snapshot()
+    }
+
+    pub(crate) fn set_committed_daily_upload_sink(
+        &self,
+        sink: Arc<dyn CommittedDailyUploadSink>,
+    ) {
+        *self
+            .committed_daily_upload_sink
+            .lock()
+            .expect("committed upload sink lock is poisoned") = sink;
     }
 
     pub(crate) fn set_aggregation_timezone(&self, timezone: impl Into<String>) {
@@ -297,6 +330,15 @@ impl RefreshCoordinator {
             }
             state.snapshot()
         };
+        // Cloud upload is best-effort and never changes refresh outcome.
+        if !result.committed_daily_upload.is_empty() {
+            let sink = self
+                .committed_daily_upload_sink
+                .lock()
+                .expect("committed upload sink lock is poisoned")
+                .clone();
+            sink.on_committed_daily_upload(result.committed_daily_upload);
+        }
         self.event_sink.publish(snapshot, result.usage_changed);
     }
 }

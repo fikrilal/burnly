@@ -38,6 +38,7 @@ pub(crate) struct BatchRequestMeta {
 pub(crate) struct PreparedBatch {
     pub batch_index: u32,
     pub batch_count: u32,
+    pub client_revision: i64,
     pub idempotency_key: String,
     pub request_body: String,
     pub payload_hash: String,
@@ -127,6 +128,7 @@ pub(crate) fn build_prepared_batches(
         prepared.push(PreparedBatch {
             batch_index,
             batch_count,
+            client_revision,
             idempotency_key,
             request_body,
             payload_hash,

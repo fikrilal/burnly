@@ -165,6 +165,29 @@ pub(crate) trait CollectSyncStore: Send + Sync {
         &self,
         account: &CollectSyncAccountKey,
     ) -> Result<u32, CollectSyncStoreError>;
+
+    fn record_attempt_result(
+        &self,
+        account: &CollectSyncAccountKey,
+        now_ms: i64,
+        error_code: Option<&str>,
+        error_message: Option<&str>,
+        retryable: Option<bool>,
+    ) -> Result<(), CollectSyncStoreError>;
+
+    fn mark_baseline_complete(
+        &self,
+        account: &CollectSyncAccountKey,
+        now_ms: i64,
+    ) -> Result<(), CollectSyncStoreError>;
+
+    fn set_device_registration(
+        &self,
+        account: &CollectSyncAccountKey,
+        fingerprint: &str,
+        registered_revision: i64,
+        now_ms: i64,
+    ) -> Result<(), CollectSyncStoreError>;
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]

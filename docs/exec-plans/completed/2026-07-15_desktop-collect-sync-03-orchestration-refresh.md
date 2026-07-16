@@ -2,7 +2,7 @@
 
 ## Status
 
-Queued. Activate only after Chunks 01 and 02 are completed.
+Completed.
 
 ## Objective
 
@@ -95,20 +95,20 @@ integration, and durable delivery transitions.
 
 ## Checklist
 
-- [ ] Add `CollectSync` state machine, dependencies, fake remotes/stores, and
+- [x] Add `CollectSync` state machine, dependencies, fake remotes/stores, and
       focused application tests.
-- [ ] Add committed daily scope output/hook after refresh persistence.
-- [ ] Prove partial refresh reports successful targets without global-status
+- [x] Add committed daily scope output/hook after refresh persistence.
+- [x] Prove partial refresh reports successful targets without global-status
       gating.
-- [ ] Implement baseline, incremental generation, scope merging, and ordered
+- [x] Implement baseline, incremental generation, scope merging, and ordered
       drain.
-- [ ] Implement device PUT policy and device-not-found recovery.
-- [ ] Implement bounded retries and terminal failure behavior.
-- [ ] Wire startup, restored session, login completion, logout, and account
+- [x] Implement device PUT policy and device-not-found recovery.
+- [x] Implement bounded retries and terminal failure behavior.
+- [x] Wire startup, restored session, login completion, logout, and account
       switch behavior.
-- [ ] Compose background execution without holding refresh/session locks.
-- [ ] Emit secret-free status changes for later IPC.
-- [ ] Run focused, architecture, fast, and full verification as feasible.
+- [x] Compose background execution without holding refresh/session locks.
+- [x] Emit secret-free status changes for later IPC.
+- [x] Run focused, architecture, fast, and full verification as feasible.
 
 ## Test Plan
 
@@ -145,8 +145,11 @@ integration, and durable delivery transitions.
 
 ## Verification
 
-- Command: not run yet.
-- Outcome: queued.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib collect_sync` — 15 passed.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib refresh` — 57 passed.
+- Command: `pnpm rust:clippy` (`-D warnings`) — passed.
+- Command: `pnpm architecture:check` — passed.
+- Command: `pnpm verify:fast` — passed.
 
 ## Runtime Evidence
 
@@ -154,11 +157,38 @@ integration, and durable delivery transitions.
 
 ## Handoff To Chunk 04
 
-- Record final status snapshot, retry operation, event sink, and lifecycle
-  semantics exposed for IPC.
-- Move this plan to `completed/` before activating Chunk 04.
+### Module paths
+
+| Concern               | Path                                                  |
+| --------------------- | ----------------------------------------------------- |
+| Orchestration service | `application/collect_sync/service.rs` (`CollectSync`) |
+| Status snapshot       | `CollectSyncStatusSnapshot` / `CollectSyncUiStatus`   |
+| Status sink           | `CollectSyncStatusSink` (noop until IPC chunk)        |
+| Refresh hook          | `CommittedDailyUploadSink` on `RefreshCoordinator`    |
+| Bootstrap             | `bootstrap/collect_sync_runtime.rs`                   |
+| Account lifecycle     | `AccountLifecycleListener` on `AccountService`        |
+
+### Public surface for IPC
+
+- `CollectSync::status_snapshot() -> CollectSyncStatusSnapshot`
+- `CollectSync::retry_now()`
+- `CollectSync::on_signed_in` / `on_signed_out` (also via lifecycle listener)
+- Status fields: status, last_accepted_at_ms, last_error_code/message/retryable
+- No secrets on status path
+
+### Lifecycle
+
+- Startup: restore session → `on_startup` → resume pending / baseline if signed in
+- Login complete: lifecycle → baseline Full if needed + kick worker
+- Logout: cancel worker epoch; no further cloud calls
+- Refresh: committed successful daily targets → merge pending scope → kick
+- Worker: single-flight background thread; never blocks refresh
+
+### Remaining for Chunk 04
+
+- IPC commands/events + Settings Account status/Retry UI
+- Replace `NoopCollectSyncStatusSink` with event emitter
 
 ## Follow-Up Debt
 
-- None planned; unresolved concurrency or account-isolation behavior blocks
-  activation of Chunk 04.
+- None planned.

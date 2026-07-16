@@ -16,6 +16,10 @@ use crate::application::reconciliation::{
     SessionReconciliationRequest, SourceId,
 };
 
+use crate::application::collect_sync::{CommittedDailyTarget, CommittedDailyUpload};
+use crate::application::collection::CollectionScope;
+use crate::domain::source::SourceKey;
+
 use super::coordinator::BudgetEvaluationRunner;
 use super::outcome::{
     clamp_count, run_error, ExecutionFailure, ExecutionResult, RunOutcome, TargetRunAccumulator,
@@ -87,6 +91,7 @@ pub(super) fn execute_refresh(
                 outcome: RunOutcome::Failed,
                 finished_at_ms: failure.finished_at_ms,
                 usage_changed: failure.usage_changed,
+                committed_daily_upload: failure.committed_daily_upload,
             }
         }
     }
@@ -106,6 +111,10 @@ fn execute_open_refresh(
     let mut first_error = None;
     let mut usage_changed = false;
     let mut finished_at_ms = started_at_ms;
+    let mut committed_daily_upload = CommittedDailyUpload {
+        targets: Vec::new(),
+        refresh_was_full: matches!(scope_policy, RefreshScopePolicy::Full),
+    };
 
     for target in refresh_targets() {
         let source_id = context
@@ -148,6 +157,17 @@ fn execute_open_refresh(
         aggregate.record(result.outcome);
         usage_changed = usage_changed || result.usage_changed;
         finished_at_ms = result.finished_at_ms;
+        if matches!(
+            result.outcome,
+            RunOutcome::Succeeded | RunOutcome::Partial
+        ) && matches!(collection.projection(), CollectionProjection::Daily)
+        {
+            if let Some(target_upload) =
+                committed_daily_target(target.source, collection.metadata().effective_scope())
+            {
+                committed_daily_upload.targets.push(target_upload);
+            }
+        }
     }
 
     let outcome = aggregate.outcome();
@@ -172,13 +192,35 @@ fn execute_open_refresh(
             usage_changed,
             code: "refresh.completion",
             summary: "Could not complete the refresh run.",
+            committed_daily_upload: committed_daily_upload.clone(),
         })?;
 
     Ok(ExecutionResult {
         outcome,
         finished_at_ms,
         usage_changed,
+        committed_daily_upload,
     })
+}
+
+fn committed_daily_target(
+    source: SourceKey,
+    scope: &CollectionScope,
+) -> Option<CommittedDailyTarget> {
+    match scope {
+        CollectionScope::Full => Some(CommittedDailyTarget {
+            source_key: source.as_str().to_owned(),
+            start_date: chrono::NaiveDate::from_ymd_opt(1970, 1, 1)?,
+            end_date: chrono::NaiveDate::from_ymd_opt(2099, 12, 31)?,
+            full_history: true,
+        }),
+        CollectionScope::Incremental(range) => Some(CommittedDailyTarget {
+            source_key: source.as_str().to_owned(),
+            start_date: range.start_date(),
+            end_date: range.end_date(),
+            full_history: false,
+        }),
+    }
 }
 
 fn persist(
@@ -260,6 +302,7 @@ fn persist(
         outcome,
         finished_at_ms,
         usage_changed: true,
+        committed_daily_upload: CommittedDailyUpload::default(),
     })
 }
 
@@ -308,6 +351,7 @@ fn failed_result(context: &RefreshExecution<'_>, usage_changed: bool) -> Executi
         outcome: RunOutcome::Failed,
         finished_at_ms: context.clock.now_epoch_ms(),
         usage_changed,
+        committed_daily_upload: CommittedDailyUpload::default(),
     }
 }
 
@@ -324,6 +368,7 @@ fn failure(
         usage_changed: false,
         code,
         summary,
+        committed_daily_upload: CommittedDailyUpload::default(),
     }
 }
 
@@ -344,6 +389,7 @@ fn import_failure(
         usage_changed,
         code,
         summary,
+        committed_daily_upload: CommittedDailyUpload::default(),
     }
 }
 

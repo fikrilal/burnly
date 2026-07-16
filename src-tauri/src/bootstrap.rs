@@ -4,6 +4,7 @@
 //! modules receive constructed dependencies instead of constructing their own.
 
 mod account_runtime;
+mod collect_sync_runtime;
 mod collectors;
 mod resources;
 mod runtime_events;
@@ -244,10 +245,23 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         runtime,
         Arc::new(SystemClock),
     ));
-    app.manage(account_runtime::install_account_service(
+    let installed_account = account_runtime::install_account_service(
         app.handle(),
         env!("CARGO_PKG_VERSION"),
-    ));
+    );
+    let _ = collect_sync_runtime::install_collect_sync(collect_sync_runtime::CollectSyncInstallArgs {
+        app: app.handle(),
+        database_path: &database_path,
+        reporting_timezone: &reporting_timezone,
+        app_version: env!("CARGO_PKG_VERSION"),
+        session: installed_account.session,
+        authenticated_client: installed_account.authenticated_client,
+        account: &installed_account.service,
+        refresh_coordinator: &refresh_coordinator,
+        device_id: installed_account.device_id,
+        device_name: installed_account.device_name,
+    });
+    app.manage(installed_account.service);
 
     Ok(())
 }

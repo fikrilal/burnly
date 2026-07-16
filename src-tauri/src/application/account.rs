@@ -40,6 +40,12 @@ pub(crate) struct PendingLogin {
     pub started_at: Instant,
 }
 
+/// Optional listener for collect-sync (and similar) lifecycle hooks.
+pub(crate) trait AccountLifecycleListener: Send + Sync {
+    fn on_signed_in(&self, user_id: &str);
+    fn on_signed_out(&self);
+}
+
 /// Application-owned account handle. Secrets stay inside `CloudSession`.
 pub(crate) struct AccountService {
     session: Option<Arc<CloudSession>>,
@@ -51,6 +57,7 @@ pub(crate) struct AccountService {
     loopback_cancel: Mutex<Option<Arc<AtomicBool>>>,
     exchanging: AtomicBool,
     last_error: Mutex<Option<AccountLoginError>>,
+    lifecycle: Mutex<Option<Arc<dyn AccountLifecycleListener>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +127,7 @@ impl AccountService {
             loopback_cancel: Mutex::new(None),
             exchanging: AtomicBool::new(false),
             last_error: Mutex::new(None),
+            lifecycle: Mutex::new(None),
         }
     }
 
@@ -140,6 +148,16 @@ impl AccountService {
             loopback_cancel: Mutex::new(None),
             exchanging: AtomicBool::new(false),
             last_error: Mutex::new(None),
+            lifecycle: Mutex::new(None),
+        }
+    }
+
+    pub(crate) fn set_lifecycle_listener(
+        &self,
+        listener: Option<Arc<dyn AccountLifecycleListener>>,
+    ) {
+        if let Ok(mut guard) = self.lifecycle.lock() {
+            *guard = listener;
         }
     }
 
@@ -208,6 +226,7 @@ impl AccountService {
         session
             .logout()
             .map_err(|_| AccountServiceError::LogoutFailed)?;
+        self.notify_signed_out();
         Ok(self.session_view())
     }
 
@@ -365,6 +384,7 @@ impl AccountService {
             }
         };
 
+        let user_id = exchanged.account.user_id.clone();
         if session
             .apply_tokens(exchanged.tokens, exchanged.account)
             .is_err()
@@ -377,7 +397,24 @@ impl AccountService {
         self.exchanging.store(false, Ordering::SeqCst);
         self.cancel_loopback();
         self.clear_last_error();
+        self.notify_signed_in(&user_id);
         Ok(self.session_view())
+    }
+
+    fn notify_signed_in(&self, user_id: &str) {
+        if let Ok(guard) = self.lifecycle.lock() {
+            if let Some(listener) = guard.as_ref() {
+                listener.on_signed_in(user_id);
+            }
+        }
+    }
+
+    fn notify_signed_out(&self) {
+        if let Ok(guard) = self.lifecycle.lock() {
+            if let Some(listener) = guard.as_ref() {
+                listener.on_signed_out();
+            }
+        }
     }
 
     pub(crate) fn take_pending_login(&self) -> Option<PendingLogin> {

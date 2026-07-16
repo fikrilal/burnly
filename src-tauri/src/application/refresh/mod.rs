@@ -16,7 +16,10 @@ mod tests;
     unused_imports,
     reason = "refresh exposes the coordinator and state to bootstrap wiring and IPC"
 )]
-pub(crate) use coordinator::{RefreshCoordinator, RefreshCoordinatorHooks, RefreshEventSink};
+pub(crate) use coordinator::{
+    CommittedDailyUploadSink, NoopCommittedDailyUploadSink, RefreshCoordinator,
+    RefreshCoordinatorHooks, RefreshEventSink,
+};
 #[allow(
     unused_imports,
     reason = "planner is introduced before coordinator wiring in the refresh-policy implementation series"

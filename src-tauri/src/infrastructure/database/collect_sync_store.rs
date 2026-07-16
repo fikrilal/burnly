@@ -276,6 +276,97 @@ impl CollectSyncStore for SqliteCollectSyncStore {
             .map_err(|_| CollectSyncStoreError::Backend)?;
         count_pending_batches(database.connection(), account)
     }
+
+    fn record_attempt_result(
+        &self,
+        account: &CollectSyncAccountKey,
+        now_ms: i64,
+        error_code: Option<&str>,
+        error_message: Option<&str>,
+        retryable: Option<bool>,
+    ) -> Result<(), CollectSyncStoreError> {
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        let connection = database.connection_mut();
+        ensure_state(connection, account, now_ms)?;
+        let retryable_i64 = retryable.map(|value| if value { 1_i64 } else { 0_i64 });
+        connection
+            .execute(
+                "UPDATE collect_sync_state
+                 SET last_attempt_at_ms = ?1,
+                     last_error_code = ?2,
+                     last_error_message = ?3,
+                     last_error_retryable = ?4,
+                     updated_at_ms = ?1
+                 WHERE user_id = ?5 AND client_device_id = ?6",
+                params![
+                    now_ms,
+                    error_code,
+                    error_message,
+                    retryable_i64,
+                    account.user_id,
+                    account.client_device_id
+                ],
+            )
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        Ok(())
+    }
+
+    fn mark_baseline_complete(
+        &self,
+        account: &CollectSyncAccountKey,
+        now_ms: i64,
+    ) -> Result<(), CollectSyncStoreError> {
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        let connection = database.connection_mut();
+        ensure_state(connection, account, now_ms)?;
+        connection
+            .execute(
+                "UPDATE collect_sync_state
+                 SET baseline_status = 'complete', updated_at_ms = ?1
+                 WHERE user_id = ?2 AND client_device_id = ?3",
+                params![now_ms, account.user_id, account.client_device_id],
+            )
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        Ok(())
+    }
+
+    fn set_device_registration(
+        &self,
+        account: &CollectSyncAccountKey,
+        fingerprint: &str,
+        registered_revision: i64,
+        now_ms: i64,
+    ) -> Result<(), CollectSyncStoreError> {
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        let connection = database.connection_mut();
+        ensure_state(connection, account, now_ms)?;
+        connection
+            .execute(
+                "UPDATE collect_sync_state
+                 SET device_metadata_fingerprint = ?1,
+                     device_registered_revision = ?2,
+                     updated_at_ms = ?3
+                 WHERE user_id = ?4 AND client_device_id = ?5",
+                params![
+                    fingerprint,
+                    registered_revision,
+                    now_ms,
+                    account.user_id,
+                    account.client_device_id
+                ],
+            )
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        Ok(())
+    }
 }
 
 fn validate_prepared_revisions(
@@ -286,13 +377,7 @@ fn validate_prepared_revisions(
         let expected = first_revision
             .checked_add(i64::try_from(index).map_err(|_| CollectSyncStoreError::Backend)?)
             .ok_or(CollectSyncStoreError::Backend)?;
-        let body: serde_json::Value = serde_json::from_str(&batch.request_body)
-            .map_err(|_| CollectSyncStoreError::InvalidState)?;
-        let revision = body
-            .get("clientRevision")
-            .and_then(serde_json::Value::as_i64)
-            .ok_or(CollectSyncStoreError::RevisionMismatch)?;
-        if revision != expected {
+        if batch.client_revision != expected {
             return Err(CollectSyncStoreError::RevisionMismatch);
         }
         if batch.batch_index as usize != index {
@@ -309,13 +394,6 @@ fn insert_outbox_batch(
     batch: &PreparedBatch,
     now_ms: i64,
 ) -> Result<(), CollectSyncStoreError> {
-    let body: serde_json::Value =
-        serde_json::from_str(&batch.request_body).map_err(|_| CollectSyncStoreError::InvalidState)?;
-    let client_revision = body
-        .get("clientRevision")
-        .and_then(serde_json::Value::as_i64)
-        .ok_or(CollectSyncStoreError::RevisionMismatch)?;
-
     connection
         .execute(
             "INSERT INTO collect_sync_outbox (
@@ -333,7 +411,7 @@ fn insert_outbox_batch(
                 generation_id,
                 batch.batch_index,
                 batch.batch_count,
-                client_revision,
+                batch.client_revision,
                 batch.idempotency_key,
                 batch.request_body,
                 batch.payload_hash,
