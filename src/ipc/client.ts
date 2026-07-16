@@ -12,6 +12,8 @@ import {
   invokeDiagnosticsCopyReport,
   invokeDiagnosticsExportReport,
   invokeDiagnosticsGetHealth,
+  invokeAccountGetSession,
+  invokeAccountLogout,
   invokeSettingsGet,
   invokeSettingsUpdate,
   invokeRefreshCancel,
@@ -40,6 +42,7 @@ import {
   type ResponseMeta,
   type TraySummaryRequest,
   type TraySummaryResponse,
+  type AccountSessionResponse,
   type SettingsResponse,
   type UpdateStatusResponse,
   type UpdateSettingsRequest,
@@ -174,6 +177,12 @@ const settingsDataSchema: z.ZodType<SettingsResponse> = z.object({
   launchAtLogin: z.boolean(),
   closeBehavior: z.enum(["hide", "quit"]),
   revision: z.number().int().positive(),
+});
+
+const accountSessionDataSchema: z.ZodType<AccountSessionResponse> = z.object({
+  status: z.enum(["signed_out", "signed_in"]),
+  email: z.string().min(1).nullable(),
+  userId: z.string().min(1).nullable(),
 });
 
 const refreshStatusDataSchema: z.ZodType<RefreshStatusResponse> = z.object({
@@ -387,6 +396,30 @@ export async function getSettings(
   try {
     const response = await invokeSettingsGet(invoker);
     return unwrapResponse(validateResponse(response, settingsDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function getAccountSession(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<AccountSessionResponse>> {
+  try {
+    const response = await invokeAccountGetSession(invoker);
+    return unwrapResponse(validateResponse(response, accountSessionDataSchema));
+  } catch (error) {
+    if (error instanceof BurnlyClientError) throw error;
+    throw transportError(error);
+  }
+}
+
+export async function logoutAccount(
+  invoker: CommandInvoker = commandInvoker,
+): Promise<CommandResult<AccountSessionResponse>> {
+  try {
+    const response = await invokeAccountLogout(invoker);
+    return unwrapResponse(validateResponse(response, accountSessionDataSchema));
   } catch (error) {
     if (error instanceof BurnlyClientError) throw error;
     throw transportError(error);

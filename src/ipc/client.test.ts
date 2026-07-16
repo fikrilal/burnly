@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getAccountSession,
   getAppBootstrap,
   getAppCapabilities,
   copyDiagnosticsReport,
   exportDiagnosticsReport,
   getDiagnosticsHealth,
   hideTrayPanel,
+  logoutAccount,
   openExternalUrl,
   getTraySummary,
   probeContract,
@@ -56,6 +58,44 @@ describe("IPC command responses", () => {
     expect(result.data.exportFormats).toEqual([]);
     expect(result.data.diagnostics.desktopEvidence).toBe(true);
     expect(result.data.diagnostics.sendReport.supported).toBe(false);
+  });
+
+  it("validates account session without token fields", async () => {
+    const invoker: CommandInvoker = (command, request) => {
+      expect(command).toBe(COMMAND_NAMES.accountGetSession);
+      expect(request).toEqual({});
+      return Promise.resolve({
+        ok: true,
+        data: {
+          status: "signed_in",
+          email: "dev@burnly.dev",
+          userId: "user-1",
+        },
+        meta,
+      });
+    };
+
+    const result = await getAccountSession(invoker);
+    expect(result.data.status).toBe("signed_in");
+    expect(result.data.email).toBe("dev@burnly.dev");
+  });
+
+  it("validates account logout response", async () => {
+    const invoker: CommandInvoker = (command) => {
+      expect(command).toBe(COMMAND_NAMES.accountLogout);
+      return Promise.resolve({
+        ok: true,
+        data: {
+          status: "signed_out",
+          email: null,
+          userId: null,
+        },
+        meta,
+      });
+    };
+
+    const result = await logoutAccount(invoker);
+    expect(result.data.status).toBe("signed_out");
   });
 
   it("hides the tray panel through the dedicated app command", async () => {

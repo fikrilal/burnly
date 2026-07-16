@@ -308,11 +308,20 @@ Exit criteria:
 Desktop auth via web handoff: PKCE, browser, callback, token exchange, then
 IPC + Settings sign-in UX.
 
-Introduce account IPC here (or in a thin precursor if useful):
+**Exec plans (2026-07-14):**
+
+- Active roadmap:
+  `docs/exec-plans/active/2026-07-14_desktop-auth-via-web-00-roadmap.md`
+- Active chunk 01 (bootstrap + session IPC):
+  `docs/exec-plans/active/2026-07-14_desktop-auth-via-web-01-bootstrap-session-ipc.md`
+- Queued chunks 02–04: PKCE/start login, callback/exchange, polish/evidence
+  under `docs/exec-plans/queued/2026-07-14_desktop-auth-via-web-0*.md`
+
+Introduce account IPC in chunk 01 (or as specified in those plans):
 
 - session snapshot (signed out / signed in + email)
 - logout
-- start-login / cancel (auth-specific)
+- start-login / cancel (auth-specific; chunks 02+)
 
 ### Phase 3 — Collect feature (consumes core)
 

@@ -13,6 +13,7 @@ import {
   DiagnosticsPage,
 } from "../diagnostics/DiagnosticsPage";
 import { UpdateSetting } from "../update/UpdateSetting";
+import { useAccountSession, useLogoutAccount } from "./use-account";
 import { useSettings, useUpdateSettings } from "./use-settings";
 
 export function SettingsTab({
@@ -195,6 +196,7 @@ function SettingsList({
 }) {
   return (
     <div className="flex flex-col divide-y divide-border">
+      <AccountSetting />
       <LaunchAtLoginSetting
         value={settings.launchAtLogin}
         isDisabled={isSaving || !launchAtLoginCapability.supported}
@@ -208,6 +210,76 @@ function SettingsList({
       <ThemeSetting />
       <UpdateSetting />
       <DiagnosticsEntrySetting onOpen={onOpenDiagnostics} />
+    </div>
+  );
+}
+
+function AccountSetting() {
+  const account = useAccountSession();
+  const logout = useLogoutAccount();
+
+  if (account.isPending) {
+    return (
+      <div className="flex items-center justify-between gap-4 py-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium">Account</span>
+          <span className="text-xs text-muted-foreground leading-normal">
+            Loading account status
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (account.isError) {
+    return (
+      <div className="flex items-center justify-between gap-4 py-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium">Account</span>
+          <span className="text-xs text-muted-foreground leading-normal">
+            {userSafeErrorMessage(
+              account.error,
+              "Account status is unavailable.",
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const session = account.data;
+  const signedIn = session?.status === "signed_in";
+
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="text-sm font-medium">Account</span>
+        <span className="truncate text-xs text-muted-foreground leading-normal">
+          {signedIn
+            ? (session.email ?? "Signed in")
+            : "Not signed in"}
+        </span>
+        {logout.isError ? (
+          <span className="text-xs text-destructive leading-normal">
+            {userSafeErrorMessage(
+              logout.error,
+              "Burnly could not sign out.",
+            )}
+          </span>
+        ) : null}
+      </div>
+      {signedIn ? (
+        <button
+          type="button"
+          disabled={logout.isPending}
+          onClick={() => {
+            logout.mutate();
+          }}
+          className="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+        >
+          {logout.isPending ? "Signing out…" : "Sign out"}
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -473,6 +473,14 @@ export interface SettingsResponse {
   revision: number;
 }
 
+export type AccountSessionStatus = "signed_out" | "signed_in";
+
+export interface AccountSessionResponse {
+  status: AccountSessionStatus;
+  email: string | null;
+  userId: string | null;
+}
+
 export type BudgetLimit =
   | {
       kind: "tokens";

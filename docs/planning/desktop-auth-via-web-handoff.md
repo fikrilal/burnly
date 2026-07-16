@@ -9,7 +9,7 @@
 | Product decision | Login on **web**, return to **desktop** (WakaTime-style) |
 | burnly-api | **Done** — `POST /v1/auth/desktop/handoff` + `POST /v1/auth/desktop/token` (ADR 0022) |
 | burnly-web | **Done for handoff path** — desktop query params, Google login, handoff create, redirect with `code`+`state` |
-| **Desktop (this repo)** | **Not started** — this document |
+| **Desktop (this repo)** | **In progress** — exec plans under `docs/exec-plans/` (roadmap + chunks 01–04) |
 
 Date: 2026-07-14  
 Primary repo for this work: **burnly** (desktop)  
@@ -329,6 +329,9 @@ Do not require live Google in unit CI; manual E2E is enough for first ship.
 | Web implementer handoff | burnly-web `docs/planning/desktop-auth-web-handoff.md` |
 | Web implementation plan | burnly-web `docs/planning/desktop-auth-web-implementation-plan.md` |
 | Auth standard | burnly-api `docs/standards/authentication.md` |
+| Desktop phase roadmap | burnly `docs/exec-plans/active/2026-07-14_desktop-auth-via-web-00-roadmap.md` |
+| Chunk 01 (bootstrap + session IPC) | burnly `docs/exec-plans/active/2026-07-14_desktop-auth-via-web-01-bootstrap-session-ipc.md` |
+| Chunks 02–04 | burnly `docs/exec-plans/queued/2026-07-14_desktop-auth-via-web-0{2,3,4}-*.md` |
 
 ---
 

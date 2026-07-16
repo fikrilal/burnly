@@ -3,6 +3,7 @@
 //! IPC handlers invoke application use cases and do not own product rules or
 //! infrastructure behavior.
 
+mod account;
 mod commands;
 mod contract;
 mod diagnostics;
@@ -28,6 +29,8 @@ pub(crate) fn invoke_handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<
         commands::app_get_capabilities,
         commands::app_hide_tray_panel,
         commands::app_open_external_url,
+        account::account_get_session,
+        account::account_logout,
         diagnostics::diagnostics_get_health,
         diagnostics::diagnostics_export_report,
         diagnostics::diagnostics_copy_report,

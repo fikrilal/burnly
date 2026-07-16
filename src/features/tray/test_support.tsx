@@ -2,9 +2,14 @@ import { render } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { TrayPanel } from "./TrayPanel";
-import { getDiagnosticsHealth, type CommandResult } from "../../ipc/client";
+import {
+  getAccountSession,
+  getDiagnosticsHealth,
+  type CommandResult,
+} from "../../ipc/client";
 import { subscribeToEvent } from "../../ipc/events";
 import type {
+  AccountSessionResponse,
   AppCapabilitiesResponse,
   SettingsResponse,
   TraySummaryResponse,
@@ -74,6 +79,7 @@ export function resetTrayPanelMocks() {
     /* no-op */
   });
   vi.mocked(getDiagnosticsHealth).mockResolvedValue(diagnosticsHealthResult());
+  vi.mocked(getAccountSession).mockResolvedValue(accountSessionResult());
 }
 
 export function traySummaryResult(
@@ -127,6 +133,20 @@ export function settingsResult(
       launchAtLogin: false,
       closeBehavior: "hide",
       revision: 1,
+      ...overrides,
+    },
+    meta: responseMeta,
+  };
+}
+
+export function accountSessionResult(
+  overrides: Partial<AccountSessionResponse> = {},
+): CommandResult<AccountSessionResponse> {
+  return {
+    data: {
+      status: "signed_out",
+      email: null,
+      userId: null,
       ...overrides,
     },
     meta: responseMeta,

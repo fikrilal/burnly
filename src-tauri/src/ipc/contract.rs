@@ -58,6 +58,18 @@ pub(super) const COMMANDS: &[CommandSpec] = &[
         response_type: "DiagnosticsCopyResponse",
     },
     CommandSpec {
+        name: "account_get_session",
+        export_name: "invokeAccountGetSession",
+        request_type: "Record<string, never>",
+        response_type: "AccountSessionResponse",
+    },
+    CommandSpec {
+        name: "account_logout",
+        export_name: "invokeAccountLogout",
+        request_type: "Record<string, never>",
+        response_type: "AccountSessionResponse",
+    },
+    CommandSpec {
         name: "settings_get",
         export_name: "invokeSettingsGet",
         request_type: "Record<string, never>",
@@ -133,6 +145,11 @@ pub(super) const EVENTS: &[EventSpec] = &[
     EventSpec {
         name: "burnly://v1/settings-changed",
         export_name: "settingsChanged",
+        payload_type: "UnknownEventPayload",
+    },
+    EventSpec {
+        name: "burnly://v1/account-session-changed",
+        export_name: "accountSessionChanged",
         payload_type: "UnknownEventPayload",
     },
     EventSpec {

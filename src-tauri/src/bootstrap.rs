@@ -3,6 +3,7 @@
 //! This module selects concrete infrastructure and platform integrations. Other
 //! modules receive constructed dependencies instead of constructing their own.
 
+mod account_runtime;
 mod collectors;
 mod resources;
 mod runtime_events;
@@ -242,6 +243,10 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         settings_store.clone(),
         runtime,
         Arc::new(SystemClock),
+    ));
+    app.manage(account_runtime::install_account_service(
+        app.handle(),
+        env!("CARGO_PKG_VERSION"),
     ));
 
     Ok(())

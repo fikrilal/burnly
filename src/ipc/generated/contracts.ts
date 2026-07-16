@@ -317,6 +317,14 @@ export interface SettingsResponse {
   revision: number;
 }
 
+export type AccountSessionStatus = "signed_out" | "signed_in";
+
+export interface AccountSessionResponse {
+  status: AccountSessionStatus;
+  email: string | null;
+  userId: string | null;
+}
+
 export type BudgetLimit =
   | {
       kind: "tokens";
@@ -652,6 +660,8 @@ export const COMMAND_NAMES = {
   diagnosticsGetHealth: "diagnostics_get_health",
   diagnosticsExportReport: "diagnostics_export_report",
   diagnosticsCopyReport: "diagnostics_copy_report",
+  accountGetSession: "account_get_session",
+  accountLogout: "account_logout",
   settingsGet: "settings_get",
   settingsUpdate: "settings_update",
   refreshGetState: "refresh_get_state",
@@ -675,6 +685,8 @@ export interface CommandRequests {
   [COMMAND_NAMES.diagnosticsGetHealth]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsExportReport]: Record<string, never>;
   [COMMAND_NAMES.diagnosticsCopyReport]: Record<string, never>;
+  [COMMAND_NAMES.accountGetSession]: Record<string, never>;
+  [COMMAND_NAMES.accountLogout]: Record<string, never>;
   [COMMAND_NAMES.settingsGet]: Record<string, never>;
   [COMMAND_NAMES.settingsUpdate]: UpdateSettingsCommandRequest;
   [COMMAND_NAMES.refreshGetState]: Record<string, never>;
@@ -696,6 +708,8 @@ export interface CommandResponses {
   [COMMAND_NAMES.diagnosticsGetHealth]: IpcResponse<DiagnosticsHealthResponse>;
   [COMMAND_NAMES.diagnosticsExportReport]: IpcResponse<DiagnosticsExportResponse>;
   [COMMAND_NAMES.diagnosticsCopyReport]: IpcResponse<DiagnosticsCopyResponse>;
+  [COMMAND_NAMES.accountGetSession]: IpcResponse<AccountSessionResponse>;
+  [COMMAND_NAMES.accountLogout]: IpcResponse<AccountSessionResponse>;
   [COMMAND_NAMES.settingsGet]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.settingsUpdate]: IpcResponse<SettingsResponse>;
   [COMMAND_NAMES.refreshGetState]: IpcResponse<RefreshStatusResponse>;
@@ -760,6 +774,16 @@ export function invokeDiagnosticsCopyReport(
   return invoke(COMMAND_NAMES.diagnosticsCopyReport, {});
 }
 
+export function invokeAccountGetSession(
+  invoke: CommandInvoker,
+): Promise<unknown> {
+  return invoke(COMMAND_NAMES.accountGetSession, {});
+}
+
+export function invokeAccountLogout(invoke: CommandInvoker): Promise<unknown> {
+  return invoke(COMMAND_NAMES.accountLogout, {});
+}
+
 export function invokeSettingsGet(invoke: CommandInvoker): Promise<unknown> {
   return invoke(COMMAND_NAMES.settingsGet, {});
 }
@@ -812,6 +836,7 @@ export const EVENT_NAMES = {
   refreshProgress: "burnly://v1/refresh-progress",
   dataInvalidated: "burnly://v1/data-invalidated",
   settingsChanged: "burnly://v1/settings-changed",
+  accountSessionChanged: "burnly://v1/account-session-changed",
   platformStateChanged: "burnly://v1/platform-state-changed",
   updateProgress: "burnly://v1/update-progress",
 } as const;
@@ -822,6 +847,7 @@ export interface EventPayloads {
   [EVENT_NAMES.refreshProgress]: UnknownEventPayload;
   [EVENT_NAMES.dataInvalidated]: UnknownEventPayload;
   [EVENT_NAMES.settingsChanged]: UnknownEventPayload;
+  [EVENT_NAMES.accountSessionChanged]: UnknownEventPayload;
   [EVENT_NAMES.platformStateChanged]: UnknownEventPayload;
   [EVENT_NAMES.updateProgress]: UnknownEventPayload;
 }

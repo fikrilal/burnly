@@ -3,6 +3,7 @@
 //! Application modules may depend on the domain, but not on delivery or
 //! infrastructure implementations.
 
+pub(crate) mod account;
 pub(crate) mod bootstrap;
 pub(crate) mod cloud_session;
 pub(crate) mod collection;
