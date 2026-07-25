@@ -110,19 +110,23 @@ fn map_session_row(
         .map(map_model)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let first_activity_at = DateTime::parse_from_rfc3339(&row.first_activity_at)
+    let first_activity_at = DateTime::parse_from_rfc3339(&row.first_activity)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|_| MappingError::InvalidDate)?;
 
-    let last_activity_at = DateTime::parse_from_rfc3339(&row.last_activity_at)
+    let last_activity_at = DateTime::parse_from_rfc3339(&row.last_activity)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|_| MappingError::InvalidDate)?;
+
+    let project_path = row
+        .project_path
+        .filter(|path| !path.trim().is_empty());
 
     Ok(SessionUsageCandidate {
         provenance: context.provenance(),
         source_key: session_source_key(context.source, &row.session_id)?,
         source_session_id: row.session_id,
-        project_path: row.project.map(|p| p.path),
+        project_path,
         first_activity_at: Some(first_activity_at),
         last_activity_at: Some(last_activity_at),
         tokens,
@@ -601,6 +605,7 @@ mod tests {
     use super::*;
     use crate::application::collection::CollectorFailureCode;
     use crate::infrastructure::collectors::ccusage::envelopes::claude_daily::decode;
+    use crate::infrastructure::collectors::ccusage::envelopes::claude_session::decode as decode_claude_session;
     use crate::infrastructure::collectors::ccusage::envelopes::codex_daily::decode as decode_codex_daily;
     use crate::infrastructure::collectors::ccusage::envelopes::codex_session::decode as decode_codex_session;
     use crate::infrastructure::collectors::ccusage::envelopes::opencode_daily::decode as decode_opencode_daily;
@@ -618,6 +623,18 @@ mod tests {
     const ADDITIVE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/fixtures/collectors/ccusage/claude-daily/additive-fields.json"
+    ));
+    const CLAUDE_SESSION_VALID: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/claude-session/valid.json"
+    ));
+    const CLAUDE_SESSION_EMPTY: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/claude-session/empty.json"
+    ));
+    const CLAUDE_SESSION_REAL_SHAPE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/ccusage/claude-session/real-shape.json"
     ));
     const CODEX_DAILY_VALID: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -721,6 +738,110 @@ mod tests {
         .expect("mapped additive fixture");
         assert_eq!(additive[0].tokens.total_tokens(), 20);
         assert_eq!(additive[0].tokens.unclassified_tokens(), Some(2));
+    }
+
+    #[test]
+    fn maps_claude_session_real_shape_with_deterministic_identity() {
+        let context =
+            build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let candidates = map_session(
+            decode_claude_session(CLAUDE_SESSION_REAL_SHAPE).expect("decoded real-shape"),
+            context,
+        )
+        .expect("mapped real-shape");
+
+        assert_eq!(candidates.len(), 3);
+        let first = &candidates[0];
+        assert_eq!(first.source_key, "claude-code:session:v1:session-1");
+        assert_eq!(first.source_session_id, "session-1");
+        assert_eq!(first.project_path, None);
+        assert_eq!(first.tokens.total_tokens(), 6_249_672);
+        assert_eq!(first.tokens.input_tokens(), Some(353));
+        assert_eq!(first.tokens.output_tokens(), Some(104_423));
+        assert_eq!(first.model_breakdowns.len(), 1);
+        assert_eq!(
+            first.model_breakdowns[0].raw_model_id,
+            "claude-sonnet-4-6"
+        );
+        assert_eq!(
+            first.first_activity_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 5, 8, 12, 46, 44)
+                    .single()
+                    .expect("timestamp")
+                    + chrono::Duration::milliseconds(17)
+            )
+        );
+        assert_eq!(
+            first.last_activity_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 5, 8, 14, 49, 34)
+                    .single()
+                    .expect("timestamp")
+                    + chrono::Duration::milliseconds(353)
+            )
+        );
+    }
+
+    #[test]
+    fn maps_claude_session_valid_and_empty_fixtures() {
+        let context =
+            build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let candidates = map_session(
+            decode_claude_session(CLAUDE_SESSION_VALID).expect("decoded valid"),
+            context.clone(),
+        )
+        .expect("mapped valid");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].source_key, "claude-code:session:v1:session-1");
+        assert_eq!(candidates[0].tokens.total_tokens(), 1_650);
+        assert_eq!(candidates[0].model_breakdowns.len(), 2);
+
+        assert!(map_session(
+            decode_claude_session(CLAUDE_SESSION_EMPTY).expect("decoded empty"),
+            context,
+        )
+        .expect("mapped empty")
+        .is_empty());
+    }
+
+    #[test]
+    fn maps_claude_session_project_path_when_present() {
+        let input = r#"{
+          "sessions": [{
+            "sessionId": "path-1",
+            "firstActivity": "2026-06-13T10:00:00.000Z",
+            "lastActivity": "2026-06-13T11:00:00.000Z",
+            "inputTokens": 10,
+            "outputTokens": 5,
+            "cacheCreationTokens": 0,
+            "cacheReadTokens": 0,
+            "totalTokens": 15,
+            "totalCost": 0.01,
+            "modelsUsed": ["claude-sonnet-4"],
+            "modelBreakdowns": [],
+            "projectPath": "/tmp/sanitized-project"
+          }],
+          "totals": {
+            "inputTokens": 10,
+            "outputTokens": 5,
+            "cacheCreationTokens": 0,
+            "cacheReadTokens": 0,
+            "totalTokens": 15,
+            "totalCost": 0.01
+          }
+        }"#;
+        let context =
+            build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let candidates = map_session(
+            decode_claude_session(input).expect("decoded with path"),
+            context,
+        )
+        .expect("mapped with path");
+        assert_eq!(
+            candidates[0].project_path.as_deref(),
+            Some("/tmp/sanitized-project")
+        );
     }
 
     #[test]

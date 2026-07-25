@@ -1,0 +1,12 @@
+{
+  "sessions": [],
+  "projects": {},
+  "totals": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 0,
+    "totalTokens": 0,
+    "totalCost": 0.0
+  }
+}

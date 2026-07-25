@@ -819,7 +819,9 @@ Fields with known source differences use source-specific typed envelopes or narr
 Examples from the reviewed implementation:
 
 - Claude daily uses `daily` or project-grouped `projects`.
-- Claude session uses `sessions`.
+- Claude session uses `sessions` with activity fields named `firstActivity` /
+  `lastActivity` (not `firstActivityAt` / `lastActivityAt`) and optional
+  `projectPath` string; Burnly accepts legacy `*At` aliases on decode.
 - Codex uses `daily` and `sessions`, includes `reasoningOutputTokens`, and model usage is represented as a map.
 - Codex session includes `lastActivity`, `sessionFile`, and `directory`.
 - OpenCode-family reports use `daily` or `sessions` and may omit model breakdown arrays.

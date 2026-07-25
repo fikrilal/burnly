@@ -56,7 +56,16 @@ const envelopeMatrices = new Map([
       "valid.json",
     ],
   ],
-  ["claude-session", ["valid.json"]],
+  [
+    "claude-session",
+    [
+      "empty.json",
+      "incompatible-envelope.json",
+      "invalid-json.json",
+      "real-shape.json",
+      "valid.json",
+    ],
+  ],
   [
     "codex-daily",
     [
