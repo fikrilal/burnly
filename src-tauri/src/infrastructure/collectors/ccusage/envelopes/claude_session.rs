@@ -228,7 +228,10 @@ mod tests {
           }
         }"#;
         let report = decode(input).expect("legacy aliases");
-        assert_eq!(report.sessions[0].first_activity, "2026-06-13T10:00:00.000Z");
+        assert_eq!(
+            report.sessions[0].first_activity,
+            "2026-06-13T10:00:00.000Z"
+        );
         assert_eq!(report.sessions[0].last_activity, "2026-06-13T11:00:00.000Z");
     }
 

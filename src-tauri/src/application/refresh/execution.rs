@@ -5,9 +5,14 @@
 
 use chrono::DateTime;
 
-use crate::application::collection::{CollectionProjection, CollectionResult};
+use crate::application::collection::{CollectionProjection, CollectionResult, CollectorFailure};
+use crate::application::diagnostics::{
+    DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
+    DiagnosticSummary,
+};
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::{CancellationSignal, Collector};
+use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::application::ports::run_store::RunStore;
 use crate::application::ports::usage_store::UsageStore;
 use crate::application::reconciliation::{
@@ -25,7 +30,9 @@ use super::outcome::{
     clamp_count, run_error, ExecutionFailure, ExecutionResult, RunOutcome, TargetRunAccumulator,
 };
 use super::request_plan::{planned_collection_request, RefreshScopePolicy};
-use super::target::{import_timezone, records_seen, refresh_targets};
+use super::target::{
+    import_timezone, projection_label, records_seen, refresh_targets, RefreshTarget,
+};
 
 pub(super) struct RefreshExecution<'a> {
     pub(super) collector: &'a dyn Collector,
@@ -33,6 +40,7 @@ pub(super) struct RefreshExecution<'a> {
     pub(super) usage_store: &'a dyn UsageStore,
     pub(super) budget_evaluator: &'a dyn BudgetEvaluationRunner,
     pub(super) clock: &'a dyn Clock,
+    pub(super) diagnostic_recorder: &'a dyn DiagnosticRecorder,
     pub(super) app_version: &'a str,
     pub(super) aggregation_timezone: String,
 }
@@ -145,6 +153,13 @@ fn execute_open_refresh(
                 if first_error.is_none() {
                     first_error = run_error(failure.code.code(), failure.to_string());
                 }
+                // Best-effort attribution: never abort the refresh loop if diagnostics fail.
+                record_target_collection_failure(
+                    context.diagnostic_recorder,
+                    target,
+                    &failure,
+                    finished_at_ms,
+                );
                 continue;
             }
         };
@@ -355,6 +370,43 @@ fn failed_result(context: &RefreshExecution<'_>, usage_changed: bool) -> Executi
         usage_changed,
         committed_daily_upload: CommittedDailyUpload::default(),
     }
+}
+
+/// Records which refresh target hard-failed and why, without collector stdout,
+/// paths, or session identifiers. Safe keys only: source, projection, failureCode.
+fn record_target_collection_failure(
+    recorder: &dyn DiagnosticRecorder,
+    target: RefreshTarget,
+    failure: &CollectorFailure,
+    created_at_ms: i64,
+) {
+    let Ok(code) = DiagnosticCode::new("collection.target_failed") else {
+        return;
+    };
+    let Ok(summary) = DiagnosticSummary::new("Collection failed for one refresh target.") else {
+        return;
+    };
+    // Controlled vocabulary only (source keys, projection labels, failure codes).
+    let context_json = format!(
+        r#"{{"source":"{}","projection":"{}","failureCode":"{}"}}"#,
+        target.source.as_str(),
+        projection_label(target.projection),
+        failure.code.code()
+    );
+    let Ok(context) = DiagnosticContext::new(context_json) else {
+        return;
+    };
+    let Ok(event) = DiagnosticEvent::new(
+        DiagnosticArea::Collector,
+        DiagnosticSeverity::Warning,
+        code,
+        summary,
+        Some(context),
+        created_at_ms,
+    ) else {
+        return;
+    };
+    recorder.record(event);
 }
 
 fn failure(

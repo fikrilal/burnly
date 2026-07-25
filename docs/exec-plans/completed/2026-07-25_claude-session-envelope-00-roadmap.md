@@ -2,7 +2,7 @@
 
 ## Status
 
-Active. Chunk 01 completed 2026-07-25. Chunk 02 remains optional/queued.
+Completed 2026-07-25. Chunks 01 and 02 shipped.
 
 ## Objective
 
@@ -103,7 +103,7 @@ diagnostics export) but is not a gate for merging the envelope unit-test fix.
 | Chunk | Plan                             | Status    |
 | ----- | -------------------------------- | --------- |
 | 01    | decode / map / fixtures          | completed |
-| 02    | hard-fail diagnostics (optional) | queued    |
+| 02    | hard-fail diagnostics (optional) | completed |
 
 ## Decisions
 

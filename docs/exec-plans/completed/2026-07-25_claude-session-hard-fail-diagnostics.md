@@ -2,11 +2,8 @@
 
 ## Status
 
-Queued. Optional product follow-up. Chunk 2 of
+Completed 2026-07-25. Chunk 2 of
 `2026-07-25_claude-session-envelope-00-roadmap.md`.
-
-**Entry condition:** chunk 01 (envelope decode/map/fixtures) is completed or
-explicitly deferred with user approval to ship diagnostics alone.
 
 ## Objective
 
@@ -120,6 +117,12 @@ Privacy regression risk if context grows carelessly.
   `succeeded` with zero records (that was the confusing dump shape).
 - Do not change health codes unless existing health rules already key off
   diagnostic severity; avoid scope creep into health redesign.
+- **Failed import deferred:** hard `Err` has no `CollectionResult` metadata
+  (collector key/version/profile). Inventing those for `ImportRunSpec` would
+  pollute import history. Diagnostic event is enough for support dumps;
+  `first_error` on the refresh run remains the aggregate partial reason.
+- **Best-effort diagnostics:** recorder failures never abort the per-target
+  refresh loop.
 
 ## Acceptance Criteria
 
@@ -137,15 +140,15 @@ Privacy regression risk if context grows carelessly.
 
 ## Checklist
 
-- [ ] Trace current hard `Err` branch in `refresh/execution.rs` and existing
+- [x] Trace current hard `Err` branch in `refresh/execution.rs` and existing
       diagnostic recording helpers used by collectors.
-- [ ] Implement diagnostic event emission on hard collector failure (minimum).
-- [ ] Decide and implement failed import completion **or** document skip
+- [x] Implement diagnostic event emission on hard collector failure (minimum).
+- [x] Decide and implement failed import completion **or** document skip
       with rationale in Decisions.
-- [ ] Add unit/integration-style test with scripted collector failure.
-- [ ] Confirm diagnostics export JSON includes the new event fields.
-- [ ] Privacy pass: no forbidden context keys or free-form stdout.
-- [ ] Record verification outcomes below.
+- [x] Add unit/integration-style test with scripted collector failure.
+- [x] Confirm diagnostics export JSON includes the new event fields.
+- [x] Privacy pass: no forbidden context keys or free-form stdout.
+- [x] Record verification outcomes below.
 
 ## Test Plan
 
@@ -171,8 +174,12 @@ Privacy regression risk if context grows carelessly.
 
 ## Verification
 
+- Command: `cargo test -q --lib refresh::`
+  - Outcome: passed (44 tests)
+- Command: `cargo test -q --lib collector_hard_fail_records_diagnostic`
+  - Outcome: passed
 - Command: `pnpm verify:fast`
-- Outcome: not run yet
+  - Outcome: passed (2026-07-25)
 
 ## Runtime Evidence
 

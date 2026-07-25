@@ -351,8 +351,10 @@ fn compose_refresh_coordinator(
     let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let store = Arc::new(SqliteReconciliationStore::new(write_database));
     let clock = Arc::new(SystemClock);
+    let diagnostics_database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    let diagnostic_recorder = Arc::new(SqliteDiagnosticStore::new(diagnostics_database));
 
-    Ok(RefreshCoordinator::with_event_sink(
+    let coordinator = RefreshCoordinator::with_event_sink(
         collector,
         store.clone(),
         store,
@@ -360,7 +362,9 @@ fn compose_refresh_coordinator(
         refresh_event_sink,
         env!("CARGO_PKG_VERSION"),
         reporting_timezone,
-    ))
+    );
+    coordinator.set_diagnostic_recorder(diagnostic_recorder);
+    Ok(coordinator)
 }
 
 #[cfg(test)]

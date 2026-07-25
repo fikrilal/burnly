@@ -22,8 +22,10 @@ pub(crate) enum BudgetEvaluationError {
     #[error("budget storage failed")]
     StorageUnavailable,
 }
+use crate::application::diagnostics::DiagnosticEvent;
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::Collector;
+use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::application::ports::run_store::RunStore;
 use crate::application::ports::usage_store::UsageStore;
 use crate::application::reconciliation::RefreshTrigger;
@@ -102,6 +104,7 @@ pub(crate) struct RefreshCoordinatorHooks {
     event_sink: Arc<dyn RefreshEventSink>,
     budget_evaluator: Arc<dyn BudgetEvaluationRunner>,
     committed_daily_upload_sink: Arc<Mutex<Arc<dyn CommittedDailyUploadSink>>>,
+    diagnostic_recorder: Arc<Mutex<Arc<dyn DiagnosticRecorder>>>,
 }
 
 impl RefreshCoordinatorHooks {
@@ -115,8 +118,15 @@ impl RefreshCoordinatorHooks {
             committed_daily_upload_sink: Arc::new(Mutex::new(Arc::new(
                 NoopCommittedDailyUploadSink,
             ))),
+            diagnostic_recorder: Arc::new(Mutex::new(Arc::new(NoopDiagnosticRecorder))),
         }
     }
+}
+
+struct NoopDiagnosticRecorder;
+
+impl DiagnosticRecorder for NoopDiagnosticRecorder {
+    fn record(&self, _event: DiagnosticEvent) {}
 }
 
 #[derive(Clone)]
@@ -128,6 +138,7 @@ pub(crate) struct RefreshCoordinator {
     clock: Arc<dyn Clock>,
     event_sink: Arc<dyn RefreshEventSink>,
     committed_daily_upload_sink: Arc<Mutex<Arc<dyn CommittedDailyUploadSink>>>,
+    diagnostic_recorder: Arc<Mutex<Arc<dyn DiagnosticRecorder>>>,
     app_version: String,
     aggregation_timezone: Arc<Mutex<String>>,
     sequence: Arc<AtomicU64>,
@@ -191,6 +202,7 @@ impl RefreshCoordinator {
             clock,
             event_sink: hooks.event_sink,
             committed_daily_upload_sink: hooks.committed_daily_upload_sink,
+            diagnostic_recorder: hooks.diagnostic_recorder,
             app_version: app_version.into(),
             aggregation_timezone: Arc::new(Mutex::new(aggregation_timezone.into())),
             sequence: Arc::new(AtomicU64::new(0)),
@@ -212,6 +224,13 @@ impl RefreshCoordinator {
             .committed_daily_upload_sink
             .lock()
             .expect("committed upload sink lock is poisoned") = sink;
+    }
+
+    pub(crate) fn set_diagnostic_recorder(&self, recorder: Arc<dyn DiagnosticRecorder>) {
+        *self
+            .diagnostic_recorder
+            .lock()
+            .expect("diagnostic recorder lock is poisoned") = recorder;
     }
 
     pub(crate) fn set_aggregation_timezone(&self, timezone: impl Into<String>) {
@@ -304,6 +323,11 @@ impl RefreshCoordinator {
         started_at_ms: i64,
     ) {
         let aggregation_timezone = self.aggregation_timezone();
+        let diagnostic_recorder = self
+            .diagnostic_recorder
+            .lock()
+            .expect("diagnostic recorder lock is poisoned")
+            .clone();
         let result = execute_refresh(
             RefreshExecution {
                 collector: self.collector.as_ref(),
@@ -311,6 +335,7 @@ impl RefreshCoordinator {
                 usage_store: self.usage_store.as_ref(),
                 budget_evaluator: self.budget_evaluator.as_ref(),
                 clock: self.clock.as_ref(),
+                diagnostic_recorder: diagnostic_recorder.as_ref(),
                 app_version: &self.app_version,
                 aggregation_timezone,
             },

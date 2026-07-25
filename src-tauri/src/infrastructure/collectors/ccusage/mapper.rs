@@ -118,9 +118,7 @@ fn map_session_row(
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|_| MappingError::InvalidDate)?;
 
-    let project_path = row
-        .project_path
-        .filter(|path| !path.trim().is_empty());
+    let project_path = row.project_path.filter(|path| !path.trim().is_empty());
 
     Ok(SessionUsageCandidate {
         provenance: context.provenance(),
@@ -742,8 +740,7 @@ mod tests {
 
     #[test]
     fn maps_claude_session_real_shape_with_deterministic_identity() {
-        let context =
-            build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
         let candidates = map_session(
             decode_claude_session(CLAUDE_SESSION_REAL_SHAPE).expect("decoded real-shape"),
             context,
@@ -759,10 +756,7 @@ mod tests {
         assert_eq!(first.tokens.input_tokens(), Some(353));
         assert_eq!(first.tokens.output_tokens(), Some(104_423));
         assert_eq!(first.model_breakdowns.len(), 1);
-        assert_eq!(
-            first.model_breakdowns[0].raw_model_id,
-            "claude-sonnet-4-6"
-        );
+        assert_eq!(first.model_breakdowns[0].raw_model_id, "claude-sonnet-4-6");
         assert_eq!(
             first.first_activity_at,
             Some(
@@ -785,8 +779,7 @@ mod tests {
 
     #[test]
     fn maps_claude_session_valid_and_empty_fixtures() {
-        let context =
-            build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
         let candidates = map_session(
             decode_claude_session(CLAUDE_SESSION_VALID).expect("decoded valid"),
             context.clone(),
@@ -831,8 +824,7 @@ mod tests {
             "totalCost": 0.01
           }
         }"#;
-        let context =
-            build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
         let candidates = map_session(
             decode_claude_session(input).expect("decoded with path"),
             context,

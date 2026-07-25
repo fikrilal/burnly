@@ -16,8 +16,10 @@ use crate::application::collection::{
     CollectorDescriptor, CollectorFailure, CollectorFailureCode, DailyUsageCandidate,
     DetectionRequest, DetectionResult, ProcessSummary, RejectedRecord, SessionUsageCandidate,
 };
+use crate::application::diagnostics::{DiagnosticArea, DiagnosticEvent, DiagnosticSeverity};
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::{CancellationSignal, Collector};
+use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::application::ports::run_store::{RunStore, RunStoreError};
 use crate::application::ports::usage_store::{UsageStore, UsageStoreError};
 use crate::application::reconciliation::{
@@ -951,6 +953,63 @@ fn collector_failure_for_one_target_keeps_later_targets_and_marks_partial() {
             if !source_keys.contains(SourceKey::Pi.as_str())
                 && source_keys.len() == 7
     ));
+}
+
+#[test]
+fn collector_hard_fail_records_diagnostic_with_source_projection_and_failure_code() {
+    let collector = Arc::new(ScriptedCollector::new(|request| {
+        if request.source() == SourceKey::ClaudeCode
+            && request.projection() == CollectionProjection::Session
+        {
+            return Err(CollectorFailure::new(
+                CollectorFailureCode::IncompatibleEnvelope,
+                Some(request.source()),
+                Some(request.projection()),
+            ));
+        }
+        Ok(empty_collection_for_request(&request))
+    }));
+    let (coordinator, _run_store, _usage_store) = coordinator_with(collector);
+    let diagnostics = Arc::new(RecordingDiagnosticRecorder::default());
+    coordinator.set_diagnostic_recorder(diagnostics.clone());
+
+    coordinator.request_full_refresh(RefreshTrigger::Manual);
+    let snapshot = await_terminal(&coordinator);
+
+    assert_eq!(snapshot.status, RefreshStatus::Partial);
+    let events = diagnostics.events();
+    assert_eq!(events.len(), 1);
+    let event = &events[0];
+    assert_eq!(event.area, DiagnosticArea::Collector);
+    assert_eq!(event.severity, DiagnosticSeverity::Warning);
+    assert_eq!(event.code.as_str(), "collection.target_failed");
+    assert_eq!(
+        event.summary.as_str(),
+        "Collection failed for one refresh target."
+    );
+    let context = event.context.as_ref().expect("context").as_str();
+    assert!(context.contains(r#""source":"claude-code""#));
+    assert!(context.contains(r#""projection":"session""#));
+    assert!(context.contains(r#""failureCode":"collector.incompatible_envelope""#));
+    assert!(!context.contains("path"));
+    assert!(!context.contains("stdout"));
+}
+
+#[derive(Default)]
+struct RecordingDiagnosticRecorder {
+    events: Mutex<Vec<DiagnosticEvent>>,
+}
+
+impl RecordingDiagnosticRecorder {
+    fn events(&self) -> Vec<DiagnosticEvent> {
+        self.events.lock().expect("lock").clone()
+    }
+}
+
+impl DiagnosticRecorder for RecordingDiagnosticRecorder {
+    fn record(&self, event: DiagnosticEvent) {
+        self.events.lock().expect("lock").push(event);
+    }
 }
 
 #[test]
