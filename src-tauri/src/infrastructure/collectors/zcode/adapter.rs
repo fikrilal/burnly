@@ -130,11 +130,6 @@ impl Collector for ZCodeCollector {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
         if !self.database_path.exists() {
-            self.record_failure(
-                &request,
-                CollectorFailureCode::SourceNotFound,
-                &[CollectorDiagnosticCounter::new("rowsFound", 0)],
-            );
             return empty_collection_result(IDENTITY, &request, &run);
         }
 
@@ -322,7 +317,6 @@ mod tests {
     use crate::application::collection::{
         CollectionId, CollectionOutcome, CollectionScope, DetectionState,
     };
-    use crate::application::diagnostics::DiagnosticSeverity;
     use crate::infrastructure::collectors::support::{
         daily_request as support_daily_request, date, fixed_timestamp,
         session_request as support_session_request, utc_millis, NeverCancelled,
@@ -381,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn records_diagnostic_when_database_is_missing() {
+    fn missing_database_collection_is_empty_without_diagnostic() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
         let collector = ZCodeCollector::from_database_path("/missing/zcode.sqlite")
             .with_diagnostic_recorder(diagnostics.clone());
@@ -391,16 +385,7 @@ mod tests {
             .expect("missing database is empty");
 
         assert_eq!(result.outcome(), CollectionOutcome::Empty);
-        let events = diagnostics.events();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
-        assert_eq!(events[0].code.as_str(), "zcode.collection_failed");
-        let context = events[0].context.as_ref().expect("context").as_str();
-        assert!(context.contains(r#""source":"zcode""#));
-        assert!(context.contains(r#""projection":"daily""#));
-        assert!(context.contains(r#""failureCode":"source.not_found""#));
-        assert!(context.contains(r#""rowsFound":0"#));
-        assert!(!context.contains("/missing"));
+        assert!(diagnostics.events().is_empty());
     }
 
     #[test]

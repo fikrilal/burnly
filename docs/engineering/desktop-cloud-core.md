@@ -29,9 +29,9 @@ infrastructure/cloud/
 
 ## Config env overrides
 
-| Variable                      | Default (dev)                     |
+| Variable                      | Built-in fallback                 |
 | ----------------------------- | --------------------------------- |
-| `BURNLY_API_BASE_URL`         | `http://127.0.0.1:4000`           |
+| `BURNLY_API_BASE_URL`         | `https://api.burnly.dev`          |
 | `BURNLY_WEB_ORIGIN`           | `http://127.0.0.1:3000`           |
 | `BURNLY_DESKTOP_REDIRECT_URI` | `http://127.0.0.1:39201/callback` |
 
