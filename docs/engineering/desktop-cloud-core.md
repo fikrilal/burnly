@@ -32,7 +32,7 @@ infrastructure/cloud/
 | Variable                      | Built-in fallback                 |
 | ----------------------------- | --------------------------------- |
 | `BURNLY_API_BASE_URL`         | `https://api.burnly.dev`          |
-| `BURNLY_WEB_ORIGIN`           | `http://127.0.0.1:3000`           |
+| `BURNLY_WEB_ORIGIN`           | `https://burnly.dev`              |
 | `BURNLY_DESKTOP_REDIRECT_URI` | `http://127.0.0.1:39201/callback` |
 
 Local files (optional):

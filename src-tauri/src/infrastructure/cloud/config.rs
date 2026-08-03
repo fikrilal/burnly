@@ -7,7 +7,7 @@ const ENV_WEB_ORIGIN: &str = "BURNLY_WEB_ORIGIN";
 const ENV_REDIRECT_URI: &str = "BURNLY_DESKTOP_REDIRECT_URI";
 
 const DEFAULT_API_BASE_URL: &str = "https://api.burnly.dev";
-const DEFAULT_WEB_ORIGIN: &str = "http://127.0.0.1:3000";
+const DEFAULT_WEB_ORIGIN: &str = "https://burnly.dev";
 const DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:39201/callback";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
