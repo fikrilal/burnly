@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"ffffffff-0000-0000-0000-000000000006","timestamp":"2026-08-04T13:00:00.000Z","cwd":"/home/user/project-phi"}
+{"type":"message","id":"f1","parentId":null,"timestamp":"2026-08-04T13:00:05.000Z","message":{"role":"user","content":[{"type":"text","text":"redacted"}]}}

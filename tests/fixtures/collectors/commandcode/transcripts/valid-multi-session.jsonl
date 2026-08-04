@@ -1,0 +1,6 @@
+{"type":"session","version":3,"id":"aaaaaaaa-0000-0000-0000-000000000001","timestamp":"2026-08-03T08:00:00.000Z","cwd":"/home/user/project-alpha"}
+{"type":"message","id":"a1","parentId":null,"timestamp":"2026-08-03T08:00:10.000Z","message":{"role":"user","content":[{"type":"text","text":"redacted"}]}}
+{"type":"message","id":"a2","parentId":"a1","timestamp":"2026-08-03T08:00:20.000Z","message":{"role":"assistant","content":[{"type":"text","text":"redacted"}]},"usage":{"inputTokens":800,"outputTokens":120,"cacheReadTokens":300,"cacheWriteTokens":0,"costUsd":0.0003},"model":"deepseek/deepseek-v4-flash","effort":"low"}
+{"type":"session","version":3,"id":"bbbbbbbb-0000-0000-0000-000000000002","timestamp":"2026-08-04T10:00:00.000Z","cwd":"/home/user/project-beta"}
+{"type":"message","id":"b1","parentId":null,"timestamp":"2026-08-04T10:00:05.000Z","message":{"role":"user","content":[{"type":"text","text":"redacted"}]}}
+{"type":"message","id":"b2","parentId":"b1","timestamp":"2026-08-04T10:00:15.000Z","message":{"role":"assistant","content":[{"type":"text","text":"redacted"}]},"usage":{"inputTokens":2000,"outputTokens":400,"cacheReadTokens":1000,"cacheWriteTokens":0,"costUsd":0.001},"model":"deepseek/deepseek-v4-flash","effort":"medium"}

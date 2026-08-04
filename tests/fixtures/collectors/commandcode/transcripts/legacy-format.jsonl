@@ -1,0 +1,2 @@
+{"id":"legacy-1","timestamp":"2026-05-07T03:23:01.515Z","sessionId":"cccccccc-0000-0000-0000-000000000003","parentId":null,"role":"user","content":[{"type":"text","text":"redacted"}]}
+{"id":"legacy-2","timestamp":"2026-05-07T03:23:12.531Z","sessionId":"cccccccc-0000-0000-0000-000000000003","parentId":"legacy-1","role":"assistant","content":[{"type":"text","text":"redacted"}]}

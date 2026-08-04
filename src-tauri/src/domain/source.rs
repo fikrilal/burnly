@@ -8,6 +8,7 @@ pub(crate) enum SourceKey {
     ZCode,
     Antigravity,
     GrokBuild,
+    CommandCode,
     #[cfg(test)]
     TestUnsupported,
 }
@@ -23,6 +24,7 @@ impl SourceKey {
             Self::ZCode => "zcode",
             Self::Antigravity => "antigravity",
             Self::GrokBuild => "grok-build",
+            Self::CommandCode => "command-code",
             #[cfg(test)]
             Self::TestUnsupported => "test-unsupported",
         }
@@ -38,6 +40,7 @@ impl SourceKey {
             "zcode" => Some(Self::ZCode),
             "antigravity" => Some(Self::Antigravity),
             "grok-build" => Some(Self::GrokBuild),
+            "command-code" => Some(Self::CommandCode),
             _ => None,
         }
     }
@@ -57,6 +60,7 @@ mod tests {
         assert_eq!(SourceKey::ZCode.as_str(), "zcode");
         assert_eq!(SourceKey::Antigravity.as_str(), "antigravity");
         assert_eq!(SourceKey::GrokBuild.as_str(), "grok-build");
+        assert_eq!(SourceKey::CommandCode.as_str(), "command-code");
     }
 
     #[test]
@@ -92,6 +96,10 @@ mod tests {
         assert_eq!(
             SourceKey::from_storage(SourceKey::GrokBuild.as_str()),
             Some(SourceKey::GrokBuild)
+        );
+        assert_eq!(
+            SourceKey::from_storage(SourceKey::CommandCode.as_str()),
+            Some(SourceKey::CommandCode)
         );
         assert_eq!(SourceKey::from_storage("unknown"), None);
     }

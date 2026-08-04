@@ -192,6 +192,16 @@ mod tests {
     }
 
     #[test]
+    fn command_code_is_not_yet_a_refresh_target() {
+        let targets = refresh_targets();
+
+        assert_eq!(targets.len(), 16);
+        assert!(!targets
+            .iter()
+            .any(|target| target.source == SourceKey::CommandCode));
+    }
+
+    #[test]
     fn import_timezone_is_only_stored_for_daily_targets() {
         assert_eq!(
             import_timezone(CollectionProjection::Daily, "Asia/Jakarta"),

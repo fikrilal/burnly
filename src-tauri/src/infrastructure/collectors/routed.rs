@@ -48,6 +48,13 @@ impl RoutedCollector {
                 Some(source),
                 None,
             )),
+            // Command Code is not wired yet; fail closed until a later chunk
+            // registers the native collector.
+            SourceKey::CommandCode => Err(CollectorFailure::new(
+                crate::application::collection::CollectorFailureCode::UnsupportedSource,
+                Some(source),
+                None,
+            )),
         }
     }
 }
@@ -150,6 +157,24 @@ mod tests {
         assert_eq!(zcode.sources(), vec![SourceKey::ZCode]);
         assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
         assert_eq!(grok.sources(), vec![SourceKey::GrokBuild]);
+    }
+
+    #[test]
+    fn command_code_fails_closed_until_native_collector_is_wired() {
+        let collector = RoutedCollector::new(
+            Arc::new(RecordingCollector::new("ccusage")),
+            Arc::new(RecordingCollector::new("cline")),
+            Arc::new(RecordingCollector::new("zcode")),
+            Arc::new(RecordingCollector::new("antigravity")),
+            Arc::new(RecordingCollector::new("grok-build")),
+        );
+
+        let failure = collector
+            .collect(request(SourceKey::CommandCode), &NeverCancelled)
+            .expect_err("command-code is not routed yet");
+
+        assert_eq!(failure.code, CollectorFailureCode::UnsupportedSource);
+        assert_eq!(failure.source_key, Some(SourceKey::CommandCode));
     }
 
     #[test]

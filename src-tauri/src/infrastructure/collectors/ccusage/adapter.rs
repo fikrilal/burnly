@@ -245,7 +245,11 @@ impl Collector for CcusageCollector {
                 .map_err(|_| failure(CollectorFailureCode::Internal))
             }
             (
-                SourceKey::Cline | SourceKey::ZCode | SourceKey::Antigravity | SourceKey::GrokBuild,
+                SourceKey::Cline
+                | SourceKey::ZCode
+                | SourceKey::Antigravity
+                | SourceKey::GrokBuild
+                | SourceKey::CommandCode,
                 _,
             ) => Err(failure(CollectorFailureCode::UnsupportedSource)),
             (SourceKey::Pi, crate::application::collection::CollectionProjection::Daily) => {
