@@ -5,11 +5,6 @@
 //! total is their sum), `costUsd` converts to integer micros deterministically,
 //! and records dedupe by `(session id, message id)`.
 
-#![allow(
-    dead_code,
-    reason = "mapper is consumed by the adapter in a later chunk"
-)]
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -77,24 +72,6 @@ impl CommandCodeMappingContext {
 }
 
 /// Map parsed transcripts into daily and session candidates for the scope.
-pub(crate) fn map_transcripts(
-    transcripts: Vec<ParsedTranscript>,
-    timezone: &str,
-    scope: &CollectionScope,
-    context: &CommandCodeMappingContext,
-) -> Result<MappedCandidates, CommandCodeMappingError> {
-    let daily = map_daily(transcripts.clone(), timezone, scope, context)?;
-    let sessions = map_sessions(transcripts, context)?;
-    Ok(MappedCandidates { daily, sessions })
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct MappedCandidates {
-    pub(crate) daily: Vec<DailyUsageCandidate>,
-    pub(crate) sessions: Vec<SessionUsageCandidate>,
-}
-
-/// Map usage-bearing messages to daily candidates grouped by local date.
 pub(crate) fn map_daily(
     transcripts: Vec<ParsedTranscript>,
     timezone: &str,
@@ -381,8 +358,7 @@ mod tests {
 {"type":"message","id":"m2","parentId":"m1","timestamp":"2026-08-04T10:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"redacted"}]},"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":3,"cacheWriteTokens":0,"costUsd":0.001},"model":"deepseek/deepseek-v4-flash","effort":"max"}"#;
 
     fn transcript_from(contents: &str) -> ParsedTranscript {
-        let (_, parsed, _) =
-            super::super::transcript_parser::parse_transcript(contents).expect("parse");
+        let (_, parsed, _) = super::super::transcript_parser::parse_transcript(contents);
         parsed.expect("parsed transcript")
     }
 

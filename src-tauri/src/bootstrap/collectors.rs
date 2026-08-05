@@ -5,6 +5,9 @@ use crate::application::ports::collector::Collector;
 use crate::infrastructure::collectors::antigravity::AntigravityCollector;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
+use crate::infrastructure::collectors::commandcode::{
+    default_commandcode_home, CommandCodeCollector,
+};
 use crate::infrastructure::collectors::grok::{
     default_grok_home, GrokCollector, GrokUsageCacheClient,
 };
@@ -53,6 +56,13 @@ pub(super) fn build_collector_graph(
         diagnostic_recorder,
         usage_cache,
     ));
+    let commandcode_collector = Arc::new(
+        CommandCodeCollector::from_data_dir(default_commandcode_home()).with_diagnostic_recorder(
+            Arc::new(SqliteDiagnosticStore::new(
+                Database::open(database_path).map_err(StartupError::Persistence)?,
+            )),
+        ),
+    );
 
     Ok(Arc::new(RoutedCollector::new(
         ccusage_collector,
@@ -60,5 +70,6 @@ pub(super) fn build_collector_graph(
         zcode_collector,
         antigravity_collector,
         grok_collector,
+        commandcode_collector,
     )))
 }

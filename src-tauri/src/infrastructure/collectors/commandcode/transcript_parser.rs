@@ -6,14 +6,8 @@
 //! lines, partial trailing lines, invalid timestamps, and invalid token counts
 //! are skipped rather than failing the whole file.
 
-#![allow(
-    dead_code,
-    reason = "parser types are consumed by the mapper and adapter in later chunks"
-)]
-
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use thiserror::Error;
 
 /// Result of parsing one transcript file.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,23 +68,14 @@ pub(crate) struct TranscriptParseSummary {
     pub(crate) lines_skipped: u32,
 }
 
-#[derive(Debug, Error)]
-pub(crate) enum TranscriptParseError {
-    #[error("transcript file could not be read")]
-    Read(#[source] std::io::Error),
-}
-
 /// Parse a new-format transcript. Legacy files return `TranscriptKind::Legacy`.
 pub(crate) fn parse_transcript(
     contents: &str,
-) -> Result<
-    (
-        TranscriptKind,
-        Option<ParsedTranscript>,
-        TranscriptParseSummary,
-    ),
-    TranscriptParseError,
-> {
+) -> (
+    TranscriptKind,
+    Option<ParsedTranscript>,
+    TranscriptParseSummary,
+) {
     let mut summary = TranscriptParseSummary::default();
     let mut session_id = None;
     let mut cwd = None;
@@ -159,13 +144,13 @@ pub(crate) fn parse_transcript(
 
     // Flat records without a `type` field are the pre-1.11 legacy schema.
     if !saw_type_field {
-        return Ok((TranscriptKind::Legacy, None, summary));
+        return (TranscriptKind::Legacy, None, summary);
     }
 
     let Some(session_id) = session_id else {
         // A new-format file must have a session record; without one it cannot
         // be attributed and is skipped.
-        return Ok((TranscriptKind::NewFormatNoUsage, None, summary));
+        return (TranscriptKind::NewFormatNoUsage, None, summary);
     };
 
     let kind = if usages.is_empty() {
@@ -174,7 +159,7 @@ pub(crate) fn parse_transcript(
         TranscriptKind::NewFormatWithUsage
     };
 
-    Ok((
+    (
         kind,
         Some(ParsedTranscript {
             session_id,
@@ -189,7 +174,7 @@ pub(crate) fn parse_transcript(
             usages,
         }),
         summary,
-    ))
+    )
 }
 
 impl TranscriptUsage {
@@ -291,7 +276,7 @@ mod tests {
 
     #[test]
     fn parses_valid_transcript_into_usage_records() {
-        let (kind, parsed, summary) = parse_transcript(VALID_TRANSCRIPT).expect("parse");
+        let (kind, parsed, summary) = parse_transcript(VALID_TRANSCRIPT);
 
         assert_eq!(kind, TranscriptKind::NewFormatWithUsage);
         let parsed = parsed.expect("parsed");
@@ -314,7 +299,7 @@ mod tests {
 
     #[test]
     fn ignores_non_usage_messages() {
-        let (kind, parsed, summary) = parse_transcript(VALID_TRANSCRIPT).expect("parse");
+        let (kind, parsed, summary) = parse_transcript(VALID_TRANSCRIPT);
 
         assert_eq!(kind, TranscriptKind::NewFormatWithUsage);
         let parsed = parsed.expect("parsed");
@@ -326,7 +311,7 @@ mod tests {
     fn classifies_legacy_transcript() {
         let legacy = r#"{"id":"legacy-1","timestamp":"2026-05-07T03:23:01Z","sessionId":"sess-legacy","parentId":null,"role":"user","content":[{"type":"text","text":"redacted"}]}"#;
 
-        let (kind, parsed, _) = parse_transcript(legacy).expect("parse");
+        let (kind, parsed, _) = parse_transcript(legacy);
 
         assert_eq!(kind, TranscriptKind::Legacy);
         assert!(parsed.is_none());
@@ -337,7 +322,7 @@ mod tests {
         let no_usage = r#"{"type":"session","version":3,"id":"sess-2","timestamp":"2026-08-04T10:00:00Z","cwd":"/tmp/proj"}
 {"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-04T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"redacted"}]}}"#;
 
-        let (kind, parsed, _) = parse_transcript(no_usage).expect("parse");
+        let (kind, parsed, _) = parse_transcript(no_usage);
 
         assert_eq!(kind, TranscriptKind::NewFormatNoUsage);
         let parsed = parsed.expect("parsed");
@@ -348,7 +333,7 @@ mod tests {
     fn tolerates_partial_trailing_line() {
         let contents = format!("{VALID_TRANSCRIPT}\n{{\"type\":\"message\"");
 
-        let (kind, parsed, summary) = parse_transcript(&contents).expect("parse");
+        let (kind, parsed, summary) = parse_transcript(&contents);
 
         assert_eq!(kind, TranscriptKind::NewFormatWithUsage);
         let parsed = parsed.expect("parsed");
@@ -361,7 +346,7 @@ mod tests {
         let negative = r#"{"type":"session","version":3,"id":"sess-3","timestamp":"2026-08-04T10:00:00Z","cwd":"/tmp/proj"}
 {"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-04T10:00:01Z","message":{"role":"assistant","content":[]},"usage":{"inputTokens":-5,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.001},"model":"m","effort":"max"}"#;
 
-        let (kind, parsed, summary) = parse_transcript(negative).expect("parse");
+        let (kind, parsed, summary) = parse_transcript(negative);
 
         assert_eq!(kind, TranscriptKind::NewFormatNoUsage);
         let parsed = parsed.expect("parsed");
@@ -376,7 +361,7 @@ mod tests {
         let overflow = r#"{"type":"session","version":3,"id":"sess-4","timestamp":"2026-08-04T10:00:00Z","cwd":"/tmp/proj"}
 {"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-04T10:00:01Z","message":{"role":"assistant","content":[]},"usage":{"inputTokens":18446744073709551616,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.001},"model":"m","effort":"max"}"#;
 
-        let (kind, _, summary) = parse_transcript(overflow).expect("parse");
+        let (kind, _, summary) = parse_transcript(overflow);
 
         assert_eq!(kind, TranscriptKind::NewFormatNoUsage);
         assert_eq!(summary.lines_skipped, 1);
@@ -390,7 +375,7 @@ mod tests {
             i64::MAX
         );
 
-        let (kind, parsed, _) = parse_transcript(&large).expect("parse");
+        let (kind, parsed, _) = parse_transcript(&large);
 
         assert_eq!(kind, TranscriptKind::NewFormatWithUsage);
         let parsed = parsed.expect("parsed");
@@ -402,7 +387,7 @@ mod tests {
         let invalid_ts = r#"{"type":"session","version":3,"id":"sess-5","timestamp":"2026-08-04T10:00:00Z","cwd":"/tmp/proj"}
 {"type":"message","id":"m1","parentId":null,"timestamp":"not-a-timestamp","message":{"role":"assistant","content":[]},"usage":{"inputTokens":5,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.001},"model":"m","effort":"max"}"#;
 
-        let (kind, parsed, summary) = parse_transcript(invalid_ts).expect("parse");
+        let (kind, parsed, summary) = parse_transcript(invalid_ts);
 
         assert_eq!(kind, TranscriptKind::NewFormatNoUsage);
         let parsed = parsed.expect("parsed");
@@ -416,7 +401,7 @@ mod tests {
 {"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-04T10:00:01Z","message":{"role":"assistant","content":[]},"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.001},"model":"m","effort":"max"}
 {"type":"message","id":"m2","parentId":"m1","timestamp":"2026-08-04T10:01:00Z","message":{"role":"assistant","content":[]},"usage":{"inputTokens":20,"outputTokens":4,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.002},"model":"m","effort":"max"}"#;
 
-        let (kind, parsed, summary) = parse_transcript(multi).expect("parse");
+        let (kind, parsed, summary) = parse_transcript(multi);
 
         assert_eq!(kind, TranscriptKind::NewFormatWithUsage);
         let parsed = parsed.expect("parsed");
@@ -429,7 +414,7 @@ mod tests {
         let bad_session_ts = r#"{"type":"session","version":3,"id":"sess-7","timestamp":"garbage","cwd":"/tmp/proj"}
 {"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-04T10:00:01Z","message":{"role":"assistant","content":[]},"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.001},"model":"m","effort":"max"}"#;
 
-        let (_, parsed, _) = parse_transcript(bad_session_ts).expect("parse");
+        let (_, parsed, _) = parse_transcript(bad_session_ts);
 
         let parsed = parsed.expect("parsed");
         assert_eq!(

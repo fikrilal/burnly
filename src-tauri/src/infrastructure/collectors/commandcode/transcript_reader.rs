@@ -4,11 +4,6 @@
 //! non-JSONL files, and parses each readable transcript. Unreadable or
 //! unparseable files are skipped without failing the scan.
 
-#![allow(
-    dead_code,
-    reason = "reader types are consumed by the adapter in a later chunk"
-)]
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -55,10 +50,7 @@ impl TranscriptReader {
                 summary.unreadable_transcripts += 1;
                 continue;
             };
-            let Ok((kind, maybe_parsed, parse_summary)) = parse_transcript(&contents) else {
-                summary.unreadable_transcripts += 1;
-                continue;
-            };
+            let (kind, maybe_parsed, parse_summary) = parse_transcript(&contents);
             summary.usage_records += parse_summary.usage_records;
             match kind {
                 TranscriptKind::NewFormatWithUsage => {

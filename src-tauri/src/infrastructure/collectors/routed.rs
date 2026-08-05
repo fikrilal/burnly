@@ -14,6 +14,7 @@ pub(crate) struct RoutedCollector {
     zcode: Arc<dyn Collector>,
     antigravity: Arc<dyn Collector>,
     grok: Arc<dyn Collector>,
+    commandcode: Arc<dyn Collector>,
 }
 
 impl RoutedCollector {
@@ -23,6 +24,7 @@ impl RoutedCollector {
         zcode: Arc<dyn Collector>,
         antigravity: Arc<dyn Collector>,
         grok: Arc<dyn Collector>,
+        commandcode: Arc<dyn Collector>,
     ) -> Self {
         Self {
             ccusage,
@@ -30,6 +32,7 @@ impl RoutedCollector {
             zcode,
             antigravity,
             grok,
+            commandcode,
         }
     }
 
@@ -42,15 +45,9 @@ impl RoutedCollector {
             SourceKey::ZCode => Ok(&self.zcode),
             SourceKey::Antigravity => Ok(&self.antigravity),
             SourceKey::GrokBuild => Ok(&self.grok),
+            SourceKey::CommandCode => Ok(&self.commandcode),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
-                crate::application::collection::CollectorFailureCode::UnsupportedSource,
-                Some(source),
-                None,
-            )),
-            // Command Code is not wired yet; fail closed until a later chunk
-            // registers the native collector.
-            SourceKey::CommandCode => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,
                 Some(source),
                 None,
@@ -68,6 +65,9 @@ impl Collector for RoutedCollector {
             .profiles
             .extend(self.antigravity.describe()?.profiles);
         descriptor.profiles.extend(self.grok.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.commandcode.describe()?.profiles);
         Ok(descriptor)
     }
 
@@ -111,12 +111,14 @@ mod tests {
         let zcode = Arc::new(RecordingCollector::new("zcode"));
         let antigravity = Arc::new(RecordingCollector::new("antigravity"));
         let grok = Arc::new(RecordingCollector::new("grok-build"));
+        let commandcode = Arc::new(RecordingCollector::new("command-code"));
         let collector = RoutedCollector::new(
             ccusage.clone(),
             cline.clone(),
             zcode.clone(),
             antigravity.clone(),
             grok.clone(),
+            commandcode.clone(),
         );
 
         collector
@@ -143,6 +145,9 @@ mod tests {
         collector
             .collect(request(SourceKey::GrokBuild), &NeverCancelled)
             .expect("grok-build collection");
+        collector
+            .collect(request(SourceKey::CommandCode), &NeverCancelled)
+            .expect("command-code collection");
 
         assert_eq!(
             ccusage.sources(),
@@ -157,24 +162,26 @@ mod tests {
         assert_eq!(zcode.sources(), vec![SourceKey::ZCode]);
         assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
         assert_eq!(grok.sources(), vec![SourceKey::GrokBuild]);
+        assert_eq!(commandcode.sources(), vec![SourceKey::CommandCode]);
     }
 
     #[test]
-    fn command_code_fails_closed_until_native_collector_is_wired() {
+    fn routes_command_code_to_native_collector() {
+        let commandcode = Arc::new(RecordingCollector::new("command-code"));
         let collector = RoutedCollector::new(
             Arc::new(RecordingCollector::new("ccusage")),
             Arc::new(RecordingCollector::new("cline")),
             Arc::new(RecordingCollector::new("zcode")),
             Arc::new(RecordingCollector::new("antigravity")),
             Arc::new(RecordingCollector::new("grok-build")),
+            commandcode.clone(),
         );
 
-        let failure = collector
+        collector
             .collect(request(SourceKey::CommandCode), &NeverCancelled)
-            .expect_err("command-code is not routed yet");
+            .expect("command-code routed");
 
-        assert_eq!(failure.code, CollectorFailureCode::UnsupportedSource);
-        assert_eq!(failure.source_key, Some(SourceKey::CommandCode));
+        assert_eq!(commandcode.sources(), vec![SourceKey::CommandCode]);
     }
 
     #[test]
@@ -185,6 +192,7 @@ mod tests {
             Arc::new(RecordingCollector::new("zcode")),
             Arc::new(RecordingCollector::new("antigravity")),
             Arc::new(RecordingCollector::new("grok-build")),
+            Arc::new(RecordingCollector::new("command-code")),
         );
 
         let descriptor = collector.describe().expect("descriptor");
@@ -205,6 +213,7 @@ mod tests {
                 SourceKey::ZCode,
                 SourceKey::Antigravity,
                 SourceKey::GrokBuild,
+                SourceKey::CommandCode,
             ]
         );
     }
@@ -308,6 +317,7 @@ mod tests {
             "zcode" => vec![profile(SourceKey::ZCode)],
             "antigravity" => vec![profile(SourceKey::Antigravity)],
             "grok-build" => vec![profile(SourceKey::GrokBuild)],
+            "command-code" => vec![profile(SourceKey::CommandCode)],
             _ => Vec::new(),
         }
     }

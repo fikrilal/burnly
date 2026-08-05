@@ -49,7 +49,7 @@ impl RefreshTarget {
 }
 
 /// All supported source/projection pairs refreshed by the coordinator.
-pub(super) const fn refresh_targets() -> [RefreshTarget; 16] {
+pub(super) const fn refresh_targets() -> [RefreshTarget; 18] {
     [
         RefreshTarget {
             source: SourceKey::ClaudeCode,
@@ -115,6 +115,14 @@ pub(super) const fn refresh_targets() -> [RefreshTarget; 16] {
             source: SourceKey::GrokBuild,
             projection: CollectionProjection::Session,
         },
+        RefreshTarget {
+            source: SourceKey::CommandCode,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::CommandCode,
+            projection: CollectionProjection::Session,
+        },
     ]
 }
 
@@ -158,20 +166,20 @@ mod tests {
     fn target_catalog_contains_each_supported_source_projection_pair() {
         let targets = refresh_targets();
 
-        assert_eq!(targets.len(), 16);
+        assert_eq!(targets.len(), 18);
         assert_eq!(
             targets
                 .iter()
                 .filter(|target| target.projection == CollectionProjection::Daily)
                 .count(),
-            8
+            9
         );
         assert_eq!(
             targets
                 .iter()
                 .filter(|target| target.projection == CollectionProjection::Session)
                 .count(),
-            8
+            9
         );
 
         for source in [
@@ -183,22 +191,13 @@ mod tests {
             SourceKey::ZCode,
             SourceKey::Antigravity,
             SourceKey::GrokBuild,
+            SourceKey::CommandCode,
         ] {
             assert!(targets.iter().any(|target| target.source == source
                 && target.projection == CollectionProjection::Daily));
             assert!(targets.iter().any(|target| target.source == source
                 && target.projection == CollectionProjection::Session));
         }
-    }
-
-    #[test]
-    fn command_code_is_not_yet_a_refresh_target() {
-        let targets = refresh_targets();
-
-        assert_eq!(targets.len(), 16);
-        assert!(!targets
-            .iter()
-            .any(|target| target.source == SourceKey::CommandCode));
     }
 
     #[test]
