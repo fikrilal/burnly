@@ -227,7 +227,9 @@ Cost semantics:
   with sub-cent precision and must be converted to integer micros with a
   deterministic rounding rule (round half-up to 6 decimal places, reject
   negative/non-finite).
-- Record provenance as `collector_calculated` (provider-computed, offline).
+- Record provenance as `source_reported` (`CostKind::SourceReported`) with
+  `estimated` status, matching the Cline native collector convention for
+  source-reported USD. (The collector does not calculate cost itself.)
 - Zero cost with positive tokens should be treated as unavailable, matching
   existing cost safeguards.
 
