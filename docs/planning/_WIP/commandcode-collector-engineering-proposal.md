@@ -589,6 +589,9 @@ pnpm verify:runtime
 
 Runtime evidence should include sanitized counters only.
 
+Captured desktop runtime evidence (August 5, 2026):
+`docs/runtime-evidence/2026-08-05-commandcode-runtime/README.md`
+
 ## Open Questions
 
 - ~~Should the source key be `commandcode` or `command-code`?~~ **Resolved:**
