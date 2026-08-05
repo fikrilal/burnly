@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"eeeeeeee-0000-0000-0000-000000000005","timestamp":"2026-08-04T12:00:00.000Z","cwd":"/home/user/project-epsilon"}
+{"type":"message","id":"e1","parentId":null,"timestamp":"2026-08-04T12:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"redacted"}]},"usage":{"inputTokens":700,"outputTokens":110,"cacheReadTokens":300,"cacheWriteTokens":0,"costUsd":0.0003},"model":"deepseek/deepseek-v4-flash","effort":"max"}
+this is not valid json
+{"type":"message","id":"e2","parentId":"e1","timestamp":"2026-08-04T12:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"redacted"}]},"usage":{"inputTokens":900,"outputTokens":130,"cacheReadTokens":400,"cacheWriteTokens":0,"costUsd":0.0004},"model":"deepseek/deepseek-v4-flash","effort":"max"}

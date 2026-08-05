@@ -1,0 +1,5 @@
+{"type":"session","version":3,"id":"dddddddd-0000-0000-0000-000000000004","timestamp":"2026-08-04T11:00:00.000Z","cwd":"/home/user/project-delta"}
+{"type":"message","id":"d1","parentId":null,"timestamp":"2026-08-04T11:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"redacted"}]},"usage":{"inputTokens":500,"outputTokens":80,"cacheReadTokens":200,"cacheWriteTokens":0,"costUsd":0.0002},"model":"deepseek/deepseek-v4-flash","effort":"max"}
+{"type":"message","id":"d2","parentId":"d1","timestamp":"2026-08-04T11:00:10.000Z","message":{"role":"user","content":[{"type":"text","text":"redacted"}]}}
+{"type":"message","id":"d3","parentId":"d2","timestamp":"2026-08-04T11:00:20.000Z","message":{"role":"assistant","content":[{"type":"text","text":"redacted"}]},"usage":{"inputTokens":600,"outputTokens":90,"cacheReadTokens":250,"cacheWriteTokens":0,"costUsd":0.00025},"model":"deepseek/deepseek-v4-flash","effort":"max"}
+{"type":"message","i

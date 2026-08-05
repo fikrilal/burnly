@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"00000000-0000-0000-0000-0000000000a2","timestamp":"2026-08-04T09:00:00.000Z","cwd":"/home/user/redacted-project"}
+{"type":"message","id":"n1","parentId":null,"timestamp":"2026-08-04T09:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"redacted"}]},"usage":{"inputTokens":-5,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.001},"model":"deepseek/deepseek-v4-flash","effort":"max"}
