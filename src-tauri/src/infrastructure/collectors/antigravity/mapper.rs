@@ -9,10 +9,13 @@ use crate::{
         CandidateProvenance, CollectionId, CollectionScope, CollectorKey, DailyUsageCandidate,
         ModelUsageCandidate, SessionUsageCandidate,
     },
+    application::cost::BurnlyCostCalculator,
     domain::{
         identity::{daily_source_key, session_source_key, IdentityError},
         source::SourceKey,
-        usage::{CostKind, TokenUsage, UsageCost, UsageValidationError},
+        usage::{
+            CostKind, CurrencyCode, TokenUsage, UsageCost, UsageValidationError, ValuedCostStatus,
+        },
     },
 };
 
@@ -70,6 +73,7 @@ pub(crate) fn map_daily(
     timezone: &str,
     scope: &CollectionScope,
     context: &AntigravityMappingContext,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<DailyUsageCandidate>, AntigravityMappingError> {
     let timezone = timezone
         .parse::<Tz>()
@@ -93,13 +97,12 @@ pub(crate) fn map_daily(
         .into_iter()
         .map(|(usage_date, usage)| {
             let tokens = usage.total.tokens()?;
-            let aggregate_cost = cost(tokens.total_tokens());
             let model_breakdowns = usage
                 .models
                 .into_iter()
                 .map(|(model, usage)| {
                     let tokens = usage.tokens()?;
-                    let cost = cost(tokens.total_tokens());
+                    let cost = cost(&model, &tokens, calculator);
                     Ok(ModelUsageCandidate {
                         raw_model_id: model,
                         tokens,
@@ -107,6 +110,7 @@ pub(crate) fn map_daily(
                     })
                 })
                 .collect::<Result<Vec<_>, AntigravityMappingError>>()?;
+            let aggregate_cost = aggregate_cost(&model_breakdowns, &tokens, calculator);
             Ok(DailyUsageCandidate {
                 provenance: context.provenance(),
                 source_key: daily_source_key(SourceKey::Antigravity, usage_date, timezone.name())?,
@@ -123,6 +127,7 @@ pub(crate) fn map_daily(
 pub(crate) fn map_sessions(
     conversations: Vec<ConversationUsage>,
     context: &AntigravityMappingContext,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<SessionUsageCandidate>, AntigravityMappingError> {
     let mut candidates = Vec::new();
     for conversation in conversations {
@@ -152,12 +157,11 @@ pub(crate) fn map_sessions(
         }
 
         let tokens = usage.tokens()?;
-        let aggregate_cost = cost(tokens.total_tokens());
         let model_breakdowns = models
             .into_iter()
             .map(|(model, usage)| {
                 let tokens = usage.tokens()?;
-                let cost = cost(tokens.total_tokens());
+                let cost = cost(&model, &tokens, calculator);
                 Ok(ModelUsageCandidate {
                     raw_model_id: model,
                     tokens,
@@ -165,6 +169,7 @@ pub(crate) fn map_sessions(
                 })
             })
             .collect::<Result<Vec<_>, AntigravityMappingError>>()?;
+        let aggregate_cost = aggregate_cost(&model_breakdowns, &tokens, calculator);
         let source_session_id = format!(
             "{}:{}",
             conversation.database.variant.as_str(),
@@ -250,16 +255,34 @@ fn checked_add(left: u64, right: u64) -> Result<u64, AntigravityMappingError> {
     checked_add_u64(left, right, AntigravityMappingError::TokenOverflow)
 }
 
-fn cost(total_tokens: u64) -> UsageCost {
-    if total_tokens == 0 {
-        UsageCost::NotApplicable {
-            kind: CostKind::SourceReported,
-        }
-    } else {
-        UsageCost::Unavailable {
-            kind: CostKind::SourceReported,
+fn cost(model: &str, tokens: &TokenUsage, calculator: &BurnlyCostCalculator) -> UsageCost {
+    calculator.calculate(model, tokens).cost
+}
+
+/// Daily/session aggregate cost: the sum of per-model valued micros when
+/// breakdowns exist; otherwise price the aggregate tokens with no model.
+fn aggregate_cost(
+    model_breakdowns: &[ModelUsageCandidate],
+    tokens: &TokenUsage,
+    calculator: &BurnlyCostCalculator,
+) -> UsageCost {
+    let mut total_micros = 0_u64;
+    let mut saw_valued = false;
+    for model in model_breakdowns {
+        if let UsageCost::Valued { amount_micros, .. } = model.cost {
+            total_micros = total_micros.saturating_add(amount_micros);
+            saw_valued = true;
         }
     }
+    if saw_valued {
+        return UsageCost::Valued {
+            amount_micros: total_micros,
+            currency: CurrencyCode::new("USD").expect("USD is a valid ISO-shaped currency"),
+            kind: CostKind::BurnlyCalculated,
+            status: ValuedCostStatus::Estimated,
+        };
+    }
+    calculator.calculate("", tokens).cost
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -290,6 +313,7 @@ mod tests {
             "Asia/Jakarta",
             &CollectionScope::Full,
             &context(),
+            &calculator(),
         )
         .expect("daily candidates");
 
@@ -316,7 +340,8 @@ mod tests {
 
     #[test]
     fn maps_records_to_session_usage_by_conversation_variant() {
-        let candidates = map_sessions(conversations(), &context()).expect("session candidates");
+        let candidates =
+            map_sessions(conversations(), &context(), &calculator()).expect("session candidates");
 
         assert_eq!(candidates.len(), 2);
         assert!(candidates.iter().any(|candidate| {
@@ -340,6 +365,7 @@ mod tests {
             )
             .expect("scope"),
             &context(),
+            &calculator(),
         )
         .expect("daily candidates");
 
@@ -369,6 +395,7 @@ mod tests {
             )
             .expect("scope"),
             &context(),
+            &calculator(),
         )
         .expect("daily candidates");
 
@@ -479,5 +506,9 @@ mod tests {
                 .expect("timestamp"),
         )
         .expect("context")
+    }
+
+    fn calculator() -> BurnlyCostCalculator {
+        BurnlyCostCalculator::new()
     }
 }

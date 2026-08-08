@@ -9,10 +9,13 @@ use crate::{
         CandidateProvenance, CollectionId, CollectionScope, CollectorKey, DailyUsageCandidate,
         ModelUsageCandidate, SessionUsageCandidate,
     },
+    application::cost::BurnlyCostCalculator,
     domain::{
         identity::{daily_source_key, session_source_key, IdentityError},
         source::SourceKey,
-        usage::{CostKind, TokenUsage, UsageCost, UsageValidationError},
+        usage::{
+            CostKind, CurrencyCode, TokenUsage, UsageCost, UsageValidationError, ValuedCostStatus,
+        },
     },
 };
 
@@ -106,6 +109,7 @@ pub(crate) fn map_daily(
     timezone: &str,
     scope: &CollectionScope,
     context: &GrokMappingContext,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<DailyUsageCandidate>, GrokMappingError> {
     let timezone = timezone
         .parse::<Tz>()
@@ -128,13 +132,12 @@ pub(crate) fn map_daily(
         .into_iter()
         .map(|(usage_date, usage)| {
             let tokens = usage.total.tokens()?;
-            let aggregate_cost = cost(tokens.total_tokens());
             let model_breakdowns = usage
                 .models
                 .into_iter()
                 .map(|(model, usage)| {
                     let tokens = usage.tokens()?;
-                    let cost = cost(tokens.total_tokens());
+                    let cost = cost(&model, &tokens, calculator);
                     Ok(ModelUsageCandidate {
                         raw_model_id: model,
                         tokens,
@@ -142,6 +145,7 @@ pub(crate) fn map_daily(
                     })
                 })
                 .collect::<Result<Vec<_>, GrokMappingError>>()?;
+            let aggregate_cost = aggregate_cost(&model_breakdowns, &tokens, calculator);
             Ok(DailyUsageCandidate {
                 provenance: context.provenance(),
                 source_key: daily_source_key(SourceKey::GrokBuild, usage_date, timezone.name())?,
@@ -158,6 +162,7 @@ pub(crate) fn map_daily(
 pub(crate) fn map_sessions(
     rows: Vec<GrokMappedInference>,
     context: &GrokMappingContext,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<SessionUsageCandidate>, GrokMappingError> {
     let mut buckets = BTreeMap::<(String, String), GrokSessionAccumulator>::new();
 
@@ -176,7 +181,7 @@ pub(crate) fn map_sessions(
 
     buckets
         .into_values()
-        .map(|usage| usage.candidate(context))
+        .map(|usage| usage.candidate(context, calculator))
         .collect()
 }
 
@@ -278,9 +283,10 @@ impl GrokSessionAccumulator {
     fn candidate(
         self,
         context: &GrokMappingContext,
+        calculator: &BurnlyCostCalculator,
     ) -> Result<SessionUsageCandidate, GrokMappingError> {
         let tokens = self.usage.tokens()?;
-        let cost = cost(tokens.total_tokens());
+        let cost = cost(&self.model_id, &tokens, calculator);
         Ok(SessionUsageCandidate {
             provenance: context.provenance(),
             source_key: session_source_key(
@@ -326,16 +332,34 @@ fn checked_add(left: u64, right: u64) -> Result<u64, GrokMappingError> {
     checked_add_u64(left, right, GrokMappingError::TokenOverflow)
 }
 
-fn cost(total_tokens: u64) -> UsageCost {
-    if total_tokens == 0 {
-        UsageCost::NotApplicable {
-            kind: CostKind::SourceReported,
-        }
-    } else {
-        UsageCost::Unavailable {
-            kind: CostKind::SourceReported,
+fn cost(model: &str, tokens: &TokenUsage, calculator: &BurnlyCostCalculator) -> UsageCost {
+    calculator.calculate(model, tokens).cost
+}
+
+/// Daily aggregate cost: the sum of per-model valued micros when breakdowns
+/// exist; otherwise price the aggregate tokens with no model (unavailable).
+fn aggregate_cost(
+    model_breakdowns: &[ModelUsageCandidate],
+    tokens: &TokenUsage,
+    calculator: &BurnlyCostCalculator,
+) -> UsageCost {
+    let mut total_micros = 0_u64;
+    let mut saw_valued = false;
+    for model in model_breakdowns {
+        if let UsageCost::Valued { amount_micros, .. } = model.cost {
+            total_micros = total_micros.saturating_add(amount_micros);
+            saw_valued = true;
         }
     }
+    if saw_valued {
+        return UsageCost::Valued {
+            amount_micros: total_micros,
+            currency: CurrencyCode::new("USD").expect("USD is a valid ISO-shaped currency"),
+            kind: CostKind::BurnlyCalculated,
+            status: ValuedCostStatus::Estimated,
+        };
+    }
+    calculator.calculate("", tokens).cost
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -392,8 +416,14 @@ mod tests {
         let rows = mapped_rows_from_fixture("unified-log/single-session.jsonl");
         let context = context();
 
-        let candidates =
-            map_daily(rows, "Asia/Jakarta", &CollectionScope::Full, &context).expect("daily");
+        let candidates = map_daily(
+            rows,
+            "Asia/Jakarta",
+            &CollectionScope::Full,
+            &context,
+            &calculator(),
+        )
+        .expect("daily");
 
         assert_eq!(candidates.len(), 1);
         let candidate = &candidates[0];
@@ -417,7 +447,7 @@ mod tests {
         let rows = mapped_rows_from_fixture("unified-log/multi-session.jsonl");
         let context = context();
 
-        let candidates = map_sessions(rows, &context).expect("sessions");
+        let candidates = map_sessions(rows, &context, &calculator()).expect("sessions");
 
         assert_eq!(candidates.len(), 2);
         assert!(candidates.iter().all(|candidate| {
@@ -526,6 +556,10 @@ mod tests {
                 .expect("timestamp"),
         )
         .expect("context")
+    }
+
+    fn calculator() -> BurnlyCostCalculator {
+        BurnlyCostCalculator::new()
     }
 
     fn inference_row(

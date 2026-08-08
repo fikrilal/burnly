@@ -11,6 +11,7 @@ use crate::application::collection::{
     CollectorIntegrity, CollectorKey, DetectionIssue, DetectionRequest, DetectionResult,
     DetectionState, ProcessSummary, ProfileDescriptor,
 };
+use crate::application::cost::BurnlyCostCalculator;
 use crate::application::diagnostics::{
     DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
     DiagnosticSummary,
@@ -48,6 +49,7 @@ pub(crate) struct AntigravityCollector {
     runtime_usage: RuntimeUsageSource,
     usage_cache: AntigravityUsageCacheClient,
     diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
+    calculator: BurnlyCostCalculator,
 }
 
 impl AntigravityCollector {
@@ -60,6 +62,7 @@ impl AntigravityCollector {
             runtime_usage: RuntimeUsageSource::Current(runtime_client),
             usage_cache: AntigravityUsageCacheClient::new(Arc::new(NoOpAntigravityUsageCache)),
             diagnostics: None,
+            calculator: BurnlyCostCalculator::new(),
         }
     }
 
@@ -111,6 +114,7 @@ impl AntigravityCollector {
             runtime_usage,
             usage_cache,
             diagnostics: None,
+            calculator: BurnlyCostCalculator::new(),
         }
     }
 
@@ -646,7 +650,7 @@ impl AntigravityCollector {
                 variants: Vec::new(),
             },
         );
-        result_from_usage(request, started, started_at, usage)
+        result_from_usage(request, started, started_at, usage, &self.calculator)
     }
 
     fn record_diagnostic(
@@ -984,6 +988,7 @@ fn result_from_usage(
     started: Instant,
     started_at: DateTime<Utc>,
     usage: Vec<ConversationUsage>,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<CollectionResult, CollectorFailure> {
     let finished_at = Utc::now();
     let metadata = metadata(request, started_at, finished_at)?;
@@ -1006,8 +1011,9 @@ fn result_from_usage(
             let timezone = request
                 .aggregation_timezone()
                 .ok_or_else(|| failure(request, CollectorFailureCode::ScopeNotRepresentable))?;
-            let candidates = mapper::map_daily(usage, timezone, request.scope(), &context)
-                .map_err(|_| failure(request, CollectorFailureCode::IncompatibleEnvelope))?;
+            let candidates =
+                mapper::map_daily(usage, timezone, request.scope(), &context, calculator)
+                    .map_err(|_| failure(request, CollectorFailureCode::IncompatibleEnvelope))?;
             CollectionResult::daily(
                 metadata,
                 candidates,
@@ -1017,7 +1023,7 @@ fn result_from_usage(
             )
         }
         CollectionProjection::Session => {
-            let candidates = mapper::map_sessions(usage, &context)
+            let candidates = mapper::map_sessions(usage, &context, calculator)
                 .map_err(|_| failure(request, CollectorFailureCode::IncompatibleEnvelope))?;
             CollectionResult::session(
                 metadata,

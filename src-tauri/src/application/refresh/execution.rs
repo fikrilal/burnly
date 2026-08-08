@@ -6,6 +6,7 @@
 use chrono::DateTime;
 
 use crate::application::collection::{CollectionProjection, CollectionResult, CollectorFailure};
+use crate::application::cost::{gap_fill_daily, gap_fill_session, BurnlyCostCalculator};
 use crate::application::diagnostics::{
     DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
     DiagnosticSummary,
@@ -330,15 +331,23 @@ fn reconcile_collection(
     now_ms: i64,
     collection: &CollectionResult,
 ) -> Result<(), crate::application::ports::usage_store::UsageStoreError> {
+    // Gap-fill: replace zero-with-positive-tokens costs with Burnly-calculated
+    // values from the embedded pricing snapshot, when the snapshot prices the
+    // model. Applies uniformly to every collector's candidates.
+    let calculator = BurnlyCostCalculator::new();
     match collection.projection() {
         CollectionProjection::Daily => {
+            let mut candidates = collection.daily_candidates().to_vec();
+            for candidate in candidates.iter_mut() {
+                gap_fill_daily(candidate, calculator.snapshot());
+            }
             let reconciliation = DailyReconciliationRequest::new(
                 source_id,
                 import_run_id,
                 collection.metadata().effective_scope().clone(),
                 collection.outcome(),
                 now_ms,
-                collection.daily_candidates().to_vec(),
+                candidates,
             );
             context.usage_store.reconcile_daily(reconciliation)?;
             let _ = context
@@ -347,13 +356,17 @@ fn reconcile_collection(
             Ok(())
         }
         CollectionProjection::Session => {
+            let mut candidates = collection.session_candidates().to_vec();
+            for candidate in candidates.iter_mut() {
+                gap_fill_session(candidate, calculator.snapshot());
+            }
             let reconciliation = SessionReconciliationRequest::new(
                 source_id,
                 import_run_id,
                 collection.metadata().effective_scope().clone(),
                 collection.outcome(),
                 now_ms,
-                collection.session_candidates().to_vec(),
+                candidates,
             );
             context
                 .usage_store

@@ -1,0 +1,148 @@
+# 2026-08-08 Burnly Cost Calculator 01 Calculator And Embedded Pricing
+
+## Objective
+
+Add a Burnly-owned cost calculator with an embedded, build-time models.dev
+pricing snapshot, and wire it as the third cost layer plus a gap-fill rule:
+Grok, Antigravity, and ZCode stop reporting `Unavailable` and start emitting
+`BurnlyCalculated`; collectors that report zero-with-tokens for a model the
+snapshot can price also get filled.
+
+## Acceptance Criteria
+
+- A pure cost calculator prices `TokenUsage` (input/output/cache-read/
+  cache-write) from an embedded models.dev snapshot into integer micros.
+- Long-context tier rates (`above_200k`) are applied when the snapshot
+  provides them.
+- Grok, Antigravity, and ZCode candidates carry `CostKind::BurnlyCalculated`
+  when the model resolves, `NotApplicable` for zero tokens, `Unavailable`
+  when the model is unknown.
+- Gap-fill: when a collector reports zero-with-positive-tokens and the
+  snapshot prices the model, the candidate cost becomes
+  `BurnlyCalculated` (applies to Command Code, Cline, and ccusage paths).
+- Free-tier models explicitly priced $0 in the snapshot stay `NotApplicable`.
+- ccusage, Command Code, and Cline behavior is unchanged when they already
+  report a positive cost.
+- Embedded snapshot is pinned in-repo and regenerable via a script + CI
+  check.
+- Full verification passes (`pnpm verify`).
+
+## Risk Class
+
+`medium`
+
+## Impact Areas
+
+- new `src-tauri/src/application/cost/` (calculator + snapshot parsing)
+- `src-tauri/src/infrastructure/collectors/grok/mapper.rs`
+- `src-tauri/src/infrastructure/collectors/antigravity/mapper.rs`
+- `src-tauri/src/infrastructure/collectors/zcode/mapper.rs`
+- candidate post-map normalization (gap-fill) shared by collectors
+- `scripts/` (snapshot regeneration + check)
+- `tests/fixtures/` (pricing snapshot fixture)
+- docs (`packaged-sidecars.md` style note for the snapshot)
+
+## Design Review
+
+- Complexity introduced: one pure calculator module, one embedded JSON
+  resource, one shared gap-fill step.
+- Hidden decisions:
+  - snapshot parsing lives behind one module; collectors never see raw JSON
+  - gap-fill is a single normalization applied to candidates, not per-mapper
+    logic
+- New interfaces: `calculate_cost(model, tokens, &PricingMap) -> UsageCost`
+  and a `GapFill` normalization function — both small and stable.
+- Special cases:
+  - zero tokens → `NotApplicable`
+  - model not in snapshot → `Unavailable`
+  - explicit $0 model → `NotApplicable` (not gap-filled)
+  - long-context tier → `above_200k` rates
+- Why now: cost coverage gaps are proven (Grok/Antigravity/ZCode have none;
+  DeepSeek/Mimo/Nemotron missing from ccusage), and `BurnlyCalculated` is
+  already wired through storage.
+
+## Scope
+
+- Add `application/cost/` with `calculator.rs` (pure math) and
+  `snapshot.rs` (models.dev JSON → pricing map).
+- Embed a pinned models.dev snapshot (sanitized, converted to per-token).
+- Add `scripts/update-cost-pricing.mjs` + `check-cost-pricing.mjs`.
+- Add a shared gap-fill normalization applied to daily/session candidates.
+- Wire Grok, Antigravity, ZCode mappers to emit `BurnlyCalculated`.
+- Add unit tests (calculator math, tiering, gap-fill, free-model handling).
+- Add fixture for the snapshot.
+
+## Out Of Scope
+
+- Changing ccusage / Command Code / Cline positive-cost behavior.
+- Runtime pricing fetch (offline-only).
+- Tray UI changes (cost already displays from `UsageCost`).
+- Desktop runtime evidence (separate later chunk).
+
+## Checklist
+
+- [x] Add `application/cost/calculator.rs` with pure pricing math.
+- [x] Add `application/cost/snapshot.rs` parsing the embedded JSON.
+- [x] Embed pinned models.dev snapshot + regeneration/check scripts.
+- [x] Add shared gap-fill normalization.
+- [x] Wire Grok, Antigravity, ZCode mappers.
+- [x] Add unit tests + fixture.
+- [x] Run `cargo test`, `pnpm verify`, `pnpm architecture:check`.
+
+## Test Plan
+
+- Behavior and invariants to prove:
+  - calculator prices all four token buckets into micros deterministically
+  - long-context tier applies `above_200k` rates above threshold
+  - zero tokens → `NotApplicable`
+  - unknown model → `Unavailable`
+  - explicit $0 model → `NotApplicable`
+  - gap-fill turns zero-with-tokens into `BurnlyCalculated` when priced
+  - Grok/Antigravity/ZCode candidates carry `BurnlyCalculated`
+  - ccusage/Command Code/Cline positive costs unchanged
+- Lowest stable test layer:
+  - `application/cost` unit tests
+  - mapper tests for grok/antigravity/zcode
+- Fixtures:
+  - sanitized pricing snapshot fixture
+- Relevant commands:
+  - `cargo test --manifest-path src-tauri/Cargo.toml --lib cost`
+  - `cargo test --manifest-path src-tauri/Cargo.toml --lib`
+  - `pnpm verify`
+
+## Decisions
+
+- Calculator lives in `application/cost/` (pure functions; snapshot is an
+  application resource).
+- Gap-fill applies only when reported cost is zero with positive tokens and
+  the snapshot prices the model; explicit $0 models are `NotApplicable`.
+- Snapshot is pinned in-repo, regenerated by script, checked in CI.
+
+## Verification
+
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib cost` passed: 21
+  tests (calculator math, tiering, gap-fill, free-model handling, snapshot
+  parsing).
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed: 573 total
+  (was 562 before this chunk).
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+  passed.
+- `pnpm verify` passed (format, lint, typecheck, 89 frontend tests, 573 Rust
+  tests, clippy, harness incl. `cost-pricing:check`).
+- `pnpm architecture:check` passed.
+- `scripts/update-cost-pricing.mjs --check` passed (206 embedded models).
+- Embedded snapshot regenerated from live models.dev API
+  (206 compact entries, ~12 KB, includes deepseek/mimo/nemotron/kimi/glm).
+
+## Runtime Evidence
+
+- Not required for this chunk; a later chunk records desktop runtime
+  evidence with real Grok/Antigravity/ZCode data.
+
+## Follow-Up Debt
+
+- Runtime evidence chunk (real sources showing `BurnlyCalculated` cost).
+- Review whether gap-fill should also apply to `Unavailable`-with-positive-
+  tokens from collectors that explicitly flag missing pricing (vs zero).
+- Consider surfacing `CostKind` in the tray (e.g. tooltip) so users can
+  distinguish source-reported vs calculated cost.

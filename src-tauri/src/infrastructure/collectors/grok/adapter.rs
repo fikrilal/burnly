@@ -7,6 +7,7 @@ use crate::application::collection::{
     CollectionProjection, CollectionRequest, CollectionResult, CollectorDescriptor,
     CollectorFailure, CollectorFailureCode, CollectorIntegrity, DetectionRequest, DetectionResult,
 };
+use crate::application::cost::BurnlyCostCalculator;
 use crate::application::diagnostics::DiagnosticSeverity;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
@@ -47,6 +48,7 @@ pub(crate) struct GrokCollector {
     grok_home: PathBuf,
     usage_cache: GrokUsageCacheClient,
     diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
+    calculator: BurnlyCostCalculator,
 }
 
 impl GrokCollector {
@@ -55,6 +57,7 @@ impl GrokCollector {
             grok_home: path.into(),
             usage_cache: GrokUsageCacheClient::new(Arc::new(NoOpGrokUsageCache)),
             diagnostics: None,
+            calculator: BurnlyCostCalculator::new(),
         }
     }
 
@@ -228,15 +231,21 @@ impl Collector for GrokCollector {
                 let timezone = request.aggregation_timezone().ok_or_else(|| {
                     request_failure(&request, CollectorFailureCode::ScopeNotRepresentable)
                 })?;
-                let candidates = mapper::map_daily(mapped, timezone, request.scope(), &context)
-                    .map_err(|_| {
-                        self.record_failure(
-                            &request,
-                            CollectorFailureCode::IncompatibleEnvelope,
-                            &[CollectorDiagnosticCounter::new("rowsFound", rows_found)],
-                        );
-                        request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
-                    })?;
+                let candidates = mapper::map_daily(
+                    mapped,
+                    timezone,
+                    request.scope(),
+                    &context,
+                    &self.calculator,
+                )
+                .map_err(|_| {
+                    self.record_failure(
+                        &request,
+                        CollectorFailureCode::IncompatibleEnvelope,
+                        &[CollectorDiagnosticCounter::new("rowsFound", rows_found)],
+                    );
+                    request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                })?;
                 CollectionResult::daily(
                     metadata,
                     candidates,
@@ -255,14 +264,15 @@ impl Collector for GrokCollector {
                 })
             }
             CollectionProjection::Session => {
-                let candidates = mapper::map_sessions(mapped, &context).map_err(|_| {
-                    self.record_failure(
-                        &request,
-                        CollectorFailureCode::IncompatibleEnvelope,
-                        &[CollectorDiagnosticCounter::new("rowsFound", rows_found)],
-                    );
-                    request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
-                })?;
+                let candidates =
+                    mapper::map_sessions(mapped, &context, &self.calculator).map_err(|_| {
+                        self.record_failure(
+                            &request,
+                            CollectorFailureCode::IncompatibleEnvelope,
+                            &[CollectorDiagnosticCounter::new("rowsFound", rows_found)],
+                        );
+                        request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                    })?;
                 CollectionResult::session(
                     metadata,
                     candidates,
