@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use super::claude_daily::{ModelBreakdown, TokenTotals};
 use crate::application::collection::{CollectorFailure, CollectorFailureCode};
 
-/// Claude Code session report from ccusage 20.0.14.
+/// Claude Code session report from ccusage 20.0.19.
 ///
 /// Real sidecar rows use `firstActivity` / `lastActivity` (not
 /// `firstActivityAt` / `lastActivityAt`) and optional `projectPath` string.

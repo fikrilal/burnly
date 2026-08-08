@@ -12,8 +12,8 @@ const DEVELOPMENT_MANIFEST: &str = include_str!(concat!(
     "/sidecars/ccusage/development-manifest.json"
 ));
 const EXPECTED_COLLECTOR_KEY: &str = "ccusage";
-const EXPECTED_VERSION: &str = "20.0.14";
-const EXPECTED_SOURCE_REVISION: &str = "a7726bb9227ef828a8fa06422a08162254a61563";
+const EXPECTED_VERSION: &str = "20.0.19";
+const EXPECTED_SOURCE_REVISION: &str = "caf89e8c0291a2acec09e01ff609e6253f6dd81b";
 const ADAPTER_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -479,7 +479,7 @@ mod tests {
         assert!(matches!(
             linux_only_manifest.descriptor(
                 BinaryTarget::DarwinArm64,
-                "20.0.14".to_owned(),
+                "20.0.19".to_owned(),
                 CollectorIntegrity::UnverifiedDevelopment,
             ),
             Err(ManifestError::TargetNotDeclared(BinaryTarget::DarwinArm64))
@@ -495,8 +495,8 @@ mod tests {
             r#"{{
                 "collectorKey":"ccusage",
                 "displayName":"ccusage",
-                "expectedVersion":"20.0.14",
-                "sourceRevision":"a7726bb9227ef828a8fa06422a08162254a61563",
+                "expectedVersion":"20.0.19",
+                "sourceRevision":"caf89e8c0291a2acec09e01ff609e6253f6dd81b",
                 "adapterVersion":1,
                 "entries":[{{
                     "target":"linux-x64",

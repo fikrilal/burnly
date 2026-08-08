@@ -507,7 +507,7 @@ mod tests {
                     profile_version, projection, scope_kind, scope_start_date,
                     scope_end_date, aggregation_timezone, status, records_seen,
                     records_rejected, started_at_ms
-                ) VALUES (1, 1, 'ccusage', '20.0.14', 1, 'daily', 'full',
+                ) VALUES (1, 1, 'ccusage', '20.0.19', 1, 'daily', 'full',
                     NULL, NULL, 'UTC', 'running', 0, 0, 120)",
                 [],
             )

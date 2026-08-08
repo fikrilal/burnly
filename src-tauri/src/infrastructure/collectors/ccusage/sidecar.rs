@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn verifies_explicit_development_binary_without_claiming_release_integrity() {
-        let fixture = Fixture::new("20.0.14");
+        let fixture = Fixture::new("20.0.19");
         let manifest = fixture.manifest(r#"{"kind":"unverified_dev"}"#);
 
         let verified = verify(
@@ -231,12 +231,12 @@ mod tests {
             verified.descriptor.integrity,
             CollectorIntegrity::UnverifiedDevelopment
         );
-        assert_eq!(verified.descriptor.runtime_version, "20.0.14");
+        assert_eq!(verified.descriptor.runtime_version, "20.0.19");
     }
 
     #[test]
     fn verifies_packaged_binary_checksum_before_version() {
-        let fixture = Fixture::new("20.0.14");
+        let fixture = Fixture::new("20.0.19");
         let (package_root, packaged) = fixture.package();
         let checksum = sha256(&packaged).expect("checksum");
         let manifest = fixture.manifest(&format!(
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn materializes_verified_packaged_payload_when_direct_binary_was_mutated() {
-        let fixture = Fixture::new("20.0.14");
+        let fixture = Fixture::new("20.0.19");
         let (package_root, packaged) = fixture.package();
         let checksum = sha256(&fixture.executable).expect("checksum");
         fs::remove_file(&packaged).expect("remove linked executable");
@@ -352,7 +352,7 @@ mod tests {
         fn new(version: &str) -> Self {
             let target = BinaryTarget::current().expect("supported test target");
             let directory = tempfile::tempdir().expect("fixture directory");
-            let fixture = if version == "20.0.14" {
+            let fixture = if version == "20.0.19" {
                 "fake-collector.sh"
             } else {
                 "fake-collector-old.sh"
@@ -370,8 +370,8 @@ mod tests {
                 r#"{{
                     "collectorKey":"ccusage",
                     "displayName":"ccusage",
-                    "expectedVersion":"20.0.14",
-                    "sourceRevision":"a7726bb9227ef828a8fa06422a08162254a61563",
+                    "expectedVersion":"20.0.19",
+                    "sourceRevision":"caf89e8c0291a2acec09e01ff609e6253f6dd81b",
                     "adapterVersion":1,
                     "entries":[{{
                         "target":"{}",

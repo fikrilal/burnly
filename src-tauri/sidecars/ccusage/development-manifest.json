@@ -1,8 +1,8 @@
 {
   "collectorKey": "ccusage",
   "displayName": "ccusage",
-  "expectedVersion": "20.0.14",
-  "sourceRevision": "a7726bb9227ef828a8fa06422a08162254a61563",
+  "expectedVersion": "20.0.19",
+  "sourceRevision": "caf89e8c0291a2acec09e01ff609e6253f6dd81b",
   "adapterVersion": 1,
   "entries": [
     {

@@ -170,10 +170,10 @@ function assertEqual(actual, expected, field) {
 
 function validateManifest(manifest, release) {
   assertEqual(manifest.collectorKey, "ccusage", "collector key");
-  assertEqual(manifest.expectedVersion, "20.0.14", "expected version");
+  assertEqual(manifest.expectedVersion, "20.0.19", "expected version");
   assertEqual(
     manifest.sourceRevision,
-    "a7726bb9227ef828a8fa06422a08162254a61563",
+    "caf89e8c0291a2acec09e01ff609e6253f6dd81b",
     "source revision",
   );
   assertEqual(manifest.adapterVersion, 1, "adapter version");
@@ -215,27 +215,27 @@ function validateManifest(manifest, release) {
   const releaseChecksums = new Map([
     [
       "darwin-arm64",
-      "df44e944327d6fc071c313d59785bb5ad28f1f57b70075bb6c5ef6da957cb3fc",
+      "a5f1cc293e23acc5b4fd7465ac5611b1cf373992d1332b3c2740bd10ca6602fe",
     ],
     [
       "darwin-x64",
-      "97f5de32caab953e3ce789f3b62d45551219a8cc106d871dc93afccdf6bf61bf",
+      "9c0d2ab284bc59dc1735797b9eceb2d284e5088a1cfff1dfbd35894c4056f4c1",
     ],
     [
       "linux-arm64",
-      "f1f7e21073f17905a02daa31cc2b117e39fe10aae18454b228dec04a11a5d1de",
+      "c87076d4cf82b7dee6d2907e37e867c35e4e8fba86dcddb41191cd5fe8a907ea",
     ],
     [
       "linux-x64",
-      "dfcd0ea98fc56d71cff77db000d307b011fe218333ac93f7697d242e1f587e35",
+      "e4973b39defbd89afaab591ad91710e1a4ca0fec32244f09c7016263c5af0e46",
     ],
     [
       "windows-arm64",
-      "336d4d321517546921a6b242e00b7c9d58d91317f23fed98a334f3c96faec6b1",
+      "80e4dfa8868685a93092fbc6bd37a0290e4419bcdeecd3b51602dbb0651c6172",
     ],
     [
       "windows-x64",
-      "e25ee0cf400037fa4bcb4e2b7d267cfd56f1d43487c5bc5c823b6fc3c5c24c5c",
+      "d12495560a93e7ac5397f3647026fa611508ebfbe3e7a8249e2138ff434a3b67",
     ],
   ]);
   const targets = new Set();
