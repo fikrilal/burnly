@@ -92,6 +92,7 @@ const envelopeMatrices = new Map([
       "empty.json",
       "incompatible-envelope.json",
       "invalid-json.json",
+      "real-shape-2019.json",
       "real-shape.json",
       "valid.json",
     ],

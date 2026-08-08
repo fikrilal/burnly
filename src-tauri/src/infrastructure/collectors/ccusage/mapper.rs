@@ -1120,6 +1120,37 @@ mod tests {
     }
 
     #[test]
+    fn maps_real_2019_opencode_rows_to_individual_models() {
+        let report = decode_opencode_daily(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/collectors/ccusage/opencode-daily/real-shape-2019.json"
+        )))
+        .expect("decoded fixture");
+        let context =
+            build_context(SourceKey::OpenCode, "20.0.19", 1, "Asia/Jakarta").expect("context");
+
+        let candidates = map_opencode_daily(report, context).expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        // ccusage 20.0.19 emits per-model breakdowns; they must map to
+        // individual model entries instead of collapsing into "Multiple models".
+        let model_ids = candidates[0]
+            .model_breakdowns
+            .iter()
+            .map(|model| model.raw_model_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            model_ids,
+            vec![
+                "deepseek-v4-flash-free",
+                "mimo-v2.5-free",
+                "nemotron-3-ultra-free"
+            ]
+        );
+        assert_eq!(candidates[0].tokens.total_tokens(), 1_154_660);
+    }
+
+    #[test]
     fn maps_opencode_session_usage_with_deterministic_identity() {
         let context = build_context(SourceKey::OpenCode, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_opencode_session(
