@@ -420,7 +420,7 @@ mod tests {
                     refresh_run_id, source_id, collector_key, collector_version,
                     profile_version, projection, scope_kind, aggregation_timezone,
                     status, records_seen, records_rejected, started_at_ms, finished_at_ms
-                ) VALUES (?1, ?2, 'ccusage', '20.0.14', 1, 'daily', 'full',
+                ) VALUES (?1, ?2, 'ccusage', '20.0.19', 1, 'daily', 'full',
                     'Asia/Jakarta', 'succeeded', 1, 0, 100, 200)",
                 params![refresh_id, source_id],
             )

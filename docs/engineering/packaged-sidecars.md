@@ -5,9 +5,9 @@ resource. React has no process or filesystem authority over it.
 
 ## Release Identity
 
-- Version: `20.0.14`
-- Source tag: `v20.0.14`
-- Source revision: `a7726bb9227ef828a8fa06422a08162254a61563`
+- Version: `20.0.19`
+- Source tag: `v20.0.19`
+- Source revision: `caf89e8c0291a2acec09e01ff609e6253f6dd81b`
 - Distribution: official `@ccusage/ccusage-*` npm platform packages
 
 The release manifest at
@@ -28,7 +28,7 @@ or unverified targets fail the collector harness.
 1. Resolves the current Rust target triple, or the explicit
    `BURNLY_SIDECAR_TARGET` used by a cross-target build.
 2. Locates the matching optional native dependency installed with exact
-   `ccusage` version `20.0.14`.
+   `ccusage` version `20.0.19`.
 3. Verifies package name, package version, and binary SHA-256.
 4. Runs `ccusage --version` when the target is executable on the build host.
 5. Stages only the selected executable and the release manifest into the

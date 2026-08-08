@@ -181,6 +181,19 @@ mod tests {
     }
 
     #[test]
+    fn decodes_real_2019_rows_with_model_breakdowns() {
+        let report = decode(fixture("real-shape-2019.json")).expect("real-shape-2019 report");
+
+        assert_eq!(report.daily.len(), 1);
+        assert_eq!(report.daily[0].models_used.len(), 3);
+        assert_eq!(report.daily[0].model_breakdowns.len(), 3);
+        assert_eq!(
+            report.daily[0].model_breakdowns[0].model_name,
+            "deepseek-v4-flash-free"
+        );
+    }
+
+    #[test]
     fn accepts_empty_and_compatible_fixtures() {
         let empty = decode(fixture("empty.json")).expect("empty report");
         assert!(empty.daily.is_empty());
@@ -236,6 +249,10 @@ mod tests {
             "real-shape.json" => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../tests/fixtures/collectors/ccusage/opencode-daily/real-shape.json"
+            )),
+            "real-shape-2019.json" => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tests/fixtures/collectors/ccusage/opencode-daily/real-shape-2019.json"
             )),
             _ => panic!("unknown fixture under {FIXTURES}"),
         }

@@ -226,7 +226,7 @@ Initial priority sources:
 - `codex` mapped to `ccusage codex`
 - `opencode` mapped to `ccusage opencode`
 
-Other sources exposed by `ccusage 20.0.14` are not automatically Burnly-supported. Each requires fixtures, a capability profile, privacy review, and cross-platform validation before being marked `supported`.
+Other sources exposed by `ccusage 20.0.19` are not automatically Burnly-supported. Each requires fixtures, a capability profile, privacy review, and cross-platform validation before being marked `supported`.
 
 The registry may be expanded without changing the collector port.
 
@@ -316,7 +316,7 @@ The exact values require fixtures, but the shape is:
 
 ```text
 source: codex
-collector: ccusage 20.0.14
+collector: ccusage 20.0.19
 daily: supported
 session: supported
 model: supported
@@ -544,10 +544,13 @@ The adapter must not replace aggregate totals with the sum of model rows because
 The reviewed local baseline is:
 
 ```text
-ccusage version: 20.0.14
-repository commit: 43836bc
-review date: June 14, 2026
+ccusage version: 20.0.19
+repository commit: caf89e8c0291a2acec09e01ff609e6253f6dd81b
+review date: August 5, 2026
 ```
+
+The prior baseline (`ccusage 20.0.14`, commit `43836bc`, reviewed June 14, 2026) was superseded by this upgrade. Envelope decoders remain compatible with
+both because unknown additive fields are allowed.
 
 The release manifest pins:
 

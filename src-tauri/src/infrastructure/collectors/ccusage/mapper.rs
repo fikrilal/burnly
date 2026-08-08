@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn maps_claude_session_real_shape_with_deterministic_identity() {
-        let context = build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::ClaudeCode, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_session(
             decode_claude_session(CLAUDE_SESSION_REAL_SHAPE).expect("decoded real-shape"),
             context,
@@ -779,7 +779,7 @@ mod tests {
 
     #[test]
     fn maps_claude_session_valid_and_empty_fixtures() {
-        let context = build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::ClaudeCode, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_session(
             decode_claude_session(CLAUDE_SESSION_VALID).expect("decoded valid"),
             context.clone(),
@@ -824,7 +824,7 @@ mod tests {
             "totalCost": 0.01
           }
         }"#;
-        let context = build_context(SourceKey::ClaudeCode, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::ClaudeCode, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_session(
             decode_claude_session(input).expect("decoded with path"),
             context,
@@ -861,7 +861,7 @@ mod tests {
     #[test]
     fn rejects_invalid_mapping_context_and_values() {
         assert_eq!(
-            build_context(SourceKey::ClaudeCode, "20.0.14", 1, " ").expect_err("empty timezone"),
+            build_context(SourceKey::ClaudeCode, "20.0.19", 1, " ").expect_err("empty timezone"),
             MappingError::EmptyAggregationTimezone
         );
         assert_eq!(
@@ -869,7 +869,7 @@ mod tests {
             MappingError::EmptyCollectorVersion
         );
         assert_eq!(
-            build_context(SourceKey::ClaudeCode, "20.0.14", 0, "UTC").expect_err("invalid profile"),
+            build_context(SourceKey::ClaudeCode, "20.0.19", 0, "UTC").expect_err("invalid profile"),
             MappingError::InvalidProfileVersion
         );
         assert_eq!(map_cost(-0.1, 1), Err(MappingError::InvalidCost));
@@ -890,7 +890,7 @@ mod tests {
     #[test]
     fn maps_codex_daily_usage_with_deterministic_identity() {
         let context =
-            build_context(SourceKey::Codex, "20.0.14", 1, "Asia/Jakarta").expect("context");
+            build_context(SourceKey::Codex, "20.0.19", 1, "Asia/Jakarta").expect("context");
         let candidates = map_codex_daily(
             decode_codex_daily(CODEX_DAILY_VALID).expect("decoded fixture"),
             context,
@@ -934,7 +934,7 @@ mod tests {
     #[test]
     fn maps_real_codex_daily_shape_without_model_costs() {
         let context =
-            build_context(SourceKey::Codex, "20.0.14", 1, "Asia/Jakarta").expect("context");
+            build_context(SourceKey::Codex, "20.0.19", 1, "Asia/Jakarta").expect("context");
         let candidates = map_codex_daily(
             decode_codex_daily(CODEX_DAILY_REAL_SHAPE).expect("decoded fixture"),
             context,
@@ -957,7 +957,7 @@ mod tests {
 
     #[test]
     fn maps_codex_session_usage_with_deterministic_identity() {
-        let context = build_context(SourceKey::Codex, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::Codex, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_codex_session(
             decode_codex_session(CODEX_SESSION_VALID).expect("decoded fixture"),
             context,
@@ -997,7 +997,7 @@ mod tests {
 
     #[test]
     fn maps_real_codex_session_shape_with_nullable_activity_bounds() {
-        let context = build_context(SourceKey::Codex, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::Codex, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_codex_session(
             decode_codex_session(CODEX_SESSION_REAL_SHAPE).expect("decoded fixture"),
             context,
@@ -1020,7 +1020,7 @@ mod tests {
     #[test]
     fn maps_opencode_daily_usage_with_deterministic_identity() {
         let context =
-            build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
+            build_context(SourceKey::OpenCode, "20.0.19", 1, "Asia/Jakarta").expect("context");
         let candidates = map_opencode_daily(
             decode_opencode_daily(OPENCODE_DAILY_VALID).expect("decoded fixture"),
             context,
@@ -1049,7 +1049,7 @@ mod tests {
     #[test]
     fn synthesizes_single_model_breakdown_for_real_opencode_daily_shape() {
         let context =
-            build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
+            build_context(SourceKey::OpenCode, "20.0.19", 1, "Asia/Jakarta").expect("context");
         let candidates = map_opencode_daily(
             decode_opencode_daily(OPENCODE_DAILY_REAL_SHAPE).expect("decoded fixture"),
             context,
@@ -1100,7 +1100,7 @@ mod tests {
         )
         .expect("decoded fixture");
         let context =
-            build_context(SourceKey::OpenCode, "20.0.14", 1, "Asia/Jakarta").expect("context");
+            build_context(SourceKey::OpenCode, "20.0.19", 1, "Asia/Jakarta").expect("context");
 
         let candidates = map_opencode_daily(report, context).expect("mapped candidates");
 
@@ -1120,8 +1120,39 @@ mod tests {
     }
 
     #[test]
+    fn maps_real_2019_opencode_rows_to_individual_models() {
+        let report = decode_opencode_daily(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/collectors/ccusage/opencode-daily/real-shape-2019.json"
+        )))
+        .expect("decoded fixture");
+        let context =
+            build_context(SourceKey::OpenCode, "20.0.19", 1, "Asia/Jakarta").expect("context");
+
+        let candidates = map_opencode_daily(report, context).expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        // ccusage 20.0.19 emits per-model breakdowns; they must map to
+        // individual model entries instead of collapsing into "Multiple models".
+        let model_ids = candidates[0]
+            .model_breakdowns
+            .iter()
+            .map(|model| model.raw_model_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            model_ids,
+            vec![
+                "deepseek-v4-flash-free",
+                "mimo-v2.5-free",
+                "nemotron-3-ultra-free"
+            ]
+        );
+        assert_eq!(candidates[0].tokens.total_tokens(), 1_154_660);
+    }
+
+    #[test]
     fn maps_opencode_session_usage_with_deterministic_identity() {
-        let context = build_context(SourceKey::OpenCode, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::OpenCode, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_opencode_session(
             decode_opencode_session(OPENCODE_SESSION_VALID).expect("decoded fixture"),
             context,
@@ -1143,7 +1174,7 @@ mod tests {
 
     #[test]
     fn maps_real_opencode_session_shape_with_nullable_activity_bounds() {
-        let context = build_context(SourceKey::OpenCode, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::OpenCode, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_opencode_session(
             decode_opencode_session(OPENCODE_SESSION_REAL_SHAPE).expect("decoded fixture"),
             context,
@@ -1160,7 +1191,7 @@ mod tests {
 
     #[test]
     fn maps_pi_daily_usage_with_deterministic_identity_and_preserved_label() {
-        let context = build_context(SourceKey::Pi, "20.0.14", 1, "Asia/Jakarta").expect("context");
+        let context = build_context(SourceKey::Pi, "20.0.19", 1, "Asia/Jakarta").expect("context");
         let candidates = map_opencode_daily(
             decode_opencode_daily(PI_DAILY_VALID).expect("decoded fixture"),
             context,
@@ -1188,7 +1219,7 @@ mod tests {
 
     #[test]
     fn maps_real_pi_daily_shape_with_single_model() {
-        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::Pi, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_opencode_daily(
             decode_opencode_daily(PI_DAILY_REAL_SHAPE).expect("decoded fixture"),
             context,
@@ -1207,7 +1238,7 @@ mod tests {
 
     #[test]
     fn preserves_empty_pi_daily_collection() {
-        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::Pi, "20.0.19", 1, "UTC").expect("context");
         assert!(map_opencode_daily(
             decode_opencode_daily(PI_DAILY_EMPTY).expect("decoded fixture"),
             context,
@@ -1234,7 +1265,7 @@ mod tests {
 
     #[test]
     fn maps_pi_session_usage_with_deterministic_identity_and_preserved_label() {
-        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::Pi, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_pi_session(
             decode_pi_session(PI_SESSION_VALID).expect("decoded fixture"),
             context,
@@ -1261,7 +1292,7 @@ mod tests {
 
     #[test]
     fn maps_real_pi_session_shape_with_nullable_activity_bounds() {
-        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::Pi, "20.0.19", 1, "UTC").expect("context");
         let candidates = map_pi_session(
             decode_pi_session(PI_SESSION_REAL_SHAPE).expect("decoded fixture"),
             context,
@@ -1278,7 +1309,7 @@ mod tests {
 
     #[test]
     fn preserves_empty_pi_session_collection() {
-        let context = build_context(SourceKey::Pi, "20.0.14", 1, "UTC").expect("context");
+        let context = build_context(SourceKey::Pi, "20.0.19", 1, "UTC").expect("context");
         assert!(map_pi_session(
             decode_pi_session(PI_SESSION_EMPTY).expect("decoded fixture"),
             context,
@@ -1288,7 +1319,7 @@ mod tests {
     }
 
     fn context(timezone: &str) -> MappingContext {
-        build_context(SourceKey::ClaudeCode, "20.0.14", 1, timezone).expect("mapping context")
+        build_context(SourceKey::ClaudeCode, "20.0.19", 1, timezone).expect("mapping context")
     }
 
     fn build_context(

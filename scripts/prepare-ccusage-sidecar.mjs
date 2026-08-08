@@ -34,8 +34,8 @@ const entry = manifest.entries.find(
 if (!entry) {
   throw new Error(`unsupported ccusage target ${rustTargetTriple}`);
 }
-if (manifest.expectedVersion !== "20.0.14") {
-  throw new Error("ccusage release manifest version is not pinned to 20.0.14");
+if (manifest.expectedVersion !== "20.0.19") {
+  throw new Error("ccusage release manifest version is not pinned to 20.0.19");
 }
 
 const ccusagePackage = await realpath(require.resolve("ccusage/package.json"));

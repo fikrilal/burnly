@@ -448,7 +448,7 @@ mod tests {
 
         let descriptor = collector.describe().expect("descriptor");
         assert_eq!(descriptor.collector.as_str(), "ccusage");
-        assert_eq!(descriptor.runtime_version, "20.0.14");
+        assert_eq!(descriptor.runtime_version, "20.0.19");
 
         for source in [
             SourceKey::ClaudeCode,
@@ -588,12 +588,12 @@ mod tests {
     #[ignore = "set BURNLY_CCUSAGE_DEV_BINARY to run the pinned local sidecar smoke test"]
     fn smoke_tests_opt_in_real_sidecar_shape() {
         let binary = std::env::var_os("BURNLY_CCUSAGE_DEV_BINARY")
-            .expect("BURNLY_CCUSAGE_DEV_BINARY must point to a ccusage 20.0.14 binary");
+            .expect("BURNLY_CCUSAGE_DEV_BINARY must point to a ccusage 20.0.19 binary");
         let collector = CcusageCollector::development(PathBuf::from(binary)).expect("collector");
         let descriptor = collector.describe().expect("descriptor");
 
         assert_eq!(descriptor.collector.as_str(), "ccusage");
-        assert_eq!(descriptor.runtime_version, "20.0.14");
+        assert_eq!(descriptor.runtime_version, "20.0.19");
     }
 
     fn fake_collector(name: &str) -> FakeCollector {
@@ -642,8 +642,8 @@ mod tests {
                 r#"{{
                     "collectorKey":"ccusage",
                     "displayName":"ccusage",
-                    "expectedVersion":"20.0.14",
-                    "sourceRevision":"a7726bb9227ef828a8fa06422a08162254a61563",
+                    "expectedVersion":"20.0.19",
+                    "sourceRevision":"caf89e8c0291a2acec09e01ff609e6253f6dd81b",
                     "adapterVersion":1,
                     "entries":[{{
                         "target":"{}",
@@ -677,7 +677,7 @@ mod tests {
             r#"#!/bin/sh
 case "$1" in
   --version)
-    printf 'ccusage 20.0.14\n'
+    printf 'ccusage 20.0.19\n'
     exit 0
     ;;
   claude)
