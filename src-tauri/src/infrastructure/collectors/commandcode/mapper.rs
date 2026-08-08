@@ -210,12 +210,20 @@ impl CommandCodeUsageAccumulator {
     }
 
     fn tokens(&self) -> Result<TokenUsage, CommandCodeMappingError> {
+        // Command Code reports `cacheReadTokens` as a SUBSET of
+        // `inputTokens` (the cache-hit portion of the prompt), not as
+        // additional tokens. Summing them double-counts the cached portion.
+        // Net input = input - cache_read; total = input + output + cache_write.
+        let net_input = self
+            .input_tokens
+            .checked_sub(self.cache_read_tokens)
+            .ok_or(CommandCodeMappingError::OverlappingCacheTokens)?;
         let total = checked_add(
             checked_add(self.input_tokens, self.output_tokens)?,
-            checked_add(self.cache_read_tokens, self.cache_write_tokens)?,
+            self.cache_write_tokens,
         )?;
         TokenUsage::new(
-            Some(self.input_tokens),
+            Some(net_input),
             Some(self.output_tokens),
             Some(self.cache_write_tokens),
             Some(self.cache_read_tokens),
@@ -338,6 +346,8 @@ pub(crate) enum CommandCodeMappingError {
     InvalidTimestamp,
     #[error("command-code token total overflowed")]
     TokenOverflow,
+    #[error("command-code cache-read tokens exceed input tokens")]
+    OverlappingCacheTokens,
     #[error("command-code cost value is invalid")]
     InvalidCost,
     #[error(transparent)]
@@ -430,11 +440,13 @@ mod tests {
             candidate.source_key,
             "command-code:daily:v1:Asia/Jakarta:2026-08-04"
         );
-        assert_eq!(candidate.tokens.input_tokens(), Some(10));
+        assert_eq!(candidate.tokens.input_tokens(), Some(7));
         assert_eq!(candidate.tokens.output_tokens(), Some(2));
         assert_eq!(candidate.tokens.cache_read_tokens(), Some(3));
         assert_eq!(candidate.tokens.cache_creation_tokens(), Some(0));
-        assert_eq!(candidate.tokens.total_tokens(), 15);
+        // cache_read is a subset of input (10 = 7 net + 3 cached); total is
+        // input + output = 12, NOT input + output + cache_read.
+        assert_eq!(candidate.tokens.total_tokens(), 12);
         let cost = match &candidate.cost {
             UsageCost::Valued {
                 amount_micros,
@@ -458,6 +470,22 @@ mod tests {
     }
 
     #[test]
+    fn cache_read_is_not_double_counted_on_top_of_input() {
+        // Regression: Command Code reports cacheReadTokens as a subset of
+        // inputTokens (the cache-hit portion of the prompt). The total must
+        // not add cache_read on top of input.
+        let transcript = transcript_from(VALID_TRANSCRIPT); // input 10, cache_read 3
+        let context = context();
+
+        let candidates =
+            map_daily(vec![transcript], "UTC", &CollectionScope::Full, &context).expect("daily");
+
+        assert_eq!(candidates[0].tokens.input_tokens(), Some(7));
+        assert_eq!(candidates[0].tokens.cache_read_tokens(), Some(3));
+        assert_eq!(candidates[0].tokens.total_tokens(), 12);
+    }
+
+    #[test]
     fn maps_session_candidate_from_transcript() {
         let transcripts = vec![transcript_from(VALID_TRANSCRIPT)];
         let context = context();
@@ -473,7 +501,7 @@ mod tests {
         assert_eq!(candidate.project_path.as_deref(), Some("/tmp/proj"));
         assert!(candidate.first_activity_at.is_some());
         assert!(candidate.last_activity_at.is_some());
-        assert_eq!(candidate.tokens.total_tokens(), 15);
+        assert_eq!(candidate.tokens.total_tokens(), 12);
     }
 
     #[test]
@@ -487,7 +515,7 @@ mod tests {
         let candidates = map_sessions(vec![transcript], &context).expect("sessions");
 
         assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].tokens.total_tokens(), 15);
+        assert_eq!(candidates[0].tokens.total_tokens(), 12);
     }
 
     #[test]

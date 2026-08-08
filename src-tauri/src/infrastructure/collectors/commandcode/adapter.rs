@@ -458,10 +458,10 @@ mod tests {
             daily.source_key,
             "command-code:daily:v1:Asia/Jakarta:2026-08-04"
         );
-        assert_eq!(daily.tokens.input_tokens(), Some(10));
+        assert_eq!(daily.tokens.input_tokens(), Some(7));
         assert_eq!(daily.tokens.output_tokens(), Some(2));
         assert_eq!(daily.tokens.cache_read_tokens(), Some(3));
-        assert_eq!(daily.tokens.total_tokens(), 15);
+        assert_eq!(daily.tokens.total_tokens(), 12);
         assert_eq!(daily.model_breakdowns.len(), 1);
         assert_eq!(
             daily.model_breakdowns[0].raw_model_id,
