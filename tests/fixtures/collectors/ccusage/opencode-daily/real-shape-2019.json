@@ -6,11 +6,36 @@
       "date": "2026-08-08",
       "inputTokens": 212652,
       "modelBreakdowns": [
-        {"cacheCreationTokens": 0, "cacheReadTokens": 120192, "cost": 0.0, "inputTokens": 39139, "modelName": "deepseek-v4-flash-free", "outputTokens": 1958},
-        {"cacheCreationTokens": 0, "cacheReadTokens": 610240, "cost": 0.0, "inputTokens": 86322, "modelName": "mimo-v2.5-free", "outputTokens": 12237},
-        {"cacheCreationTokens": 0, "cacheReadTokens": 194304, "cost": 0.0, "inputTokens": 87191, "modelName": "nemotron-3-ultra-free", "outputTokens": 1668}
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 120192,
+          "cost": 0.0,
+          "inputTokens": 39139,
+          "modelName": "deepseek-v4-flash-free",
+          "outputTokens": 1958
+        },
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 610240,
+          "cost": 0.0,
+          "inputTokens": 86322,
+          "modelName": "mimo-v2.5-free",
+          "outputTokens": 12237
+        },
+        {
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 194304,
+          "cost": 0.0,
+          "inputTokens": 87191,
+          "modelName": "nemotron-3-ultra-free",
+          "outputTokens": 1668
+        }
       ],
-      "modelsUsed": ["deepseek-v4-flash-free", "mimo-v2.5-free", "nemotron-3-ultra-free"],
+      "modelsUsed": [
+        "deepseek-v4-flash-free",
+        "mimo-v2.5-free",
+        "nemotron-3-ultra-free"
+      ],
       "outputTokens": 15863,
       "totalCost": 0.0,
       "totalTokens": 1154660
