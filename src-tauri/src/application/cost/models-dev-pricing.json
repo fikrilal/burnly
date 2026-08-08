@@ -1,0 +1,955 @@
+{
+  "abacusai/dracarys-llama-3.1-70b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "baai/bge-m3": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "big-pickle": {
+    "cr": 0.0,
+    "cw": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "black-forest-labs/flux.1-dev": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "black-forest-labs/flux_1-kontext-dev": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "black-forest-labs/flux_1-schnell": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "black-forest-labs/flux_2-klein-4b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "bytedance/seed-oss-36b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "claude-3-5-haiku": {
+    "cr": 8e-8,
+    "cw": 1e-6,
+    "i": 8.000000000000001e-7,
+    "o": 4e-6
+  },
+  "claude-fable-5": {
+    "cr": 1e-6,
+    "cw": 1.25e-5,
+    "i": 1e-5,
+    "o": 5e-5
+  },
+  "claude-haiku-4-5": {
+    "cr": 1.0000000000000001e-7,
+    "cw": 1.25e-6,
+    "i": 1e-6,
+    "o": 5e-6
+  },
+  "claude-opus-4-1": {
+    "cr": 1.5e-6,
+    "cw": 1.875e-5,
+    "i": 1.5e-5,
+    "o": 7.5e-5
+  },
+  "claude-opus-4-5": {
+    "cr": 5e-7,
+    "cw": 6.25e-6,
+    "i": 5e-6,
+    "o": 2.5e-5
+  },
+  "claude-opus-4-6": {
+    "cr": 5e-7,
+    "cw": 6.25e-6,
+    "i": 5e-6,
+    "o": 2.5e-5
+  },
+  "claude-opus-4-7": {
+    "cr": 5e-7,
+    "cw": 6.25e-6,
+    "i": 5e-6,
+    "o": 2.5e-5
+  },
+  "claude-opus-4-8": {
+    "cr": 5e-7,
+    "cw": 6.25e-6,
+    "i": 5e-6,
+    "o": 2.5e-5
+  },
+  "claude-opus-5": {
+    "cr": 5e-7,
+    "cw": 6.25e-6,
+    "i": 5e-6,
+    "o": 2.5e-5
+  },
+  "claude-sonnet-4": {
+    "cr": 3e-7,
+    "cw": 3.75e-6,
+    "i": 3e-6,
+    "o": 1.5e-5
+  },
+  "claude-sonnet-4-5": {
+    "cr": 3e-7,
+    "cw": 3.75e-6,
+    "i": 3e-6,
+    "o": 1.5e-5
+  },
+  "claude-sonnet-4-6": {
+    "cr": 3e-7,
+    "cw": 3.75e-6,
+    "i": 3e-6,
+    "o": 1.5e-5
+  },
+  "claude-sonnet-5": {
+    "cr": 2.0000000000000002e-7,
+    "cw": 2.5e-6,
+    "i": 2e-6,
+    "o": 1e-5
+  },
+  "deepseek-ai/deepseek-v4-flash": {
+    "cr": 2.8e-9,
+    "i": 1.4e-7,
+    "o": 2.8e-7
+  },
+  "deepseek-ai/deepseek-v4-pro": {
+    "cr": 3.625e-9,
+    "i": 4.35e-7,
+    "o": 8.7e-7
+  },
+  "deepseek-chat": {
+    "cr": 2.8e-9,
+    "i": 1.4e-7,
+    "o": 2.8e-7
+  },
+  "deepseek-reasoner": {
+    "cr": 2.8e-9,
+    "i": 1.4e-7,
+    "o": 2.8e-7
+  },
+  "deepseek-v4-flash": {
+    "cr": 3.7e-8,
+    "i": 1.48e-7,
+    "o": 2.96e-7
+  },
+  "deepseek-v4-flash-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "deepseek-v4-pro": {
+    "cr": 4.32e-7,
+    "i": 1.73e-6,
+    "o": 3.46e-6
+  },
+  "gemini-3-flash": {
+    "cr": 5.0000000000000004e-8,
+    "i": 5e-7,
+    "o": 3e-6
+  },
+  "gemini-3-pro": {
+    "cr": 2.0000000000000002e-7,
+    "i": 2e-6,
+    "o": 1.2e-5
+  },
+  "gemini-3.1-pro": {
+    "cr": 2.0000000000000002e-7,
+    "i": 2e-6,
+    "o": 1.2e-5
+  },
+  "gemini-3.5-flash": {
+    "cr": 1.5e-7,
+    "i": 1.5e-6,
+    "o": 9e-6
+  },
+  "gemini-3.5-flash-lite": {
+    "cr": 3e-8,
+    "i": 3e-7,
+    "o": 2.5e-6
+  },
+  "gemini-3.6-flash": {
+    "cr": 1.5e-7,
+    "i": 1.5e-6,
+    "o": 7.5e-6
+  },
+  "glm-4.5": {
+    "cr": 1.1e-7,
+    "cw": 0.0,
+    "i": 6e-7,
+    "o": 2.2e-6
+  },
+  "glm-4.5-air": {
+    "cr": 3e-8,
+    "cw": 0.0,
+    "i": 2.0000000000000002e-7,
+    "o": 1.1e-6
+  },
+  "glm-4.5-flash": {
+    "cr": 0.0,
+    "cw": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "glm-4.5v": {
+    "i": 6e-7,
+    "o": 1.8000000000000001e-6
+  },
+  "glm-4.6": {
+    "cr": 1.0000000000000001e-7,
+    "i": 6e-7,
+    "o": 2.2e-6
+  },
+  "glm-4.6v": {
+    "i": 3e-7,
+    "o": 9.000000000000001e-7
+  },
+  "glm-4.7": {
+    "cr": 1.0000000000000001e-7,
+    "i": 6e-7,
+    "o": 2.2e-6
+  },
+  "glm-4.7-flash": {
+    "cr": 0.0,
+    "cw": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "glm-4.7-flashx": {
+    "cr": 1e-8,
+    "cw": 0.0,
+    "i": 7e-8,
+    "o": 4.0000000000000003e-7
+  },
+  "glm-4.7-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "glm-5": {
+    "cr": 2.0000000000000002e-7,
+    "i": 1e-6,
+    "o": 3.2000000000000003e-6
+  },
+  "glm-5-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "glm-5.1": {
+    "cr": 2.6e-7,
+    "i": 1.4e-6,
+    "o": 4.4e-6
+  },
+  "glm-5.2": {
+    "cr": 2.6e-7,
+    "i": 1.4e-6,
+    "o": 4.4e-6
+  },
+  "glm-5v-turbo": {
+    "cr": 1.2e-6,
+    "cw": 0.0,
+    "i": 5e-6,
+    "o": 2.2e-5
+  },
+  "google/gemma-2-2b-it": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "google/gemma-3-12b-it": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "google/gemma-3-4b-it": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "google/gemma-3n-e2b-it": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "google/gemma-3n-e4b-it": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "google/gemma-4-31b-it": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "google/google-paligemma": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "gpt-5": {
+    "cr": 1.0699999999999999e-7,
+    "i": 1.0700000000000001e-6,
+    "o": 8.5e-6
+  },
+  "gpt-5-codex": {
+    "cr": 1.0699999999999999e-7,
+    "i": 1.0700000000000001e-6,
+    "o": 8.5e-6
+  },
+  "gpt-5-nano": {
+    "cr": 5e-9,
+    "i": 5.0000000000000004e-8,
+    "o": 4.0000000000000003e-7
+  },
+  "gpt-5.1": {
+    "cr": 1.0699999999999999e-7,
+    "i": 1.0700000000000001e-6,
+    "o": 8.5e-6
+  },
+  "gpt-5.1-codex": {
+    "cr": 1.0699999999999999e-7,
+    "i": 1.0700000000000001e-6,
+    "o": 8.5e-6
+  },
+  "gpt-5.1-codex-max": {
+    "cr": 1.25e-7,
+    "i": 1.25e-6,
+    "o": 1e-5
+  },
+  "gpt-5.1-codex-mini": {
+    "cr": 2.5000000000000002e-8,
+    "i": 2.5e-7,
+    "o": 2e-6
+  },
+  "gpt-5.2": {
+    "cr": 1.75e-7,
+    "i": 1.75e-6,
+    "o": 1.4e-5
+  },
+  "gpt-5.2-codex": {
+    "cr": 1.75e-7,
+    "i": 1.75e-6,
+    "o": 1.4e-5
+  },
+  "gpt-5.3-codex": {
+    "cr": 1.75e-7,
+    "i": 1.75e-6,
+    "o": 1.4e-5
+  },
+  "gpt-5.3-codex-spark": {
+    "cr": 1.75e-7,
+    "i": 1.75e-6,
+    "o": 1.4e-5
+  },
+  "gpt-5.4": {
+    "cr": 2.5e-7,
+    "i": 2.5e-6,
+    "o": 1.5e-5
+  },
+  "gpt-5.4-mini": {
+    "cr": 7.5e-8,
+    "i": 7.5e-7,
+    "o": 4.5e-6
+  },
+  "gpt-5.4-nano": {
+    "cr": 2e-8,
+    "i": 2.0000000000000002e-7,
+    "o": 1.25e-6
+  },
+  "gpt-5.4-pro": {
+    "cr": 3e-5,
+    "i": 3e-5,
+    "o": 0.00018
+  },
+  "gpt-5.5": {
+    "cr": 5e-7,
+    "i": 5e-6,
+    "o": 3e-5
+  },
+  "gpt-5.5-pro": {
+    "cr": 3e-5,
+    "i": 3e-5,
+    "o": 0.00018
+  },
+  "gpt-5.6-luna": {
+    "cr": 2e-8,
+    "cw": 2.5e-7,
+    "i": 2.0000000000000002e-7,
+    "o": 1.2e-6
+  },
+  "gpt-5.6-sol": {
+    "cr": 5e-7,
+    "cw": 6.25e-6,
+    "i": 5e-6,
+    "o": 3e-5
+  },
+  "gpt-5.6-terra": {
+    "cr": 2.5e-7,
+    "cw": 3.125e-6,
+    "i": 2.5e-6,
+    "o": 1.5e-5
+  },
+  "grok-4.5": {
+    "cr": 5e-7,
+    "i": 2e-6,
+    "o": 6e-6
+  },
+  "grok-build-0.1": {
+    "cr": 2.0000000000000002e-7,
+    "i": 1e-6,
+    "o": 2e-6
+  },
+  "grok-code": {
+    "cr": 0.0,
+    "cw": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "hy3-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "hy3-preview-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "kimi-k2": {
+    "cr": 4.0000000000000003e-7,
+    "i": 4.0000000000000003e-7,
+    "o": 2.5e-6
+  },
+  "kimi-k2-0711-preview": {
+    "cr": 1.5e-7,
+    "i": 6e-7,
+    "o": 2.5e-6
+  },
+  "kimi-k2-0905-preview": {
+    "cr": 1.5e-7,
+    "i": 6e-7,
+    "o": 2.5e-6
+  },
+  "kimi-k2-thinking": {
+    "cr": 1.5e-7,
+    "i": 6e-7,
+    "o": 2.5e-6
+  },
+  "kimi-k2-thinking-turbo": {
+    "cr": 1.5e-7,
+    "i": 1.15e-6,
+    "o": 8e-6
+  },
+  "kimi-k2-turbo-preview": {
+    "cr": 6e-7,
+    "i": 2.4e-6,
+    "o": 1e-5
+  },
+  "kimi-k2.5": {
+    "cr": 1.0000000000000001e-7,
+    "i": 6e-7,
+    "o": 3e-6
+  },
+  "kimi-k2.5-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "kimi-k2.6": {
+    "cr": 1.6e-7,
+    "i": 9.499999999999999e-7,
+    "o": 4e-6
+  },
+  "kimi-k2.7-code": {
+    "cr": 1.9e-7,
+    "i": 9.499999999999999e-7,
+    "o": 4e-6
+  },
+  "kimi-k2.7-code-highspeed": {
+    "cr": 3.8e-7,
+    "i": 1.8999999999999998e-6,
+    "o": 8e-6
+  },
+  "kimi-k3": {
+    "cr": 3e-7,
+    "i": 3e-6,
+    "o": 1.5e-5
+  },
+  "laguna-s-2.1-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "ling-2.6-flash-free": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "ling-3.0-flash-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "ling-3.0-tiny-free": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "longcat-2.0-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/esm2-650m": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/esmfold": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-3.1-70b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-3.1-8b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-3.2-11b-vision-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-3.2-1b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-3.2-3b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-3.2-90b-vision-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-3.3-70b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-4-maverick-17b-128e-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "meta/llama-guard-4-12b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "microsoft/phi-4-mini-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "microsoft/phi-4-multimodal-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mimo-v2-flash": {
+    "cr": 2.8e-9,
+    "i": 1.4e-7,
+    "o": 2.8e-7
+  },
+  "mimo-v2-flash-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mimo-v2-omni": {
+    "cr": 2.8e-9,
+    "i": 1.4e-7,
+    "o": 2.8e-7
+  },
+  "mimo-v2-omni-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mimo-v2-pro": {
+    "cr": 3.6e-9,
+    "i": 4.35e-7,
+    "o": 8.7e-7
+  },
+  "mimo-v2-pro-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mimo-v2.5": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mimo-v2.5-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mimo-v2.5-pro": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mimo-v2.5-pro-ultraspeed": {
+    "cr": 1.08e-8,
+    "i": 1.305e-6,
+    "o": 2.61e-6
+  },
+  "minimax-m2.1": {
+    "cr": 1.0000000000000001e-7,
+    "i": 3e-7,
+    "o": 1.2e-6
+  },
+  "minimax-m2.1-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "minimax-m2.5": {
+    "cr": 6e-8,
+    "i": 3e-7,
+    "o": 1.2e-6
+  },
+  "minimax-m2.5-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "minimax-m2.7": {
+    "cr": 6e-8,
+    "i": 3e-7,
+    "o": 1.2e-6
+  },
+  "minimax-m3": {
+    "cr": 6e-8,
+    "i": 3e-7,
+    "o": 1.2e-6
+  },
+  "minimax-m3-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "minimaxai/minimax-m2.7": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "minimaxai/minimax-m3": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/magistral-small-2506": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/ministral-14b-instruct-2512": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/mistral-7b-instruct-v0.3": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/mistral-large-3-675b-instruct-2512": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/mistral-medium-3-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/mistral-medium-3.5-128b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/mistral-nemotron": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/mistral-small-4-119b-2603": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/mixtral-8x22b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "mistralai/mixtral-8x7b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "moonshotai/kimi-k2-instruct-0905": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "moonshotai/kimi-k2.6": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nemotron-3-super-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nemotron-3-ultra-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "north-mini-code-free": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/active-speaker-detection": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/bevformer": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/cosmos-predict1-5b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/cosmos-reason2-8b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/cosmos-transfer1-7b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/cosmos-transfer2_5-2b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/gliner-pii": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-3.1-nemotron-70b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-3.1-nemotron-nano-8b-v1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-3.1-nemotron-safety-guard-8b-v3": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-3.1-nemotron-ultra-253b-v1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-3.3-nemotron-super-49b-v1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-3.3-nemotron-super-49b-v1.5": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-3_2-nemoretriever-300m-embed-v1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-nemotron-embed-vl-1b-v2": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/llama-nemotron-rerank-vl-1b-v2": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/magpie-tts-zeroshot": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nemotron-3-content-safety": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nemotron-3-nano-30b-a3b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nemotron-3-super-120b-a12b": {
+    "i": 2.0000000000000002e-7,
+    "o": 8.000000000000001e-7
+  },
+  "nvidia/nemotron-3-ultra-550b-a55b": {
+    "cr": 1.5e-7,
+    "i": 5e-7,
+    "o": 2.5e-6
+  },
+  "nvidia/nemotron-content-safety-reasoning-4b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nemotron-mini-4b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nemotron-nano-12b-v2-vl": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nemotron-voicechat": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nv-embed-v1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nv-embedcode-7b-v1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/nvidia-nemotron-nano-9b-v2": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/rerank-qa-mistral-4b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/riva-translate-4b-instruct-v1.1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/sparsedrive": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/streampetr": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/studiovoice": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/synthetic-video-detector": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/usdcode": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "nvidia/usdvalidate": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "openai/gpt-oss-120b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "openai/gpt-oss-20b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "openai/whisper-large-v3": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "poolside/laguna-xs-2.1": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "qwen/qwen-image": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "qwen/qwen-image-edit": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "qwen/qwen2.5-coder-32b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "qwen/qwen3-coder-480b-a35b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "qwen/qwen3-next-80b-a3b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "qwen/qwen3.5-122b-a10b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "qwen/qwen3.5-397b-a17b": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "qwen3-coder": {
+    "i": 4.5000000000000003e-7,
+    "o": 1.8000000000000001e-6
+  },
+  "qwen3.5-plus": {
+    "cr": 2e-8,
+    "cw": 2.5e-7,
+    "i": 2.0000000000000002e-7,
+    "o": 1.2e-6
+  },
+  "qwen3.6-plus": {
+    "cr": 5.0000000000000004e-8,
+    "cw": 6.25e-7,
+    "i": 5e-7,
+    "o": 3e-6
+  },
+  "qwen3.6-plus-free": {
+    "cr": 0.0,
+    "i": 0.0,
+    "o": 0.0
+  },
+  "ring-2.6-1t-free": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "sarvamai/sarvam-m": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "stepfun-ai/step-3.5-flash": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "stepfun-ai/step-3.7-flash": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "thinkingmachines/inkling": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "trinity-large-preview-free": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "upstage/solar-10.7b-instruct": {
+    "i": 0.0,
+    "o": 0.0
+  },
+  "z-ai/glm-5.2": {
+    "i": 0.0,
+    "o": 0.0
+  }
+}

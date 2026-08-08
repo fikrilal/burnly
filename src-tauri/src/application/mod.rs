@@ -9,6 +9,7 @@ pub(crate) mod bootstrap;
 pub(crate) mod cloud_session;
 pub(crate) mod collect_sync;
 pub(crate) mod collection;
+pub(crate) mod cost;
 pub(crate) mod diagnostics;
 pub(crate) mod pkce;
 pub(crate) mod ports;
