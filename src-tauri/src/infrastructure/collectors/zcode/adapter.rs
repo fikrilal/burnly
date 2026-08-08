@@ -9,6 +9,7 @@ use crate::application::collection::{
     CollectorDescriptor, CollectorFailure, CollectorFailureCode, CollectorIntegrity,
     DetectionRequest, DetectionResult,
 };
+use crate::application::cost::BurnlyCostCalculator;
 use crate::application::diagnostics::DiagnosticSeverity;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
@@ -43,6 +44,7 @@ const IDENTITY: CollectorIdentity = CollectorIdentity {
 pub(crate) struct ZCodeCollector {
     database_path: PathBuf,
     diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
+    calculator: BurnlyCostCalculator,
 }
 
 impl ZCodeCollector {
@@ -50,6 +52,7 @@ impl ZCodeCollector {
         Self {
             database_path: path.into(),
             diagnostics: None,
+            calculator: BurnlyCostCalculator::new(),
         }
     }
 
@@ -180,15 +183,16 @@ impl Collector for ZCodeCollector {
                 let timezone = request.aggregation_timezone().ok_or_else(|| {
                     request_failure(&request, CollectorFailureCode::ScopeNotRepresentable)
                 })?;
-                let candidates = mapper::map_daily(rows, timezone, request.scope(), &context)
-                    .map_err(|_| {
-                        self.record_failure(
-                            &request,
-                            CollectorFailureCode::IncompatibleEnvelope,
-                            &[CollectorDiagnosticCounter::new("rowsFound", rows_found)],
-                        );
-                        request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
-                    })?;
+                let candidates =
+                    mapper::map_daily(rows, timezone, request.scope(), &context, &self.calculator)
+                        .map_err(|_| {
+                            self.record_failure(
+                                &request,
+                                CollectorFailureCode::IncompatibleEnvelope,
+                                &[CollectorDiagnosticCounter::new("rowsFound", rows_found)],
+                            );
+                            request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                        })?;
                 CollectionResult::daily(
                     metadata,
                     candidates,
@@ -207,14 +211,15 @@ impl Collector for ZCodeCollector {
                 })
             }
             CollectionProjection::Session => {
-                let candidates = mapper::map_sessions(rows, &context).map_err(|_| {
-                    self.record_failure(
-                        &request,
-                        CollectorFailureCode::IncompatibleEnvelope,
-                        &[CollectorDiagnosticCounter::new("rowsFound", rows_found)],
-                    );
-                    request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
-                })?;
+                let candidates =
+                    mapper::map_sessions(rows, &context, &self.calculator).map_err(|_| {
+                        self.record_failure(
+                            &request,
+                            CollectorFailureCode::IncompatibleEnvelope,
+                            &[CollectorDiagnosticCounter::new("rowsFound", rows_found)],
+                        );
+                        request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                    })?;
                 CollectionResult::session(
                     metadata,
                     candidates,

@@ -19,7 +19,10 @@ mod snapshot;
     unused_imports,
     reason = "consumed by collector wiring in a later chunk"
 )]
-pub(crate) use calculator::{calculate_cost, gap_fill_cost, BurnlyCostCalculator, CostCalculation};
+pub(crate) use calculator::{
+    calculate_cost, gap_fill_cost, gap_fill_daily, gap_fill_session, BurnlyCostCalculator,
+    CostCalculation,
+};
 #[allow(
     unused_imports,
     reason = "consumed by collector wiring in a later chunk"

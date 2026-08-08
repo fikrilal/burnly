@@ -110,11 +110,25 @@ Cline, and ccusage paths.
 
 ## Verification
 
-- `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib cost` passed: 24
+  tests (added gap-fill daily/session candidate tests).
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed: 576 total
+  (was 573 before this chunk).
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
   passed.
 - `pnpm verify` passed.
 - `pnpm architecture:check` passed.
+- Implementation notes:
+  - Gap-fill applied at the single reconciliation chokepoint
+    (`refresh/execution.rs::reconcile_collection`) so it covers every
+    collector uniformly (Command Code, Cline, ccusage, Grok, Antigravity,
+    ZCode).
+  - Grok/Antigravity/ZCode mappers now price per-model with the calculator;
+    aggregate cost = sum of per-model valued micros.
+  - Known limitation: Antigravity `model_label` values (e.g.
+    "Gemini 3.1 Pro (High)") and ZCode `raw_model_id` values (e.g.
+    "GLM-5.2") may not match models.dev ids case/format, so those resolve to
+    `Unavailable` until label→id mapping is added (follow-up debt).
 
 ## Runtime Evidence
 

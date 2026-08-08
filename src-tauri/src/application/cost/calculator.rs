@@ -1,5 +1,8 @@
 //! Pure cost calculation from token usage and the pricing snapshot.
 
+use crate::application::collection::{
+    DailyUsageCandidate, ModelUsageCandidate, SessionUsageCandidate,
+};
 use crate::domain::usage::{CostKind, CurrencyCode, TokenUsage, UsageCost, ValuedCostStatus};
 
 use super::snapshot::{PricingEntry, PricingSnapshot};
@@ -118,6 +121,53 @@ fn price_tokens(tokens: &TokenUsage, entry: PricingEntry) -> Option<u64> {
         * entry.cache_write.unwrap_or(entry.input);
     let total = input + output + cache_read + cache_write;
     usd_to_micros(total)
+}
+
+/// Apply gap-fill to the model breakdowns of a candidate, returning the new
+/// aggregate cost (sum of per-model micros when any became valued).
+fn gap_fill_model_breakdowns(
+    breakdowns: &mut [ModelUsageCandidate],
+    snapshot: &PricingSnapshot,
+) -> UsageCost {
+    let mut total_micros = 0_u64;
+    let mut saw_valued = false;
+    for model in breakdowns.iter_mut() {
+        let filled = gap_fill_cost(
+            Some(&model.raw_model_id),
+            &model.tokens,
+            snapshot,
+            &model.cost,
+        );
+        model.cost = filled;
+        if let UsageCost::Valued { amount_micros, .. } = model.cost {
+            total_micros = total_micros.saturating_add(amount_micros);
+            saw_valued = true;
+        }
+    }
+    if saw_valued {
+        UsageCost::Valued {
+            amount_micros: total_micros,
+            currency: CurrencyCode::new("USD").expect("USD is a valid ISO-shaped currency"),
+            kind: CostKind::BurnlyCalculated,
+            status: ValuedCostStatus::Estimated,
+        }
+    } else {
+        UsageCost::Unavailable {
+            kind: CostKind::BurnlyCalculated,
+        }
+    }
+}
+
+/// Gap-fill a daily candidate: fill each model breakdown's zero cost, then
+/// set the aggregate cost to the sum of the filled breakdowns.
+pub(crate) fn gap_fill_daily(candidate: &mut DailyUsageCandidate, snapshot: &PricingSnapshot) {
+    candidate.cost = gap_fill_model_breakdowns(&mut candidate.model_breakdowns, snapshot);
+}
+
+/// Gap-fill a session candidate: fill the single model breakdown's zero cost
+/// and propagate it to the session cost.
+pub(crate) fn gap_fill_session(candidate: &mut SessionUsageCandidate, snapshot: &PricingSnapshot) {
+    candidate.cost = gap_fill_model_breakdowns(&mut candidate.model_breakdowns, snapshot);
 }
 
 /// Calculator handle owned by collectors; loads the snapshot once.
@@ -279,5 +329,174 @@ mod tests {
             &current,
         );
         assert_eq!(filled, current);
+    }
+
+    #[test]
+    fn gap_fill_daily_fills_zero_cost_breakdowns() {
+        use crate::application::collection::{
+            CandidateProvenance, CollectionId, CollectorKey, DailyUsageCandidate,
+        };
+        use crate::domain::source::SourceKey;
+        use chrono::NaiveDate;
+
+        let token_usage = tokens(1_000_000, 0, 0, 0);
+        let mut candidate = DailyUsageCandidate {
+            provenance: CandidateProvenance {
+                source: SourceKey::GrokBuild,
+                collector: CollectorKey::new("grok-build").expect("collector"),
+                collector_version: "local".to_owned(),
+                profile_version: 1,
+                collection_id: CollectionId::new("test").expect("collection"),
+                observed_at: chrono::Utc::now(),
+                data_quality: crate::domain::usage::DataQuality::Complete,
+                warnings: Vec::new(),
+            },
+            source_key: "grok-build:daily:v1:UTC:2026-08-08".to_owned(),
+            usage_date: NaiveDate::from_ymd_opt(2026, 8, 8).expect("date"),
+            aggregation_timezone: "UTC".to_owned(),
+            tokens: token_usage.clone(),
+            cost: UsageCost::Valued {
+                amount_micros: 0,
+                currency: CurrencyCode::new("USD").expect("USD"),
+                kind: CostKind::SourceReported,
+                status: ValuedCostStatus::Estimated,
+            },
+            model_breakdowns: vec![ModelUsageCandidate {
+                raw_model_id: "deepseek-v4-flash".to_owned(),
+                tokens: token_usage,
+                cost: UsageCost::Valued {
+                    amount_micros: 0,
+                    currency: CurrencyCode::new("USD").expect("USD"),
+                    kind: CostKind::SourceReported,
+                    status: ValuedCostStatus::Estimated,
+                },
+            }],
+        };
+
+        gap_fill_daily(&mut candidate, &snapshot());
+
+        match &candidate.cost {
+            UsageCost::Valued {
+                amount_micros,
+                kind,
+                ..
+            } => {
+                assert_eq!(*amount_micros, 148_000);
+                assert_eq!(*kind, CostKind::BurnlyCalculated);
+            }
+            other => panic!("expected filled aggregate cost, got {other:?}"),
+        }
+        match &candidate.model_breakdowns[0].cost {
+            UsageCost::Valued {
+                amount_micros,
+                kind,
+                ..
+            } => {
+                assert_eq!(*amount_micros, 148_000);
+                assert_eq!(*kind, CostKind::BurnlyCalculated);
+            }
+            other => panic!("expected filled model cost, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gap_fill_session_fills_zero_cost_breakdown() {
+        use crate::application::collection::{
+            CandidateProvenance, CollectionId, CollectorKey, SessionUsageCandidate,
+        };
+        use crate::domain::source::SourceKey;
+
+        let token_usage = tokens(1_000_000, 0, 0, 0);
+        let mut candidate = SessionUsageCandidate {
+            provenance: CandidateProvenance {
+                source: SourceKey::CommandCode,
+                collector: CollectorKey::new("command-code").expect("collector"),
+                collector_version: "local".to_owned(),
+                profile_version: 1,
+                collection_id: CollectionId::new("test").expect("collection"),
+                observed_at: chrono::Utc::now(),
+                data_quality: crate::domain::usage::DataQuality::Complete,
+                warnings: Vec::new(),
+            },
+            source_key: "command-code:session:v1:sess-1:deepseek-v4-flash".to_owned(),
+            source_session_id: "sess-1".to_owned(),
+            project_path: None,
+            first_activity_at: None,
+            last_activity_at: None,
+            tokens: token_usage.clone(),
+            cost: UsageCost::Valued {
+                amount_micros: 0,
+                currency: CurrencyCode::new("USD").expect("USD"),
+                kind: CostKind::SourceReported,
+                status: ValuedCostStatus::Estimated,
+            },
+            model_breakdowns: vec![ModelUsageCandidate {
+                raw_model_id: "deepseek-v4-flash".to_owned(),
+                tokens: token_usage,
+                cost: UsageCost::Valued {
+                    amount_micros: 0,
+                    currency: CurrencyCode::new("USD").expect("USD"),
+                    kind: CostKind::SourceReported,
+                    status: ValuedCostStatus::Estimated,
+                },
+            }],
+        };
+
+        gap_fill_session(&mut candidate, &snapshot());
+
+        match &candidate.cost {
+            UsageCost::Valued {
+                amount_micros,
+                kind,
+                ..
+            } => {
+                assert_eq!(*amount_micros, 148_000);
+                assert_eq!(*kind, CostKind::BurnlyCalculated);
+            }
+            other => panic!("expected filled session cost, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gap_fill_daily_keeps_free_model_unfilled() {
+        use crate::application::collection::{
+            CandidateProvenance, CollectionId, CollectorKey, DailyUsageCandidate,
+        };
+        use crate::domain::source::SourceKey;
+        use chrono::NaiveDate;
+
+        let token_usage = tokens(1_000_000, 0, 0, 0);
+        let not_applicable = UsageCost::NotApplicable {
+            kind: CostKind::SourceReported,
+        };
+        let mut candidate = DailyUsageCandidate {
+            provenance: CandidateProvenance {
+                source: SourceKey::GrokBuild,
+                collector: CollectorKey::new("grok-build").expect("collector"),
+                collector_version: "local".to_owned(),
+                profile_version: 1,
+                collection_id: CollectionId::new("test").expect("collection"),
+                observed_at: chrono::Utc::now(),
+                data_quality: crate::domain::usage::DataQuality::Complete,
+                warnings: Vec::new(),
+            },
+            source_key: "grok-build:daily:v1:UTC:2026-08-08".to_owned(),
+            usage_date: NaiveDate::from_ymd_opt(2026, 8, 8).expect("date"),
+            aggregation_timezone: "UTC".to_owned(),
+            tokens: token_usage.clone(),
+            cost: not_applicable.clone(),
+            model_breakdowns: vec![ModelUsageCandidate {
+                raw_model_id: "deepseek-v4-flash-free".to_owned(),
+                tokens: token_usage,
+                cost: not_applicable.clone(),
+            }],
+        };
+
+        gap_fill_daily(&mut candidate, &snapshot());
+
+        assert!(matches!(
+            candidate.model_breakdowns[0].cost,
+            UsageCost::NotApplicable { .. }
+        ));
     }
 }

@@ -9,10 +9,13 @@ use crate::{
         CandidateProvenance, CollectionId, CollectionScope, CollectorKey, DailyUsageCandidate,
         ModelUsageCandidate, SessionUsageCandidate,
     },
+    application::cost::BurnlyCostCalculator,
     domain::{
         identity::{daily_source_key, session_source_key, IdentityError},
         source::SourceKey,
-        usage::{CostKind, TokenUsage, UsageCost, UsageValidationError},
+        usage::{
+            CostKind, CurrencyCode, TokenUsage, UsageCost, UsageValidationError, ValuedCostStatus,
+        },
     },
 };
 
@@ -67,6 +70,7 @@ pub(crate) fn map_daily(
     timezone: &str,
     scope: &CollectionScope,
     context: &ZCodeMappingContext,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<DailyUsageCandidate>, ZCodeMappingError> {
     let timezone = timezone
         .parse::<Tz>()
@@ -89,13 +93,12 @@ pub(crate) fn map_daily(
         .into_iter()
         .map(|(usage_date, usage)| {
             let tokens = usage.total.tokens()?;
-            let aggregate_cost = cost(tokens.total_tokens());
             let model_breakdowns = usage
                 .models
                 .into_iter()
                 .map(|(model, usage)| {
                     let tokens = usage.tokens()?;
-                    let cost = cost(tokens.total_tokens());
+                    let cost = cost(&model, &tokens, calculator);
                     Ok(ModelUsageCandidate {
                         raw_model_id: model,
                         tokens,
@@ -103,6 +106,7 @@ pub(crate) fn map_daily(
                     })
                 })
                 .collect::<Result<Vec<_>, ZCodeMappingError>>()?;
+            let aggregate_cost = aggregate_cost(&model_breakdowns, &tokens, calculator);
             Ok(DailyUsageCandidate {
                 provenance: context.provenance(),
                 source_key: daily_source_key(SourceKey::ZCode, usage_date, timezone.name())?,
@@ -119,6 +123,7 @@ pub(crate) fn map_daily(
 pub(crate) fn map_sessions(
     rows: Vec<ZCodeModelUsageRow>,
     context: &ZCodeMappingContext,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<SessionUsageCandidate>, ZCodeMappingError> {
     let mut buckets = BTreeMap::<(String, String), ZCodeSessionAccumulator>::new();
 
@@ -133,7 +138,7 @@ pub(crate) fn map_sessions(
 
     buckets
         .into_values()
-        .map(|usage| usage.candidate(context))
+        .map(|usage| usage.candidate(context, calculator))
         .collect()
 }
 
@@ -226,9 +231,10 @@ impl ZCodeSessionAccumulator {
     fn candidate(
         self,
         context: &ZCodeMappingContext,
+        calculator: &BurnlyCostCalculator,
     ) -> Result<SessionUsageCandidate, ZCodeMappingError> {
         let tokens = self.usage.tokens()?;
-        let cost = cost(tokens.total_tokens());
+        let cost = cost(&self.model_id, &tokens, calculator);
         Ok(SessionUsageCandidate {
             provenance: context.provenance(),
             source_key: session_source_key(
@@ -258,16 +264,34 @@ fn checked_add(left: u64, right: u64) -> Result<u64, ZCodeMappingError> {
     checked_add_u64(left, right, ZCodeMappingError::TokenOverflow)
 }
 
-fn cost(total_tokens: u64) -> UsageCost {
-    if total_tokens == 0 {
-        UsageCost::NotApplicable {
-            kind: CostKind::SourceReported,
-        }
-    } else {
-        UsageCost::Unavailable {
-            kind: CostKind::SourceReported,
+fn cost(model: &str, tokens: &TokenUsage, calculator: &BurnlyCostCalculator) -> UsageCost {
+    calculator.calculate(model, tokens).cost
+}
+
+/// Daily aggregate cost: the sum of per-model valued micros when breakdowns
+/// exist; otherwise price the aggregate tokens with no model.
+fn aggregate_cost(
+    model_breakdowns: &[ModelUsageCandidate],
+    tokens: &TokenUsage,
+    calculator: &BurnlyCostCalculator,
+) -> UsageCost {
+    let mut total_micros = 0_u64;
+    let mut saw_valued = false;
+    for model in model_breakdowns {
+        if let UsageCost::Valued { amount_micros, .. } = model.cost {
+            total_micros = total_micros.saturating_add(amount_micros);
+            saw_valued = true;
         }
     }
+    if saw_valued {
+        return UsageCost::Valued {
+            amount_micros: total_micros,
+            currency: CurrencyCode::new("USD").expect("USD is a valid ISO-shaped currency"),
+            kind: CostKind::BurnlyCalculated,
+            status: ValuedCostStatus::Estimated,
+        };
+    }
+    calculator.calculate("", tokens).cost
 }
 
 fn timestamp(timestamp_ms: i64) -> Result<DateTime<Utc>, ZCodeMappingError> {
@@ -303,8 +327,14 @@ mod tests {
     fn maps_completed_rows_to_daily_usage_with_disjoint_cache_tokens() {
         let context = context();
 
-        let candidates =
-            map_daily(rows(), "Asia/Jakarta", &CollectionScope::Full, &context).expect("daily");
+        let candidates = map_daily(
+            rows(),
+            "Asia/Jakarta",
+            &CollectionScope::Full,
+            &context,
+            &calculator(),
+        )
+        .expect("daily");
 
         assert_eq!(candidates.len(), 1);
         let candidate = &candidates[0];
@@ -338,7 +368,7 @@ mod tests {
     fn maps_completed_rows_to_session_usage_by_session_and_model() {
         let context = context();
 
-        let candidates = map_sessions(rows(), &context).expect("sessions");
+        let candidates = map_sessions(rows(), &context, &calculator()).expect("sessions");
 
         assert_eq!(candidates.len(), 2);
         assert!(candidates
@@ -354,8 +384,14 @@ mod tests {
         let mut rows = rows();
         rows[0].cache_read_input_tokens = 20_000;
 
-        let error = map_daily(rows, "UTC", &CollectionScope::Full, &context())
-            .expect_err("invalid overlap");
+        let error = map_daily(
+            rows,
+            "UTC",
+            &CollectionScope::Full,
+            &context(),
+            &calculator(),
+        )
+        .expect_err("invalid overlap");
 
         assert_eq!(error, ZCodeMappingError::OverlappingCacheTokens);
     }
@@ -370,6 +406,10 @@ mod tests {
                 .expect("timestamp"),
         )
         .expect("context")
+    }
+
+    fn calculator() -> BurnlyCostCalculator {
+        BurnlyCostCalculator::new()
     }
 
     fn rows() -> Vec<ZCodeModelUsageRow> {
