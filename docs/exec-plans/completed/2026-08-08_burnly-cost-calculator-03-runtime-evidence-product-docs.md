@@ -97,11 +97,18 @@ cost model.
 
 ## Verification
 
-- Runtime refresh imported `burnly_calculated` cost for at least one source.
-- Tray summary displayed the cost.
-- Command Code / ccusage costs unchanged.
-- Privacy scan clean.
-- `pnpm verify` passed.
+- Runtime refresh (id 1592) imported `burnly_calculated` cost for
+  Antigravity (daily + sessions).
+- Command Code `source_reported` cost preserved (~$81.36); Codex/OpenCode
+  `collector_calculated` preserved.
+- Gap-fill verified: Antigravity got cost; Command Code positive cost and
+  OpenCode free models untouched.
+- Two gap-fill defects found and fixed during evidence (aggregate kind
+  clobbering; positive reported cost replacement) — regression tests added
+  (`gap_fill_daily_keeps_positive_reported_cost_untouched`).
+- Privacy scan clean (zero conversation markers; schema unchanged).
+- `pnpm verify` passed (577 Rust tests, clippy, harness).
+- Product docs + README updated with the 4-rule cost model.
 
 ## Runtime Evidence
 
@@ -109,7 +116,8 @@ cost model.
 
 ## Follow-Up Debt
 
-- Consider surfacing `CostKind` in the tray (tooltip) so users can
-  distinguish source-reported vs calculated cost.
-- Revisit `Unavailable`-with-positive-tokens gap-fill policy.
-- Evaluate snapshot refresh cadence after real usage over time.
+- Antigravity `model_label` / ZCode `raw_model_id` → models.dev id mapping so
+  those sources resolve valued cost (currently `Unavailable` when labels
+  don't match).
+- Tray surfacing of `CostKind` (tooltip) so users can distinguish
+  source-reported vs calculated cost.

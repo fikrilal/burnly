@@ -123,51 +123,89 @@ fn price_tokens(tokens: &TokenUsage, entry: PricingEntry) -> Option<u64> {
     usd_to_micros(total)
 }
 
-/// Apply gap-fill to the model breakdowns of a candidate, returning the new
-/// aggregate cost (sum of per-model micros when any became valued).
+/// Apply gap-fill to the model breakdowns of a candidate, returning the
+/// updated aggregate cost.
+///
+/// Each breakdown's zero-with-positive-tokens cost is replaced when the
+/// snapshot prices the model; otherwise the original breakdown cost is kept
+/// untouched (kind preserved). The returned aggregate is the sum of valued
+/// breakdown micros when at least one breakdown was newly filled; otherwise
+/// `None` signals "no fill happened" and the caller keeps the original
+/// aggregate cost.
 fn gap_fill_model_breakdowns(
     breakdowns: &mut [ModelUsageCandidate],
     snapshot: &PricingSnapshot,
-) -> UsageCost {
+) -> Option<UsageCost> {
     let mut total_micros = 0_u64;
-    let mut saw_valued = false;
+    let mut any_filled = false;
     for model in breakdowns.iter_mut() {
+        let original = model.cost.clone();
         let filled = gap_fill_cost(
             Some(&model.raw_model_id),
             &model.tokens,
             snapshot,
-            &model.cost,
+            &original,
         );
+        // A fill happened when the cost became valued with positive micros
+        // from a zero/unavailable original.
+        let became_valued = matches!(
+            filled,
+            UsageCost::Valued { amount_micros, .. } if amount_micros > 0
+        ) && !matches!(original, UsageCost::Valued { amount_micros, .. } if amount_micros > 0);
+        if became_valued {
+            any_filled = true;
+        }
         model.cost = filled;
         if let UsageCost::Valued { amount_micros, .. } = model.cost {
             total_micros = total_micros.saturating_add(amount_micros);
-            saw_valued = true;
         }
     }
-    if saw_valued {
-        UsageCost::Valued {
+    if any_filled {
+        Some(UsageCost::Valued {
             amount_micros: total_micros,
             currency: CurrencyCode::new("USD").expect("USD is a valid ISO-shaped currency"),
             kind: CostKind::BurnlyCalculated,
             status: ValuedCostStatus::Estimated,
-        }
+        })
     } else {
-        UsageCost::Unavailable {
-            kind: CostKind::BurnlyCalculated,
-        }
+        None
     }
 }
 
-/// Gap-fill a daily candidate: fill each model breakdown's zero cost, then
-/// set the aggregate cost to the sum of the filled breakdowns.
+/// Gap-fill a daily candidate: when the aggregate cost is zero-with-positive-
+/// tokens, fill each model breakdown's zero cost from the snapshot and set
+/// the aggregate to the sum of the filled breakdowns. When the aggregate
+/// already carries a valued cost (source-reported or collector-calculated),
+/// the candidate is left fully untouched.
 pub(crate) fn gap_fill_daily(candidate: &mut DailyUsageCandidate, snapshot: &PricingSnapshot) {
-    candidate.cost = gap_fill_model_breakdowns(&mut candidate.model_breakdowns, snapshot);
+    if !aggregate_is_zero_with_tokens(&candidate.cost, &candidate.tokens) {
+        return;
+    }
+    if let Some(aggregate) = gap_fill_model_breakdowns(&mut candidate.model_breakdowns, snapshot) {
+        candidate.cost = aggregate;
+    }
 }
 
-/// Gap-fill a session candidate: fill the single model breakdown's zero cost
-/// and propagate it to the session cost.
+/// Gap-fill a session candidate with the same aggregate-first rule.
 pub(crate) fn gap_fill_session(candidate: &mut SessionUsageCandidate, snapshot: &PricingSnapshot) {
-    candidate.cost = gap_fill_model_breakdowns(&mut candidate.model_breakdowns, snapshot);
+    if !aggregate_is_zero_with_tokens(&candidate.cost, &candidate.tokens) {
+        return;
+    }
+    if let Some(aggregate) = gap_fill_model_breakdowns(&mut candidate.model_breakdowns, snapshot) {
+        candidate.cost = aggregate;
+    }
+}
+
+/// True when the cost is valued at zero micros with positive token usage —
+/// the only case gap-fill may replace.
+fn aggregate_is_zero_with_tokens(cost: &UsageCost, tokens: &TokenUsage) -> bool {
+    if tokens.total_tokens() == 0 {
+        return false;
+    }
+    matches!(
+        cost,
+        UsageCost::Valued { amount_micros, .. } if *amount_micros == 0
+    )
 }
 
 /// Calculator handle owned by collectors; loads the snapshot once.
@@ -497,6 +535,63 @@ mod tests {
         assert!(matches!(
             candidate.model_breakdowns[0].cost,
             UsageCost::NotApplicable { .. }
+        ));
+    }
+
+    #[test]
+    fn gap_fill_daily_keeps_positive_reported_cost_untouched() {
+        use crate::application::collection::{
+            CandidateProvenance, CollectionId, CollectorKey, DailyUsageCandidate,
+        };
+        use crate::domain::source::SourceKey;
+        use chrono::NaiveDate;
+
+        // Regression: a source-reported aggregate with positive micros (e.g.
+        // Command Code's costUsd) must never be replaced by gap-fill, even
+        // when a model breakdown reports zero.
+        let token_usage = tokens(1_000_000, 0, 0, 0);
+        let reported = UsageCost::Valued {
+            amount_micros: 73_000_000,
+            currency: CurrencyCode::new("USD").expect("USD"),
+            kind: CostKind::SourceReported,
+            status: ValuedCostStatus::Estimated,
+        };
+        let mut candidate = DailyUsageCandidate {
+            provenance: CandidateProvenance {
+                source: SourceKey::CommandCode,
+                collector: CollectorKey::new("command-code").expect("collector"),
+                collector_version: "local".to_owned(),
+                profile_version: 1,
+                collection_id: CollectionId::new("test").expect("collection"),
+                observed_at: chrono::Utc::now(),
+                data_quality: crate::domain::usage::DataQuality::Complete,
+                warnings: Vec::new(),
+            },
+            source_key: "command-code:daily:v1:UTC:2026-08-08".to_owned(),
+            usage_date: NaiveDate::from_ymd_opt(2026, 8, 8).expect("date"),
+            aggregation_timezone: "UTC".to_owned(),
+            tokens: token_usage.clone(),
+            cost: reported.clone(),
+            model_breakdowns: vec![ModelUsageCandidate {
+                raw_model_id: "deepseek-v4-flash".to_owned(),
+                tokens: token_usage,
+                cost: UsageCost::Valued {
+                    amount_micros: 0,
+                    currency: CurrencyCode::new("USD").expect("USD"),
+                    kind: CostKind::SourceReported,
+                    status: ValuedCostStatus::Estimated,
+                },
+            }],
+        };
+
+        gap_fill_daily(&mut candidate, &snapshot());
+
+        // Aggregate untouched.
+        assert_eq!(candidate.cost, reported);
+        // Breakdown untouched too (gap-fill only acts on zero aggregates).
+        assert!(matches!(
+            candidate.model_breakdowns[0].cost,
+            UsageCost::Valued { amount_micros, .. } if amount_micros == 0
         ));
     }
 }
