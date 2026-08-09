@@ -1,0 +1,28 @@
+{
+  "title": "Privacy Probe",
+  "updated_at": "2026-08-09T03:49:28.634198070Z",
+  "created_at": "2026-08-09T03:42:58.149142710Z",
+  "cumulative_token_usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "cache_read_input_tokens": 20
+  },
+  "model": { "provider": "zed.dev", "model": "gpt-5.6-luna" },
+  "initial_project_snapshot": { "secret_file_content": "redacted" },
+  "messages": [
+    { "User": { "id": "u1", "content": [{ "Text": "secret prompt" }] } },
+    {
+      "Agent": {
+        "content": [
+          { "Text": "secret response" },
+          {
+            "ToolUse": {
+              "name": "shell",
+              "input": { "command": "secret command" }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

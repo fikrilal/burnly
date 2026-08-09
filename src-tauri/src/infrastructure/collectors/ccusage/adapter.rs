@@ -249,7 +249,8 @@ impl Collector for CcusageCollector {
                 | SourceKey::ZCode
                 | SourceKey::Antigravity
                 | SourceKey::GrokBuild
-                | SourceKey::CommandCode,
+                | SourceKey::CommandCode
+                | SourceKey::Zed,
                 _,
             ) => Err(failure(CollectorFailureCode::UnsupportedSource)),
             (SourceKey::Pi, crate::application::collection::CollectionProjection::Daily) => {

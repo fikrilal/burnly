@@ -439,6 +439,7 @@ const allowedRusqlitePaths = [
   "src-tauri/src/infrastructure/collectors/antigravity/",
   "src-tauri/src/infrastructure/collectors/cline/",
   "src-tauri/src/infrastructure/collectors/zcode/",
+  "src-tauri/src/infrastructure/collectors/zed/",
   "src-tauri/src/infrastructure/collectors/support/sqlite.rs",
 ];
 
@@ -457,7 +458,7 @@ function checkDatabaseOwnership(relativePath, content) {
 
   if (!isAllowed) {
     failures.push(
-      `${relativePath}: rusqlite may only be used inside infrastructure/database (production stores), infrastructure/collectors/{cline,zcode} (external tool database reads), or collectors/support/sqlite.rs (shared external database opening).`,
+      `${relativePath}: rusqlite may only be used inside infrastructure/database (production stores), infrastructure/collectors/{cline,zcode,zed} (external tool database reads), or collectors/support/sqlite.rs (shared external database opening).`,
     );
   }
 }

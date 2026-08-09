@@ -66,7 +66,8 @@ pub(crate) fn source_descriptor(
         | SourceKey::ZCode
         | SourceKey::Antigravity
         | SourceKey::GrokBuild
-        | SourceKey::CommandCode => Err(CollectorFailure::new(
+        | SourceKey::CommandCode
+        | SourceKey::Zed => Err(CollectorFailure::new(
             crate::application::collection::CollectorFailureCode::UnsupportedSource,
             Some(source),
             None,
@@ -134,6 +135,7 @@ mod tests {
         let grok_build = source_descriptor(SourceKey::GrokBuild).expect_err("unsupported source");
         let command_code =
             source_descriptor(SourceKey::CommandCode).expect_err("unsupported source");
+        let zed = source_descriptor(SourceKey::Zed).expect_err("unsupported source");
 
         assert_eq!(
             cline.code,
@@ -153,6 +155,10 @@ mod tests {
         );
         assert_eq!(
             command_code.code,
+            crate::application::collection::CollectorFailureCode::UnsupportedSource
+        );
+        assert_eq!(
+            zed.code,
             crate::application::collection::CollectorFailureCode::UnsupportedSource
         );
     }

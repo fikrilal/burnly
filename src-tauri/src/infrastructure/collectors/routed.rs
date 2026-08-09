@@ -46,6 +46,13 @@ impl RoutedCollector {
             SourceKey::Antigravity => Ok(&self.antigravity),
             SourceKey::GrokBuild => Ok(&self.grok),
             SourceKey::CommandCode => Ok(&self.commandcode),
+            // Zed is not wired yet; fail closed until a later chunk registers
+            // the native collector.
+            SourceKey::Zed => Err(CollectorFailure::new(
+                crate::application::collection::CollectorFailureCode::UnsupportedSource,
+                Some(source),
+                None,
+            )),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,

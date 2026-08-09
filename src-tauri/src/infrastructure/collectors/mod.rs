@@ -6,3 +6,4 @@ pub(crate) mod grok;
 pub(crate) mod routed;
 mod support;
 pub(crate) mod zcode;
+pub(crate) mod zed;
