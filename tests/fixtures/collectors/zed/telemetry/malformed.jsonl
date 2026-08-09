@@ -1,0 +1,3 @@
+{"milliseconds_since_first_event":0,"event_type":"Agent Thread Completion Usage Updated","event_properties":{"thread_id":"t1","prompt_id":"p1","input_tokens":10,"output_tokens":1}}
+this is not json
+{"milliseconds_since_first_event":1000,"event_type":"Other","event_properties":{}}
