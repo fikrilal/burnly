@@ -1,26 +1,13 @@
 //! Zed agent collector infrastructure.
 //!
-//! Chunk 1-2: source identity, thread store, and mapper. The collector is not
-//! wired into routing yet; a later chunk adds the adapter and bootstrap.
+//! Wires the thread store, mapper, telemetry reader, and cost calculator into
+//! the collector port.
 
+mod adapter;
+mod detection;
 mod mapper;
 mod telemetry_reader;
 mod threads_store;
 
-#[allow(
-    unused_imports,
-    reason = "store and mapper are consumed by the adapter in a later chunk"
-)]
-pub(crate) use mapper::{map_sessions, map_threads, ZedMappingContext};
-#[allow(
-    unused_imports,
-    reason = "store is consumed by the adapter in a later chunk"
-)]
-pub(crate) use telemetry_reader::{
-    anchor_events, sum_per_thread, TelemetryUsageEvent, ZedTelemetryReader,
-};
-#[allow(
-    unused_imports,
-    reason = "store is consumed by the adapter in a later chunk"
-)]
-pub(crate) use threads_store::{ZedThreadStore, ZedThreadUsage};
+pub(crate) use adapter::ZedCollector;
+pub(crate) use detection::default_zed_data_dir;

@@ -135,6 +135,11 @@ pub(super) fn composed_refresh_collector(data_root: &Path) -> Arc<dyn Collector>
                 data_root.join("missing-commandcode-home"),
             ),
         ),
+        Arc::new(
+            crate::infrastructure::collectors::zed::ZedCollector::from_data_dir(
+                data_root.join("missing-zed-data"),
+            ),
+        ),
     ))
 }
 

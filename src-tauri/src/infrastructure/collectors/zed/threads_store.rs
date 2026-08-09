@@ -4,11 +4,6 @@
 //! zstd `data` BLOB, and parses the thread JSON into usage-only structs.
 //! Message content is never deserialized.
 
-#![allow(
-    dead_code,
-    reason = "store is consumed by the adapter in a later chunk"
-)]
-
 use std::io::Read;
 use std::path::Path;
 

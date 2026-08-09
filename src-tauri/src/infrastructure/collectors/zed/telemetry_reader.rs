@@ -8,7 +8,7 @@
 
 #![allow(
     dead_code,
-    reason = "telemetry reader is consumed by the adapter in a later chunk"
+    reason = "telemetry is a staged cross-check; per-request daily attribution is a follow-up refinement"
 )]
 
 use std::collections::HashMap;

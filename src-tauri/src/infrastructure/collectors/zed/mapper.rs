@@ -2,12 +2,8 @@
 //!
 //! Maps parsed Zed thread usage into Burnly daily and session candidates.
 //! Zed reports net input separately from cache_read, so totals never
-//! double-count cached tokens.
-
-#![allow(
-    dead_code,
-    reason = "mapper is consumed by the adapter in a later chunk"
-)]
+//! double-count cached tokens. Cost is Burnly-calculated from the embedded
+//! models.dev snapshot with the `zed.dev/` provider prefix normalized away.
 
 use std::collections::BTreeMap;
 
@@ -19,10 +15,13 @@ use crate::application::collection::{
     CandidateProvenance, CollectionId, CollectionScope, CollectorKey, DailyUsageCandidate,
     ModelUsageCandidate, SessionUsageCandidate,
 };
+use crate::application::cost::BurnlyCostCalculator;
 use crate::domain::{
     identity::{daily_source_key, session_source_key, IdentityError},
     source::SourceKey,
-    usage::{CostKind, TokenUsage, UsageCost, UsageValidationError},
+    usage::{
+        CostKind, CurrencyCode, TokenUsage, UsageCost, UsageValidationError, ValuedCostStatus,
+    },
 };
 
 use super::super::support::{date_in_scope, provenance, MappingIdentity};
@@ -75,6 +74,7 @@ pub(crate) fn map_threads(
     timezone: &str,
     scope: &CollectionScope,
     context: &ZedMappingContext,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<DailyUsageCandidate>, ZedMappingError> {
     let timezone = timezone
         .parse::<Tz>()
@@ -121,24 +121,24 @@ pub(crate) fn map_threads(
                 aggregate.cache_creation_tokens = aggregate
                     .cache_creation_tokens
                     .saturating_add(model_usage.cache_creation_tokens);
+                let cost = calculator
+                    .calculate(&normalized_model_id(&model_id), &tokens)
+                    .cost;
                 model_breakdowns.push(ModelUsageCandidate {
                     raw_model_id: model_id,
                     tokens,
-                    cost: UsageCost::Unavailable {
-                        kind: CostKind::BurnlyCalculated,
-                    },
+                    cost,
                 });
             }
             let tokens = zed_tokens(&aggregate)?;
+            let aggregate_cost = aggregate_zed_cost(&model_breakdowns, &tokens, calculator);
             Ok(DailyUsageCandidate {
                 provenance: context.provenance(),
                 source_key: daily_source_key(SourceKey::Zed, usage_date, timezone.name())?,
                 usage_date,
                 aggregation_timezone: timezone.name().to_owned(),
                 tokens: tokens.clone(),
-                cost: UsageCost::Unavailable {
-                    kind: CostKind::BurnlyCalculated,
-                },
+                cost: aggregate_cost,
                 model_breakdowns,
             })
         })
@@ -149,14 +149,15 @@ pub(crate) fn map_threads(
 pub(crate) fn map_sessions(
     threads: Vec<ZedThreadUsage>,
     context: &ZedMappingContext,
+    calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<SessionUsageCandidate>, ZedMappingError> {
     threads
         .into_iter()
         .map(|thread| {
             let tokens = zed_tokens(&thread.tokens)?;
-            let cost = UsageCost::Unavailable {
-                kind: CostKind::BurnlyCalculated,
-            };
+            let cost = calculator
+                .calculate(&normalized_model_id(&thread.model_id), &tokens)
+                .cost;
             Ok(SessionUsageCandidate {
                 provenance: context.provenance(),
                 source_key: session_source_key(
@@ -177,6 +178,41 @@ pub(crate) fn map_sessions(
             })
         })
         .collect()
+}
+
+/// Strip the `zed.dev/` provider prefix so model ids match the embedded
+/// models.dev pricing snapshot (e.g. `zed.dev/gpt-5.6-luna` -> `gpt-5.6-luna`).
+fn normalized_model_id(model_id: &str) -> String {
+    model_id
+        .strip_prefix("zed.dev/")
+        .unwrap_or(model_id)
+        .to_owned()
+}
+
+/// Daily aggregate cost: sum of per-model valued micros when any breakdown is
+/// valued; otherwise the calculator's aggregate result.
+fn aggregate_zed_cost(
+    model_breakdowns: &[ModelUsageCandidate],
+    tokens: &TokenUsage,
+    calculator: &BurnlyCostCalculator,
+) -> UsageCost {
+    let mut total_micros = 0_u64;
+    let mut saw_valued = false;
+    for model in model_breakdowns {
+        if let UsageCost::Valued { amount_micros, .. } = model.cost {
+            total_micros = total_micros.saturating_add(amount_micros);
+            saw_valued = true;
+        }
+    }
+    if saw_valued {
+        return UsageCost::Valued {
+            amount_micros: total_micros,
+            currency: CurrencyCode::new("USD").expect("USD is a valid ISO-shaped currency"),
+            kind: CostKind::BurnlyCalculated,
+            status: ValuedCostStatus::Estimated,
+        };
+    }
+    calculator.calculate("", tokens).cost
 }
 
 /// Zed reports net input separately from cache_read; total is their sum plus
@@ -259,11 +295,21 @@ mod tests {
         .expect("context")
     }
 
+    fn calculator() -> BurnlyCostCalculator {
+        BurnlyCostCalculator::new()
+    }
+
     #[test]
     fn maps_thread_to_daily_candidate_with_non_double_counted_total() {
         let threads = vec![thread("t1", "gpt-5.6-luna", 138468, 9644, 1586296, 0)];
-        let candidates =
-            map_threads(threads, "UTC", &CollectionScope::Full, &context()).expect("daily");
+        let candidates = map_threads(
+            threads,
+            "UTC",
+            &CollectionScope::Full,
+            &context(),
+            &calculator(),
+        )
+        .expect("daily");
 
         assert_eq!(candidates.len(), 1);
         let c = &candidates[0];
@@ -281,7 +327,7 @@ mod tests {
             thread("t1", "gpt-5.6-luna", 138468, 9644, 1586296, 0),
             thread("t2", "gemini-3.5-flash", 873218, 2418, 0, 0),
         ];
-        let candidates = map_sessions(threads, &context()).expect("sessions");
+        let candidates = map_sessions(threads, &context(), &calculator()).expect("sessions");
 
         assert_eq!(candidates.len(), 2);
         assert!(candidates[0].source_key.starts_with("zed:session:v1:t1:"));
@@ -299,7 +345,8 @@ mod tests {
         )
         .expect("scope");
 
-        let candidates = map_threads(threads, "UTC", &scope, &context()).expect("daily");
+        let candidates =
+            map_threads(threads, "UTC", &scope, &context(), &calculator()).expect("daily");
         assert!(candidates.is_empty());
     }
 
@@ -309,8 +356,14 @@ mod tests {
             thread("t1", "m", 100, 10, 50, 0),
             thread("t2", "m", 200, 20, 0, 5),
         ];
-        let candidates =
-            map_threads(threads, "UTC", &CollectionScope::Full, &context()).expect("daily");
+        let candidates = map_threads(
+            threads,
+            "UTC",
+            &CollectionScope::Full,
+            &context(),
+            &calculator(),
+        )
+        .expect("daily");
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(
@@ -329,8 +382,14 @@ mod tests {
             thread("t1", "gpt-5.6-luna", 100, 10, 50, 0),
             thread("t2", "claude-sonnet-5", 200, 20, 0, 5),
         ];
-        let candidates =
-            map_threads(threads, "UTC", &CollectionScope::Full, &context()).expect("daily");
+        let candidates = map_threads(
+            threads,
+            "UTC",
+            &CollectionScope::Full,
+            &context(),
+            &calculator(),
+        )
+        .expect("daily");
 
         assert_eq!(candidates.len(), 1);
         let daily = &candidates[0];

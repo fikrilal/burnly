@@ -13,6 +13,7 @@ use crate::infrastructure::collectors::grok::{
 };
 use crate::infrastructure::collectors::routed::RoutedCollector;
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
+use crate::infrastructure::collectors::zed::{default_zed_data_dir, ZedCollector};
 use crate::infrastructure::database::{
     Database, SqliteAntigravityUsageCacheStore, SqliteDiagnosticStore, SqliteGrokUsageCacheStore,
 };
@@ -53,7 +54,7 @@ pub(super) fn build_collector_graph(
     let usage_cache_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(usage_cache_database));
     let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(
-        diagnostic_recorder,
+        diagnostic_recorder.clone(),
         usage_cache,
     ));
     let commandcode_collector = Arc::new(
@@ -63,6 +64,10 @@ pub(super) fn build_collector_graph(
             )),
         ),
     );
+    let zed_collector = Arc::new(
+        ZedCollector::from_data_dir(default_zed_data_dir())
+            .with_diagnostic_recorder(diagnostic_recorder.clone()),
+    );
 
     Ok(Arc::new(RoutedCollector::new(
         ccusage_collector,
@@ -71,5 +76,6 @@ pub(super) fn build_collector_graph(
         antigravity_collector,
         grok_collector,
         commandcode_collector,
+        zed_collector,
     )))
 }

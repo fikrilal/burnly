@@ -15,6 +15,7 @@ pub(crate) struct RoutedCollector {
     antigravity: Arc<dyn Collector>,
     grok: Arc<dyn Collector>,
     commandcode: Arc<dyn Collector>,
+    zed: Arc<dyn Collector>,
 }
 
 impl RoutedCollector {
@@ -25,6 +26,7 @@ impl RoutedCollector {
         antigravity: Arc<dyn Collector>,
         grok: Arc<dyn Collector>,
         commandcode: Arc<dyn Collector>,
+        zed: Arc<dyn Collector>,
     ) -> Self {
         Self {
             ccusage,
@@ -33,6 +35,7 @@ impl RoutedCollector {
             antigravity,
             grok,
             commandcode,
+            zed,
         }
     }
 
@@ -46,13 +49,7 @@ impl RoutedCollector {
             SourceKey::Antigravity => Ok(&self.antigravity),
             SourceKey::GrokBuild => Ok(&self.grok),
             SourceKey::CommandCode => Ok(&self.commandcode),
-            // Zed is not wired yet; fail closed until a later chunk registers
-            // the native collector.
-            SourceKey::Zed => Err(CollectorFailure::new(
-                crate::application::collection::CollectorFailureCode::UnsupportedSource,
-                Some(source),
-                None,
-            )),
+            SourceKey::Zed => Ok(&self.zed),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -75,6 +72,7 @@ impl Collector for RoutedCollector {
         descriptor
             .profiles
             .extend(self.commandcode.describe()?.profiles);
+        descriptor.profiles.extend(self.zed.describe()?.profiles);
         Ok(descriptor)
     }
 
@@ -119,6 +117,7 @@ mod tests {
         let antigravity = Arc::new(RecordingCollector::new("antigravity"));
         let grok = Arc::new(RecordingCollector::new("grok-build"));
         let commandcode = Arc::new(RecordingCollector::new("command-code"));
+        let zed = Arc::new(RecordingCollector::new("zed"));
         let collector = RoutedCollector::new(
             ccusage.clone(),
             cline.clone(),
@@ -126,6 +125,7 @@ mod tests {
             antigravity.clone(),
             grok.clone(),
             commandcode.clone(),
+            zed.clone(),
         );
 
         collector
@@ -155,6 +155,9 @@ mod tests {
         collector
             .collect(request(SourceKey::CommandCode), &NeverCancelled)
             .expect("command-code collection");
+        collector
+            .collect(request(SourceKey::Zed), &NeverCancelled)
+            .expect("zed collection");
 
         assert_eq!(
             ccusage.sources(),
@@ -170,6 +173,7 @@ mod tests {
         assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
         assert_eq!(grok.sources(), vec![SourceKey::GrokBuild]);
         assert_eq!(commandcode.sources(), vec![SourceKey::CommandCode]);
+        assert_eq!(zed.sources(), vec![SourceKey::Zed]);
     }
 
     #[test]
@@ -182,6 +186,7 @@ mod tests {
             Arc::new(RecordingCollector::new("antigravity")),
             Arc::new(RecordingCollector::new("grok-build")),
             commandcode.clone(),
+            Arc::new(RecordingCollector::new("zed")),
         );
 
         collector
@@ -200,6 +205,7 @@ mod tests {
             Arc::new(RecordingCollector::new("antigravity")),
             Arc::new(RecordingCollector::new("grok-build")),
             Arc::new(RecordingCollector::new("command-code")),
+            Arc::new(RecordingCollector::new("zed")),
         );
 
         let descriptor = collector.describe().expect("descriptor");
@@ -221,6 +227,7 @@ mod tests {
                 SourceKey::Antigravity,
                 SourceKey::GrokBuild,
                 SourceKey::CommandCode,
+                SourceKey::Zed,
             ]
         );
     }
@@ -325,6 +332,7 @@ mod tests {
             "antigravity" => vec![profile(SourceKey::Antigravity)],
             "grok-build" => vec![profile(SourceKey::GrokBuild)],
             "command-code" => vec![profile(SourceKey::CommandCode)],
+            "zed" => vec![profile(SourceKey::Zed)],
             _ => Vec::new(),
         }
     }

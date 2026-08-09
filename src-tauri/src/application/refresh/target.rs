@@ -49,7 +49,7 @@ impl RefreshTarget {
 }
 
 /// All supported source/projection pairs refreshed by the coordinator.
-pub(super) const fn refresh_targets() -> [RefreshTarget; 18] {
+pub(super) const fn refresh_targets() -> [RefreshTarget; 20] {
     [
         RefreshTarget {
             source: SourceKey::ClaudeCode,
@@ -123,6 +123,14 @@ pub(super) const fn refresh_targets() -> [RefreshTarget; 18] {
             source: SourceKey::CommandCode,
             projection: CollectionProjection::Session,
         },
+        RefreshTarget {
+            source: SourceKey::Zed,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::Zed,
+            projection: CollectionProjection::Session,
+        },
     ]
 }
 
@@ -166,20 +174,20 @@ mod tests {
     fn target_catalog_contains_each_supported_source_projection_pair() {
         let targets = refresh_targets();
 
-        assert_eq!(targets.len(), 18);
+        assert_eq!(targets.len(), 20);
         assert_eq!(
             targets
                 .iter()
                 .filter(|target| target.projection == CollectionProjection::Daily)
                 .count(),
-            9
+            10
         );
         assert_eq!(
             targets
                 .iter()
                 .filter(|target| target.projection == CollectionProjection::Session)
                 .count(),
-            9
+            10
         );
 
         for source in [
@@ -192,6 +200,7 @@ mod tests {
             SourceKey::Antigravity,
             SourceKey::GrokBuild,
             SourceKey::CommandCode,
+            SourceKey::Zed,
         ] {
             assert!(targets.iter().any(|target| target.source == source
                 && target.projection == CollectionProjection::Daily));

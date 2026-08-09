@@ -396,6 +396,12 @@ Minimum tests:
 - Wire source routing + refresh integration tests.
 - Update README/product docs; verify tray presentation.
 
+Chunk 4 status: **complete** (2026-08-09). `ZedCollector` is wired into
+`RoutedCollector` and bootstrap, refresh targets are 18 -> 20, cost is
+Burnly-calculated via the embedded models.dev snapshot (`zed.dev/` prefix
+normalized), and runtime evidence was captured against real Zed threads
+(`docs/runtime-evidence/2026-08-09-zed-runtime/README.md`).
+
 ## Open Questions
 
 - Should per-request history (telemetry) be used for daily totals, or are

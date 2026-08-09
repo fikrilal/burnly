@@ -951,7 +951,7 @@ fn collector_failure_for_one_target_keeps_later_targets_and_marks_partial() {
         uploads[0].clone().into_upload_scope().expect("scope"),
         UploadScope::Incremental { ref source_keys, .. }
             if !source_keys.contains(SourceKey::Pi.as_str())
-                && source_keys.len() == 8
+                && source_keys.len() == 9
     ));
 }
 
