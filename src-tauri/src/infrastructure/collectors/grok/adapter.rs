@@ -16,9 +16,9 @@ use crate::domain::source::SourceKey;
 use super::super::support::{
     available_detection, cancelled_detection, collection_metadata, collector_key,
     daily_session_projections, detection_issue, empty_collection_result,
-    invalid_configuration_detection, not_found_detection, record_collector_diagnostic,
-    request_failure, single_source_descriptor, unsupported_detection, validate_source,
-    validation_failure_as_internal, CollectorDiagnosticCounter, CollectorIdentity,
+    invalid_configuration_detection, missing_or_invalid_location_code, not_found_detection,
+    record_collector_diagnostic, request_failure, single_source_descriptor, unsupported_detection,
+    validate_source, validation_failure_as_internal, CollectorDiagnosticCounter, CollectorIdentity,
     LocalCollectionRun,
 };
 use super::detection::inspect_grok_home;
@@ -150,21 +150,27 @@ impl Collector for GrokCollector {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
         if !self.grok_home.is_dir() {
-            self.record_failure(
-                &request,
-                CollectorFailureCode::SourceNotFound,
-                &[CollectorDiagnosticCounter::new("rowsFound", 0)],
-            );
+            let code = missing_or_invalid_location_code(&self.grok_home);
+            if code != CollectorFailureCode::SourceNotFound {
+                self.record_failure(
+                    &request,
+                    code,
+                    &[CollectorDiagnosticCounter::new("rowsFound", 0)],
+                );
+            }
             return empty_collection_result(IDENTITY, &request, &run);
         }
 
         let unified_log = unified_log_path(&self.grok_home);
         if !unified_log.is_file() {
-            self.record_failure(
-                &request,
-                CollectorFailureCode::SourceNotFound,
-                &[CollectorDiagnosticCounter::new("rowsFound", 0)],
-            );
+            let code = missing_or_invalid_location_code(&unified_log);
+            if code != CollectorFailureCode::SourceNotFound {
+                self.record_failure(
+                    &request,
+                    code,
+                    &[CollectorDiagnosticCounter::new("rowsFound", 0)],
+                );
+            }
             return empty_collection_result(IDENTITY, &request, &run);
         }
 
@@ -432,9 +438,9 @@ mod tests {
     }
 
     #[test]
-    fn records_diagnostic_when_grok_home_is_missing() {
+    fn missing_grok_home_returns_empty_without_diagnostic() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
-        let collector = GrokCollector::from_grok_home("/missing/grok-home")
+        let collector = GrokCollector::from_grok_home(PathBuf::from("/missing/grok"))
             .with_diagnostic_recorder(diagnostics.clone());
 
         let result = collector
@@ -442,16 +448,30 @@ mod tests {
             .expect("missing home is empty");
 
         assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        assert!(diagnostics.events().is_empty());
+    }
+
+    #[test]
+    fn invalid_unified_log_location_records_diagnostic() {
+        let fixture = FixtureGrok::new();
+        let unified_log = unified_log_path(&fixture.grok_home());
+        fs::create_dir_all(unified_log.parent().expect("logs path")).expect("logs dir");
+        fs::create_dir(&unified_log).expect("unified log directory");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = GrokCollector::from_grok_home(fixture.grok_home())
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let result = collector
+            .collect(daily_request(CollectionScope::Full), &NeverCancelled)
+            .expect("invalid log location is empty");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Empty);
         let events = diagnostics.events();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
         assert_eq!(events[0].code.as_str(), "grok.collection_failed");
         let context = events[0].context.as_ref().expect("context").as_str();
-        assert!(context.contains(r#""source":"grok-build""#));
-        assert!(context.contains(r#""projection":"daily""#));
-        assert!(context.contains(r#""failureCode":"source.not_found""#));
-        assert!(context.contains(r#""rowsFound":0"#));
-        assert!(!context.contains("/missing"));
+        assert!(context.contains(r#""failureCode":"source.invalid_location""#));
     }
 
     #[test]

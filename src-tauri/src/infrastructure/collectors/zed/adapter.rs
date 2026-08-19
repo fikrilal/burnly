@@ -22,10 +22,10 @@ use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::domain::source::SourceKey;
 use crate::infrastructure::collectors::support::{
     available_detection, cancelled_detection, collection_metadata, daily_session_projections,
-    detection_issue, empty_collection_result, not_found_detection, record_collector_diagnostic,
-    request_failure, single_source_descriptor, unsupported_detection, validate_source,
-    validation_failure_as_internal, CollectorDiagnosticCounter, CollectorIdentity,
-    LocalCollectionRun,
+    detection_issue, empty_collection_result, missing_or_invalid_location_code,
+    not_found_detection, record_collector_diagnostic, request_failure, single_source_descriptor,
+    unsupported_detection, validate_source, validation_failure_as_internal,
+    CollectorDiagnosticCounter, CollectorIdentity, LocalCollectionRun,
 };
 
 use super::detection::threads_db_path;
@@ -154,11 +154,14 @@ impl Collector for ZedCollector {
 
         let db_path = threads_db_path(&self.zed_data_dir);
         if !db_path.is_file() {
-            self.record_failure(
-                &request,
-                CollectorFailureCode::SourceNotFound,
-                &[CollectorDiagnosticCounter::new("rowsFound", 0)],
-            );
+            let code = missing_or_invalid_location_code(&db_path);
+            if code != CollectorFailureCode::SourceNotFound {
+                self.record_failure(
+                    &request,
+                    code,
+                    &[CollectorDiagnosticCounter::new("rowsFound", 0)],
+                );
+            }
             return empty_collection_result(IDENTITY, &request, &run);
         }
         let store = match ZedThreadStore::open_read_only(&db_path) {
@@ -289,6 +292,7 @@ fn supported_projections() -> Vec<CollectionProjection> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::Arc;
 
     use chrono::{DateTime, Utc};
     use tempfile::TempDir;
@@ -297,7 +301,7 @@ mod tests {
     use crate::application::collection::{CollectionOutcome, CollectionScope, DetectionState};
     use crate::infrastructure::collectors::support::{
         daily_request as support_daily_request, detection_request, fixed_timestamp,
-        session_request as support_session_request, NeverCancelled,
+        session_request as support_session_request, NeverCancelled, RecordingDiagnostics,
     };
 
     fn zstd_compress(payload: &str) -> Vec<u8> {
@@ -427,8 +431,10 @@ mod tests {
     }
 
     #[test]
-    fn missing_threads_db_returns_empty() {
-        let collector = ZedCollector::from_data_dir(PathBuf::from("/missing/zed"));
+    fn missing_threads_db_returns_empty_without_diagnostic() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = ZedCollector::from_data_dir(PathBuf::from("/missing/zed"))
+            .with_diagnostic_recorder(diagnostics.clone());
 
         let result = collector
             .collect(
@@ -444,5 +450,38 @@ mod tests {
             .expect("empty result");
 
         assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        assert!(diagnostics.events().is_empty());
+    }
+
+    #[test]
+    fn invalid_threads_db_location_records_diagnostic() {
+        let dir = TempDir::new().expect("dir");
+        let threads_dir = dir.path().join("threads");
+        fs::create_dir_all(&threads_dir).expect("threads dir");
+        fs::create_dir(threads_dir.join("threads.db")).expect("threads db directory");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = ZedCollector::from_data_dir(dir.path().to_path_buf())
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let result = collector
+            .collect(
+                support_daily_request(
+                    "zed-daily",
+                    SourceKey::Zed,
+                    CollectionScope::Full,
+                    "UTC",
+                    timestamp(),
+                ),
+                &NeverCancelled,
+            )
+            .expect("invalid database location is empty");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
+        assert_eq!(events[0].code.as_str(), "zed.collection_failed");
+        let context = events[0].context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""failureCode":"source.invalid_location""#));
     }
 }

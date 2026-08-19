@@ -29,11 +29,14 @@ pub(in crate::infrastructure::collectors) fn request_failure(
 pub(in crate::infrastructure::collectors) fn missing_or_invalid_location_code(
     path: &Path,
 ) -> CollectorFailureCode {
-    if path.exists() {
-        CollectorFailureCode::SourceInvalidLocation
-    } else {
-        CollectorFailureCode::SourceNotFound
+    match path.try_exists() {
+        Ok(true) | Err(_) => CollectorFailureCode::SourceInvalidLocation,
+        Ok(false) => CollectorFailureCode::SourceNotFound,
     }
+}
+
+pub(in crate::infrastructure::collectors) fn path_is_missing(path: &Path) -> bool {
+    matches!(path.try_exists(), Ok(false))
 }
 
 pub(in crate::infrastructure::collectors) fn validation_failure_as_internal(

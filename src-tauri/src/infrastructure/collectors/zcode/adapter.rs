@@ -19,9 +19,9 @@ use super::super::support::{
     available_detection, cancelled_detection, collection_metadata, collector_key,
     daily_session_projections, detection_issue, empty_collection_result,
     invalid_configuration_detection, missing_or_invalid_location_code, not_found_detection,
-    record_collector_diagnostic, request_failure, single_source_descriptor, unsupported_detection,
-    validate_source, validation_failure_as_internal, CollectorDiagnosticCounter, CollectorIdentity,
-    LocalCollectionRun,
+    path_is_missing, record_collector_diagnostic, request_failure, single_source_descriptor,
+    unsupported_detection, validate_source, validation_failure_as_internal,
+    CollectorDiagnosticCounter, CollectorIdentity, LocalCollectionRun,
 };
 use super::mapper::{self, ZCodeMappingContext};
 use super::ZCodeStore;
@@ -132,7 +132,7 @@ impl Collector for ZCodeCollector {
         if cancellation.is_cancelled() {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
-        if !self.database_path.exists() {
+        if path_is_missing(&self.database_path) {
             return empty_collection_result(IDENTITY, &request, &run);
         }
 
