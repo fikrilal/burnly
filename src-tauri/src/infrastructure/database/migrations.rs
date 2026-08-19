@@ -27,6 +27,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
     ))
     .foreign_key_check(),
     M::up(include_str!("../../../migrations/0008_collect_sync.sql")).foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0009_remove_obsolete_missing_source_diagnostics.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -120,6 +124,81 @@ mod tests {
             .expect("count collect_sync_outbox");
         assert_eq!(collect_sync_state, 1);
         assert_eq!(collect_sync_outbox, 1);
+    }
+
+    #[test]
+    fn missing_source_diagnostics_migration_removes_only_obsolete_optional_source_warnings() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 8)
+            .expect("apply prior migrations");
+
+        for (code, source) in [
+            ("cline.collection_failed", "cline"),
+            ("zcode.collection_failed", "zcode"),
+            ("grok.collection_failed", "grok-build"),
+            ("commandcode.collection_failed", "command-code"),
+            ("zed.collection_failed", "zed"),
+        ] {
+            insert_diagnostic_event(
+                &connection,
+                code,
+                &format!(r#"{{"failureCode":"collector.source_not_found","source":"{source}"}}"#),
+            );
+        }
+        insert_diagnostic_event(
+            &connection,
+            "cline.collection_failed",
+            r#"{"failureCode":"collector.source_invalid_location","source":"cline"}"#,
+        );
+        insert_diagnostic_event(
+            &connection,
+            "antigravity.collection_failed",
+            r#"{"failureCode":"collector.source_not_found","source":"antigravity"}"#,
+        );
+        insert_diagnostic_event(&connection, "zed.collection_failed", "malformed-json");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply cleanup migration");
+
+        let remaining_events: i64 = connection
+            .query_row("SELECT COUNT(*) FROM diagnostic_events", [], |row| {
+                row.get(0)
+            })
+            .expect("count remaining diagnostics");
+        let invalid_location_events: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM diagnostic_events
+                 WHERE CASE
+                    WHEN json_valid(context_json)
+                    THEN json_extract(context_json, '$.failureCode')
+                 END = 'collector.source_invalid_location'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count invalid location diagnostics");
+        let antigravity_events: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM diagnostic_events
+                 WHERE code = 'antigravity.collection_failed'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count antigravity diagnostics");
+        let malformed_context_events: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM diagnostic_events
+                 WHERE context_json = 'malformed-json'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count malformed-context diagnostics");
+
+        assert_eq!(remaining_events, 3);
+        assert_eq!(invalid_location_events, 1);
+        assert_eq!(antigravity_events, 1);
+        assert_eq!(malformed_context_events, 1);
     }
 
     #[test]
@@ -471,6 +550,17 @@ mod tests {
             .migrate_to_latest()
             .expect("migrate database");
         database
+    }
+
+    fn insert_diagnostic_event(connection: &Connection, code: &str, context_json: &str) {
+        connection
+            .execute(
+                "INSERT INTO diagnostic_events (
+                    area, severity, code, summary, context_json, created_at_ms
+                ) VALUES ('collector', 'warning', ?1, 'Collector warning.', ?2, 100)",
+                params![code, context_json],
+            )
+            .expect("insert diagnostic event");
     }
 
     fn insert_source(connection: &Connection, id: i64, key: &str) {
