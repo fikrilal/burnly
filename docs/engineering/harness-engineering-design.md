@@ -276,8 +276,10 @@ It should enforce:
 - `domain` imports no Tauri, rusqlite, Tokio process, filesystem adapters, IPC DTOs, or collector envelopes.
 - `application` imports domain and ports, not infrastructure or Tauri.
 - `infrastructure` implements ports but does not import IPC command handlers.
-- `infrastructure` rusqlite usage is confined to `database/` (production stores) and
-  `collectors/{cline,zcode}` (external tool database reads).
+- `infrastructure` rusqlite usage is confined to `database/` (production stores),
+  reviewed native external-database collectors
+  (`collectors/{antigravity,cline,opencode,zcode,zed}`), and the shared
+  read-only external SQLite opener.
 - `ipc` depends on application use cases and DTO mappers, not database rows or collector envelopes.
 - `platform` may call application use cases but not query SQLite directly.
 - Collector envelope structs remain inside the collector adapter.
