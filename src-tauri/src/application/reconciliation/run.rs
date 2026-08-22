@@ -332,6 +332,8 @@ pub(crate) struct ImportRunLookup {
     source: SourceKey,
     projection: CollectionProjection,
     aggregation_timezone: Option<String>,
+    collector_key: Option<String>,
+    profile_version: Option<u16>,
 }
 
 impl ImportRunLookup {
@@ -354,7 +356,29 @@ impl ImportRunLookup {
             source,
             projection,
             aggregation_timezone,
+            collector_key: None,
+            profile_version: None,
         })
+    }
+
+    pub(crate) fn compatible(
+        source: SourceKey,
+        projection: CollectionProjection,
+        aggregation_timezone: Option<String>,
+        collector_key: impl Into<String>,
+        profile_version: u16,
+    ) -> Result<Self, RunValidationError> {
+        let mut lookup = Self::new(source, projection, aggregation_timezone)?;
+        let collector_key = collector_key.into();
+        if collector_key.trim().is_empty() {
+            return Err(RunValidationError::EmptyCollectorKey);
+        }
+        if profile_version == 0 {
+            return Err(RunValidationError::InvalidProfileVersion);
+        }
+        lookup.collector_key = Some(collector_key);
+        lookup.profile_version = Some(profile_version);
+        Ok(lookup)
     }
 
     pub(crate) const fn source(&self) -> SourceKey {
@@ -367,6 +391,14 @@ impl ImportRunLookup {
 
     pub(crate) fn aggregation_timezone(&self) -> Option<&str> {
         self.aggregation_timezone.as_deref()
+    }
+
+    pub(crate) fn collector_key(&self) -> Option<&str> {
+        self.collector_key.as_deref()
+    }
+
+    pub(crate) const fn profile_version(&self) -> Option<u16> {
+        self.profile_version
     }
 }
 

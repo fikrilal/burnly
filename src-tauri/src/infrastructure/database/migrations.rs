@@ -31,6 +31,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
         "../../../migrations/0009_remove_obsolete_missing_source_diagnostics.sql"
     ))
     .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0010_antigravity_activity_timestamps.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -199,6 +203,44 @@ mod tests {
         assert_eq!(invalid_location_events, 1);
         assert_eq!(antigravity_events, 1);
         assert_eq!(malformed_context_events, 1);
+    }
+
+    #[test]
+    fn antigravity_timestamp_migration_preserves_rows_as_unclassified_legacy_data() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 9)
+            .expect("apply prior migrations");
+        connection
+            .execute(
+                "INSERT INTO antigravity_usage_cache (
+                    dedupe_key, variant, conversation_id, response_id,
+                    raw_model_id, model_label, input_tokens, output_tokens,
+                    thinking_output_tokens, response_output_tokens,
+                    cache_read_tokens, cache_write_tokens, observed_at_ms,
+                    collector_version, first_seen_at_ms, last_seen_at_ms
+                ) VALUES (
+                    'antigravity-cli:conversation:response', 'antigravity-cli',
+                    'conversation', 'response', 'gemini', 'Gemini', 10, 2,
+                    0, 2, 3, 0, 100, 'local-rpc', 200, 200
+                )",
+                [],
+            )
+            .expect("insert legacy cache row");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply timestamp migration");
+
+        let migrated: (Option<i64>, String, i64) = connection
+            .query_row(
+                "SELECT source_record_index, timestamp_origin, observed_at_ms
+                 FROM antigravity_usage_cache",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read migrated cache row");
+        assert_eq!(migrated, (None, "legacy_unknown".to_owned(), 100));
     }
 
     #[test]

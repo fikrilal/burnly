@@ -42,6 +42,7 @@ pub(crate) enum CollectorIntegrity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProfileDescriptor {
+    pub collector: CollectorKey,
     pub source: SourceKey,
     pub profile_version: u16,
     pub supported_projections: Vec<CollectionProjection>,

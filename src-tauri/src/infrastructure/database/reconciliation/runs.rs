@@ -248,10 +248,18 @@ impl RunStore for SqliteReconciliationStore {
                         WHERE sources.source_key = ?1
                             AND import_runs.projection = ?2
                             AND import_runs.aggregation_timezone = ?3
+                            AND (?4 IS NULL OR import_runs.collector_key = ?4)
+                            AND (?5 IS NULL OR import_runs.profile_version = ?5)
                             AND import_runs.status = 'succeeded'
                         ORDER BY import_runs.finished_at_ms DESC, import_runs.id DESC
                         LIMIT 1",
-                        params![lookup.source().as_str(), projection, timezone],
+                        params![
+                            lookup.source().as_str(),
+                            projection,
+                            timezone,
+                            lookup.collector_key(),
+                            lookup.profile_version().map(i64::from),
+                        ],
                         import_run_scope_row,
                     )
                     .optional()
@@ -264,10 +272,17 @@ impl RunStore for SqliteReconciliationStore {
                         INNER JOIN sources ON sources.id = import_runs.source_id
                         WHERE sources.source_key = ?1
                             AND import_runs.projection = ?2
+                            AND (?3 IS NULL OR import_runs.collector_key = ?3)
+                            AND (?4 IS NULL OR import_runs.profile_version = ?4)
                             AND import_runs.status = 'succeeded'
                         ORDER BY import_runs.finished_at_ms DESC, import_runs.id DESC
                         LIMIT 1",
-                        params![lookup.source().as_str(), projection],
+                        params![
+                            lookup.source().as_str(),
+                            projection,
+                            lookup.collector_key(),
+                            lookup.profile_version().map(i64::from),
+                        ],
                         import_run_scope_row,
                     )
                     .optional()

@@ -124,8 +124,29 @@ fn execute_open_refresh(
         targets: Vec::new(),
         full_refresh_complete: matches!(scope_policy, RefreshScopePolicy::Full),
     };
+    let descriptor = context.collector.describe().map_err(|_| {
+        failure(
+            context,
+            "refresh.descriptor",
+            "Could not read collector compatibility metadata.",
+        )
+    })?;
 
     for target in refresh_targets() {
+        let profile = descriptor
+            .profiles
+            .iter()
+            .find(|profile| {
+                profile.source == target.source
+                    && profile.supported_projections.contains(&target.projection)
+            })
+            .ok_or_else(|| {
+                failure(
+                    context,
+                    "refresh.descriptor",
+                    "Collector compatibility metadata is incomplete.",
+                )
+            })?;
         let source_id = context
             .run_store
             .resolve_source(target.source, started_at_ms)
@@ -140,6 +161,7 @@ fn execute_open_refresh(
             context.run_store,
             job_id,
             target,
+            profile,
             requested_at,
             &context.aggregation_timezone,
             scope_policy,

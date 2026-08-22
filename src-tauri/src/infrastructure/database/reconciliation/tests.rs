@@ -284,6 +284,71 @@ fn latest_successful_import_returns_none_when_identity_has_no_success() {
 }
 
 #[test]
+fn latest_successful_import_requires_compatible_collector_profile() {
+    let (_directory, store) = migrated_store();
+    let source_id = store
+        .resolve_source(SourceKey::Antigravity, 100)
+        .expect("resolve source");
+    let refresh_run_id = store
+        .begin_refresh_run(refresh_spec("antigravity-profile-1"), 100)
+        .expect("begin refresh");
+    let import_id = store
+        .begin_import_run(
+            ImportRunSpec::new(
+                refresh_run_id,
+                source_id,
+                ImportCollector::new("antigravity", "local-rpc", 1).expect("collector"),
+                CollectionProjection::Daily,
+                CollectionScope::Full,
+                Some("UTC".to_owned()),
+            )
+            .expect("import spec"),
+            110,
+        )
+        .expect("begin import");
+    store
+        .complete_import_run(
+            import_id,
+            ImportRunCompletion {
+                outcome: ImportOutcome::Succeeded,
+                records_seen: 1,
+                records_rejected: 0,
+                finished_at_ms: 150,
+                error: None,
+            },
+        )
+        .expect("complete import");
+
+    let profile_2 = store
+        .latest_successful_import(
+            ImportRunLookup::compatible(
+                SourceKey::Antigravity,
+                CollectionProjection::Daily,
+                Some("UTC".to_owned()),
+                "antigravity",
+                2,
+            )
+            .expect("lookup"),
+        )
+        .expect("lookup profile 2");
+    let profile_1 = store
+        .latest_successful_import(
+            ImportRunLookup::compatible(
+                SourceKey::Antigravity,
+                CollectionProjection::Daily,
+                Some("UTC".to_owned()),
+                "antigravity",
+                1,
+            )
+            .expect("lookup"),
+        )
+        .expect("lookup profile 1");
+
+    assert_eq!(profile_2, None);
+    assert!(profile_1.is_some());
+}
+
+#[test]
 fn duplicate_job_key_is_rejected() {
     let (_directory, store) = migrated_store();
 

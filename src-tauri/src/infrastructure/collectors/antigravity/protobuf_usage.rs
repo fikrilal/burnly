@@ -5,6 +5,7 @@ use thiserror::Error;
 
 use super::product_variant::AntigravityProductVariant;
 use super::AntigravityUsageRecord;
+use crate::application::ports::antigravity_usage_cache::AntigravityTimestampOrigin;
 
 const MAX_BLOB_BYTES: usize = 4 * 1024 * 1024;
 const MAX_TOKEN_VALUE: u64 = 1_000_000_000;
@@ -22,6 +23,12 @@ pub(crate) struct ParsedProtobufUsageRecord {
     pub(crate) observed_at_ms: Option<i64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GenMetadataRow {
+    pub(crate) index: i64,
+    pub(crate) data: Vec<u8>,
+}
+
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProtobufUsageError {
     #[error("antigravity protobuf blob is too large")]
@@ -37,15 +44,18 @@ pub(crate) enum ProtobufUsageError {
 pub(crate) fn parse_gen_metadata_rows(
     variant: AntigravityProductVariant,
     conversation_id: &str,
-    rows: &[Vec<u8>],
+    rows: &[GenMetadataRow],
     session_timestamp_ms: i64,
 ) -> Result<Vec<AntigravityUsageRecord>, ProtobufUsageError> {
     let mut records = Vec::new();
     let mut seen_response_ids = BTreeSet::new();
     let mut rejected = 0_u32;
 
-    for blob in rows {
-        match parse_gen_metadata_blob(blob, session_timestamp_ms) {
+    let legacy_fallback_at = (session_timestamp_ms > 0)
+        .then(|| DateTime::<Utc>::from_timestamp_millis(session_timestamp_ms))
+        .flatten();
+    for row in rows {
+        match parse_gen_metadata_blob(&row.data) {
             Ok(Some(parsed)) => {
                 if let Some(response_id) = parsed.response_id.as_deref() {
                     if !seen_response_ids.insert(response_id.to_owned()) {
@@ -53,7 +63,13 @@ pub(crate) fn parse_gen_metadata_rows(
                         continue;
                     }
                 }
-                records.push(to_usage_record(variant, conversation_id, parsed));
+                records.push(to_usage_record(
+                    variant,
+                    conversation_id,
+                    row.index,
+                    legacy_fallback_at,
+                    parsed,
+                ));
             }
             Ok(None) => {}
             Err(_) => {
@@ -78,7 +94,6 @@ pub(crate) fn parse_trajectory_created_ms(blob: &[u8]) -> Option<i64> {
 
 fn parse_gen_metadata_blob(
     blob: &[u8],
-    session_timestamp_ms: i64,
 ) -> Result<Option<ParsedProtobufUsageRecord>, ProtobufUsageError> {
     if blob.len() > MAX_BLOB_BYTES {
         return Err(ProtobufUsageError::BlobTooLarge);
@@ -90,8 +105,7 @@ fn parse_gen_metadata_blob(
     let observed_at_ms = message_field(chat_model, 9)
         .and_then(|generation| message_field(generation, 4))
         .and_then(proto_timestamp_ms)
-        .filter(|value| *value > 0)
-        .or((session_timestamp_ms > 0).then_some(session_timestamp_ms));
+        .filter(|value| *value > 0);
 
     let fixed_input = token_field(usage, 1)?;
     let new_input = token_field(usage, 2)?;
@@ -135,6 +149,8 @@ fn parse_gen_metadata_blob(
 fn to_usage_record(
     variant: AntigravityProductVariant,
     conversation_id: &str,
+    source_record_index: i64,
+    legacy_fallback_at: Option<DateTime<Utc>>,
     parsed: ParsedProtobufUsageRecord,
 ) -> AntigravityUsageRecord {
     AntigravityUsageRecord {
@@ -144,9 +160,16 @@ fn to_usage_record(
         model_label: parsed.model_label,
         api_provider: None,
         response_id: parsed.response_id,
+        source_record_index: Some(source_record_index),
         observed_at: parsed
             .observed_at_ms
             .and_then(DateTime::<Utc>::from_timestamp_millis),
+        timestamp_origin: if parsed.observed_at_ms.is_some() {
+            AntigravityTimestampOrigin::SourceReported
+        } else {
+            AntigravityTimestampOrigin::Unresolved
+        },
+        legacy_fallback_at,
         input_tokens: parsed.input_tokens,
         output_tokens: parsed.output_tokens,
         thinking_output_tokens: parsed.thinking_output_tokens,
@@ -330,6 +353,26 @@ pub(crate) mod tests {
         enc_len(1, &chat_model)
     }
 
+    fn row(index: i64, data: Vec<u8>) -> GenMetadataRow {
+        GenMetadataRow { index, data }
+    }
+
+    fn sample_timestamped_gen_metadata_blob(response_id: &str) -> Vec<u8> {
+        let mut usage = Vec::new();
+        usage.extend(enc_varint(1, 100));
+        usage.extend(enc_len(11, response_id.as_bytes()));
+
+        let mut timestamp = Vec::new();
+        timestamp.extend(enc_varint(1, 1_781_502_653));
+        let generation = enc_len(4, &timestamp);
+
+        let mut chat_model = Vec::new();
+        chat_model.extend(enc_len(4, &usage));
+        chat_model.extend(enc_len(9, &generation));
+        chat_model.extend(enc_len(19, b"gemini-3-flash-a"));
+        enc_len(1, &chat_model)
+    }
+
     pub(crate) fn sample_trajectory_metadata_blob() -> Vec<u8> {
         let mut created = Vec::new();
         created.extend(enc_varint(1, 1_781_502_653));
@@ -342,7 +385,7 @@ pub(crate) mod tests {
         let records = parse_gen_metadata_rows(
             AntigravityProductVariant::Cli,
             "conversation-a",
-            &[sample_gen_metadata_blob("response-1")],
+            &[row(7, sample_gen_metadata_blob("response-1"))],
             1_781_502_653_000,
         )
         .expect("records");
@@ -355,9 +398,38 @@ pub(crate) mod tests {
         assert_eq!(records[0].output_tokens, 25);
         assert_eq!(records[0].response_id.as_deref(), Some("response-1"));
         assert_eq!(records[0].model_label, "gemini-3-flash-a");
+        assert_eq!(records[0].source_record_index, Some(7));
+        assert_eq!(records[0].observed_at, None);
+        assert_eq!(
+            records[0].legacy_fallback_at,
+            DateTime::<Utc>::from_timestamp_millis(1_781_502_653_000)
+        );
+        assert_eq!(
+            records[0].timestamp_origin,
+            AntigravityTimestampOrigin::Unresolved
+        );
+    }
+
+    #[test]
+    fn preserves_source_reported_generation_timestamp() {
+        let records = parse_gen_metadata_rows(
+            AntigravityProductVariant::Cli,
+            "conversation-a",
+            &[row(
+                0,
+                sample_timestamped_gen_metadata_blob("response-timestamped"),
+            )],
+            1_700_000_000_000,
+        )
+        .expect("records");
+
         assert_eq!(
             records[0].observed_at,
             DateTime::<Utc>::from_timestamp_millis(1_781_502_653_000)
+        );
+        assert_eq!(
+            records[0].timestamp_origin,
+            AntigravityTimestampOrigin::SourceReported
         );
     }
 
@@ -367,7 +439,7 @@ pub(crate) mod tests {
         let records = parse_gen_metadata_rows(
             AntigravityProductVariant::Cli,
             "conversation-a",
-            &[blob.clone(), blob],
+            &[row(0, blob.clone()), row(1, blob)],
             0,
         )
         .expect("records");
@@ -380,7 +452,7 @@ pub(crate) mod tests {
         let records = parse_gen_metadata_rows(
             AntigravityProductVariant::Cli,
             "conversation-a",
-            &[vec![0xFF, 0xFF]],
+            &[row(0, vec![0xFF, 0xFF])],
             0,
         )
         .expect_err("malformed only row");

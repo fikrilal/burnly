@@ -70,6 +70,8 @@ impl SidecarManifest {
             profiles: profiles()
                 .iter()
                 .map(|profile| ProfileDescriptor {
+                    collector: CollectorKey::new(self.collector_key.clone())
+                        .expect("validated manifest collector key"),
                     source: profile.source,
                     profile_version: profile.profile_version,
                     supported_projections: profile.supported_projections.to_vec(),

@@ -4,25 +4,25 @@ use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use thiserror::Error;
 
+use crate::application::ports::antigravity_usage_cache::AntigravityTimestampOrigin;
 use crate::{
     application::collection::{
-        CandidateProvenance, CollectionId, CollectionScope, CollectorKey, DailyUsageCandidate,
-        ModelUsageCandidate, SessionUsageCandidate,
+        CandidateProvenance, CandidateWarning, CollectionId, CollectionScope, CollectorKey,
+        DailyUsageCandidate, ModelUsageCandidate, SessionUsageCandidate,
     },
     application::cost::BurnlyCostCalculator,
     domain::{
         identity::{daily_source_key, session_source_key, IdentityError},
         source::SourceKey,
         usage::{
-            CostKind, CurrencyCode, TokenUsage, UsageCost, UsageValidationError, ValuedCostStatus,
+            CostKind, CurrencyCode, DataQuality, TokenUsage, UsageCost, UsageValidationError,
+            ValuedCostStatus,
         },
     },
 };
 
 use super::super::support::{checked_add_u64, date_in_scope, provenance, MappingIdentity};
-use super::{AntigravityUsageRecord, ConversationDatabase};
-
-const PROFILE_VERSION: u16 = 1;
+use super::{AntigravityUsageRecord, ConversationDatabase, PROFILE_VERSION};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AntigravityMappingContext {
@@ -50,15 +50,23 @@ impl AntigravityMappingContext {
         })
     }
 
-    fn provenance(&self) -> CandidateProvenance {
-        provenance(&MappingIdentity {
+    fn provenance(&self, inferred_activity_time: bool) -> CandidateProvenance {
+        let mut provenance = provenance(&MappingIdentity {
             source: SourceKey::Antigravity,
             collector: self.collector.clone(),
             collector_version: self.collector_version.clone(),
             profile_version: PROFILE_VERSION,
             collection_id: self.collection_id.clone(),
             observed_at: self.observed_at,
-        })
+        });
+        if inferred_activity_time {
+            provenance.data_quality = DataQuality::Partial;
+            provenance.warnings.push(CandidateWarning {
+                code: "antigravity.activity_time_first_seen".to_owned(),
+                message: "Antigravity did not report an activity timestamp; Burnly used the stable first-seen time.".to_owned(),
+            });
+        }
+        provenance
     }
 }
 
@@ -84,7 +92,7 @@ pub(crate) fn map_daily(
         for record in conversation.records {
             let activity_at = record
                 .observed_at
-                .unwrap_or(conversation.database.modified_at);
+                .ok_or(AntigravityMappingError::MissingActivityTimestamp)?;
             let usage_date = activity_at.with_timezone(&timezone).date_naive();
             if !date_in_scope(usage_date, scope) {
                 continue;
@@ -112,7 +120,7 @@ pub(crate) fn map_daily(
                 .collect::<Result<Vec<_>, AntigravityMappingError>>()?;
             let aggregate_cost = aggregate_cost(&model_breakdowns, &tokens, calculator);
             Ok(DailyUsageCandidate {
-                provenance: context.provenance(),
+                provenance: context.provenance(usage.inferred_activity_time),
                 source_key: daily_source_key(SourceKey::Antigravity, usage_date, timezone.name())?,
                 usage_date,
                 aggregation_timezone: timezone.name().to_owned(),
@@ -135,10 +143,13 @@ pub(crate) fn map_sessions(
         let mut models = BTreeMap::<String, AntigravityUsageAccumulator>::new();
         let mut first_activity_at = None;
         let mut last_activity_at = None;
+        let mut inferred_activity_time = false;
         for record in conversation.records {
             let activity_at = record
                 .observed_at
-                .unwrap_or(conversation.database.modified_at);
+                .ok_or(AntigravityMappingError::MissingActivityTimestamp)?;
+            inferred_activity_time |=
+                record.timestamp_origin != AntigravityTimestampOrigin::SourceReported;
             first_activity_at = Some(
                 first_activity_at
                     .map_or(activity_at, |current| std::cmp::min(current, activity_at)),
@@ -177,7 +188,7 @@ pub(crate) fn map_sessions(
         );
 
         candidates.push(SessionUsageCandidate {
-            provenance: context.provenance(),
+            provenance: context.provenance(inferred_activity_time),
             source_key: session_source_key(SourceKey::Antigravity, &source_session_id)?,
             source_session_id,
             project_path: None,
@@ -195,10 +206,13 @@ pub(crate) fn map_sessions(
 struct AntigravityDailyBucket {
     total: AntigravityUsageAccumulator,
     models: BTreeMap<String, AntigravityUsageAccumulator>,
+    inferred_activity_time: bool,
 }
 
 impl AntigravityDailyBucket {
     fn add(&mut self, record: &AntigravityUsageRecord) -> Result<(), AntigravityMappingError> {
+        self.inferred_activity_time |=
+            record.timestamp_origin != AntigravityTimestampOrigin::SourceReported;
         self.total.add(record)?;
         self.models
             .entry(record.model_label.clone())
@@ -291,6 +305,8 @@ pub(crate) enum AntigravityMappingError {
     EmptyCollectorVersion,
     #[error("antigravity mapping requires a valid timezone")]
     InvalidTimezone,
+    #[error("antigravity mapping requires a resolved activity timestamp")]
+    MissingActivityTimestamp,
     #[error("antigravity token total overflowed")]
     TokenOverflow,
     #[error(transparent)]
@@ -336,6 +352,28 @@ mod tests {
             .find(|model| model.raw_model_id == "Gemini 3.1 Pro (High)")
             .expect("pro model");
         assert_eq!(pro.tokens.total_tokens(), 138);
+    }
+
+    #[test]
+    fn marks_daily_usage_partial_when_activity_time_is_first_seen() {
+        let mut usage = conversations();
+        usage[0].records[0].timestamp_origin = AntigravityTimestampOrigin::FirstSeen;
+
+        let candidates = map_daily(
+            usage,
+            "UTC",
+            &CollectionScope::Full,
+            &context(),
+            &calculator(),
+        )
+        .expect("daily candidates");
+
+        assert_eq!(candidates[0].provenance.data_quality, DataQuality::Partial);
+        assert!(candidates[0]
+            .provenance
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "antigravity.activity_time_first_seen"));
     }
 
     #[test]
@@ -483,7 +521,10 @@ mod tests {
             model_label: model_label.to_owned(),
             api_provider: Some("API_PROVIDER_GOOGLE_GEMINI".to_owned()),
             response_id: Some(format!("{conversation_id}:{raw_model_id}")),
-            observed_at: None,
+            source_record_index: None,
+            observed_at: Some(Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0).unwrap()),
+            timestamp_origin: AntigravityTimestampOrigin::SourceReported,
+            legacy_fallback_at: None,
             input_tokens,
             output_tokens,
             thinking_output_tokens: 0,

@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::application::collection::{
     CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
-    CollectionResult, CollectorDescriptor, CollectorFailure, CollectorFailureCode,
+    CollectionResult, CollectionScope, CollectorDescriptor, CollectorFailure, CollectorFailureCode,
     CollectorIntegrity, CollectorKey, DetectionIssue, DetectionRequest, DetectionResult,
     DetectionState, ProcessSummary, ProfileDescriptor,
 };
@@ -32,14 +32,15 @@ use super::runtime_metadata_client::{
 use super::usage_cache::{AntigravityUsageCacheClient, NoOpAntigravityUsageCache};
 use super::{
     extract_usage_from_generator_metadata, ConversationDatabase, ConversationIndex, RuntimeClient,
-    RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint,
+    RuntimeDiscovery, RuntimeDiscoveryReport, RuntimeEndpoint, PROFILE_VERSION,
 };
 
 const COLLECTOR_KEY: &str = "antigravity";
 const DISPLAY_NAME: &str = "Antigravity";
 const COLLECTOR_VERSION: &str = "local-rpc";
 const ADAPTER_VERSION: u16 = 1;
-const PROFILE_VERSION: u16 = 1;
+const MAX_INCREMENTAL_CONVERSATIONS: usize = 100;
+const CONVERSATION_BATCH_SIZE: usize = 20;
 
 #[derive(Clone)]
 pub(crate) struct AntigravityCollector {
@@ -423,7 +424,7 @@ impl Collector for AntigravityCollector {
                 );
                 failure(&request, CollectorFailureCode::ScopeNotRepresentable)
             })?;
-        let conversations = bounded_conversations(conversations);
+        let conversations = bounded_conversations(conversations, request.scope());
         diagnostics.sqlite_dbs_scanned = conversations.len();
         diagnostics.conversations_found = conversations.len();
         if conversations.is_empty() {
@@ -441,8 +442,22 @@ impl Collector for AntigravityCollector {
             );
             return empty_result(&request, started, started_at);
         }
-        let (mut collected_usage, sqlite_report) =
-            collect_cli_sqlite_usage(&conversations).unwrap_or_default();
+        let mut collected_usage = Vec::new();
+        let mut sqlite_report = CliSqliteCollectionReport::default();
+        let mut app_ide_report = AppIdeSqliteCollectionReport::default();
+        for batch in conversations.chunks(CONVERSATION_BATCH_SIZE) {
+            if cancellation.is_cancelled() {
+                return Err(failure(&request, CollectorFailureCode::Cancelled));
+            }
+            let (cli_usage, batch_cli_report) = collect_cli_sqlite_usage(batch).unwrap_or_default();
+            merge_conversation_usage(&mut collected_usage, cli_usage);
+            merge_cli_sqlite_report(&mut sqlite_report, batch_cli_report);
+
+            let (batch_app_ide_usage, batch_app_ide_report) =
+                collect_app_ide_sqlite_fallback(batch);
+            merge_conversation_usage(&mut collected_usage, batch_app_ide_usage);
+            merge_app_ide_sqlite_report(&mut app_ide_report, batch_app_ide_report);
+        }
         apply_cli_sqlite_diagnostics(&mut diagnostics, &sqlite_report);
         if sqlite_report.records_rejected > 0 {
             self.record_diagnostic(
@@ -459,9 +474,7 @@ impl Collector for AntigravityCollector {
             );
         }
 
-        let (app_ide_usage, app_ide_report) = collect_app_ide_sqlite_fallback(&conversations);
         apply_app_ide_sqlite_diagnostics(&mut diagnostics, &app_ide_report);
-        merge_conversation_usage(&mut collected_usage, app_ide_usage);
         if app_ide_report.conversations_accepted > 0 {
             self.record_diagnostic(
                 &request,
@@ -535,10 +548,55 @@ impl Collector for AntigravityCollector {
             }
         }
 
+        if !collected_usage.is_empty()
+            && full_cli_scan_is_incomplete(request.scope(), &sqlite_report)
+        {
+            self.record_diagnostic(
+                &request,
+                AntigravityDiagnosticInput {
+                    severity: DiagnosticSeverity::Warning,
+                    code: "antigravity.full_reconciliation_incomplete",
+                    summary:
+                        "Antigravity full reconciliation could not process every CLI usage record.",
+                    counters: &diagnostics,
+                    failure_code: Some(CollectorFailureCode::IncompatibleEnvelope.code()),
+                    failure_reason: Some("full_reconciliation_incomplete"),
+                    variants: vec![AntigravityProductVariant::Cli.as_str()],
+                },
+            );
+            return Err(failure(
+                &request,
+                CollectorFailureCode::IncompatibleEnvelope,
+            ));
+        }
+
         if !collected_usage.is_empty() {
-            let _ = self
-                .usage_cache
-                .upsert_runtime_usage(&collected_usage, COLLECTOR_VERSION);
+            let resolution = match self.usage_cache.reconcile_usage(
+                &mut collected_usage,
+                COLLECTOR_VERSION,
+                started_at,
+            ) {
+                Ok(report) => report,
+                Err(_) => {
+                    self.record_diagnostic(
+                        &request,
+                        AntigravityDiagnosticInput {
+                            severity: DiagnosticSeverity::Warning,
+                            code: "antigravity.cache_resolution_failed",
+                            summary: "Antigravity usage timestamps could not be resolved durably.",
+                            counters: &diagnostics,
+                            failure_code: Some(CollectorFailureCode::Internal.code()),
+                            failure_reason: Some("cache_resolution_failed"),
+                            variants: Vec::new(),
+                        },
+                    );
+                    return Err(failure(&request, CollectorFailureCode::Internal));
+                }
+            };
+            diagnostics.source_reported_timestamp_records = resolution.source_reported_records;
+            diagnostics.first_seen_timestamp_records = resolution.first_seen_records;
+            diagnostics.legacy_records_repaired = resolution.legacy_records_repaired;
+            diagnostics.unresolved_legacy_records = resolution.unresolved_legacy_records;
         }
 
         self.finish_collection(FinishCollectionInput {
@@ -688,6 +746,10 @@ impl AntigravityCollector {
                 "recordsRejected": input.counters.records_rejected,
                 "cacheRecordsRead": input.counters.cache_records_read,
                 "cacheRecordsUsed": input.counters.cache_records_used,
+                "sourceReportedTimestampRecords": input.counters.source_reported_timestamp_records,
+                "firstSeenTimestampRecords": input.counters.first_seen_timestamp_records,
+                "legacyRecordsRepaired": input.counters.legacy_records_repaired,
+                "unresolvedLegacyRecords": input.counters.unresolved_legacy_records,
                 "sqliteRecordsExtracted": input.counters.sqlite_records_extracted,
                 "sqliteRecordsRejected": input.counters.sqlite_records_rejected,
                 "sqliteConversationsParsed": input.counters.sqlite_conversations_parsed,
@@ -873,6 +935,10 @@ struct AntigravityDiagnosticCounters {
     records_rejected: u32,
     cache_records_read: u32,
     cache_records_used: u32,
+    source_reported_timestamp_records: u32,
+    first_seen_timestamp_records: u32,
+    legacy_records_repaired: u32,
+    unresolved_legacy_records: u32,
     sqlite_records_extracted: u32,
     sqlite_records_rejected: u32,
     sqlite_conversations_parsed: u32,
@@ -960,6 +1026,13 @@ fn dedupe_records(
     let mut deduped = Vec::new();
     for record in records {
         let key = record.response_id.clone().unwrap_or_else(|| {
+            if let Some(index) = record.source_record_index {
+                return format!(
+                    "{}:{}:idx:{index}",
+                    record.variant.as_str(),
+                    record.conversation_id
+                );
+            }
             format!(
                 "{}:{}:{}:{}:{}",
                 record.variant.as_str(),
@@ -978,9 +1051,58 @@ fn dedupe_records(
 
 fn bounded_conversations(
     mut conversations: Vec<ConversationDatabase>,
+    scope: &CollectionScope,
 ) -> Vec<ConversationDatabase> {
-    conversations.truncate(100);
+    if !matches!(scope, CollectionScope::Full) {
+        conversations.truncate(MAX_INCREMENTAL_CONVERSATIONS);
+    }
     conversations
+}
+
+fn full_cli_scan_is_incomplete(
+    scope: &CollectionScope,
+    report: &CliSqliteCollectionReport,
+) -> bool {
+    matches!(scope, CollectionScope::Full)
+        && (report.records_rejected > 0 || report.conversations_failed > 0)
+}
+
+fn merge_cli_sqlite_report(
+    target: &mut CliSqliteCollectionReport,
+    incoming: CliSqliteCollectionReport,
+) {
+    target.records_extracted = target
+        .records_extracted
+        .saturating_add(incoming.records_extracted);
+    target.records_rejected = target
+        .records_rejected
+        .saturating_add(incoming.records_rejected);
+    target.conversations_parsed = target
+        .conversations_parsed
+        .saturating_add(incoming.conversations_parsed);
+    target.conversations_failed = target
+        .conversations_failed
+        .saturating_add(incoming.conversations_failed);
+}
+
+fn merge_app_ide_sqlite_report(
+    target: &mut AppIdeSqliteCollectionReport,
+    incoming: AppIdeSqliteCollectionReport,
+) {
+    target.records_extracted = target
+        .records_extracted
+        .saturating_add(incoming.records_extracted);
+    target.records_rejected = target
+        .records_rejected
+        .saturating_add(incoming.records_rejected);
+    target.conversations_accepted = target
+        .conversations_accepted
+        .saturating_add(incoming.conversations_accepted);
+    target.conversations_rejected = target
+        .conversations_rejected
+        .saturating_add(incoming.conversations_rejected);
+    target.variants_accepted.extend(incoming.variants_accepted);
+    target.variants_rejected.extend(incoming.variants_rejected);
 }
 
 fn result_from_usage(
@@ -1098,8 +1220,9 @@ fn validate_request(request: &CollectionRequest) -> Result<(), CollectorFailure>
 }
 
 fn descriptor() -> Result<CollectorDescriptor, CollectorFailure> {
+    let collector = collector_key()?;
     Ok(CollectorDescriptor {
-        collector: collector_key()?,
+        collector: collector.clone(),
         display_name: DISPLAY_NAME.to_owned(),
         runtime_version: COLLECTOR_VERSION.to_owned(),
         expected_version: COLLECTOR_VERSION.to_owned(),
@@ -1107,6 +1230,7 @@ fn descriptor() -> Result<CollectorDescriptor, CollectorFailure> {
         binary_target: std::env::consts::OS.to_owned(),
         integrity: CollectorIntegrity::UnverifiedDevelopment,
         profiles: vec![ProfileDescriptor {
+            collector,
             source: SourceKey::Antigravity,
             profile_version: PROFILE_VERSION,
             supported_projections: supported_projections(),
@@ -1145,6 +1269,7 @@ fn issue(code: &str, message: &str) -> DetectionIssue {
 mod tests {
     use std::fs::{self, File};
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
     use tempfile::TempDir;
@@ -1928,6 +2053,100 @@ mod tests {
         }
     }
 
+    #[test]
+    fn full_scope_keeps_every_conversation_while_incremental_scope_remains_bounded() {
+        let conversations = (0..125)
+            .map(|index| {
+                database(
+                    AntigravityProductVariant::Cli,
+                    &format!("conversation-{index:03}"),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            bounded_conversations(conversations.clone(), &CollectionScope::Full).len(),
+            125
+        );
+        assert_eq!(
+            bounded_conversations(
+                conversations,
+                &CollectionScope::incremental(
+                    chrono::NaiveDate::from_ymd_opt(2026, 8, 22).expect("date"),
+                    chrono::NaiveDate::from_ymd_opt(2026, 8, 22).expect("date"),
+                )
+                .expect("scope"),
+            )
+            .len(),
+            MAX_INCREMENTAL_CONVERSATIONS
+        );
+    }
+
+    #[test]
+    fn incomplete_full_cli_scan_cannot_establish_a_compatible_baseline() {
+        let incomplete = CliSqliteCollectionReport {
+            records_rejected: 1,
+            ..CliSqliteCollectionReport::default()
+        };
+
+        assert!(full_cli_scan_is_incomplete(
+            &CollectionScope::Full,
+            &incomplete
+        ));
+        assert!(!full_cli_scan_is_incomplete(
+            &CollectionScope::incremental(
+                chrono::NaiveDate::from_ymd_opt(2026, 8, 22).expect("date"),
+                chrono::NaiveDate::from_ymd_opt(2026, 8, 22).expect("date"),
+            )
+            .expect("scope"),
+            &incomplete
+        ));
+        assert!(!full_cli_scan_is_incomplete(
+            &CollectionScope::Full,
+            &CliSqliteCollectionReport::default()
+        ));
+    }
+
+    struct CancelBeforeSecondBatch {
+        checks: AtomicUsize,
+    }
+
+    impl CancellationSignal for CancelBeforeSecondBatch {
+        fn is_cancelled(&self) -> bool {
+            self.checks.fetch_add(1, Ordering::SeqCst) >= 2
+        }
+    }
+
+    #[test]
+    fn full_reconciliation_checks_cancellation_between_conversation_batches() {
+        let data_root = TempDir::new().expect("tempdir");
+        for index in 0..=CONVERSATION_BATCH_SIZE {
+            create_db(
+                data_root.path(),
+                AntigravityProductVariant::Cli,
+                &format!("conversation-{index:03}"),
+            );
+        }
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(Vec::new()),
+            noop_usage_cache_client(),
+        );
+
+        let error = collector
+            .collect(
+                daily_request(SourceKey::Antigravity),
+                &CancelBeforeSecondBatch {
+                    checks: AtomicUsize::new(0),
+                },
+            )
+            .expect_err("second batch must observe cancellation");
+
+        assert_eq!(error.code, CollectorFailureCode::Cancelled);
+    }
+
     #[allow(
         clippy::too_many_arguments,
         reason = "test fixture keeps token fields explicit"
@@ -1949,7 +2168,10 @@ mod tests {
             model_label: model_label.to_owned(),
             api_provider: Some("API_PROVIDER_GOOGLE_GEMINI".to_owned()),
             response_id: Some(format!("{conversation_id}:{raw_model_id}")),
+            source_record_index: None,
             observed_at: None,
+            timestamp_origin: crate::application::ports::antigravity_usage_cache::AntigravityTimestampOrigin::Unresolved,
+            legacy_fallback_at: None,
             input_tokens,
             output_tokens,
             thinking_output_tokens: 0,

@@ -6,7 +6,9 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::application::collection::{CollectionId, CollectionProjection, CollectionRequest};
+use crate::application::collection::{
+    CollectionId, CollectionProjection, CollectionRequest, ProfileDescriptor,
+};
 use crate::application::ports::run_store::RunStore;
 use crate::application::refresh::planner::{
     RefreshPlanMode, RefreshPlanRequest, RefreshPolicyPlanner,
@@ -52,6 +54,7 @@ pub(super) fn planned_collection_request(
     run_store: &dyn RunStore,
     job_id: &str,
     target: RefreshTarget,
+    profile: &ProfileDescriptor,
     requested_at: DateTime<Utc>,
     aggregation_timezone: &str,
     scope_policy: RefreshScopePolicy,
@@ -62,7 +65,7 @@ pub(super) fn planned_collection_request(
             let today = local_date(requested_at, aggregation_timezone)
                 .map_err(|_| RequestPlanError::InvalidTimezone)?;
             let lookup = target
-                .import_lookup(aggregation_timezone)
+                .import_lookup(aggregation_timezone, profile)
                 .map_err(|_| RequestPlanError::InvalidImportState)?;
             let previous_import = run_store
                 .latest_successful_import(lookup)
@@ -201,12 +204,23 @@ mod tests {
         }
     }
 
+    fn profile() -> ProfileDescriptor {
+        ProfileDescriptor {
+            collector: crate::application::collection::CollectorKey::new("test-collector")
+                .expect("collector"),
+            source: SourceKey::Codex,
+            profile_version: 1,
+            supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],
+        }
+    }
+
     #[test]
     fn full_daily_request_uses_full_scope_and_timezone() {
         let request = planned_collection_request(
             &FakeRunStore::default(),
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "Asia/Jakarta",
             RefreshScopePolicy::Full,
@@ -224,6 +238,7 @@ mod tests {
             &FakeRunStore::default(),
             "refresh-1",
             target(CollectionProjection::Session),
+            &profile(),
             requested_at(),
             "Asia/Jakarta",
             RefreshScopePolicy::Full,
@@ -252,6 +267,7 @@ mod tests {
             &run_store,
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "UTC",
             RefreshScopePolicy::Freshness,
@@ -274,6 +290,7 @@ mod tests {
             &FakeRunStore::default(),
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "UTC",
             RefreshScopePolicy::CatchUp,
@@ -289,6 +306,7 @@ mod tests {
             &FakeRunStore::default(),
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "not-a-timezone",
             RefreshScopePolicy::Freshness,
@@ -310,6 +328,7 @@ mod tests {
             &run_store,
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "UTC",
             RefreshScopePolicy::Freshness,

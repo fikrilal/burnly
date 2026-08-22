@@ -339,6 +339,19 @@ mod tests {
 
     fn profile(source: SourceKey) -> ProfileDescriptor {
         ProfileDescriptor {
+            collector: CollectorKey::new(match source {
+                SourceKey::ClaudeCode | SourceKey::Codex | SourceKey::OpenCode | SourceKey::Pi => {
+                    "ccusage"
+                }
+                SourceKey::Cline => "cline",
+                SourceKey::ZCode => "zcode",
+                SourceKey::Antigravity => "antigravity",
+                SourceKey::GrokBuild => "grok-build",
+                SourceKey::CommandCode => "command-code",
+                SourceKey::Zed => "zed",
+                SourceKey::TestUnsupported => "unsupported",
+            })
+            .expect("collector key"),
             source,
             profile_version: 1,
             supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],

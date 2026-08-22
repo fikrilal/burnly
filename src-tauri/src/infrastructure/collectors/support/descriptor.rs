@@ -19,8 +19,9 @@ pub(in crate::infrastructure::collectors) fn single_source_descriptor(
     supported_projections: Vec<CollectionProjection>,
     integrity: CollectorIntegrity,
 ) -> Result<CollectorDescriptor, CollectorFailure> {
+    let collector = collector_key(identity)?;
     Ok(CollectorDescriptor {
-        collector: collector_key(identity)?,
+        collector: collector.clone(),
         display_name: identity.display_name.to_owned(),
         runtime_version: identity.runtime_version.to_owned(),
         expected_version: identity.runtime_version.to_owned(),
@@ -28,6 +29,7 @@ pub(in crate::infrastructure::collectors) fn single_source_descriptor(
         binary_target: std::env::consts::OS.to_owned(),
         integrity,
         profiles: vec![ProfileDescriptor {
+            collector,
             source: identity.source,
             profile_version: identity.profile_version,
             supported_projections,
