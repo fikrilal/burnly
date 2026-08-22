@@ -10,6 +10,7 @@
 )]
 
 mod discovery;
+mod mapper;
 mod schema;
 mod store;
 
@@ -18,6 +19,14 @@ mod store;
     reason = "chunk 1 exposes the reader API for the adapter introduced in a later chunk"
 )]
 pub(crate) use discovery::{default_opencode_database, resolve_opencode_database};
+#[allow(
+    unused_imports,
+    reason = "chunk 3 exposes mapping APIs for the adapter introduced in chunk 4"
+)]
+pub(crate) use mapper::{
+    map_daily, map_sessions, source_cost_usd_to_micros, OpenCodeMappingContext,
+    OpenCodeMappingError,
+};
 #[allow(
     unused_imports,
     reason = "chunk 1 exposes the reader API for the adapter introduced in a later chunk"
