@@ -9,16 +9,19 @@
     reason = "chunk 1 establishes the reader consumed by the later ledger and adapter chunks"
 )]
 
+mod adapter;
 mod discovery;
 mod mapper;
 mod schema;
 mod store;
 
+pub(crate) use adapter::OpenCodeCollector;
+pub(crate) use discovery::default_opencode_database;
 #[allow(
     unused_imports,
-    reason = "chunk 1 exposes the reader API for the adapter introduced in a later chunk"
+    reason = "explicit-path discovery is covered by unit tests"
 )]
-pub(crate) use discovery::{default_opencode_database, resolve_opencode_database};
+pub(crate) use discovery::resolve_opencode_database;
 #[allow(
     unused_imports,
     reason = "chunk 3 exposes mapping APIs for the adapter introduced in chunk 4"

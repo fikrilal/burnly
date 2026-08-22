@@ -11,11 +11,13 @@ use crate::infrastructure::collectors::commandcode::{
 use crate::infrastructure::collectors::grok::{
     default_grok_home, GrokCollector, GrokUsageCacheClient,
 };
-use crate::infrastructure::collectors::routed::RoutedCollector;
+use crate::infrastructure::collectors::opencode::OpenCodeCollector;
+use crate::infrastructure::collectors::routed::{CollectorRoutes, RoutedCollector};
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
 use crate::infrastructure::collectors::zed::{default_zed_data_dir, ZedCollector};
 use crate::infrastructure::database::{
     Database, SqliteAntigravityUsageCacheStore, SqliteDiagnosticStore, SqliteGrokUsageCacheStore,
+    SqliteOpenCodeUsageLedgerStore,
 };
 
 use super::{resources, StartupError};
@@ -35,6 +37,15 @@ pub(super) fn build_collector_graph(
     );
     let diagnostics_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let diagnostic_recorder = Arc::new(SqliteDiagnosticStore::new(diagnostics_database));
+    let opencode_ledger_database =
+        Database::open(database_path).map_err(StartupError::Persistence)?;
+    let opencode_ledger = Arc::new(SqliteOpenCodeUsageLedgerStore::new(
+        opencode_ledger_database,
+    ));
+    let opencode_collector = Arc::new(
+        OpenCodeCollector::from_default_location(opencode_ledger)
+            .with_diagnostic_recorder(diagnostic_recorder.clone()),
+    );
     let cline_collector = Arc::new(
         ClineCollector::from_data_dir(resources::default_cline_data_dir())
             .with_diagnostic_recorder(diagnostic_recorder.clone()),
@@ -69,13 +80,14 @@ pub(super) fn build_collector_graph(
             .with_diagnostic_recorder(diagnostic_recorder.clone()),
     );
 
-    Ok(Arc::new(RoutedCollector::new(
-        ccusage_collector,
-        cline_collector,
-        zcode_collector,
-        antigravity_collector,
-        grok_collector,
-        commandcode_collector,
-        zed_collector,
-    )))
+    Ok(Arc::new(RoutedCollector::new(CollectorRoutes {
+        ccusage: ccusage_collector,
+        opencode: opencode_collector,
+        cline: cline_collector,
+        zcode: zcode_collector,
+        antigravity: antigravity_collector,
+        grok: grok_collector,
+        commandcode: commandcode_collector,
+        zed: zed_collector,
+    })))
 }

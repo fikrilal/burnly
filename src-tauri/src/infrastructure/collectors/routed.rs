@@ -8,48 +8,37 @@ use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 
 #[derive(Clone)]
+pub(crate) struct CollectorRoutes {
+    pub(crate) ccusage: Arc<dyn Collector>,
+    pub(crate) opencode: Arc<dyn Collector>,
+    pub(crate) cline: Arc<dyn Collector>,
+    pub(crate) zcode: Arc<dyn Collector>,
+    pub(crate) antigravity: Arc<dyn Collector>,
+    pub(crate) grok: Arc<dyn Collector>,
+    pub(crate) commandcode: Arc<dyn Collector>,
+    pub(crate) zed: Arc<dyn Collector>,
+}
+
+#[derive(Clone)]
 pub(crate) struct RoutedCollector {
-    ccusage: Arc<dyn Collector>,
-    cline: Arc<dyn Collector>,
-    zcode: Arc<dyn Collector>,
-    antigravity: Arc<dyn Collector>,
-    grok: Arc<dyn Collector>,
-    commandcode: Arc<dyn Collector>,
-    zed: Arc<dyn Collector>,
+    routes: CollectorRoutes,
 }
 
 impl RoutedCollector {
-    pub(crate) fn new(
-        ccusage: Arc<dyn Collector>,
-        cline: Arc<dyn Collector>,
-        zcode: Arc<dyn Collector>,
-        antigravity: Arc<dyn Collector>,
-        grok: Arc<dyn Collector>,
-        commandcode: Arc<dyn Collector>,
-        zed: Arc<dyn Collector>,
-    ) -> Self {
-        Self {
-            ccusage,
-            cline,
-            zcode,
-            antigravity,
-            grok,
-            commandcode,
-            zed,
-        }
+    pub(crate) fn new(routes: CollectorRoutes) -> Self {
+        Self { routes }
     }
 
     fn collector_for(&self, source: SourceKey) -> Result<&Arc<dyn Collector>, CollectorFailure> {
         match source {
-            SourceKey::ClaudeCode | SourceKey::Codex | SourceKey::OpenCode | SourceKey::Pi => {
-                Ok(&self.ccusage)
-            }
-            SourceKey::Cline => Ok(&self.cline),
-            SourceKey::ZCode => Ok(&self.zcode),
-            SourceKey::Antigravity => Ok(&self.antigravity),
-            SourceKey::GrokBuild => Ok(&self.grok),
-            SourceKey::CommandCode => Ok(&self.commandcode),
-            SourceKey::Zed => Ok(&self.zed),
+            SourceKey::ClaudeCode | SourceKey::Codex | SourceKey::Pi => Ok(&self.routes.ccusage),
+            SourceKey::OpenCode => Ok(&self.routes.opencode),
+            SourceKey::Cline => Ok(&self.routes.cline),
+            SourceKey::ZCode => Ok(&self.routes.zcode),
+            SourceKey::Antigravity => Ok(&self.routes.antigravity),
+            SourceKey::GrokBuild => Ok(&self.routes.grok),
+            SourceKey::CommandCode => Ok(&self.routes.commandcode),
+            SourceKey::Zed => Ok(&self.routes.zed),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
                 crate::application::collection::CollectorFailureCode::UnsupportedSource,
@@ -62,17 +51,31 @@ impl RoutedCollector {
 
 impl Collector for RoutedCollector {
     fn describe(&self) -> Result<CollectorDescriptor, CollectorFailure> {
-        let mut descriptor = self.ccusage.describe()?;
-        descriptor.profiles.extend(self.cline.describe()?.profiles);
-        descriptor.profiles.extend(self.zcode.describe()?.profiles);
+        let mut descriptor = self.routes.ccusage.describe()?;
         descriptor
             .profiles
-            .extend(self.antigravity.describe()?.profiles);
-        descriptor.profiles.extend(self.grok.describe()?.profiles);
+            .retain(|profile| profile.source != SourceKey::OpenCode);
         descriptor
             .profiles
-            .extend(self.commandcode.describe()?.profiles);
-        descriptor.profiles.extend(self.zed.describe()?.profiles);
+            .extend(self.routes.opencode.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.routes.cline.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.routes.zcode.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.routes.antigravity.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.routes.grok.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.routes.commandcode.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.routes.zed.describe()?.profiles);
         Ok(descriptor)
     }
 
@@ -112,21 +115,23 @@ mod tests {
     #[test]
     fn routes_collection_by_source() {
         let ccusage = Arc::new(RecordingCollector::new("ccusage"));
+        let opencode = Arc::new(RecordingCollector::new("opencode"));
         let cline = Arc::new(RecordingCollector::new("cline"));
         let zcode = Arc::new(RecordingCollector::new("zcode"));
         let antigravity = Arc::new(RecordingCollector::new("antigravity"));
         let grok = Arc::new(RecordingCollector::new("grok-build"));
         let commandcode = Arc::new(RecordingCollector::new("command-code"));
         let zed = Arc::new(RecordingCollector::new("zed"));
-        let collector = RoutedCollector::new(
-            ccusage.clone(),
-            cline.clone(),
-            zcode.clone(),
-            antigravity.clone(),
-            grok.clone(),
-            commandcode.clone(),
-            zed.clone(),
-        );
+        let collector = RoutedCollector::new(CollectorRoutes {
+            ccusage: ccusage.clone(),
+            opencode: opencode.clone(),
+            cline: cline.clone(),
+            zcode: zcode.clone(),
+            antigravity: antigravity.clone(),
+            grok: grok.clone(),
+            commandcode: commandcode.clone(),
+            zed: zed.clone(),
+        });
 
         collector
             .collect(request(SourceKey::ClaudeCode), &NeverCancelled)
@@ -161,13 +166,9 @@ mod tests {
 
         assert_eq!(
             ccusage.sources(),
-            vec![
-                SourceKey::ClaudeCode,
-                SourceKey::Codex,
-                SourceKey::OpenCode,
-                SourceKey::Pi
-            ]
+            vec![SourceKey::ClaudeCode, SourceKey::Codex, SourceKey::Pi]
         );
+        assert_eq!(opencode.sources(), vec![SourceKey::OpenCode]);
         assert_eq!(cline.sources(), vec![SourceKey::Cline]);
         assert_eq!(zcode.sources(), vec![SourceKey::ZCode]);
         assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
@@ -179,15 +180,16 @@ mod tests {
     #[test]
     fn routes_command_code_to_native_collector() {
         let commandcode = Arc::new(RecordingCollector::new("command-code"));
-        let collector = RoutedCollector::new(
-            Arc::new(RecordingCollector::new("ccusage")),
-            Arc::new(RecordingCollector::new("cline")),
-            Arc::new(RecordingCollector::new("zcode")),
-            Arc::new(RecordingCollector::new("antigravity")),
-            Arc::new(RecordingCollector::new("grok-build")),
-            commandcode.clone(),
-            Arc::new(RecordingCollector::new("zed")),
-        );
+        let collector = RoutedCollector::new(CollectorRoutes {
+            ccusage: Arc::new(RecordingCollector::new("ccusage")),
+            opencode: Arc::new(RecordingCollector::new("opencode")),
+            cline: Arc::new(RecordingCollector::new("cline")),
+            zcode: Arc::new(RecordingCollector::new("zcode")),
+            antigravity: Arc::new(RecordingCollector::new("antigravity")),
+            grok: Arc::new(RecordingCollector::new("grok-build")),
+            commandcode: commandcode.clone(),
+            zed: Arc::new(RecordingCollector::new("zed")),
+        });
 
         collector
             .collect(request(SourceKey::CommandCode), &NeverCancelled)
@@ -198,15 +200,16 @@ mod tests {
 
     #[test]
     fn aggregates_descriptors_from_all_wired_collectors() {
-        let collector = RoutedCollector::new(
-            Arc::new(RecordingCollector::new("ccusage")),
-            Arc::new(RecordingCollector::new("cline")),
-            Arc::new(RecordingCollector::new("zcode")),
-            Arc::new(RecordingCollector::new("antigravity")),
-            Arc::new(RecordingCollector::new("grok-build")),
-            Arc::new(RecordingCollector::new("command-code")),
-            Arc::new(RecordingCollector::new("zed")),
-        );
+        let collector = RoutedCollector::new(CollectorRoutes {
+            ccusage: Arc::new(RecordingCollector::new("ccusage")),
+            opencode: Arc::new(RecordingCollector::new("opencode")),
+            cline: Arc::new(RecordingCollector::new("cline")),
+            zcode: Arc::new(RecordingCollector::new("zcode")),
+            antigravity: Arc::new(RecordingCollector::new("antigravity")),
+            grok: Arc::new(RecordingCollector::new("grok-build")),
+            commandcode: Arc::new(RecordingCollector::new("command-code")),
+            zed: Arc::new(RecordingCollector::new("zed")),
+        });
 
         let descriptor = collector.describe().expect("descriptor");
         let sources = descriptor
@@ -220,8 +223,8 @@ mod tests {
             vec![
                 SourceKey::ClaudeCode,
                 SourceKey::Codex,
-                SourceKey::OpenCode,
                 SourceKey::Pi,
+                SourceKey::OpenCode,
                 SourceKey::Cline,
                 SourceKey::ZCode,
                 SourceKey::Antigravity,
@@ -230,6 +233,14 @@ mod tests {
                 SourceKey::Zed,
             ]
         );
+        let opencode = descriptor
+            .profiles
+            .iter()
+            .filter(|profile| profile.source == SourceKey::OpenCode)
+            .collect::<Vec<_>>();
+        assert_eq!(opencode.len(), 1);
+        assert_eq!(opencode[0].collector.as_str(), "opencode");
+        assert_eq!(opencode[0].profile_version, 2);
     }
 
     struct NeverCancelled;
@@ -327,6 +338,7 @@ mod tests {
                 profile(SourceKey::OpenCode),
                 profile(SourceKey::Pi),
             ],
+            "opencode" => vec![profile(SourceKey::OpenCode)],
             "cline" => vec![profile(SourceKey::Cline)],
             "zcode" => vec![profile(SourceKey::ZCode)],
             "antigravity" => vec![profile(SourceKey::Antigravity)],
@@ -340,9 +352,8 @@ mod tests {
     fn profile(source: SourceKey) -> ProfileDescriptor {
         ProfileDescriptor {
             collector: CollectorKey::new(match source {
-                SourceKey::ClaudeCode | SourceKey::Codex | SourceKey::OpenCode | SourceKey::Pi => {
-                    "ccusage"
-                }
+                SourceKey::ClaudeCode | SourceKey::Codex | SourceKey::Pi => "ccusage",
+                SourceKey::OpenCode => "opencode",
                 SourceKey::Cline => "cline",
                 SourceKey::ZCode => "zcode",
                 SourceKey::Antigravity => "antigravity",
@@ -353,7 +364,7 @@ mod tests {
             })
             .expect("collector key"),
             source,
-            profile_version: 1,
+            profile_version: if source == SourceKey::OpenCode { 2 } else { 1 },
             supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],
         }
     }
