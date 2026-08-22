@@ -18,14 +18,12 @@ use super::{
     envelopes::{
         claude_daily::decode as decode_daily, claude_session::decode as decode_session,
         codex_daily::decode as decode_codex_daily, codex_session::decode as decode_codex_session,
-        opencode_daily::decode as decode_opencode_daily,
-        opencode_session::decode as decode_opencode_session, pi_daily::decode as decode_pi_daily,
-        pi_session::decode as decode_pi_session,
+        pi_daily::decode as decode_pi_daily, pi_session::decode as decode_pi_session,
     },
     manifest::{development_manifest, BinaryTarget},
     mapper::{
-        map_codex_daily, map_codex_session, map_daily, map_opencode_daily, map_opencode_session,
-        map_pi_session, map_session, MappingContext, MappingError,
+        map_codex_daily, map_codex_session, map_daily, map_pi_daily, map_pi_session, map_session,
+        MappingContext, MappingError,
     },
     process::{execute, ProcessLimits, ProcessOutput},
     sidecar::{verify, SidecarLocation, VerifiedSidecar},
@@ -104,7 +102,6 @@ impl Collector for CcusageCollector {
         let checked_at = Utc::now();
         if request.source != SourceKey::ClaudeCode
             && request.source != SourceKey::Codex
-            && request.source != SourceKey::OpenCode
             && request.source != SourceKey::Pi
         {
             return Ok(DetectionResult {
@@ -217,35 +214,9 @@ impl Collector for CcusageCollector {
                 )
                 .map_err(|_| failure(CollectorFailureCode::Internal))
             }
-            (SourceKey::OpenCode, crate::application::collection::CollectionProjection::Daily) => {
-                let report = decode_opencode_daily(&output.stdout)?;
-                let candidates = map_opencode_daily(report, context).map_err(mapping_failure)?;
-                CollectionResult::daily(
-                    metadata,
-                    candidates,
-                    Vec::new(),
-                    Vec::new(),
-                    process_summary(&output),
-                )
-                .map_err(|_| failure(CollectorFailureCode::Internal))
-            }
             (
-                SourceKey::OpenCode,
-                crate::application::collection::CollectionProjection::Session,
-            ) => {
-                let report = decode_opencode_session(&output.stdout)?;
-                let candidates = map_opencode_session(report, context).map_err(mapping_failure)?;
-                CollectionResult::session(
-                    metadata,
-                    candidates,
-                    Vec::new(),
-                    Vec::new(),
-                    process_summary(&output),
-                )
-                .map_err(|_| failure(CollectorFailureCode::Internal))
-            }
-            (
-                SourceKey::Cline
+                SourceKey::OpenCode
+                | SourceKey::Cline
                 | SourceKey::ZCode
                 | SourceKey::Antigravity
                 | SourceKey::GrokBuild
@@ -254,11 +225,9 @@ impl Collector for CcusageCollector {
                 _,
             ) => Err(failure(CollectorFailureCode::UnsupportedSource)),
             (SourceKey::Pi, crate::application::collection::CollectionProjection::Daily) => {
-                // Pi daily is OpenCode-family data, but ccusage can emit
-                // `totals: null` for unused Pi sources. Keep that contract
-                // reviewed separately from OpenCode.
+                // ccusage can emit `totals: null` for unused Pi sources.
                 let report = decode_pi_daily(&output.stdout)?;
-                let candidates = map_opencode_daily(report, context).map_err(mapping_failure)?;
+                let candidates = map_pi_daily(report, context).map_err(mapping_failure)?;
                 CollectionResult::daily(
                     metadata,
                     candidates,
@@ -451,12 +420,7 @@ mod tests {
         assert_eq!(descriptor.collector.as_str(), "ccusage");
         assert_eq!(descriptor.runtime_version, "20.0.19");
 
-        for source in [
-            SourceKey::ClaudeCode,
-            SourceKey::Codex,
-            SourceKey::OpenCode,
-            SourceKey::Pi,
-        ] {
+        for source in [SourceKey::ClaudeCode, SourceKey::Codex, SourceKey::Pi] {
             collector
                 .collect(
                     daily_request_with_timezone(source, "Asia/Jakarta"),
@@ -490,6 +454,13 @@ mod tests {
         let missing =
             CcusageCollector::development(PathBuf::from("/missing/ccusage")).expect("collector");
 
+        assert_code(
+            missing.collect(
+                daily_request(SourceKey::OpenCode),
+                &TestCancellation::active(),
+            ),
+            CollectorFailureCode::UnsupportedSource,
+        );
         assert_code(
             missing.collect(
                 daily_request(SourceKey::TestUnsupported),

@@ -39,7 +39,7 @@ and authoritative upgrade reconciliation.
 | 02. Usage ledger and recovery          | Complete | Persist exact messages, session checkpoints, and cumulative recovery segments; handle overlap, compaction, live writes, counter regression, and retry  |
 | 03. Mapping and cost                   | Complete | Produce canonical daily/session candidates with provider-qualified models, token semantics, partial recovery, and source-reported estimated cost       |
 | 04. Collector and runtime wiring       | Complete | Implement the native adapter, bounded collection, cancellation, diagnostics, bootstrap composition, routing, and atomic profile-2 descriptor ownership |
-| 05. Upgrade and ccusage retirement     | Queued   | Prove full profile-2 reconciliation and sync behavior, then remove stale OpenCode-specific ccusage ownership                                           |
+| 05. Upgrade and ccusage retirement     | Complete | Prove full profile-2 reconciliation and sync behavior, then remove stale OpenCode-specific ccusage ownership                                           |
 | 06. Runtime evidence and documentation | Queued   | Prove all installation matrices, live WAL and compaction behavior, privacy, rollback, product docs, and full gates                                     |
 
 ## Cross-Chunk Invariants
@@ -82,10 +82,14 @@ and authoritative upgrade reconciliation.
   [`2026-08-22_opencode-unified-03-mapping-cost.md`](../completed/2026-08-22_opencode-unified-03-mapping-cost.md).
 - Chunk 04: complete; see
   [`2026-08-22_opencode-unified-04-collector-runtime-wiring.md`](../completed/2026-08-22_opencode-unified-04-collector-runtime-wiring.md).
-- Chunks 05-06: queued at contract level only.
+- Chunk 05: complete; see
+  [`2026-08-22_opencode-unified-05-upgrade-ccusage-retirement.md`](../completed/2026-08-22_opencode-unified-05-upgrade-ccusage-retirement.md).
+- Chunk 06: queued at contract level only.
 
 ## Verification Summary
 
-- Chunks 01-04 passed their focused tests and strict Rust Clippy. Chunk 01
-  passed `pnpm verify:fast`; chunks 02-04 passed the full `pnpm verify` gate.
-  Each later chunk will record its own outcomes.
+- Chunks 01-05 passed their focused tests and strict Rust Clippy. Chunk 01
+  passed `pnpm verify:fast`; chunks 02-05 passed the full `pnpm verify` gate.
+  Chunk 05 additionally proved profile-1 replacement and sync tombstone export
+  while retiring OpenCode from ccusage. The remaining chunk will record its own
+  outcomes.

@@ -36,15 +36,6 @@ const CODEX: SourceDescriptor = SourceDescriptor {
     profile_version: 1,
 };
 
-const OPENCODE: SourceDescriptor = SourceDescriptor {
-    source: SourceKey::OpenCode,
-    display_name: "OpenCode",
-    command_namespace: "opencode",
-    default_enabled: false,
-    release_stage: ReleaseStage::Experimental,
-    profile_version: 1,
-};
-
 const PI: SourceDescriptor = SourceDescriptor {
     source: SourceKey::Pi,
     display_name: "Pi",
@@ -60,9 +51,9 @@ pub(crate) fn source_descriptor(
     match source {
         SourceKey::ClaudeCode => Ok(&CLAUDE_CODE),
         SourceKey::Codex => Ok(&CODEX),
-        SourceKey::OpenCode => Ok(&OPENCODE),
         SourceKey::Pi => Ok(&PI),
-        SourceKey::Cline
+        SourceKey::OpenCode
+        | SourceKey::Cline
         | SourceKey::ZCode
         | SourceKey::Antigravity
         | SourceKey::GrokBuild
@@ -106,16 +97,6 @@ mod tests {
     }
 
     #[test]
-    fn opencode_maps_to_reviewed_command_namespace() {
-        let descriptor = source_descriptor(SourceKey::OpenCode).expect("source descriptor");
-
-        assert_eq!(descriptor.command_namespace, "opencode");
-        assert_eq!(descriptor.release_stage, ReleaseStage::Experimental);
-        assert!(!descriptor.default_enabled);
-        assert_eq!(descriptor.profile_version, 1);
-    }
-
-    #[test]
     fn pi_maps_to_reviewed_command_namespace() {
         let descriptor = source_descriptor(SourceKey::Pi).expect("source descriptor");
 
@@ -128,6 +109,7 @@ mod tests {
 
     #[test]
     fn native_sources_are_not_routed_through_ccusage() {
+        let opencode = source_descriptor(SourceKey::OpenCode).expect_err("unsupported source");
         let cline = source_descriptor(SourceKey::Cline).expect_err("unsupported source");
         let zcode = source_descriptor(SourceKey::ZCode).expect_err("unsupported source");
         let antigravity =
@@ -137,6 +119,10 @@ mod tests {
             source_descriptor(SourceKey::CommandCode).expect_err("unsupported source");
         let zed = source_descriptor(SourceKey::Zed).expect_err("unsupported source");
 
+        assert_eq!(
+            opencode.code,
+            crate::application::collection::CollectorFailureCode::UnsupportedSource
+        );
         assert_eq!(
             cline.code,
             crate::application::collection::CollectorFailureCode::UnsupportedSource

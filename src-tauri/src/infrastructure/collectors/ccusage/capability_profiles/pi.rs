@@ -10,8 +10,8 @@ use super::{
 const SUPPORTED_PROJECTIONS: &[CollectionProjection] =
     &[CollectionProjection::Daily, CollectionProjection::Session];
 
-/// Pi shares the OpenCode-family token/cost shape but its ccusage reports emit
-/// `cacheCreationTokens` and `cacheReadTokens`, so both cache categories are
+/// Pi's ccusage reports emit `cacheCreationTokens` and `cacheReadTokens`, so
+/// both cache categories are
 /// Supported here. Reasoning is excluded from ccusage's aggregate `totalTokens`
 /// for Pi, so `reasoning_output` stays Unsupported.
 pub(crate) const PI_PROFILE: CapabilityProfile = CapabilityProfile {

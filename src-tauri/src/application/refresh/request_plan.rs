@@ -136,6 +136,7 @@ mod tests {
     #[derive(Default)]
     struct FakeRunStore {
         latest_import: Option<SuccessfulImportState>,
+        latest_import_identity: Option<(&'static str, u16)>,
         latest_import_error: bool,
     }
 
@@ -182,10 +183,17 @@ mod tests {
 
         fn latest_successful_import(
             &self,
-            _lookup: ImportRunLookup,
+            lookup: ImportRunLookup,
         ) -> Result<Option<SuccessfulImportState>, RunStoreError> {
             if self.latest_import_error {
                 return Err(RunStoreError::Backend);
+            }
+            if let Some((collector_key, profile_version)) = self.latest_import_identity {
+                if lookup.collector_key() != Some(collector_key)
+                    || lookup.profile_version() != Some(profile_version)
+                {
+                    return Ok(None);
+                }
             }
             Ok(self.latest_import.clone())
         }
@@ -260,6 +268,7 @@ mod tests {
         );
         let run_store = FakeRunStore {
             latest_import: Some(previous),
+            latest_import_identity: Some(("test-collector", 1)),
             latest_import_error: false,
         };
 
@@ -282,6 +291,49 @@ mod tests {
             )
             .expect("incremental scope")
         );
+    }
+
+    #[test]
+    fn opencode_profile_1_baselines_plan_full_profile_2_rebuilds() {
+        for projection in [CollectionProjection::Daily, CollectionProjection::Session] {
+            let previous = SuccessfulImportState::new(
+                SourceKey::OpenCode,
+                projection,
+                CollectionScope::Full,
+                100,
+            );
+            let run_store = FakeRunStore {
+                latest_import: Some(previous),
+                latest_import_identity: Some(("legacy-collector", 1)),
+                latest_import_error: false,
+            };
+            let profile = ProfileDescriptor {
+                collector: crate::application::collection::CollectorKey::new("opencode")
+                    .expect("collector"),
+                source: SourceKey::OpenCode,
+                profile_version: 2,
+                supported_projections: vec![
+                    CollectionProjection::Daily,
+                    CollectionProjection::Session,
+                ],
+            };
+
+            let request = planned_collection_request(
+                &run_store,
+                "refresh-1",
+                RefreshTarget {
+                    source: SourceKey::OpenCode,
+                    projection,
+                },
+                &profile,
+                requested_at(),
+                "UTC",
+                RefreshScopePolicy::CatchUp,
+            )
+            .expect("planned request");
+
+            assert_eq!(request.scope(), &CollectionScope::Full);
+        }
     }
 
     #[test]
@@ -321,6 +373,7 @@ mod tests {
     fn import_state_read_failure_returns_stable_error() {
         let run_store = FakeRunStore {
             latest_import: None,
+            latest_import_identity: None,
             latest_import_error: true,
         };
 

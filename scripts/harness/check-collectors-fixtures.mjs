@@ -87,27 +87,6 @@ const envelopeMatrices = new Map([
     ],
   ],
   [
-    "opencode-daily",
-    [
-      "empty.json",
-      "incompatible-envelope.json",
-      "invalid-json.json",
-      "real-shape-2019.json",
-      "real-shape.json",
-      "valid.json",
-    ],
-  ],
-  [
-    "opencode-session",
-    [
-      "empty.json",
-      "incompatible-envelope.json",
-      "invalid-json.json",
-      "real-shape.json",
-      "valid.json",
-    ],
-  ],
-  [
     "pi-daily",
     [
       "empty.json",

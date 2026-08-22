@@ -2,17 +2,16 @@ use chrono::DateTime;
 use serde::Deserialize;
 use std::collections::HashSet;
 
-use super::opencode_daily::TokenTotals;
+use super::pi_daily::TokenTotals;
 use crate::application::collection::{CollectorFailure, CollectorFailureCode};
 
 /// Pi session report.
 ///
-/// Pi's ccusage `session` output mirrors the OpenCode-family token/cost shape but
-/// names activity fields `firstActivity` / `lastActivity` (not
-/// `firstActivityAt` / `lastActivityAt`) and never emits `modelBreakdowns`. Pi
+/// Pi's ccusage `session` output names activity fields `firstActivity` /
+/// `lastActivity` and never emits `modelBreakdowns`. Pi
 /// also emits a `projectPath`; it is intentionally not modeled here so it is
 /// ignored on decode and never persisted, consistent with the fixture privacy
-/// harness and the OpenCode-family sessions.
+/// harness.
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawPiSessionReport {

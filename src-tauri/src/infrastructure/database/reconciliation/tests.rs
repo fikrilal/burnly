@@ -7,6 +7,9 @@ use super::runs::{
 use super::store::SqliteReconciliationStore;
 use super::test_support::*;
 use crate::application::collection::{CollectionOutcome, CollectionProjection, CollectionScope};
+use crate::application::ports::daily_usage_export_store::{
+    DailyUsageExportQuery, DailyUsageExportStore,
+};
 use crate::application::ports::run_store::{RunStore, RunStoreError};
 use crate::application::ports::usage_store::{UsageStore, UsageStoreError};
 use crate::application::reconciliation::{
@@ -16,6 +19,7 @@ use crate::application::reconciliation::{
 use crate::domain::source::SourceKey;
 use crate::domain::usage::TokenUsage;
 use crate::infrastructure::database::Database;
+use crate::infrastructure::database::SqliteDailyUsageExportStore;
 use crate::infrastructure::project_identity::ProjectPathIdentity;
 
 #[test]
@@ -284,20 +288,20 @@ fn latest_successful_import_returns_none_when_identity_has_no_success() {
 }
 
 #[test]
-fn latest_successful_import_requires_compatible_collector_profile() {
+fn opencode_upgrade_ignores_successful_ccusage_profile_1_baseline() {
     let (_directory, store) = migrated_store();
     let source_id = store
-        .resolve_source(SourceKey::Antigravity, 100)
+        .resolve_source(SourceKey::OpenCode, 100)
         .expect("resolve source");
     let refresh_run_id = store
-        .begin_refresh_run(refresh_spec("antigravity-profile-1"), 100)
+        .begin_refresh_run(refresh_spec("opencode-ccusage-profile-1"), 100)
         .expect("begin refresh");
     let import_id = store
         .begin_import_run(
             ImportRunSpec::new(
                 refresh_run_id,
                 source_id,
-                ImportCollector::new("antigravity", "local-rpc", 1).expect("collector"),
+                ImportCollector::new("ccusage", "20.0.19", 1).expect("collector"),
                 CollectionProjection::Daily,
                 CollectionScope::Full,
                 Some("UTC".to_owned()),
@@ -322,10 +326,10 @@ fn latest_successful_import_requires_compatible_collector_profile() {
     let profile_2 = store
         .latest_successful_import(
             ImportRunLookup::compatible(
-                SourceKey::Antigravity,
+                SourceKey::OpenCode,
                 CollectionProjection::Daily,
                 Some("UTC".to_owned()),
-                "antigravity",
+                "opencode",
                 2,
             )
             .expect("lookup"),
@@ -334,10 +338,10 @@ fn latest_successful_import_requires_compatible_collector_profile() {
     let profile_1 = store
         .latest_successful_import(
             ImportRunLookup::compatible(
-                SourceKey::Antigravity,
+                SourceKey::OpenCode,
                 CollectionProjection::Daily,
                 Some("UTC".to_owned()),
-                "antigravity",
+                "ccusage",
                 1,
             )
             .expect("lookup"),
@@ -622,6 +626,34 @@ fn record_state(store: &SqliteReconciliationStore, source_key: &str) -> (String,
         .expect("record state query")
 }
 
+fn opencode_candidate(
+    source_key: &str,
+    total: u64,
+    model: &str,
+    collector_key: &str,
+    profile_version: u16,
+) -> crate::application::collection::DailyUsageCandidate {
+    let mut candidate = candidate(source_key, total, model);
+    candidate.provenance.source = SourceKey::OpenCode;
+    candidate.provenance.collector =
+        crate::application::collection::CollectorKey::new(collector_key).expect("collector key");
+    candidate.provenance.collector_version = if collector_key == "ccusage" {
+        "20.0.19".to_owned()
+    } else {
+        "native".to_owned()
+    };
+    candidate.provenance.profile_version = profile_version;
+    candidate.usage_date = NaiveDate::parse_from_str(
+        source_key
+            .rsplit(':')
+            .next()
+            .expect("daily source key date"),
+        "%Y-%m-%d",
+    )
+    .expect("daily source key date");
+    candidate
+}
+
 fn count(store: &SqliteReconciliationStore, table: &str) -> i64 {
     let database = store.database.lock().expect("lock store");
     database
@@ -901,6 +933,106 @@ fn absent_day_advances_active_to_missing_then_removed() {
         ))
         .expect("third import");
     assert_eq!(record_state(&store, absent), ("removed".to_owned(), 2));
+}
+
+#[test]
+fn opencode_profile_2_full_rebuild_replaces_profile_1_facts_and_exports_tombstones() {
+    let directory = tempfile::TempDir::new().expect("temporary directory");
+    let database_path = directory.path().join("burnly.sqlite3");
+    let mut database = Database::open(&database_path).expect("open database");
+    database.migrate_to_latest().expect("migrate database");
+    let store = SqliteReconciliationStore::new(database);
+    let source_id = store
+        .resolve_source(SourceKey::OpenCode, 100)
+        .expect("resolve OpenCode");
+    let refresh_run_id = store
+        .begin_refresh_run(refresh_spec("opencode-upgrade"), 100)
+        .expect("begin refresh");
+    let retained = "opencode:daily:v1:UTC:2026-06-13";
+    let removed = "opencode:daily:v1:UTC:2026-06-14";
+
+    let legacy_import = store
+        .begin_import_run(
+            ImportRunSpec::new(
+                refresh_run_id,
+                source_id,
+                ImportCollector::new("ccusage", "20.0.19", 1).expect("legacy collector"),
+                CollectionProjection::Daily,
+                CollectionScope::Full,
+                Some("UTC".to_owned()),
+            )
+            .expect("legacy import spec"),
+            110,
+        )
+        .expect("legacy import");
+    store
+        .reconcile_daily(request(
+            source_id,
+            legacy_import,
+            vec![
+                opencode_candidate(retained, 100, "legacy/model", "ccusage", 1),
+                opencode_candidate(removed, 200, "legacy/model", "ccusage", 1),
+            ],
+        ))
+        .expect("legacy reconcile");
+
+    for (observed_at_ms, expected_state) in [(120, "missing"), (130, "removed")] {
+        let native_import = store
+            .begin_import_run(
+                ImportRunSpec::new(
+                    refresh_run_id,
+                    source_id,
+                    ImportCollector::new("opencode", "native", 2).expect("native collector"),
+                    CollectionProjection::Daily,
+                    CollectionScope::Full,
+                    Some("UTC".to_owned()),
+                )
+                .expect("native import spec"),
+                observed_at_ms,
+            )
+            .expect("native import");
+        store
+            .reconcile_daily(DailyReconciliationRequest::new(
+                source_id,
+                native_import,
+                CollectionScope::Full,
+                CollectionOutcome::Complete,
+                observed_at_ms,
+                vec![opencode_candidate(
+                    retained,
+                    350,
+                    "openai/gpt-5.4",
+                    "opencode",
+                    2,
+                )],
+            ))
+            .expect("native reconcile");
+
+        assert_eq!(record_state(&store, removed).0, expected_state);
+    }
+
+    assert_eq!(daily_total(&store, retained), 350);
+    assert_eq!(count(&store, "daily_usage"), 2);
+
+    let export_database = Database::open(&database_path).expect("open export database");
+    let export_store = SqliteDailyUsageExportStore::new(export_database);
+    let facts = export_store
+        .export_daily_facts(&DailyUsageExportQuery::full("UTC"))
+        .expect("export rebuilt facts");
+
+    assert_eq!(facts.len(), 2);
+    let active = facts
+        .iter()
+        .find(|fact| {
+            fact.source_key == SourceKey::OpenCode.as_str() && fact.removed_at_ms.is_none()
+        })
+        .expect("corrected active fact");
+    assert_eq!(active.total_tokens, 350);
+    assert_eq!(
+        active.models[0].raw_model_id.as_deref(),
+        Some("openai/gpt-5.4")
+    );
+    assert!(facts.iter().any(|fact| fact.removed_at_ms.is_some()));
 }
 
 #[test]
