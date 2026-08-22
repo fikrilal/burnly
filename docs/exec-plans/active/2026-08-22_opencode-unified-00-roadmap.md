@@ -36,7 +36,7 @@ and authoritative upgrade reconciliation.
 | Chunk                                  | Status   | Contract                                                                                                                                              |
 | -------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 01. Discovery and schema reader        | Complete | Discover the standard database, validate V1/V2 capabilities, and emit paged usage-only source snapshots without selecting content-bearing fields      |
-| 02. Usage ledger and recovery          | Queued   | Persist exact messages, session checkpoints, and cumulative recovery segments; handle overlap, compaction, live writes, counter regression, and retry |
+| 02. Usage ledger and recovery          | Complete | Persist exact messages, session checkpoints, and cumulative recovery segments; handle overlap, compaction, live writes, counter regression, and retry |
 | 03. Mapping and cost                   | Queued   | Produce canonical daily/session candidates with provider-qualified models, token semantics, partial recovery, and source-reported estimated cost      |
 | 04. Collector and runtime wiring       | Queued   | Implement the native adapter, bounded collection, cancellation, diagnostics, bootstrap composition, and routing                                       |
 | 05. Upgrade and ccusage retirement     | Queued   | Activate profile 2, prove full reconciliation and sync behavior, then remove stale OpenCode-specific ccusage ownership                                |
@@ -72,9 +72,12 @@ and authoritative upgrade reconciliation.
 
 - Chunk 01: complete; see
   [`2026-08-22_opencode-unified-01-discovery-schema-reader.md`](../completed/2026-08-22_opencode-unified-01-discovery-schema-reader.md).
-- Chunks 02-06: queued at contract level only.
+- Chunk 02: complete; see
+  [`2026-08-22_opencode-unified-02-usage-ledger-recovery.md`](../completed/2026-08-22_opencode-unified-02-usage-ledger-recovery.md).
+- Chunks 03-06: queued at contract level only.
 
 ## Verification Summary
 
-- Chunk 01 focused tests, strict Rust Clippy, architecture checks, and
-  `pnpm verify:fast` passed. Each later chunk will record its own outcomes.
+- Chunks 01 and 02 passed their focused tests and strict Rust Clippy. Chunk 01
+  passed `pnpm verify:fast`; chunk 02 passed the full `pnpm verify` gate. Each
+  later chunk will record its own outcomes.

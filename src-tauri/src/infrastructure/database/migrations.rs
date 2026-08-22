@@ -35,6 +35,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
         "../../../migrations/0010_antigravity_activity_timestamps.sql"
     ))
     .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0011_opencode_usage_ledger.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -75,7 +79,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 19);
+        assert_eq!(table_count(test_database.database()), 21);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
         assert_integrity_ok(test_database.database());
@@ -98,7 +102,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 19);
+        assert_eq!(table_count(test_database.database()), 21);
     }
 
     #[test]
@@ -128,6 +132,48 @@ mod tests {
             .expect("count collect_sync_outbox");
         assert_eq!(collect_sync_state, 1);
         assert_eq!(collect_sync_outbox, 1);
+    }
+
+    #[test]
+    fn opencode_ledger_migration_creates_only_usage_metadata_columns() {
+        let mut test_database = TestDatabase::open();
+        test_database
+            .database_mut()
+            .migrate_to_latest()
+            .expect("migrate database");
+
+        let connection = &test_database.database().connection;
+        for table in ["opencode_session_checkpoint", "opencode_usage_ledger"] {
+            let exists: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_schema
+                     WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .expect("count OpenCode table");
+            assert_eq!(exists, 1);
+        }
+
+        let mut statement = connection
+            .prepare("SELECT name FROM pragma_table_info('opencode_usage_ledger')")
+            .expect("ledger columns");
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("query ledger columns")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect ledger columns");
+        for forbidden in [
+            "data",
+            "content",
+            "prompt",
+            "response",
+            "title",
+            "directory",
+            "project_path",
+        ] {
+            assert!(!columns.iter().any(|column| column == forbidden));
+        }
     }
 
     #[test]

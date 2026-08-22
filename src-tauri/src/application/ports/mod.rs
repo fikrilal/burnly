@@ -12,6 +12,7 @@ pub(crate) mod desktop_token_exchanger;
 pub(crate) mod diagnostic_recorder;
 pub(crate) mod diagnostics_report_store;
 pub(crate) mod grok_usage_cache;
+pub(crate) mod opencode_usage_ledger;
 pub(crate) mod run_store;
 pub(crate) mod settings_store;
 pub(crate) mod tray_summary_store;
