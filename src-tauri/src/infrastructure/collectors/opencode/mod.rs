@@ -40,6 +40,7 @@ pub(crate) use schema::{OpenCodeGeneration, OpenCodeSchemaCapabilities, OpenCode
     reason = "chunk 1 exposes the reader API for the adapter introduced in a later chunk"
 )]
 pub(crate) use store::{
-    OpenCodeMessageUsage, OpenCodePageSize, OpenCodePageSizeError, OpenCodeReadSnapshot,
-    OpenCodeSessionHeader, OpenCodeStore, OpenCodeStoreError, OpenCodeTokenCounters,
+    OpenCodeMessagePage, OpenCodeMessageUsage, OpenCodePageSize, OpenCodePageSizeError,
+    OpenCodeReadSnapshot, OpenCodeSessionHeader, OpenCodeStore, OpenCodeStoreError,
+    OpenCodeTokenCounters,
 };

@@ -39,6 +39,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
         "../../../migrations/0011_opencode_usage_ledger.sql"
     ))
     .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0012_remove_obsolete_collector_compatibility_diagnostics.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -249,6 +253,71 @@ mod tests {
         assert_eq!(invalid_location_events, 1);
         assert_eq!(antigravity_events, 1);
         assert_eq!(malformed_context_events, 1);
+    }
+
+    #[test]
+    fn collector_compatibility_diagnostics_migration_removes_only_fixed_failures() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 11)
+            .expect("apply prior migrations");
+
+        for (code, context) in [
+            (
+                "antigravity.full_reconciliation_incomplete",
+                r#"{"failureCode":"collector.incompatible_envelope","source":"antigravity"}"#,
+            ),
+            (
+                "opencode.collection_failed",
+                r#"{"failureCode":"collector.incompatible_envelope","source":"opencode"}"#,
+            ),
+            (
+                "collection.target_failed",
+                r#"{"failureCode":"collector.incompatible_envelope","source":"antigravity"}"#,
+            ),
+            (
+                "collection.target_failed",
+                r#"{"failureCode":"collector.incompatible_envelope","source":"opencode"}"#,
+            ),
+        ] {
+            insert_diagnostic_event(&connection, code, context);
+        }
+        insert_diagnostic_event(
+            &connection,
+            "opencode.collection_failed",
+            r#"{"failureCode":"collector.source_invalid_location","source":"opencode"}"#,
+        );
+        insert_diagnostic_event(
+            &connection,
+            "collection.target_failed",
+            r#"{"failureCode":"collector.incompatible_envelope","source":"zed"}"#,
+        );
+        insert_diagnostic_event(&connection, "opencode.collection_failed", "malformed-json");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply cleanup migration");
+
+        let remaining = connection
+            .prepare("SELECT code, context_json FROM diagnostic_events ORDER BY id")
+            .expect("remaining query")
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .expect("remaining rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect remaining rows");
+
+        assert_eq!(remaining.len(), 3);
+        assert!(remaining
+            .iter()
+            .any(|(_, context)| { context.contains("collector.source_invalid_location") }));
+        assert!(remaining
+            .iter()
+            .any(|(_, context)| context.contains("\"source\":\"zed\"")));
+        assert!(remaining
+            .iter()
+            .any(|(_, context)| context == "malformed-json"));
     }
 
     #[test]

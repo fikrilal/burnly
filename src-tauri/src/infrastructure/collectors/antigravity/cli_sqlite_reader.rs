@@ -40,6 +40,7 @@ pub(crate) fn collect_cli_sqlite_usage(
     for conversation in conversations
         .iter()
         .filter(|conversation| conversation.variant == AntigravityProductVariant::Cli)
+        .filter(|conversation| is_sqlite_artifact(&conversation.path))
     {
         match read_cli_conversation(conversation) {
             Ok(records) => {
@@ -65,6 +66,12 @@ pub(crate) fn collect_cli_sqlite_usage(
     }
 
     Ok((usage, report))
+}
+
+pub(crate) fn is_sqlite_artifact(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("db"))
 }
 
 fn read_cli_conversation(
@@ -302,5 +309,19 @@ mod tests {
         let (_, report) = collect_cli_sqlite_usage(&[conversation]).expect("collection");
         assert_eq!(report.conversations_failed, 1);
         assert_eq!(report.conversations_parsed, 0);
+    }
+
+    #[test]
+    fn protobuf_artifact_is_not_counted_as_a_failed_sqlite_database() {
+        let directory = TempDir::new().expect("tempdir");
+        let path = directory.path().join("legacy-conversation.pb");
+        fs::write(&path, b"legacy protobuf artifact").expect("protobuf artifact");
+
+        let (usage, report) = collect_cli_sqlite_usage(&[conversation(&path)]).expect("collection");
+
+        assert!(usage.is_empty());
+        assert_eq!(report.conversations_parsed, 0);
+        assert_eq!(report.conversations_failed, 0);
+        assert_eq!(report.records_rejected, 0);
     }
 }
