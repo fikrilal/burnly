@@ -71,6 +71,36 @@ pub(crate) struct OpenCodeMessageUsage {
     pub(crate) cost_usd: Option<f64>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OpenCodeMessagePage {
+    pub(crate) messages: Vec<OpenCodeMessageUsage>,
+    pub(crate) last_row_id: Option<String>,
+    pub(crate) non_usage_error_rows: u64,
+}
+
+impl OpenCodeMessagePage {
+    pub(crate) fn has_rows(&self) -> bool {
+        self.last_row_id.is_some()
+    }
+}
+
+impl std::ops::Deref for OpenCodeMessagePage {
+    type Target = [OpenCodeMessageUsage];
+
+    fn deref(&self) -> &Self::Target {
+        &self.messages
+    }
+}
+
+impl IntoIterator for OpenCodeMessagePage {
+    type Item = OpenCodeMessageUsage;
+    type IntoIter = std::vec::IntoIter<OpenCodeMessageUsage>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.messages.into_iter()
+    }
+}
+
 #[derive(Debug, Error)]
 pub(crate) enum OpenCodeStoreError {
     #[error("OpenCode database could not be opened")]
@@ -175,7 +205,7 @@ impl OpenCodeReadSnapshot<'_> {
         session_id: &str,
         after_id: Option<&str>,
         page_size: OpenCodePageSize,
-    ) -> Result<Vec<OpenCodeMessageUsage>, OpenCodeStoreError> {
+    ) -> Result<OpenCodeMessagePage, OpenCodeStoreError> {
         if session_id.trim().is_empty() {
             return Err(OpenCodeStoreError::InvalidCursor);
         }
@@ -203,15 +233,27 @@ impl OpenCodeReadSnapshot<'_> {
                         cache_read: row.get(10)?,
                         cache_write: row.get(11)?,
                         cost_usd: row.get(12)?,
+                        has_error_object: row.get::<_, i64>(13)? != 0,
                     })
                 },
             )
             .map_err(OpenCodeStoreError::Query)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(OpenCodeStoreError::Query)?;
-        rows.into_iter()
-            .map(OpenCodeMessageUsage::try_from)
-            .collect()
+        let last_row_id = rows.last().map(|row| row.id.clone());
+        let mut messages = Vec::with_capacity(rows.len());
+        let mut non_usage_error_rows = 0_u64;
+        for row in rows {
+            match row.into_usage()? {
+                Some(message) => messages.push(message),
+                None => non_usage_error_rows = non_usage_error_rows.saturating_add(1),
+            }
+        }
+        Ok(OpenCodeMessagePage {
+            messages,
+            last_row_id,
+            non_usage_error_rows,
+        })
     }
 }
 
@@ -273,6 +315,37 @@ struct RawMessageUsage {
     cache_read: Option<i64>,
     cache_write: Option<i64>,
     cost_usd: Option<f64>,
+    has_error_object: bool,
+}
+
+impl RawMessageUsage {
+    fn into_usage(self) -> Result<Option<OpenCodeMessageUsage>, OpenCodeStoreError> {
+        let is_non_usage_error = self.generation == 2
+            && self.has_error_object
+            && self.input.is_none()
+            && self.output.is_none()
+            && self.reasoning.is_none()
+            && self.cache_read.is_none()
+            && self.cache_write.is_none()
+            && self.cost_usd.is_none();
+        if is_non_usage_error {
+            let created_at_ms = self.created_at_ms.ok_or(OpenCodeStoreError::Incompatible)?;
+            generation(self.generation)?;
+            required_text(Some(self.id))?;
+            required_text(Some(self.session_id))?;
+            required_text(self.provider_id)?;
+            required_text(self.model_id)?;
+            if created_at_ms < 0
+                || self
+                    .completed_at_ms
+                    .is_some_and(|timestamp| timestamp < created_at_ms)
+            {
+                return Err(OpenCodeStoreError::Incompatible);
+            }
+            return Ok(None);
+        }
+        OpenCodeMessageUsage::try_from(self).map(Some)
+    }
 }
 
 impl TryFrom<RawMessageUsage> for OpenCodeMessageUsage {
@@ -428,7 +501,8 @@ const V1_MESSAGE_QUERY: &str = "
         json_extract(m.data, '$.tokens.reasoning'),
         json_extract(m.data, '$.tokens.cache.read'),
         json_extract(m.data, '$.tokens.cache.write'),
-        json_extract(m.data, '$.cost')
+        json_extract(m.data, '$.cost'),
+        0
     FROM message m
     WHERE m.session_id = ?1
       AND json_extract(m.data, '$.role') = 'assistant'
@@ -447,7 +521,8 @@ const V2_MESSAGE_QUERY: &str = "
         json_extract(m.data, '$.tokens.reasoning'),
         json_extract(m.data, '$.tokens.cache.read'),
         json_extract(m.data, '$.tokens.cache.write'),
-        json_extract(m.data, '$.cost')
+        json_extract(m.data, '$.cost'),
+        CASE WHEN json_type(m.data, '$.error') = 'object' THEN 1 ELSE 0 END
     FROM session_message m
     WHERE m.session_id = ?1
       AND m.type = 'assistant'
@@ -466,7 +541,8 @@ const COMBINED_MESSAGE_QUERY: &str = "
         json_extract(m.data, '$.tokens.reasoning'),
         json_extract(m.data, '$.tokens.cache.read'),
         json_extract(m.data, '$.tokens.cache.write'),
-        json_extract(m.data, '$.cost')
+        json_extract(m.data, '$.cost'),
+        CASE WHEN json_type(m.data, '$.error') = 'object' THEN 1 ELSE 0 END
     FROM session_message m
     WHERE m.session_id = ?1
       AND m.type = 'assistant'
@@ -483,7 +559,8 @@ const COMBINED_MESSAGE_QUERY: &str = "
         json_extract(m.data, '$.tokens.reasoning'),
         json_extract(m.data, '$.tokens.cache.read'),
         json_extract(m.data, '$.tokens.cache.write'),
-        json_extract(m.data, '$.cost')
+        json_extract(m.data, '$.cost'),
+        0
     FROM message m
     WHERE m.session_id = ?1
       AND json_extract(m.data, '$.role') = 'assistant'
@@ -566,6 +643,73 @@ mod tests {
         assert_eq!(messages[0].generation, OpenCodeGeneration::V2);
         assert_eq!(messages[0].completed_at_ms, None);
         assert_eq!(messages[0].provider_id, "provider-v2");
+    }
+
+    #[test]
+    fn error_only_page_advances_cursor_and_keeps_later_exact_usage() {
+        let database = FixtureDatabase::new(false, true);
+        let connection = database.write();
+        insert_v2_session(&connection, "session-v2", 20);
+        let error_payload = json!({
+            "model": {"providerID": "provider-v2", "id": "shared-model"},
+            "time": {"created": 21, "completed": 22},
+            "error": {"name": "ProviderError"}
+        })
+        .to_string();
+        connection
+            .execute(
+                "INSERT INTO session_message
+                    (id, session_id, type, seq, time_created, time_updated, data)
+                 VALUES ('message-a-error', 'session-v2', 'assistant', 1, 21, 22, ?1)",
+                [error_payload],
+            )
+            .expect("error message");
+        insert_v2_message(&connection, "message-b-usage", "session-v2", 23, 9, true);
+        drop(connection);
+
+        let mut store = OpenCodeStore::open_read_only(&database.path).expect("store");
+        let snapshot = store.begin_snapshot().expect("snapshot");
+        let first = snapshot
+            .read_messages_page("session-v2", None, page_size(1))
+            .expect("error page");
+        let second = snapshot
+            .read_messages_page("session-v2", first.last_row_id.as_deref(), page_size(1))
+            .expect("usage page");
+
+        assert!(first.has_rows());
+        assert!(first.messages.is_empty());
+        assert_eq!(first.non_usage_error_rows, 1);
+        assert_eq!(second.messages.len(), 1);
+        assert_eq!(second.messages[0].id, "message-b-usage");
+    }
+
+    #[test]
+    fn missing_usage_without_structured_error_remains_incompatible() {
+        let database = FixtureDatabase::new(false, true);
+        let connection = database.write();
+        insert_v2_session(&connection, "session-v2", 20);
+        let payload = json!({
+            "model": {"providerID": "provider-v2", "id": "shared-model"},
+            "time": {"created": 21, "completed": 22}
+        })
+        .to_string();
+        connection
+            .execute(
+                "INSERT INTO session_message
+                    (id, session_id, type, seq, time_created, time_updated, data)
+                 VALUES ('message-invalid', 'session-v2', 'assistant', 1, 21, 22, ?1)",
+                [payload],
+            )
+            .expect("message");
+        drop(connection);
+
+        let mut store = OpenCodeStore::open_read_only(&database.path).expect("store");
+        let snapshot = store.begin_snapshot().expect("snapshot");
+        let error = snapshot
+            .read_messages_page("session-v2", None, page_size(10))
+            .expect_err("missing usage remains incompatible");
+
+        assert!(matches!(error, OpenCodeStoreError::Incompatible));
     }
 
     #[test]
@@ -699,6 +843,7 @@ mod tests {
             cache_read: Some(0),
             cache_write: Some(0),
             cost_usd: Some(f64::INFINITY),
+            has_error_object: false,
         };
         let message_error =
             OpenCodeMessageUsage::try_from(invalid_message).expect_err("invalid message fields");

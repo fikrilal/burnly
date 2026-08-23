@@ -189,6 +189,9 @@ impl Collector for OpenCodeCollector {
         if stats.counter_regressions > 0 {
             self.record_counter_regression(&request, stats);
         }
+        if stats.non_usage_error_rows > 0 {
+            self.record_non_usage_errors(&request, stats);
+        }
         let metadata = collection_metadata(IDENTITY, &request, run.started_at(), observed_at)?;
         let context = OpenCodeMappingContext::new(
             COLLECTOR_VERSION.to_owned(),
@@ -317,12 +320,24 @@ impl OpenCodeCollector {
                                 counter_regressions: 0,
                             }));
                         } else {
-                            let (messages, incomplete_live_rows, message_pages) = self
-                                .read_all_messages(&snapshot, &session.id, cancellation, request)?;
+                            let (
+                                messages,
+                                incomplete_live_rows,
+                                non_usage_error_rows,
+                                message_pages,
+                            ) = self.read_all_messages(
+                                &snapshot,
+                                &session.id,
+                                cancellation,
+                                request,
+                            )?;
                             stats.message_pages = stats.message_pages.saturating_add(message_pages);
                             stats.messages_read = stats
                                 .messages_read
                                 .saturating_add(u64::try_from(messages.len()).unwrap_or(u64::MAX));
+                            stats.non_usage_error_rows = stats
+                                .non_usage_error_rows
+                                .saturating_add(non_usage_error_rows);
                             let recovery_disposition =
                                 match (incomplete_live_rows > 0, stable_deferred_retry) {
                                     (true, true) => OpenCodeRecoveryDisposition::StableIncomplete,
@@ -381,10 +396,11 @@ impl OpenCodeCollector {
         session_id: &str,
         cancellation: &dyn CancellationSignal,
         request: &CollectionRequest,
-    ) -> Result<(Vec<OpenCodeMessageUsage>, u64, u64), CollectorFailure> {
+    ) -> Result<(Vec<OpenCodeMessageUsage>, u64, u64, u64), CollectorFailure> {
         let mut after_message_id = None::<String>;
         let mut messages = Vec::new();
         let mut deferred = 0_u64;
+        let mut non_usage_error_rows = 0_u64;
         let mut pages = 0_u64;
         loop {
             ensure_not_cancelled(request, cancellation)?;
@@ -395,12 +411,13 @@ impl OpenCodeCollector {
                     self.message_page_size,
                 )
                 .map_err(|_| incompatible(request))?;
-            if page.is_empty() {
+            if !page.has_rows() {
                 break;
             }
             pages = pages.saturating_add(1);
-            after_message_id = page.last().map(|message| message.id.clone());
-            for message in page {
+            non_usage_error_rows = non_usage_error_rows.saturating_add(page.non_usage_error_rows);
+            after_message_id = page.last_row_id;
+            for message in page.messages {
                 if message.generation == OpenCodeGeneration::V2 && message.completed_at_ms.is_none()
                 {
                     deferred = deferred.saturating_add(1);
@@ -409,7 +426,7 @@ impl OpenCodeCollector {
                 }
             }
         }
-        Ok((messages, deferred, pages))
+        Ok((messages, deferred, non_usage_error_rows, pages))
     }
 
     fn record_failure(
@@ -440,6 +457,18 @@ impl OpenCodeCollector {
             &stats.counters(),
         );
     }
+
+    fn record_non_usage_errors(&self, request: &CollectionRequest, stats: CollectionStats) {
+        record_collector_diagnostic(
+            self.diagnostics.as_deref(),
+            request,
+            DiagnosticSeverity::Info,
+            "opencode.non_usage_error_rows_skipped",
+            "OpenCode assistant error rows without usage were reconciled from session counters.",
+            None,
+            &stats.counters(),
+        );
+    }
 }
 
 enum SessionWork {
@@ -454,6 +483,7 @@ struct CollectionStats {
     sessions_processed: u64,
     messages_read: u64,
     deferred_live_rows: u64,
+    non_usage_error_rows: u64,
     exact_records_accepted: u64,
     recovery_segments_created: u64,
     late_exact_reclassified: u64,
@@ -480,13 +510,14 @@ impl CollectionStats {
             .saturating_add(u64::from(result.counter_regressions));
     }
 
-    fn counters(self) -> [CollectorDiagnosticCounter; 10] {
+    fn counters(self) -> [CollectorDiagnosticCounter; 11] {
         [
             CollectorDiagnosticCounter::new("sessionPages", self.session_pages),
             CollectorDiagnosticCounter::new("messagePages", self.message_pages),
             CollectorDiagnosticCounter::new("sessionsProcessed", self.sessions_processed),
             CollectorDiagnosticCounter::new("messagesRead", self.messages_read),
             CollectorDiagnosticCounter::new("deferredLiveRows", self.deferred_live_rows),
+            CollectorDiagnosticCounter::new("nonUsageErrorRows", self.non_usage_error_rows),
             CollectorDiagnosticCounter::new("exactRecordsAccepted", self.exact_records_accepted),
             CollectorDiagnosticCounter::new(
                 "recoverySegmentsCreated",
@@ -1079,6 +1110,50 @@ mod tests {
             .expect("completed retry");
         assert_eq!(completed.outcome(), CollectionOutcome::Complete);
         assert_eq!(completed.session_candidates()[0].tokens.total_tokens(), 22);
+    }
+
+    #[test]
+    fn completed_v2_error_envelope_recovers_session_counters_without_exact_usage() {
+        let fixture = Fixture::new(false, true);
+        let connection = fixture.source();
+        insert_v2_session(
+            &connection,
+            "session-error",
+            Counters::message(8),
+            0.5,
+            1_000,
+        );
+        let payload = json!({
+            "model": {"providerID": "provider-v2", "id": "model"},
+            "time": {"created": 1_100, "completed": 1_101},
+            "finish": "error",
+            "error": {"name": "ProviderError"}
+        })
+        .to_string();
+        connection
+            .execute(
+                "INSERT INTO session_message (
+                    id, session_id, type, seq, time_created, time_updated, data
+                 ) VALUES ('message-error', 'session-error', 'assistant', 1, 1_100, 1_101, ?1)",
+                [payload],
+            )
+            .expect("V2 error message");
+        drop(connection);
+
+        let result = fixture
+            .collector()
+            .collect(
+                session_request("error-envelope", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("error envelope collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        assert_eq!(result.session_candidates()[0].tokens.total_tokens(), 22);
+        assert_eq!(
+            result.session_candidates()[0].provenance.data_quality,
+            crate::domain::usage::DataQuality::Partial
+        );
     }
 
     #[test]

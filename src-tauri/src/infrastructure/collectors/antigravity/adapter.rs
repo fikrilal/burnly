@@ -21,7 +21,9 @@ use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::domain::source::SourceKey;
 
 use super::app_ide_sqlite_reader::{collect_app_ide_sqlite_fallback, AppIdeSqliteCollectionReport};
-use super::cli_sqlite_reader::{collect_cli_sqlite_usage, CliSqliteCollectionReport};
+use super::cli_sqlite_reader::{
+    collect_cli_sqlite_usage, is_sqlite_artifact, CliSqliteCollectionReport,
+};
 #[cfg(test)]
 use super::discovery::{LocalListener, ProcessSnapshot};
 use super::mapper::{self, AntigravityMappingContext, ConversationUsage};
@@ -425,7 +427,10 @@ impl Collector for AntigravityCollector {
                 failure(&request, CollectorFailureCode::ScopeNotRepresentable)
             })?;
         let conversations = bounded_conversations(conversations, request.scope());
-        diagnostics.sqlite_dbs_scanned = conversations.len();
+        diagnostics.sqlite_dbs_scanned = conversations
+            .iter()
+            .filter(|conversation| is_sqlite_artifact(&conversation.path))
+            .count();
         diagnostics.conversations_found = conversations.len();
         if conversations.is_empty() {
             self.record_diagnostic(
@@ -1286,6 +1291,7 @@ mod tests {
         fixed_timestamp, session_request as support_session_request, NeverCancelled,
         RecordingDiagnostics,
     };
+    use crate::infrastructure::database::{Database, SqliteAntigravityUsageCacheStore};
 
     #[test]
     fn describes_antigravity_profile() {
@@ -1299,6 +1305,75 @@ mod tests {
         assert_eq!(
             descriptor.profiles[0].supported_projections,
             vec![CollectionProjection::Daily, CollectionProjection::Session]
+        );
+    }
+
+    #[test]
+    #[ignore = "set BURNLY_ANTIGRAVITY_EVIDENCE_LEDGER to run against local Antigravity data"]
+    fn runtime_evidence_collects_default_location_without_incomplete_baseline() {
+        let ledger_path = std::env::var_os("BURNLY_ANTIGRAVITY_EVIDENCE_LEDGER")
+            .map(PathBuf::from)
+            .expect("BURNLY_ANTIGRAVITY_EVIDENCE_LEDGER must name a disposable database");
+        let mut cache_database = Database::open(&ledger_path).expect("open evidence cache");
+        cache_database
+            .migrate_to_latest()
+            .expect("migrate evidence cache");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = AntigravityCollector::with_diagnostic_recorder(
+            diagnostics.clone(),
+            Arc::new(SqliteAntigravityUsageCacheStore::new(cache_database)),
+        );
+        let requested_at = Utc::now();
+
+        let daily = collector
+            .collect(
+                support_daily_request(
+                    "antigravity-runtime-evidence-daily",
+                    SourceKey::Antigravity,
+                    CollectionScope::Full,
+                    "Asia/Jakarta",
+                    requested_at,
+                ),
+                &NeverCancelled,
+            )
+            .expect("full daily collection");
+        let sessions = collector
+            .collect(
+                support_session_request(
+                    "antigravity-runtime-evidence-session",
+                    SourceKey::Antigravity,
+                    requested_at,
+                ),
+                &NeverCancelled,
+            )
+            .expect("full session collection");
+        let events = diagnostics.events();
+
+        assert!(!daily.daily_candidates().is_empty());
+        assert!(!sessions.session_candidates().is_empty());
+        assert!(!events
+            .iter()
+            .any(|event| { event.code.as_str() == "antigravity.full_reconciliation_incomplete" }));
+        println!(
+            "antigravity_runtime_evidence=v1 daily_outcome={:?} days={} daily_tokens={} session_outcome={:?} sessions={} session_tokens={} diagnostics={:?}",
+            daily.outcome(),
+            daily.daily_candidates().len(),
+            daily
+                .daily_candidates()
+                .iter()
+                .map(|candidate| candidate.tokens.total_tokens())
+                .sum::<u64>(),
+            sessions.outcome(),
+            sessions.session_candidates().len(),
+            sessions
+                .session_candidates()
+                .iter()
+                .map(|candidate| candidate.tokens.total_tokens())
+                .sum::<u64>(),
+            events
+                .iter()
+                .map(|event| event.code.as_str())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1579,6 +1654,61 @@ mod tests {
             result.daily_candidates()[0].tokens.input_tokens(),
             Some(150)
         );
+    }
+
+    #[test]
+    fn full_cli_reconciliation_routes_protobuf_artifacts_away_from_sqlite() {
+        use rusqlite::params;
+        use rusqlite::Connection;
+
+        use crate::infrastructure::collectors::antigravity::protobuf_usage::tests::{
+            sample_gen_metadata_blob, sample_trajectory_metadata_blob,
+        };
+
+        let data_root = TempDir::new().expect("tempdir");
+        let conversations = data_root.path().join("antigravity-cli/conversations");
+        fs::create_dir_all(&conversations).expect("conversation directory");
+        let database_path = conversations.join("sqlite-conversation.db");
+        let connection = Connection::open(&database_path).expect("open database");
+        connection
+            .execute_batch(
+                "CREATE TABLE gen_metadata (idx integer, data blob, size integer);
+                 CREATE TABLE trajectory_metadata_blob (id text, data blob);",
+            )
+            .expect("schema");
+        connection
+            .execute(
+                "INSERT INTO gen_metadata (idx, data, size) VALUES (0, ?1, 0)",
+                params![sample_gen_metadata_blob("response-cli")],
+            )
+            .expect("insert gen_metadata");
+        connection
+            .execute(
+                "INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?1)",
+                params![sample_trajectory_metadata_blob()],
+            )
+            .expect("insert trajectory metadata");
+        drop(connection);
+        fs::write(
+            conversations.join("legacy-conversation.pb"),
+            b"legacy protobuf artifact",
+        )
+        .expect("protobuf artifact");
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(Vec::new()),
+            noop_usage_cache_client(),
+        );
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("full CLI collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        assert_eq!(result.daily_candidates().len(), 1);
     }
 
     #[test]
