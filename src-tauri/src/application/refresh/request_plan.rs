@@ -6,7 +6,9 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::application::collection::{CollectionId, CollectionProjection, CollectionRequest};
+use crate::application::collection::{
+    CollectionId, CollectionProjection, CollectionRequest, ProfileDescriptor,
+};
 use crate::application::ports::run_store::RunStore;
 use crate::application::refresh::planner::{
     RefreshPlanMode, RefreshPlanRequest, RefreshPolicyPlanner,
@@ -52,6 +54,7 @@ pub(super) fn planned_collection_request(
     run_store: &dyn RunStore,
     job_id: &str,
     target: RefreshTarget,
+    profile: &ProfileDescriptor,
     requested_at: DateTime<Utc>,
     aggregation_timezone: &str,
     scope_policy: RefreshScopePolicy,
@@ -62,7 +65,7 @@ pub(super) fn planned_collection_request(
             let today = local_date(requested_at, aggregation_timezone)
                 .map_err(|_| RequestPlanError::InvalidTimezone)?;
             let lookup = target
-                .import_lookup(aggregation_timezone)
+                .import_lookup(aggregation_timezone, profile)
                 .map_err(|_| RequestPlanError::InvalidImportState)?;
             let previous_import = run_store
                 .latest_successful_import(lookup)
@@ -133,6 +136,7 @@ mod tests {
     #[derive(Default)]
     struct FakeRunStore {
         latest_import: Option<SuccessfulImportState>,
+        latest_import_identity: Option<(&'static str, u16)>,
         latest_import_error: bool,
     }
 
@@ -179,10 +183,17 @@ mod tests {
 
         fn latest_successful_import(
             &self,
-            _lookup: ImportRunLookup,
+            lookup: ImportRunLookup,
         ) -> Result<Option<SuccessfulImportState>, RunStoreError> {
             if self.latest_import_error {
                 return Err(RunStoreError::Backend);
+            }
+            if let Some((collector_key, profile_version)) = self.latest_import_identity {
+                if lookup.collector_key() != Some(collector_key)
+                    || lookup.profile_version() != Some(profile_version)
+                {
+                    return Ok(None);
+                }
             }
             Ok(self.latest_import.clone())
         }
@@ -201,12 +212,23 @@ mod tests {
         }
     }
 
+    fn profile() -> ProfileDescriptor {
+        ProfileDescriptor {
+            collector: crate::application::collection::CollectorKey::new("test-collector")
+                .expect("collector"),
+            source: SourceKey::Codex,
+            profile_version: 1,
+            supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],
+        }
+    }
+
     #[test]
     fn full_daily_request_uses_full_scope_and_timezone() {
         let request = planned_collection_request(
             &FakeRunStore::default(),
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "Asia/Jakarta",
             RefreshScopePolicy::Full,
@@ -224,6 +246,7 @@ mod tests {
             &FakeRunStore::default(),
             "refresh-1",
             target(CollectionProjection::Session),
+            &profile(),
             requested_at(),
             "Asia/Jakarta",
             RefreshScopePolicy::Full,
@@ -245,6 +268,7 @@ mod tests {
         );
         let run_store = FakeRunStore {
             latest_import: Some(previous),
+            latest_import_identity: Some(("test-collector", 1)),
             latest_import_error: false,
         };
 
@@ -252,6 +276,7 @@ mod tests {
             &run_store,
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "UTC",
             RefreshScopePolicy::Freshness,
@@ -269,11 +294,55 @@ mod tests {
     }
 
     #[test]
+    fn opencode_profile_1_baselines_plan_full_profile_2_rebuilds() {
+        for projection in [CollectionProjection::Daily, CollectionProjection::Session] {
+            let previous = SuccessfulImportState::new(
+                SourceKey::OpenCode,
+                projection,
+                CollectionScope::Full,
+                100,
+            );
+            let run_store = FakeRunStore {
+                latest_import: Some(previous),
+                latest_import_identity: Some(("legacy-collector", 1)),
+                latest_import_error: false,
+            };
+            let profile = ProfileDescriptor {
+                collector: crate::application::collection::CollectorKey::new("opencode")
+                    .expect("collector"),
+                source: SourceKey::OpenCode,
+                profile_version: 2,
+                supported_projections: vec![
+                    CollectionProjection::Daily,
+                    CollectionProjection::Session,
+                ],
+            };
+
+            let request = planned_collection_request(
+                &run_store,
+                "refresh-1",
+                RefreshTarget {
+                    source: SourceKey::OpenCode,
+                    projection,
+                },
+                &profile,
+                requested_at(),
+                "UTC",
+                RefreshScopePolicy::CatchUp,
+            )
+            .expect("planned request");
+
+            assert_eq!(request.scope(), &CollectionScope::Full);
+        }
+    }
+
+    #[test]
     fn catch_up_without_baseline_uses_full_scope() {
         let request = planned_collection_request(
             &FakeRunStore::default(),
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "UTC",
             RefreshScopePolicy::CatchUp,
@@ -289,6 +358,7 @@ mod tests {
             &FakeRunStore::default(),
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "not-a-timezone",
             RefreshScopePolicy::Freshness,
@@ -303,6 +373,7 @@ mod tests {
     fn import_state_read_failure_returns_stable_error() {
         let run_store = FakeRunStore {
             latest_import: None,
+            latest_import_identity: None,
             latest_import_error: true,
         };
 
@@ -310,6 +381,7 @@ mod tests {
             &run_store,
             "refresh-1",
             target(CollectionProjection::Daily),
+            &profile(),
             requested_at(),
             "UTC",
             RefreshScopePolicy::Freshness,

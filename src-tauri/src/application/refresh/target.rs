@@ -9,7 +9,7 @@ use std::str::FromStr;
 use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 
-use crate::application::collection::{CollectionProjection, CollectionResult};
+use crate::application::collection::{CollectionProjection, CollectionResult, ProfileDescriptor};
 use crate::application::reconciliation::ImportRunLookup;
 use crate::domain::source::SourceKey;
 
@@ -36,14 +36,17 @@ impl RefreshTarget {
     pub(super) fn import_lookup(
         self,
         aggregation_timezone: &str,
+        profile: &ProfileDescriptor,
     ) -> Result<ImportRunLookup, crate::application::reconciliation::RunValidationError> {
-        ImportRunLookup::new(
+        ImportRunLookup::compatible(
             self.source,
             self.projection,
             match self.projection {
                 CollectionProjection::Daily => Some(aggregation_timezone.to_owned()),
                 CollectionProjection::Session => None,
             },
+            profile.collector.as_str(),
+            profile.profile_version,
         )
     }
 }
@@ -223,11 +226,18 @@ mod tests {
 
     #[test]
     fn import_lookup_uses_timezone_only_for_daily_targets() {
+        let profile = ProfileDescriptor {
+            collector: crate::application::collection::CollectorKey::new("test-collector")
+                .expect("collector"),
+            source: SourceKey::Codex,
+            profile_version: 1,
+            supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],
+        };
         let daily = RefreshTarget {
             source: SourceKey::Codex,
             projection: CollectionProjection::Daily,
         }
-        .import_lookup("Asia/Jakarta")
+        .import_lookup("Asia/Jakarta", &profile)
         .expect("daily import lookup");
         assert_eq!(daily.aggregation_timezone(), Some("Asia/Jakarta"));
 
@@ -235,7 +245,7 @@ mod tests {
             source: SourceKey::Codex,
             projection: CollectionProjection::Session,
         }
-        .import_lookup("Asia/Jakarta")
+        .import_lookup("Asia/Jakarta", &profile)
         .expect("session import lookup");
         assert_eq!(session.aggregation_timezone(), None);
     }

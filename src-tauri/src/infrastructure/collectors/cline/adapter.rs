@@ -18,9 +18,9 @@ use super::super::support::{
     available_detection, cancelled_detection, collection_metadata, collector_key,
     daily_session_projections, detection_issue, empty_collection_result,
     invalid_configuration_detection, missing_or_invalid_location_code, not_found_detection,
-    record_collector_diagnostic, request_failure, single_source_descriptor, unsupported_detection,
-    validate_source, validation_failure_preserving_all_rejected, CollectorDiagnosticCounter,
-    CollectorIdentity, LocalCollectionRun,
+    path_is_missing, record_collector_diagnostic, request_failure, single_source_descriptor,
+    unsupported_detection, validate_source, validation_failure_preserving_all_rejected,
+    CollectorDiagnosticCounter, CollectorIdentity, LocalCollectionRun,
 };
 use super::mapper::{self, ClineMappingContext, ClineSessionMessages};
 use super::{decode_messages, ClineStore};
@@ -135,12 +135,7 @@ impl Collector for ClineCollector {
         if cancellation.is_cancelled() {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
-        if !self.database_path.exists() {
-            self.record_failure(
-                &request,
-                CollectorFailureCode::SourceNotFound,
-                &[CollectorDiagnosticCounter::new("sessionsFound", 0)],
-            );
+        if path_is_missing(&self.database_path) {
             return empty_collection_result(IDENTITY, &request, &run);
         }
 
@@ -319,6 +314,7 @@ fn supported_projections() -> Vec<CollectionProjection> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::Path;
     use std::sync::Arc;
 
@@ -454,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn records_diagnostic_when_database_is_missing() {
+    fn missing_database_collection_is_empty_without_diagnostic() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
         let collector = ClineCollector::from_database_path("/missing/sessions.db")
             .with_diagnostic_recorder(diagnostics.clone());
@@ -464,12 +460,29 @@ mod tests {
             .expect("missing database is empty");
 
         assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        assert!(diagnostics.events().is_empty());
+    }
+
+    #[test]
+    fn invalid_database_location_records_diagnostic() {
+        let temp = TempDir::new().expect("workspace");
+        let database_path = temp.path().join("sessions.db");
+        fs::create_dir(&database_path).expect("database directory");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = ClineCollector::from_database_path(database_path)
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let error = collector
+            .collect(daily_request(CollectionScope::Full), &NeverCancelled)
+            .expect_err("invalid database location fails");
+
+        assert_eq!(error.code, CollectorFailureCode::SourceInvalidLocation);
         let events = diagnostics.events();
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
+        assert_eq!(events[0].code.as_str(), "cline.collection_failed");
         let context = events[0].context.as_ref().expect("context").as_str();
-        assert!(context.contains(r#""failureCode":"source.not_found""#));
-        assert!(context.contains(r#""sessionsFound":0"#));
-        assert!(!context.contains("/missing"));
+        assert!(context.contains(r#""failureCode":"source.invalid_location""#));
     }
 
     struct FixtureCline {

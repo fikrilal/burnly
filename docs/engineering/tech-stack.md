@@ -115,13 +115,18 @@ It provides direct SQLite integration without requiring a separate database serv
 
 ## Usage Data Source
 
-### ccusage
+### Collectors
 
-Burnly's first releases will use a pinned version of `ccusage` as the primary source for supported AI coding-tool usage data.
+Burnly uses replaceable Rust infrastructure adapters behind a Burnly-owned
+collector contract. A pinned bundled `ccusage` sidecar collects Claude Code,
+Codex, and Pi. Sources whose local formats require stronger completeness or
+privacy controls may use native read-only Rust collectors; OpenCode uses this
+path for its legacy and preview V2 SQLite schemas.
 
 Burnly will not require users to install `ccusage` separately.
 
-The dependency will remain replaceable so Burnly can add or migrate to native usage collectors when there is a clear product need.
+Neither collector path exposes its storage or envelope types to application or
+domain code.
 
 ## Testing
 

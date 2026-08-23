@@ -3,6 +3,14 @@ use thiserror::Error;
 
 use crate::application::collection::CollectionScope;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AntigravityTimestampOrigin {
+    SourceReported,
+    FirstSeen,
+    LegacyUnknown,
+    Unresolved,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CachedAntigravityUsageRecord {
     pub(crate) variant: String,
@@ -11,19 +19,28 @@ pub(crate) struct CachedAntigravityUsageRecord {
     pub(crate) raw_model_id: String,
     pub(crate) model_label: String,
     pub(crate) api_provider: Option<String>,
+    pub(crate) source_record_index: Option<i64>,
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
     pub(crate) thinking_output_tokens: u64,
     pub(crate) response_output_tokens: u64,
     pub(crate) cache_read_tokens: u64,
     pub(crate) cache_write_tokens: u64,
-    pub(crate) observed_at: DateTime<Utc>,
+    pub(crate) observed_at: Option<DateTime<Utc>>,
+    pub(crate) timestamp_origin: AntigravityTimestampOrigin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AntigravityUsageCacheUpsert {
     pub(crate) record: CachedAntigravityUsageRecord,
+    pub(crate) legacy_fallback_at: Option<DateTime<Utc>>,
     pub(crate) collector_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AntigravityUsageCacheReconcileResult {
+    pub(crate) records: Vec<CachedAntigravityUsageRecord>,
+    pub(crate) legacy_records_repaired: u32,
 }
 
 #[derive(Debug, Error)]
@@ -35,10 +52,11 @@ pub(crate) enum AntigravityUsageCacheError {
 }
 
 pub(crate) trait AntigravityUsageCache: Send + Sync {
-    fn upsert(
+    fn reconcile(
         &self,
         records: &[AntigravityUsageCacheUpsert],
-    ) -> Result<(), AntigravityUsageCacheError>;
+        collected_at: DateTime<Utc>,
+    ) -> Result<AntigravityUsageCacheReconcileResult, AntigravityUsageCacheError>;
 
     fn read_for_scope(
         &self,

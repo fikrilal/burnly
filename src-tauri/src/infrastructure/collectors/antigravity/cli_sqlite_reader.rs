@@ -9,7 +9,7 @@ use crate::infrastructure::collectors::support::open_external_read_only;
 use super::mapper::ConversationUsage;
 use super::product_variant::AntigravityProductVariant;
 use super::protobuf_usage::{
-    parse_gen_metadata_rows, parse_trajectory_created_ms, ProtobufUsageError,
+    parse_gen_metadata_rows, parse_trajectory_created_ms, GenMetadataRow, ProtobufUsageError,
 };
 use super::ConversationDatabase;
 
@@ -132,12 +132,17 @@ fn read_session_timestamp_ms(
 
 pub(crate) fn read_gen_metadata_rows(
     connection: &Connection,
-) -> Result<Vec<Vec<u8>>, ConversationSqliteReaderError> {
+) -> Result<Vec<GenMetadataRow>, ConversationSqliteReaderError> {
     let mut statement = connection
-        .prepare("SELECT data FROM gen_metadata ORDER BY idx")
+        .prepare("SELECT idx, data FROM gen_metadata ORDER BY idx")
         .map_err(ConversationSqliteReaderError::Query)?;
     let rows = statement
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
+        .query_map([], |row| {
+            Ok(GenMetadataRow {
+                index: row.get(0)?,
+                data: row.get(1)?,
+            })
+        })
         .map_err(ConversationSqliteReaderError::Query)?;
 
     rows.collect::<Result<Vec<_>, _>>()

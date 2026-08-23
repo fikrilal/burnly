@@ -19,7 +19,7 @@ pub(in crate::infrastructure::collectors) use diagnostics::{
     record_collector_diagnostic, CollectorDiagnosticCounter,
 };
 pub(in crate::infrastructure::collectors) use failure::{
-    missing_or_invalid_location_code, request_failure, validate_source,
+    missing_or_invalid_location_code, path_is_missing, request_failure, validate_source,
     validation_failure_as_internal, validation_failure_preserving_all_rejected,
 };
 pub(in crate::infrastructure::collectors) use mapping::{

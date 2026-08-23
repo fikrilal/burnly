@@ -304,7 +304,7 @@ Project identity should be based on a normalized path when a path is available. 
 
 Projects reported by different coding tools should not be merged automatically unless Burnly can match a canonical local path. Name-only matching is too error-prone.
 
-The `ccusage` field named `projectPath` is not always a filesystem path. Several adapters currently populate it with a constant tool label such as `OpenCode`, `Gemini`, or `Goose`. Burnly must use a versioned source-capability map before interpreting this field as project identity.
+The `ccusage` field named `projectPath` is not always a filesystem path. Upstream adapters may populate it with a constant tool label rather than a path. Burnly must use a versioned source-capability map before interpreting this field as project identity.
 
 ### Import record
 

@@ -23,9 +23,9 @@ use crate::domain::source::SourceKey;
 use crate::infrastructure::collectors::support::{
     available_detection, cancelled_detection, collection_metadata, collector_key,
     daily_session_projections, detection_issue, empty_collection_result, not_found_detection,
-    record_collector_diagnostic, request_failure, single_source_descriptor, unsupported_detection,
-    validate_source, validation_failure_as_internal, CollectorDiagnosticCounter, CollectorIdentity,
-    LocalCollectionRun,
+    path_is_missing, record_collector_diagnostic, request_failure, single_source_descriptor,
+    unsupported_detection, validate_source, validation_failure_as_internal,
+    CollectorDiagnosticCounter, CollectorIdentity, LocalCollectionRun,
 };
 
 use super::detection::{inspect_commandcode_home, CommandCodeHomeInspection};
@@ -188,10 +188,14 @@ impl Collector for CommandCodeCollector {
         if cancellation.is_cancelled() {
             return Err(request_failure(&request, CollectorFailureCode::Cancelled));
         }
+        let home_missing = path_is_missing(&self.commandcode_home);
+        if home_missing {
+            return empty_collection_result(IDENTITY, &request, &run);
+        }
         if !self.commandcode_home.is_dir() {
             self.record_failure(
                 &request,
-                CollectorFailureCode::SourceNotFound,
+                CollectorFailureCode::SourceInvalidLocation,
                 &[CollectorDiagnosticCounter::new("rowsFound", 0)],
             );
             return empty_collection_result(IDENTITY, &request, &run);
@@ -311,7 +315,6 @@ mod tests {
     use crate::application::collection::{
         CollectionId, CollectionOutcome, CollectionScope, DetectionState,
     };
-    use crate::application::diagnostics::DiagnosticSeverity;
     use crate::infrastructure::collectors::support::{
         daily_request as support_daily_request, detection_request, fixed_timestamp,
         session_request as support_session_request, NeverCancelled, RecordingDiagnostics,
@@ -400,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn records_diagnostic_when_commandcode_home_is_missing() {
+    fn missing_commandcode_home_returns_empty_without_diagnostic() {
         let diagnostics = Arc::new(RecordingDiagnostics::default());
         let collector = CommandCodeCollector::from_data_dir(PathBuf::from("/missing/commandcode"))
             .with_diagnostic_recorder(diagnostics.clone());
@@ -410,16 +413,29 @@ mod tests {
             .expect("missing home is empty");
 
         assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        assert!(diagnostics.events().is_empty());
+    }
+
+    #[test]
+    fn invalid_commandcode_home_records_diagnostic() {
+        let temp = TempDir::new().expect("workspace");
+        let commandcode_home = temp.path().join("commandcode");
+        fs::write(&commandcode_home, "not a directory").expect("commandcode file");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = CommandCodeCollector::from_data_dir(commandcode_home)
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let result = collector
+            .collect(daily_request(CollectionScope::Full), &NeverCancelled)
+            .expect("invalid home location is empty");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Empty);
         let events = diagnostics.events();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].severity, DiagnosticSeverity::Warning);
         assert_eq!(events[0].code.as_str(), "commandcode.collection_failed");
         let context = events[0].context.as_ref().expect("context").as_str();
-        assert!(context.contains(r#""source":"command-code""#));
-        assert!(context.contains(r#""projection":"daily""#));
-        assert!(context.contains(r#""failureCode":"source.not_found""#));
-        assert!(context.contains(r#""rowsFound":0"#));
-        assert!(!context.contains("/missing"));
+        assert!(context.contains(r#""failureCode":"source.invalid_location""#));
     }
 
     #[test]

@@ -18,9 +18,10 @@ use crate::domain::settings::{Settings, SettingsDocument};
 use crate::infrastructure::collectors::antigravity::AntigravityCollector;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
-use crate::infrastructure::collectors::routed::RoutedCollector;
+use crate::infrastructure::collectors::opencode::OpenCodeCollector;
+use crate::infrastructure::collectors::routed::{CollectorRoutes, RoutedCollector};
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
-use crate::infrastructure::database::Database;
+use crate::infrastructure::database::{Database, SqliteOpenCodeUsageLedgerStore};
 use crate::ipc::CONTRACT_VERSION;
 
 pub(super) struct FixedBootstrapStore;
@@ -114,33 +115,101 @@ pub(super) fn fake_ccusage_collector() -> Arc<dyn Collector> {
 
 #[cfg(unix)]
 pub(super) fn composed_refresh_collector(data_root: &Path) -> Arc<dyn Collector> {
-    Arc::new(RoutedCollector::new(
-        fake_ccusage_collector(),
-        Arc::new(ClineCollector::from_database_path(
+    let opencode_source = seed_opencode_source(data_root);
+    let opencode_ledger_database =
+        Database::open(data_root.join("burnly.sqlite3")).expect("OpenCode test ledger");
+    let opencode_ledger = Arc::new(SqliteOpenCodeUsageLedgerStore::new(
+        opencode_ledger_database,
+    ));
+    Arc::new(RoutedCollector::new(CollectorRoutes {
+        ccusage: fake_ccusage_collector(),
+        opencode: Arc::new(OpenCodeCollector::from_database_path(
+            opencode_source,
+            opencode_ledger,
+        )),
+        cline: Arc::new(ClineCollector::from_database_path(
             data_root.join("missing-cline-sessions.db"),
         )),
-        Arc::new(ZCodeCollector::from_database_path(
+        zcode: Arc::new(ZCodeCollector::from_database_path(
             data_root.join("missing-zcode-usage.db"),
         )),
-        Arc::new(AntigravityCollector::empty_from_data_root(
+        antigravity: Arc::new(AntigravityCollector::empty_from_data_root(
             data_root.join("empty-antigravity"),
         )),
-        Arc::new(
+        grok: Arc::new(
             crate::infrastructure::collectors::grok::GrokCollector::from_grok_home(
                 data_root.join("missing-grok-home"),
             ),
         ),
-        Arc::new(
+        commandcode: Arc::new(
             crate::infrastructure::collectors::commandcode::CommandCodeCollector::from_data_dir(
                 data_root.join("missing-commandcode-home"),
             ),
         ),
-        Arc::new(
+        zed: Arc::new(
             crate::infrastructure::collectors::zed::ZedCollector::from_data_dir(
                 data_root.join("missing-zed-data"),
             ),
         ),
-    ))
+    }))
+}
+
+#[cfg(unix)]
+fn seed_opencode_source(data_root: &Path) -> std::path::PathBuf {
+    let path = data_root.join("opencode.db");
+    let connection = Connection::open(&path).expect("OpenCode source fixture");
+    connection
+        .execute_batch(
+            "CREATE TABLE session_v2 (
+                id TEXT PRIMARY KEY, cost REAL NOT NULL,
+                tokens_input INTEGER NOT NULL, tokens_output INTEGER NOT NULL,
+                tokens_reasoning INTEGER NOT NULL, tokens_cache_read INTEGER NOT NULL,
+                tokens_cache_write INTEGER NOT NULL, time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL, time_idle INTEGER
+            );
+            CREATE TABLE session_message (
+                id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL,
+                seq INTEGER NOT NULL, time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL, data TEXT NOT NULL
+            );",
+        )
+        .expect("OpenCode source schema");
+    for (index, timestamp) in [1_704_067_200_000_i64, 1_704_153_600_000_i64]
+        .into_iter()
+        .enumerate()
+    {
+        let session_id = format!("opencode-session-{index}");
+        let message_id = format!("opencode-message-{index}");
+        connection
+            .execute(
+                "INSERT INTO session_v2 (
+                    id, cost, tokens_input, tokens_output, tokens_reasoning,
+                    tokens_cache_read, tokens_cache_write, time_created,
+                    time_updated, time_idle
+                 ) VALUES (?1, 0.25, 5, 2, 1, 3, 4, ?2, ?2, ?2)",
+                rusqlite::params![session_id, timestamp],
+            )
+            .expect("OpenCode session fixture");
+        let payload = serde_json::json!({
+            "model": {"providerID": "fixture-provider", "id": "fixture-model"},
+            "time": {"created": timestamp, "completed": timestamp + 1},
+            "tokens": {
+                "input": 5, "output": 2, "reasoning": 1,
+                "cache": {"read": 3, "write": 4}
+            },
+            "cost": 0.25
+        })
+        .to_string();
+        connection
+            .execute(
+                "INSERT INTO session_message (
+                    id, session_id, type, seq, time_created, time_updated, data
+                 ) VALUES (?1, ?2, 'assistant', 1, ?3, ?3, ?4)",
+                rusqlite::params![message_id, session_id, timestamp, payload],
+            )
+            .expect("OpenCode message fixture");
+    }
+    path
 }
 
 pub(super) fn settings_count(connection: &Connection) -> i64 {

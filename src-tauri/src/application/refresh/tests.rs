@@ -13,8 +13,9 @@ use crate::application::collect_sync::{CommittedDailyUpload, UploadScope};
 use crate::application::collection::{
     CandidateProvenance, CollectionId, CollectionMetadata, CollectionOutcome, CollectionPeriod,
     CollectionProjection, CollectionRequest, CollectionResult, CollectionScope,
-    CollectorDescriptor, CollectorFailure, CollectorFailureCode, DailyUsageCandidate,
-    DetectionRequest, DetectionResult, ProcessSummary, RejectedRecord, SessionUsageCandidate,
+    CollectorDescriptor, CollectorFailure, CollectorFailureCode, CollectorIntegrity, CollectorKey,
+    DailyUsageCandidate, DetectionRequest, DetectionResult, ProcessSummary, ProfileDescriptor,
+    RejectedRecord, SessionUsageCandidate,
 };
 use crate::application::diagnostics::{DiagnosticArea, DiagnosticEvent, DiagnosticSeverity};
 use crate::application::ports::clock::Clock;
@@ -394,6 +395,28 @@ fn test_metadata(request: &CollectionRequest) -> CollectionMetadata {
     .expect("metadata")
 }
 
+fn refresh_test_descriptor() -> CollectorDescriptor {
+    let collector = CollectorKey::new("fixture-collector").expect("collector");
+    CollectorDescriptor {
+        collector: collector.clone(),
+        display_name: "Fixture collector".to_owned(),
+        runtime_version: "test".to_owned(),
+        expected_version: "test".to_owned(),
+        adapter_version: 1,
+        binary_target: "test".to_owned(),
+        integrity: CollectorIntegrity::UnverifiedDevelopment,
+        profiles: refresh_targets()
+            .iter()
+            .map(|target| ProfileDescriptor {
+                collector: collector.clone(),
+                source: target.source,
+                profile_version: 1,
+                supported_projections: vec![target.projection],
+            })
+            .collect(),
+    }
+}
+
 fn tokens() -> TokenUsage {
     TokenUsage::new(Some(100), Some(0), Some(0), Some(0), 100).expect("tokens")
 }
@@ -572,7 +595,7 @@ impl ScriptedCollector {
 
 impl Collector for ScriptedCollector {
     fn describe(&self) -> Result<CollectorDescriptor, CollectorFailure> {
-        unimplemented!("the coordinator does not describe the collector")
+        Ok(refresh_test_descriptor())
     }
 
     fn detect(
@@ -1120,7 +1143,7 @@ impl GatedCollector {
 
 impl Collector for GatedCollector {
     fn describe(&self) -> Result<CollectorDescriptor, CollectorFailure> {
-        unimplemented!("not used")
+        Ok(refresh_test_descriptor())
     }
 
     fn detect(

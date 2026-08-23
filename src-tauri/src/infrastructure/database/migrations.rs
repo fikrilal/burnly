@@ -27,6 +27,18 @@ const MIGRATION_LIST: &[M<'static>] = &[
     ))
     .foreign_key_check(),
     M::up(include_str!("../../../migrations/0008_collect_sync.sql")).foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0009_remove_obsolete_missing_source_diagnostics.sql"
+    ))
+    .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0010_antigravity_activity_timestamps.sql"
+    ))
+    .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0011_opencode_usage_ledger.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -67,7 +79,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 19);
+        assert_eq!(table_count(test_database.database()), 21);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
         assert_integrity_ok(test_database.database());
@@ -90,7 +102,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 19);
+        assert_eq!(table_count(test_database.database()), 21);
     }
 
     #[test]
@@ -120,6 +132,161 @@ mod tests {
             .expect("count collect_sync_outbox");
         assert_eq!(collect_sync_state, 1);
         assert_eq!(collect_sync_outbox, 1);
+    }
+
+    #[test]
+    fn opencode_ledger_migration_creates_only_usage_metadata_columns() {
+        let mut test_database = TestDatabase::open();
+        test_database
+            .database_mut()
+            .migrate_to_latest()
+            .expect("migrate database");
+
+        let connection = &test_database.database().connection;
+        for table in ["opencode_session_checkpoint", "opencode_usage_ledger"] {
+            let exists: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_schema
+                     WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .expect("count OpenCode table");
+            assert_eq!(exists, 1);
+        }
+
+        let mut statement = connection
+            .prepare("SELECT name FROM pragma_table_info('opencode_usage_ledger')")
+            .expect("ledger columns");
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("query ledger columns")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect ledger columns");
+        for forbidden in [
+            "data",
+            "content",
+            "prompt",
+            "response",
+            "title",
+            "directory",
+            "project_path",
+        ] {
+            assert!(!columns.iter().any(|column| column == forbidden));
+        }
+    }
+
+    #[test]
+    fn missing_source_diagnostics_migration_removes_only_obsolete_optional_source_warnings() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 8)
+            .expect("apply prior migrations");
+
+        for (code, source) in [
+            ("cline.collection_failed", "cline"),
+            ("zcode.collection_failed", "zcode"),
+            ("grok.collection_failed", "grok-build"),
+            ("commandcode.collection_failed", "command-code"),
+            ("zed.collection_failed", "zed"),
+        ] {
+            insert_diagnostic_event(
+                &connection,
+                code,
+                &format!(r#"{{"failureCode":"collector.source_not_found","source":"{source}"}}"#),
+            );
+        }
+        insert_diagnostic_event(
+            &connection,
+            "cline.collection_failed",
+            r#"{"failureCode":"collector.source_invalid_location","source":"cline"}"#,
+        );
+        insert_diagnostic_event(
+            &connection,
+            "antigravity.collection_failed",
+            r#"{"failureCode":"collector.source_not_found","source":"antigravity"}"#,
+        );
+        insert_diagnostic_event(&connection, "zed.collection_failed", "malformed-json");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply cleanup migration");
+
+        let remaining_events: i64 = connection
+            .query_row("SELECT COUNT(*) FROM diagnostic_events", [], |row| {
+                row.get(0)
+            })
+            .expect("count remaining diagnostics");
+        let invalid_location_events: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM diagnostic_events
+                 WHERE CASE
+                    WHEN json_valid(context_json)
+                    THEN json_extract(context_json, '$.failureCode')
+                 END = 'collector.source_invalid_location'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count invalid location diagnostics");
+        let antigravity_events: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM diagnostic_events
+                 WHERE code = 'antigravity.collection_failed'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count antigravity diagnostics");
+        let malformed_context_events: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM diagnostic_events
+                 WHERE context_json = 'malformed-json'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count malformed-context diagnostics");
+
+        assert_eq!(remaining_events, 3);
+        assert_eq!(invalid_location_events, 1);
+        assert_eq!(antigravity_events, 1);
+        assert_eq!(malformed_context_events, 1);
+    }
+
+    #[test]
+    fn antigravity_timestamp_migration_preserves_rows_as_unclassified_legacy_data() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 9)
+            .expect("apply prior migrations");
+        connection
+            .execute(
+                "INSERT INTO antigravity_usage_cache (
+                    dedupe_key, variant, conversation_id, response_id,
+                    raw_model_id, model_label, input_tokens, output_tokens,
+                    thinking_output_tokens, response_output_tokens,
+                    cache_read_tokens, cache_write_tokens, observed_at_ms,
+                    collector_version, first_seen_at_ms, last_seen_at_ms
+                ) VALUES (
+                    'antigravity-cli:conversation:response', 'antigravity-cli',
+                    'conversation', 'response', 'gemini', 'Gemini', 10, 2,
+                    0, 2, 3, 0, 100, 'local-rpc', 200, 200
+                )",
+                [],
+            )
+            .expect("insert legacy cache row");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply timestamp migration");
+
+        let migrated: (Option<i64>, String, i64) = connection
+            .query_row(
+                "SELECT source_record_index, timestamp_origin, observed_at_ms
+                 FROM antigravity_usage_cache",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read migrated cache row");
+        assert_eq!(migrated, (None, "legacy_unknown".to_owned(), 100));
     }
 
     #[test]
@@ -471,6 +638,17 @@ mod tests {
             .migrate_to_latest()
             .expect("migrate database");
         database
+    }
+
+    fn insert_diagnostic_event(connection: &Connection, code: &str, context_json: &str) {
+        connection
+            .execute(
+                "INSERT INTO diagnostic_events (
+                    area, severity, code, summary, context_json, created_at_ms
+                ) VALUES ('collector', 'warning', ?1, 'Collector warning.', ?2, 100)",
+                params![code, context_json],
+            )
+            .expect("insert diagnostic event");
     }
 
     fn insert_source(connection: &Connection, id: i64, key: &str) {

@@ -9,6 +9,7 @@ mod diagnostics_store;
 mod error;
 mod grok_cache_store;
 mod migrations;
+mod opencode_usage_ledger_store;
 mod reconciliation;
 mod settings_store;
 #[cfg(test)]
@@ -25,6 +26,7 @@ pub(crate) use daily_usage_export_store::SqliteDailyUsageExportStore;
 pub(crate) use diagnostics_store::SqliteDiagnosticStore;
 pub use error::{PersistenceError, PersistenceErrorKind};
 pub(crate) use grok_cache_store::SqliteGrokUsageCacheStore;
+pub(crate) use opencode_usage_ledger_store::SqliteOpenCodeUsageLedgerStore;
 pub(crate) use reconciliation::SqliteReconciliationStore;
 pub(crate) use settings_store::SqliteSettingsStore;
 pub(crate) use tray_summary_store::SqliteTraySummaryStore;
