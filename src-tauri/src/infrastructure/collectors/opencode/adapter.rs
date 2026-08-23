@@ -39,6 +39,7 @@ const COLLECTOR_VERSION: &str = "local";
 const PROFILE_VERSION: u16 = 2;
 const SESSION_PAGE_SIZE: usize = 100;
 const MESSAGE_PAGE_SIZE: usize = 500;
+const LIVE_WRITE_STABILITY_AGE_MS: i64 = 5 * 60 * 1_000;
 const IDENTITY: CollectorIdentity = CollectorIdentity {
     key: "opencode",
     display_name: "OpenCode",
@@ -284,6 +285,17 @@ impl OpenCodeCollector {
                             .ledger
                             .read_checkpoint(&session.id)
                             .map_err(|_| internal(request))?;
+                        let stable_deferred_retry = checkpoint.as_ref().is_some_and(|checkpoint| {
+                            checkpoint.reconciliation_state
+                                == OpenCodeReconciliationState::DeferredLiveWrite
+                                && checkpoint_observation_matches_header(
+                                    checkpoint,
+                                    &session,
+                                    cumulative_cost_micros,
+                                )
+                                && observed_at_ms.saturating_sub(session.updated_at_ms)
+                                    >= LIVE_WRITE_STABILITY_AGE_MS
+                        });
                         if !matches!(
                             request.scope(),
                             crate::application::collection::CollectionScope::Full
@@ -305,19 +317,30 @@ impl OpenCodeCollector {
                                 counter_regressions: 0,
                             }));
                         } else {
-                            let (messages, deferred_live_rows, message_pages) = self
+                            let (messages, incomplete_live_rows, message_pages) = self
                                 .read_all_messages(&snapshot, &session.id, cancellation, request)?;
                             stats.message_pages = stats.message_pages.saturating_add(message_pages);
                             stats.messages_read = stats
                                 .messages_read
                                 .saturating_add(u64::try_from(messages.len()).unwrap_or(u64::MAX));
+                            let recovery_disposition =
+                                match (incomplete_live_rows > 0, stable_deferred_retry) {
+                                    (true, true) => OpenCodeRecoveryDisposition::StableIncomplete,
+                                    (true, false) => OpenCodeRecoveryDisposition::DeferredLiveWrite,
+                                    (false, _) => OpenCodeRecoveryDisposition::Ready,
+                                };
+                            let deferred_live_rows = u64::from(
+                                recovery_disposition
+                                    == OpenCodeRecoveryDisposition::DeferredLiveWrite,
+                            )
+                            .saturating_mul(incomplete_live_rows);
                             stats.deferred_live_rows =
                                 stats.deferred_live_rows.saturating_add(deferred_live_rows);
                             work.push(SessionWork::Reconcile(
                                 session_snapshot(
                                     session,
                                     messages,
-                                    deferred_live_rows > 0,
+                                    recovery_disposition,
                                     observed_at_ms,
                                 )
                                 .map_err(|()| incompatible(request))?,
@@ -479,7 +502,7 @@ impl CollectionStats {
 fn session_snapshot(
     header: OpenCodeSessionHeader,
     messages: Vec<OpenCodeMessageUsage>,
-    deferred_live_write: bool,
+    recovery_disposition: OpenCodeRecoveryDisposition,
     observed_at_ms: i64,
 ) -> Result<OpenCodeSessionLedgerSnapshot, ()> {
     let exact_usage = messages
@@ -493,11 +516,7 @@ fn session_snapshot(
         cumulative_tokens: token_vector(header.tokens),
         cumulative_cost_micros: source_cost_usd_to_micros(Some(header.cost_usd)).map_err(|_| ())?,
         exact_usage,
-        recovery_disposition: if deferred_live_write {
-            OpenCodeRecoveryDisposition::DeferredLiveWrite
-        } else {
-            OpenCodeRecoveryDisposition::Ready
-        },
+        recovery_disposition,
         observed_at_ms,
     })
 }
@@ -539,7 +558,15 @@ fn checkpoint_matches_header(
     cumulative_cost_micros: Option<u64>,
 ) -> bool {
     checkpoint.reconciliation_state != OpenCodeReconciliationState::DeferredLiveWrite
-        && checkpoint.source_updated_at_ms == header.updated_at_ms
+        && checkpoint_observation_matches_header(checkpoint, header, cumulative_cost_micros)
+}
+
+fn checkpoint_observation_matches_header(
+    checkpoint: &crate::application::ports::opencode_usage_ledger::OpenCodeSessionCheckpoint,
+    header: &OpenCodeSessionHeader,
+    cumulative_cost_micros: Option<u64>,
+) -> bool {
+    checkpoint.source_updated_at_ms == header.updated_at_ms
         && checkpoint.observed_source_tokens == token_vector(header.tokens)
         && checkpoint.observed_source_cost_micros == cumulative_cost_micros
 }
@@ -656,6 +683,152 @@ mod tests {
         assert!(!incompatible.issues[0]
             .message
             .contains(fixture.directory.path().to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    #[ignore = "set BURNLY_OPENCODE_EVIDENCE_LEDGER to run against local OpenCode data"]
+    fn runtime_evidence_collects_default_location_without_sensitive_output() {
+        let ledger_path = std::env::var_os("BURNLY_OPENCODE_EVIDENCE_LEDGER")
+            .map(PathBuf::from)
+            .expect("BURNLY_OPENCODE_EVIDENCE_LEDGER must name a disposable database");
+        let mut ledger_database = Database::open(&ledger_path).expect("open evidence ledger");
+        ledger_database
+            .migrate_to_latest()
+            .expect("migrate evidence ledger");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = OpenCodeCollector::from_default_location(Arc::new(
+            SqliteOpenCodeUsageLedgerStore::new(ledger_database),
+        ))
+        .with_diagnostic_recorder(diagnostics.clone());
+
+        let detection = collector
+            .detect(
+                detection_request(SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("default-location detection");
+        assert!(matches!(
+            detection.state,
+            DetectionState::Available | DetectionState::AvailableNoData
+        ));
+
+        let initial_daily = collector
+            .collect(
+                daily_request(
+                    "runtime-evidence-daily-initial",
+                    SourceKey::OpenCode,
+                    CollectionScope::Full,
+                    "Asia/Jakarta",
+                    Utc::now(),
+                ),
+                &NeverCancelled,
+            )
+            .expect("full daily collection");
+        let sessions = collector
+            .collect(
+                session_request("runtime-evidence-session", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("full session collection");
+        let daily = collector
+            .collect(
+                daily_request(
+                    "runtime-evidence-daily-stable",
+                    SourceKey::OpenCode,
+                    CollectionScope::Full,
+                    "Asia/Jakarta",
+                    Utc::now(),
+                ),
+                &NeverCancelled,
+            )
+            .expect("stable full daily collection");
+
+        assert!(matches!(
+            initial_daily.outcome(),
+            CollectionOutcome::Complete | CollectionOutcome::Partial
+        ));
+        eprintln!(
+            "opencode_runtime_probe_outcomes initial={:?}/{} sessions={:?}/{} stable={:?}/{} diagnostics={:?}",
+            initial_daily.outcome(),
+            initial_daily.rejection_count(),
+            sessions.outcome(),
+            sessions.rejection_count(),
+            daily.outcome(),
+            daily.rejection_count(),
+            diagnostics
+                .events()
+                .iter()
+                .map(|event| event.code.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(daily.outcome(), CollectionOutcome::Complete);
+        assert_eq!(sessions.outcome(), CollectionOutcome::Complete);
+        let daily_totals = aggregate_tokens(
+            daily
+                .daily_candidates()
+                .iter()
+                .map(|candidate| &candidate.tokens),
+        );
+        let session_totals = aggregate_tokens(
+            sessions
+                .session_candidates()
+                .iter()
+                .map(|candidate| &candidate.tokens),
+        );
+        assert_eq!(daily_totals, session_totals);
+        assert!(daily.daily_candidates().iter().all(|candidate| {
+            candidate
+                .model_breakdowns
+                .iter()
+                .map(|model| model.tokens.total_tokens())
+                .sum::<u64>()
+                == candidate.tokens.total_tokens()
+        }));
+        assert!(sessions.session_candidates().iter().all(|candidate| {
+            candidate
+                .model_breakdowns
+                .iter()
+                .map(|model| model.tokens.total_tokens())
+                .sum::<u64>()
+                == candidate.tokens.total_tokens()
+        }));
+
+        let jakarta_today = Utc::now()
+            .with_timezone(&chrono_tz::Asia::Jakarta)
+            .date_naive();
+        let today_totals = aggregate_tokens(
+            daily
+                .daily_candidates()
+                .iter()
+                .filter(|candidate| candidate.usage_date == jakarta_today)
+                .map(|candidate| &candidate.tokens),
+        );
+        let model_rows = daily
+            .daily_candidates()
+            .iter()
+            .map(|candidate| candidate.model_breakdowns.len())
+            .sum::<usize>();
+
+        println!(
+            "opencode_runtime_evidence=v1 detection=available initial_rejections={} days={} sessions={} model_rows={} input={} output={} cache_write={} cache_read={} reasoning={} total={} today={} today_input={} today_output={} today_cache_write={} today_cache_read={} today_reasoning={} today_total={}",
+            initial_daily.rejection_count(),
+            daily.daily_candidates().len(),
+            sessions.session_candidates().len(),
+            model_rows,
+            daily_totals.input,
+            daily_totals.output,
+            daily_totals.cache_write,
+            daily_totals.cache_read,
+            daily_totals.reasoning,
+            daily_totals.total,
+            jakarta_today,
+            today_totals.input,
+            today_totals.output,
+            today_totals.cache_write,
+            today_totals.cache_read,
+            today_totals.reasoning,
+            today_totals.total,
+        );
     }
 
     #[test]
@@ -909,6 +1082,94 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_stale_incomplete_rows_recover_only_after_a_deferred_observation() {
+        let stale = Fixture::new(false, true);
+        let connection = stale.source();
+        insert_v2_session(
+            &connection,
+            "session-stale-incomplete",
+            Counters::message(8),
+            0.5,
+            1_000,
+        );
+        insert_v2_message(
+            &connection,
+            "message-stale-incomplete",
+            "session-stale-incomplete",
+            8,
+            1_100,
+            false,
+        );
+        drop(connection);
+        let collector = stale.collector();
+
+        let first = collector.collect(
+            session_request("stale-first", SourceKey::OpenCode, Utc::now()),
+            &NeverCancelled,
+        );
+        assert_eq!(
+            first.expect_err("first observation stays deferred").code,
+            CollectorFailureCode::AllRecordsRejected
+        );
+        let recovered = collector
+            .collect(
+                session_request("stale-second", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("stable retry recovers cumulative usage");
+        assert_eq!(recovered.outcome(), CollectionOutcome::Complete);
+        assert_eq!(recovered.session_candidates()[0].tokens.total_tokens(), 22);
+        assert_eq!(
+            recovered.session_candidates()[0].provenance.data_quality,
+            crate::domain::usage::DataQuality::Partial
+        );
+        let repeated = collector
+            .collect(
+                session_request("stale-third", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("stable incomplete rows stay reconciled");
+        assert_eq!(repeated.outcome(), CollectionOutcome::Complete);
+        assert_eq!(
+            repeated.session_candidates()[0].tokens,
+            recovered.session_candidates()[0].tokens
+        );
+
+        let recent = Fixture::new(false, true);
+        let connection = recent.source();
+        let now_ms = Utc::now().timestamp_millis();
+        insert_v2_session(
+            &connection,
+            "session-recent-incomplete",
+            Counters::message(8),
+            0.5,
+            now_ms,
+        );
+        insert_v2_message(
+            &connection,
+            "message-recent-incomplete",
+            "session-recent-incomplete",
+            8,
+            now_ms,
+            false,
+        );
+        drop(connection);
+        let collector = recent.collector();
+        for collection_id in ["recent-first", "recent-second"] {
+            assert_eq!(
+                collector
+                    .collect(
+                        session_request(collection_id, SourceKey::OpenCode, Utc::now()),
+                        &NeverCancelled,
+                    )
+                    .expect_err("recent response remains deferred")
+                    .code,
+                CollectorFailureCode::AllRecordsRejected
+            );
+        }
+    }
+
+    #[test]
     fn cancellation_between_pages_fails_safely_and_retry_is_complete() {
         let fixture = Fixture::new(false, true);
         let connection = fixture.source();
@@ -1015,6 +1276,58 @@ mod tests {
         directory: TempDir,
         source_path: PathBuf,
         ledger_path: PathBuf,
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct AggregateTokens {
+        input: u64,
+        output: u64,
+        cache_write: u64,
+        cache_read: u64,
+        reasoning: u64,
+        total: u64,
+    }
+
+    fn aggregate_tokens<'a>(
+        tokens: impl IntoIterator<Item = &'a crate::domain::usage::TokenUsage>,
+    ) -> AggregateTokens {
+        tokens
+            .into_iter()
+            .fold(AggregateTokens::default(), |mut total, tokens| {
+                total.input = total
+                    .input
+                    .checked_add(tokens.input_tokens().expect("known input tokens"))
+                    .expect("input total");
+                total.output = total
+                    .output
+                    .checked_add(tokens.output_tokens().expect("known output tokens"))
+                    .expect("output total");
+                total.cache_write = total
+                    .cache_write
+                    .checked_add(
+                        tokens
+                            .cache_creation_tokens()
+                            .expect("known cache-write tokens"),
+                    )
+                    .expect("cache-write total");
+                total.cache_read = total
+                    .cache_read
+                    .checked_add(tokens.cache_read_tokens().expect("known cache-read tokens"))
+                    .expect("cache-read total");
+                total.reasoning = total
+                    .reasoning
+                    .checked_add(
+                        tokens
+                            .unclassified_tokens()
+                            .expect("known reasoning tokens"),
+                    )
+                    .expect("reasoning total");
+                total.total = total
+                    .total
+                    .checked_add(tokens.total_tokens())
+                    .expect("token total");
+                total
+            })
     }
 
     impl Fixture {

@@ -2,9 +2,12 @@
 
 ## Status
 
-Draft engineering proposal based on repository inspection, upstream OpenCode
-sources, and read-only inspection of locally installed OpenCode stable and
-OpenCode 2 preview artifacts on August 22, 2026.
+Implemented on August 22, 2026 through the
+[six-chunk execution roadmap](../../exec-plans/completed/2026-08-22_opencode-unified-00-roadmap.md).
+The design was based on repository inspection, upstream OpenCode sources, and
+read-only inspection of locally installed OpenCode stable and OpenCode 2
+preview artifacts. Sanitized live results are recorded in the
+[runtime evidence](../../runtime-evidence/2026-08-22-opencode-unified/README.md).
 
 This proposal defines how Burnly should support both generations as one OpenCode
 source. It is not an execution plan and does not approve implementation by

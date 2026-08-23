@@ -93,6 +93,13 @@ smoke checklist in `docs/engineering/desktop-runtime-evidence.md`. Record the
 command, platform, result, and any checklist limitation in the active execution
 plan.
 
+Native collectors that read evolving local application stores also require
+sanitized schema fixtures for each supported generation and combined-state
+precedence tests. Opt-in real-machine probes must be ignored by default, use
+read-only source access and disposable Burnly state, emit aggregates only, and
+state which live-write or compaction transitions were observed rather than
+inferring them from fixtures.
+
 ## Test Ownership And Location
 
 - TypeScript unit and component tests live beside production files as

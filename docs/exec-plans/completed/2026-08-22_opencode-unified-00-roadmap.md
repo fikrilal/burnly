@@ -40,7 +40,7 @@ and authoritative upgrade reconciliation.
 | 03. Mapping and cost                   | Complete | Produce canonical daily/session candidates with provider-qualified models, token semantics, partial recovery, and source-reported estimated cost       |
 | 04. Collector and runtime wiring       | Complete | Implement the native adapter, bounded collection, cancellation, diagnostics, bootstrap composition, routing, and atomic profile-2 descriptor ownership |
 | 05. Upgrade and ccusage retirement     | Complete | Prove full profile-2 reconciliation and sync behavior, then remove stale OpenCode-specific ccusage ownership                                           |
-| 06. Runtime evidence and documentation | Queued   | Prove all installation matrices, live WAL and compaction behavior, privacy, rollback, product docs, and full gates                                     |
+| 06. Runtime evidence and documentation | Complete | Prove all installation matrices, live WAL and compaction behavior, privacy, rollback, product docs, and full gates                                     |
 
 ## Cross-Chunk Invariants
 
@@ -84,12 +84,14 @@ and authoritative upgrade reconciliation.
   [`2026-08-22_opencode-unified-04-collector-runtime-wiring.md`](../completed/2026-08-22_opencode-unified-04-collector-runtime-wiring.md).
 - Chunk 05: complete; see
   [`2026-08-22_opencode-unified-05-upgrade-ccusage-retirement.md`](../completed/2026-08-22_opencode-unified-05-upgrade-ccusage-retirement.md).
-- Chunk 06: queued at contract level only.
+- Chunk 06: complete; see
+  [`2026-08-22_opencode-unified-06-runtime-evidence-documentation.md`](../completed/2026-08-22_opencode-unified-06-runtime-evidence-documentation.md).
 
 ## Verification Summary
 
-- Chunks 01-05 passed their focused tests and strict Rust Clippy. Chunk 01
+- Chunks 01-06 passed their focused tests and strict Rust Clippy. Chunk 01
   passed `pnpm verify:fast`; chunks 02-05 passed the full `pnpm verify` gate.
   Chunk 05 additionally proved profile-1 replacement and sync tombstone export
-  while retiring OpenCode from ccusage. The remaining chunk will record its own
-  outcomes.
+  while retiring OpenCode from ccusage. Chunk 06 passed live combined-schema,
+  WAL, independent-total, privacy, desktop-runtime, architecture, and full
+  repository verification and recorded the evidence under `docs/runtime-evidence/`.

@@ -50,20 +50,26 @@ impl OpenCodeUsageLedger for SqliteOpenCodeUsageLedgerStore {
         ensure_checkpoint_parent(&transaction, snapshot, previous_checkpoint.as_ref())?;
         let existing_records = select_records(&transaction, &snapshot.session_id)?;
         let existing_totals = totals(&existing_records)?;
+        let existing_cost_tolerance = cost_rounding_tolerance(&existing_records)?;
         let regressed = previous_checkpoint.as_ref().is_some_and(|checkpoint| {
             snapshot
                 .cumulative_tokens
                 .checked_sub(checkpoint.accepted_tokens)
                 .is_none()
-                || cost_is_lower(
+                || cost_is_lower_with_tolerance(
                     snapshot.cumulative_cost_micros,
                     checkpoint.accepted_cost_micros,
+                    existing_cost_tolerance,
                 )
         }) || snapshot
             .cumulative_tokens
             .checked_sub(existing_totals.tokens)
             .is_none()
-            || cost_is_lower(snapshot.cumulative_cost_micros, existing_totals.cost);
+            || cost_is_lower_with_tolerance(
+                snapshot.cumulative_cost_micros,
+                existing_totals.cost,
+                existing_cost_tolerance,
+            );
 
         let mut counters = ReconcileCounters::default();
         let (records, next_recovery_sequence) = if regressed {
@@ -244,7 +250,11 @@ fn rebuild_session(
     counters: &mut ReconcileCounters,
 ) -> Result<(Vec<OpenCodeLedgerRecord>, u64), OpenCodeUsageLedgerError> {
     let exact_totals = exact_totals(exact_usage)?;
-    ensure_explained_by_cumulative(snapshot, exact_totals)?;
+    ensure_explained_by_cumulative(
+        snapshot,
+        exact_totals,
+        exact_cost_rounding_tolerance(exact_usage)?,
+    )?;
     transaction
         .execute(
             "DELETE FROM opencode_usage_ledger WHERE session_id = ?1",
@@ -361,7 +371,11 @@ fn reconcile_existing(
         }
     }
 
-    ensure_explained_by_cumulative(snapshot, totals(&records)?)?;
+    ensure_explained_by_cumulative(
+        snapshot,
+        totals(&records)?,
+        cost_rounding_tolerance(&records)?,
+    )?;
     append_recovery_if_ready(
         transaction,
         snapshot,
@@ -437,7 +451,11 @@ fn append_recovery_if_ready(
         .cumulative_tokens
         .checked_sub(current.tokens)
         .ok_or(OpenCodeUsageLedgerError::IncompatibleSnapshot)?;
-    let remainder_cost = cost_remainder(snapshot.cumulative_cost_micros, current.cost)?;
+    let remainder_cost = cost_remainder(
+        snapshot.cumulative_cost_micros,
+        current.cost,
+        cost_rounding_tolerance(records)?,
+    )?;
     if remainder_tokens.is_zero() && remainder_cost.unwrap_or(0) == 0 {
         return Ok((std::mem::take(records), next_recovery_sequence));
     }
@@ -514,12 +532,17 @@ fn totals(records: &[OpenCodeLedgerRecord]) -> Result<LedgerTotals, OpenCodeUsag
 fn ensure_explained_by_cumulative(
     snapshot: &OpenCodeSessionLedgerSnapshot,
     actual: LedgerTotals,
+    cost_tolerance: u64,
 ) -> Result<(), OpenCodeUsageLedgerError> {
     if snapshot
         .cumulative_tokens
         .checked_sub(actual.tokens)
         .is_none()
-        || cost_is_lower(snapshot.cumulative_cost_micros, actual.cost)
+        || cost_is_lower_with_tolerance(
+            snapshot.cumulative_cost_micros,
+            actual.cost,
+            cost_tolerance,
+        )
     {
         Err(OpenCodeUsageLedgerError::IncompatibleSnapshot)
     } else {
@@ -527,28 +550,71 @@ fn ensure_explained_by_cumulative(
     }
 }
 
-fn cost_is_lower(current: Option<u64>, accepted: Option<u64>) -> bool {
-    matches!((current, accepted), (Some(current), Some(accepted)) if current < accepted)
+fn cost_is_lower_with_tolerance(
+    current: Option<u64>,
+    accepted: Option<u64>,
+    tolerance: u64,
+) -> bool {
+    matches!(
+        (current, accepted),
+        (Some(current), Some(accepted)) if current.saturating_add(tolerance) < accepted
+    )
 }
 
 fn cost_remainder(
     cumulative: Option<u64>,
     actual: Option<u64>,
+    tolerance: u64,
 ) -> Result<Option<u64>, OpenCodeUsageLedgerError> {
     match (cumulative, actual) {
-        (Some(cumulative), Some(actual)) => cumulative
-            .checked_sub(actual)
-            .map(Some)
-            .ok_or(OpenCodeUsageLedgerError::IncompatibleSnapshot),
+        (Some(cumulative), Some(actual)) if actual > cumulative => {
+            if actual - cumulative <= tolerance {
+                Ok(Some(0))
+            } else {
+                Err(OpenCodeUsageLedgerError::IncompatibleSnapshot)
+            }
+        }
+        (Some(cumulative), Some(actual)) => Ok(Some(cumulative - actual)),
         _ => Ok(None),
     }
+}
+
+fn cost_rounding_tolerance(
+    records: &[OpenCodeLedgerRecord],
+) -> Result<u64, OpenCodeUsageLedgerError> {
+    u64::try_from(
+        records
+            .iter()
+            .filter(|record| {
+                record.origin != OpenCodeLedgerOrigin::CumulativeRecovery
+                    && record.cost_micros.is_some()
+            })
+            .count(),
+    )
+    .map_err(|_| OpenCodeUsageLedgerError::IncompatibleSnapshot)
+}
+
+fn exact_cost_rounding_tolerance(
+    records: &[OpenCodeExactUsage],
+) -> Result<u64, OpenCodeUsageLedgerError> {
+    u64::try_from(
+        records
+            .iter()
+            .filter(|record| record.cost_micros.is_some())
+            .count(),
+    )
+    .map_err(|_| OpenCodeUsageLedgerError::IncompatibleSnapshot)
 }
 
 fn reconciliation_state(
     snapshot: &OpenCodeSessionLedgerSnapshot,
     records: &[OpenCodeLedgerRecord],
 ) -> OpenCodeReconciliationState {
-    if snapshot.recovery_disposition == OpenCodeRecoveryDisposition::DeferredLiveWrite {
+    if matches!(
+        snapshot.recovery_disposition,
+        OpenCodeRecoveryDisposition::DeferredLiveWrite
+            | OpenCodeRecoveryDisposition::StableIncomplete
+    ) {
         OpenCodeReconciliationState::DeferredLiveWrite
     } else if records
         .iter()
@@ -1126,7 +1192,7 @@ mod tests {
                 10,
                 vec![exact("message-durable", 4, OpenCodeExactOrigin::V2Message)],
                 200,
-                OpenCodeRecoveryDisposition::Ready,
+                OpenCodeRecoveryDisposition::StableIncomplete,
             ))
             .expect("stable retry");
         assert_eq!(stable.records.len(), 2);
@@ -1134,8 +1200,28 @@ mod tests {
         assert_eq!(stable.checkpoint.accepted_tokens, vector(10));
         assert_eq!(
             stable.checkpoint.reconciliation_state,
-            OpenCodeReconciliationState::Partial
+            OpenCodeReconciliationState::DeferredLiveWrite
         );
+
+        let repeated = store
+            .reconcile_session(&snapshot(
+                "session-live",
+                10,
+                vec![exact("message-durable", 4, OpenCodeExactOrigin::V2Message)],
+                300,
+                OpenCodeRecoveryDisposition::StableIncomplete,
+            ))
+            .expect("repeated stable retry");
+        assert_eq!(
+            repeated.checkpoint.accepted_tokens,
+            stable.checkpoint.accepted_tokens
+        );
+        assert_eq!(
+            repeated.checkpoint.accepted_cost_micros,
+            stable.checkpoint.accepted_cost_micros
+        );
+        assert_eq!(repeated.records.len(), stable.records.len());
+        assert_eq!(repeated.recovery_segments_created, 0);
     }
 
     #[test]
@@ -1307,6 +1393,47 @@ mod tests {
         assert_eq!(recovery.cost_micros, None);
         assert_eq!(result.checkpoint.accepted_cost_micros, None);
         assert_eq!(result.checkpoint.observed_source_cost_micros, Some(100));
+    }
+
+    #[test]
+    fn per_record_cost_rounding_tolerance_is_bounded_and_idempotent() {
+        let (_database, store) = migrated_store();
+        let mut first = exact("message-rounding-one", 1, OpenCodeExactOrigin::V2Message);
+        first.cost_micros = Some(51);
+        let mut second = exact("message-rounding-two", 1, OpenCodeExactOrigin::V2Message);
+        second.cost_micros = Some(51);
+        let mut rounded = snapshot(
+            "session-rounding",
+            2,
+            vec![first, second],
+            100,
+            OpenCodeRecoveryDisposition::Ready,
+        );
+        rounded.cumulative_cost_micros = Some(101);
+
+        let initial = store
+            .reconcile_session(&rounded)
+            .expect("one-micro aggregate rounding difference");
+        let repeated = store
+            .reconcile_session(&rounded)
+            .expect("idempotent rounded retry");
+
+        assert_eq!(initial.records, repeated.records);
+        assert_eq!(repeated.checkpoint.accepted_cost_micros, Some(102));
+        assert_eq!(repeated.checkpoint.observed_source_cost_micros, Some(101));
+        assert_eq!(
+            repeated.checkpoint.reconciliation_state,
+            OpenCodeReconciliationState::Complete
+        );
+
+        let mut incompatible = rounded;
+        incompatible.cumulative_cost_micros = Some(99);
+        assert_eq!(
+            store
+                .reconcile_session(&incompatible)
+                .expect_err("cost mismatch beyond per-record tolerance"),
+            OpenCodeUsageLedgerError::IncompatibleSnapshot
+        );
     }
 
     #[test]

@@ -415,6 +415,13 @@ infrastructure/
 │   │   ├── usage_cache.rs
 │   │   ├── usage_extractor.rs
 │   │   └── mod.rs
+│   ├── opencode/
+│   │   ├── adapter.rs
+│   │   ├── discovery.rs
+│   │   ├── mapper.rs
+│   │   ├── schema.rs
+│   │   ├── store.rs
+│   │   └── mod.rs
 │   └── ccusage/
 │       ├── capability_profiles/
 │       ├── envelopes/
@@ -428,6 +435,7 @@ infrastructure/
 │   ├── repositories/
 │   ├── connection.rs
 │   ├── migrations.rs
+│   ├── opencode_usage_ledger_store.rs
 │   └── mod.rs
 
 ├── filesystem/
@@ -470,6 +478,13 @@ reads, runtime metadata sync, cache supplement, and mapping isolated:
 
 Do not expose Antigravity ports, CSRF tokens, protobuf blobs, or conversation
 paths outside the collector adapter.
+
+`collectors/opencode/` owns default-location discovery, strict V1/V2 schema
+capabilities, bounded read-only SQLite queries, V2-precedence normalization,
+canonical mapping, and adapter orchestration. Its usage-only ledger port belongs
+to the application boundary; `database/opencode_usage_ledger_store.rs` owns the
+SQLite implementation and compaction/live-write checkpoints. OpenCode source
+JSON structs and identifiers must not cross into product-facing IPC.
 
 #### Database adapter layout
 

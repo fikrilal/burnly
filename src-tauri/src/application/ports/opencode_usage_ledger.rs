@@ -74,6 +74,7 @@ pub(crate) enum OpenCodeTimestampOrigin {
 pub(crate) enum OpenCodeRecoveryDisposition {
     Ready,
     DeferredLiveWrite,
+    StableIncomplete,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

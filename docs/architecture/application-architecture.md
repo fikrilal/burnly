@@ -18,7 +18,8 @@ Burnly will be a modular monolith running as a single Tauri desktop application.
 - Rust owns application behavior, domain rules, collection, persistence, background work, tray behavior, and operating-system integration.
 - SQLite is the durable local store and the read source for product views.
 - Collectors are replaceable infrastructure adapters behind Burnly-owned contracts.
-- `ccusage` runs as a short-lived bundled sidecar for each collection job.
+- Sources use either a short-lived bundled `ccusage` sidecar or a native
+  read-only collector behind the same application port.
 - Tauri commands provide typed request-response operations.
 - Tauri events provide invalidation and progress notifications, not authoritative data transfer.
 - One refresh coordinator owns collection concurrency and database reconciliation.
@@ -80,7 +81,7 @@ This architecture is also compatible with Clean Architecture terminology: depend
                                          │ adapters
 ┌────────────────────────────────────────▼─────────────────┐
 │ Infrastructure                                           │
-│ SQLite, ccusage sidecar, filesystem, OS notifications    │
+│ SQLite, native collectors, ccusage, OS integrations      │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -315,6 +316,28 @@ It is not responsible for:
 - Child processes are reaped before a job completes.
 
 One source-projection collection is one job. Jobs may run concurrently only within a small configured limit.
+
+### OpenCode native collector
+
+The OpenCode adapter implements the collector port for both legacy OpenCode and
+preview OpenCode 2 under the existing `opencode` source identity. It opens the
+standard SQLite database read-only, validates either or both schema
+generations, pages all sessions/messages, gives V2 precedence to overlapping
+stable IDs, and retains legacy-only history.
+
+A Burnly-owned usage ledger stores only usage identity, timing, provider/model,
+token, cost, provenance, and reconciliation checkpoints. Cumulative session
+counters recover detail removed by compaction without decreasing accepted
+usage. Incomplete live V2 rows are deferred; an unchanged old row may later be
+represented by partial unattributed cumulative usage. Source counter regression
+is explicit and diagnostic. Full profile-2 collection is exhaustive and
+cancellable, and a successful profile-1 baseline cannot suppress the required
+upgrade rebuild.
+
+The reader never selects prompt, response, reasoning text, tool content,
+session title, project path, or account/credential fields. OpenCode's stored
+positive cost is source-reported estimated cost; zero-cost model rows may use
+Burnly's normal embedded-pricing gap fill.
 
 ### Antigravity native collector
 
@@ -707,7 +730,10 @@ Use in-memory or deterministic fake ports to test use cases, refresh coordinatio
 
 ### Contract tests
 
-Run the `ccusage` adapter against sanitized fixtures from every supported source and pinned collector version.
+Run `ccusage` adapters against sanitized fixtures from every routed source and
+pinned collector version. Run native collectors against sanitized local-store
+fixtures covering every supported schema generation, combined precedence,
+pagination, live writes, compaction recovery, and privacy allowlists.
 
 Verify Rust-to-IPC serialization against frontend schemas or generated bindings.
 
