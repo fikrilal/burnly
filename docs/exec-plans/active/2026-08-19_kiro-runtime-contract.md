@@ -7,8 +7,8 @@ capture before implementing the companion launcher and collector.
 
 ## Acceptance Criteria
 
-- Exercise Kiro CLI v2 non-interactive, v2 interactive TUI, and v3 against an
-  isolated loopback OTLP receiver.
+- Exercise Kiro CLI v1, v2 non-interactive, v2 interactive TUI, and v3 against
+  an isolated loopback OTLP receiver.
 - Exercise v3 with both automatic and explicit model selection.
 - Identify the exact transport, metric names, temporality, token values, model,
   session, request, and deduplication fields.
@@ -43,6 +43,7 @@ capture before implementing the companion launcher and collector.
 
 - [x] Capture a v2 non-interactive model turn.
 - [x] Capture a v2 interactive TUI model turn and wait for the exporter interval.
+- [x] Capture a v1 non-interactive model turn.
 - [x] Capture a v3 automatic-model turn.
 - [x] Capture a v3 explicit-model turn.
 - [x] Inspect Kiro's installed token extraction and telemetry emission paths.
@@ -81,6 +82,7 @@ capture before implementing the companion launcher and collector.
 - v2 non-interactive model turn — passed; normal response and exit code `0`.
 - v2 interactive TUI model turn — passed; normal response, terminal exit, and
   OTLP exporter flush after approximately 60 seconds.
+- v1 non-interactive model turn — passed; normal response and exit code `0`.
 - v3 automatic-model turn — passed; normal response and exit code `0`.
 - v3 explicit `claude-haiku-4.5` turn — passed; normal response and exit code
   `0`.
@@ -92,15 +94,16 @@ capture before implementing the companion launcher and collector.
 
 Observed transports:
 
-- v2 CLI and TUI metrics: `POST /v1/metrics`,
+- v1 and v2 CLI and TUI metrics: `POST /v1/metrics`,
   `application/x-protobuf`, uncompressed.
 - v3 KAS metrics: `POST /v1/metrics`, both `application/json` and
   `application/x-protobuf`, uncompressed.
 - v3 KAS traces: `POST /v1/traces`, `application/json`.
 
-Observed model-related metrics included v2 model invocation/duration fields and
-v3 `QApi.inputSize`, `QApi.outputSize`, duration, event, tool-call, and
-time-to-first-token fields. None represented token consumption.
+Observed model-related metrics included v1/v2 model invocation/duration fields
+and v3 `QApi.inputSize`, `QApi.outputSize`, duration, event, tool-call, and
+time-to-first-token fields. None represented token consumption. V1 exported a
+credit metric but no token metric; credits remain explicitly out of scope.
 
 Installed Kiro code contains dormant or conditional paths for the desired
 fields. The TUI function that reports `kiro_cli_tokens_consumed` skips absent,
