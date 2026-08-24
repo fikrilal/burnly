@@ -10,11 +10,17 @@ design. It is not an execution plan and does not approve implementation by
 itself. Implementation is blocked on capturing and sanitizing representative
 OTLP metric fixtures from the supported Kiro engines.
 
+The August 19, 2026 runtime spike failed that gate for Kiro CLI 2.18.1. Real v2
+and v3 turns reached an isolated OTLP receiver, but neither engine exported
+token-consumption values. The implementation described below therefore remains
+conditional and must not be enabled for this Kiro version.
+
 ## Recommendation
 
-Add Kiro CLI as an experimental native source after a runtime contract spike.
-Exact token usage should be captured while Kiro runs, using an explicitly
-invoked companion launcher named `burnly-kiro`.
+Add Kiro CLI as an experimental native source only after a future runtime
+contract spike observes exact token values. If that gate passes, capture usage
+while Kiro runs using an explicitly invoked companion launcher named
+`burnly-kiro`.
 
 The design has four parts:
 
@@ -79,6 +85,12 @@ tokens. Available telemetry baggage includes identifiers such as
 `conversationId`, `requestId`, `ModelIdentifier`, and turn identifiers. The v2
 binary also contains the metric name `kiro_cli_tokens_consumed`, a `token_type`
 dimension, and matching token telemetry fields.
+
+Those installed-code paths are conditional, not proof that the service supplies
+the data. Live testing of v2 non-interactive, v2 interactive TUI, v3 automatic
+model selection, and v3 explicit model selection exported model and request
+metrics but no token-consumption metric. In particular, v3's `QApi.inputSize`
+and `QApi.outputSize` are payload character sizes, not tokens.
 
 The exact counters are available inside Kiro before durable local session
 state is finalized. They are not reliably preserved afterward:
