@@ -1,5 +1,12 @@
 # 2026-08-19 Kiro Runtime Contract
 
+## Status
+
+Blocked on an upstream Kiro contract change. Three consecutive implementation
+passes found no exact token source in the latest stable Kiro CLI. Resume this
+plan only after Kiro exposes input, output, cache-read, and cache-write counts
+through a supported live or durable interface.
+
 ## Objective
 
 Prove the live Kiro CLI telemetry contract required for exact model and token
