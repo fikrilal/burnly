@@ -47,6 +47,7 @@ capture before implementing the companion launcher and collector.
 - [x] Capture a v3 automatic-model turn.
 - [x] Capture a v3 explicit-model turn.
 - [x] Inspect Kiro's installed token extraction and telemetry emission paths.
+- [x] Verify the latest stable Kiro CLI release and public support status.
 - [ ] Observe exact input, output, cache-read, and cache-write values in a live
       supported transport.
 - [ ] Define an accepted profile fixture and stable event identity.
@@ -79,6 +80,8 @@ capture before implementing the companion launcher and collector.
 ## Verification
 
 - `kiro-cli --version` — passed; `kiro-cli 2.18.1`.
+- `kiro-cli debug get-index stable` — passed; `2.18.1` is the latest stable
+  release in Kiro's authoritative update index.
 - v2 non-interactive model turn — passed; normal response and exit code `0`.
 - v2 interactive TUI model turn — passed; normal response, terminal exit, and
   OTLP exporter flush after approximately 60 seconds.
@@ -110,6 +113,14 @@ fields. The TUI function that reports `kiro_cli_tokens_consumed` skips absent,
 non-finite, zero, and negative values. The live turns never reached that metric.
 KAS similarly reports token histograms only when a model response contains a
 token metadata event; none of the live responses did.
+
+Kiro's public issue tracker independently documents the missing integration
+surface. [`kirodotdev/Kiro#9992`](https://github.com/kirodotdev/Kiro/issues/9992)
+reports that Kiro CLI 2.10 and later expose only credit metering over ACP and do
+not send input, output, cache-read, or cache-write token counts. The issue
+remains open as a feature request. Related issue
+[`kirodotdev/Kiro#9906`](https://github.com/kirodotdev/Kiro/issues/9906) states
+that the CLI exposes context-window percentage rather than actual token counts.
 
 Raw captures remain outside the repository in a temporary directory and must be
 deleted after the investigation is complete.
