@@ -327,7 +327,7 @@ mod tests {
     fn builds_bootstrap_from_persisted_storage_and_explicit_unimplemented_states() {
         let service = BootstrapService::new(
             "0.1.0",
-            1,
+            2,
             FixedStore {
                 storage: BootstrapStorage {
                     launch_at_login: false,
@@ -342,7 +342,7 @@ mod tests {
         let bootstrap = service.bootstrap().expect("bootstrap state");
 
         assert_eq!(bootstrap.app_version, "0.1.0");
-        assert_eq!(bootstrap.contract_version, 1);
+        assert_eq!(bootstrap.contract_version, 2);
         assert_eq!(bootstrap.database.status, Readiness::Ready);
         assert_eq!(bootstrap.database.schema_version, 2);
         assert!(!bootstrap.settings.settings().launch_at_login());

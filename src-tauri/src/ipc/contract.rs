@@ -217,8 +217,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_uses_contract_version_one() {
-        assert_eq!(contract_version(), 1);
+    fn registry_uses_contract_version_two() {
+        assert_eq!(contract_version(), 2);
     }
 
     #[test]
