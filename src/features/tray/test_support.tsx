@@ -20,7 +20,7 @@ import { createTestQueryWrapper } from "../../test/query";
 
 export const responseMeta = {
   requestId: "1",
-  contractVersion: 1,
+  contractVersion: 2,
   generatedAt: "2026-06-25T00:00:00Z",
 } as const;
 
@@ -60,6 +60,8 @@ export const summary: TraySummaryResponse = {
   asOf: "2026-06-25T12:00:00Z",
   lastSuccessfulRefreshAt: "2026-06-25T11:55:00Z",
   dataStatus: "current",
+  dataQuality: "complete",
+  latestRefreshStatus: "succeeded",
 };
 
 export const capabilities: AppCapabilitiesResponse = {
@@ -113,7 +115,7 @@ export function renderTrayPanel(
     reportingTimezone: string;
   }> = {},
 ) {
-  render(
+  return render(
     <TrayPanel
       reportingTimezone={overrides.reportingTimezone ?? "Asia/Jakarta"}
       appVersion={overrides.appVersion ?? "0.1.0"}

@@ -1,8 +1,10 @@
 import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TrayPanel } from "./TrayPanel";
 import { getTraySummary } from "../../ipc/client";
 import {
+  capabilities,
   longModelList,
   renderTrayPanel,
   resetTrayPanelMocks,
@@ -85,5 +87,110 @@ describe("TrayPanel overview", () => {
 
     expect(await screen.findByText("Refresh failed")).toBeInTheDocument();
     expect(screen.getByText("summary offline")).toBeInTheDocument();
+  });
+
+  it("reports estimated usage without claiming a source failed", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(
+      traySummaryResult({ ...summary, dataQuality: "partial" }),
+    );
+
+    renderTrayPanel();
+
+    expect(
+      await screen.findByText("Some usage is estimated"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Some sources failed")).not.toBeInTheDocument();
+    expect(screen.getByText("42,180")).toBeInTheDocument();
+  });
+
+  it("reports a partial refresh as failed sources", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(
+      traySummaryResult({ ...summary, latestRefreshStatus: "partial" }),
+    );
+
+    renderTrayPanel();
+
+    expect(await screen.findByText("Some sources failed")).toBeInTheDocument();
+    expect(screen.getByText("42,180")).toBeInTheDocument();
+  });
+
+  it("gives a partial refresh precedence over estimated usage", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(
+      traySummaryResult({
+        ...summary,
+        dataQuality: "partial",
+        latestRefreshStatus: "partial",
+      }),
+    );
+
+    renderTrayPanel();
+
+    expect(await screen.findByText("Some sources failed")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Some usage is estimated"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reports a failed latest refresh while keeping metrics visible", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(
+      traySummaryResult({ ...summary, latestRefreshStatus: "failed" }),
+    );
+
+    renderTrayPanel();
+
+    expect(await screen.findByText("Refresh failed")).toBeInTheDocument();
+    expect(screen.getByText("42,180")).toBeInTheDocument();
+  });
+
+  it("reports a cancelled latest refresh as failed", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(
+      traySummaryResult({ ...summary, latestRefreshStatus: "cancelled" }),
+    );
+
+    renderTrayPanel();
+
+    expect(await screen.findByText("Refresh failed")).toBeInTheDocument();
+  });
+
+  it("shows failed-refresh copy while content stays empty", async () => {
+    vi.mocked(getTraySummary).mockResolvedValue(
+      traySummaryResult({
+        ...summary,
+        today: { ...summary.today, totalTokens: "0" },
+        models: [],
+        dataStatus: "empty",
+        latestRefreshStatus: "failed",
+      }),
+    );
+
+    renderTrayPanel();
+
+    expect(await screen.findByText("Refresh failed")).toBeInTheDocument();
+    expect(screen.getByText("No usage collected today")).toBeInTheDocument();
+  });
+
+  it("keeps the last summary visible while an active refresh runs", async () => {
+    vi.mocked(getTraySummary)
+      .mockResolvedValueOnce(traySummaryResult())
+      .mockImplementation(
+        () =>
+          new Promise(() => {
+            /* stays active */
+          }),
+      );
+
+    const { rerender } = renderTrayPanel();
+    expect(await screen.findByText("42,180")).toBeInTheDocument();
+
+    rerender(
+      <TrayPanel
+        reportingTimezone="Europe/Berlin"
+        appVersion="0.1.0"
+        capabilities={capabilities}
+      />,
+    );
+
+    expect(await screen.findByText("Refreshing")).toBeInTheDocument();
+    expect(screen.getByText("42,180")).toBeInTheDocument();
   });
 });

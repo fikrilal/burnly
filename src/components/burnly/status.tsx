@@ -6,6 +6,7 @@ import {
   Clock,
   ExternalLink,
   Inbox,
+  Info,
   RefreshCw,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -16,6 +17,7 @@ import { cn } from "@/lib/cn";
 export type FreshnessState =
   | "current"
   | "stale"
+  | "estimated"
   | "partial"
   | "refreshing"
   | "failed"
@@ -24,6 +26,7 @@ export type FreshnessState =
 const FRESHNESS: Record<FreshnessState, { label: string; Icon: LucideIcon }> = {
   current: { label: "Current", Icon: Check },
   stale: { label: "Stale", Icon: Clock },
+  estimated: { label: "Some usage is estimated", Icon: Info },
   partial: { label: "Some sources failed", Icon: AlertTriangle },
   refreshing: { label: "Refreshing", Icon: RefreshCw },
   failed: { label: "Refresh failed", Icon: AlertCircle },

@@ -15,14 +15,26 @@ export function relativeUpdated(iso: string | null): string {
   return `Updated ${days}d ago`;
 }
 
-export function freshnessState(
-  dataStatus: TraySummaryResponse["dataStatus"],
-  isRefreshing: boolean,
-  isError: boolean,
-): FreshnessState {
-  if (isError) return "failed";
-  if (isRefreshing) return "refreshing";
-  return dataStatus;
+export interface TrayHeaderStatusInput {
+  dataStatus: TraySummaryResponse["dataStatus"];
+  dataQuality: TraySummaryResponse["dataQuality"];
+  latestRefreshStatus: TraySummaryResponse["latestRefreshStatus"];
+  isRefreshing: boolean;
+  isError: boolean;
+}
+
+export function trayHeaderStatus(input: TrayHeaderStatusInput): FreshnessState {
+  if (input.isError) return "failed";
+  if (input.isRefreshing) return "refreshing";
+  if (
+    input.latestRefreshStatus === "failed" ||
+    input.latestRefreshStatus === "cancelled"
+  ) {
+    return "failed";
+  }
+  if (input.latestRefreshStatus === "partial") return "partial";
+  if (input.dataQuality === "partial") return "estimated";
+  return input.dataStatus;
 }
 
 export function toModelUsage(

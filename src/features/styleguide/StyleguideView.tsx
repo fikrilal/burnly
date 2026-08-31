@@ -277,6 +277,7 @@ function StatesSample() {
         <div className="flex flex-wrap items-center gap-2">
           <FreshnessStatus state="current" />
           <FreshnessStatus state="stale" />
+          <FreshnessStatus state="estimated" />
           <FreshnessStatus state="partial" />
           <FreshnessStatus state="refreshing" />
           <FreshnessStatus state="failed" />
