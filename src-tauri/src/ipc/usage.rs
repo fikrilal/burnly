@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::application::usage::{
-    OverviewDataStatus, TraySummaryModelRow, TraySummaryPeriodMetric, TraySummaryQuery,
-    TraySummaryQueryError, TraySummaryReadModel, TraySummaryTrend, TraySummaryTrendDirection,
+    OverviewDataStatus, PersistedRefreshStatus, TraySummaryDataQuality, TraySummaryModelRow,
+    TraySummaryPeriodMetric, TraySummaryQuery, TraySummaryQueryError, TraySummaryReadModel,
+    TraySummaryTrend, TraySummaryTrendDirection,
 };
 
 use super::response::{ErrorCategory, FieldError, IpcError, IpcResponse};
@@ -25,6 +26,8 @@ pub(super) struct TraySummaryResponse {
     as_of: String,
     last_successful_refresh_at: Option<String>,
     data_status: &'static str,
+    data_quality: &'static str,
+    latest_refresh_status: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -131,6 +134,8 @@ impl TryFrom<TraySummaryReadModel> for TraySummaryResponse {
                 .map(to_rfc3339)
                 .transpose()?,
             data_status: data_status(value.data_status),
+            data_quality: data_quality(value.data_quality),
+            latest_refresh_status: latest_refresh_status(value.latest_refresh_status),
         })
     }
 }
@@ -177,9 +182,24 @@ const fn data_status(value: OverviewDataStatus) -> &'static str {
     match value {
         OverviewDataStatus::Current => "current",
         OverviewDataStatus::Stale => "stale",
-        OverviewDataStatus::Partial => "partial",
-        OverviewDataStatus::Failed => "failed",
         OverviewDataStatus::Empty => "empty",
+    }
+}
+
+const fn data_quality(value: TraySummaryDataQuality) -> &'static str {
+    match value {
+        TraySummaryDataQuality::Complete => "complete",
+        TraySummaryDataQuality::Partial => "partial",
+    }
+}
+
+const fn latest_refresh_status(value: Option<PersistedRefreshStatus>) -> Option<&'static str> {
+    match value {
+        Some(PersistedRefreshStatus::Succeeded) => Some("succeeded"),
+        Some(PersistedRefreshStatus::Partial) => Some("partial"),
+        Some(PersistedRefreshStatus::Failed) => Some("failed"),
+        Some(PersistedRefreshStatus::Cancelled) => Some("cancelled"),
+        None => None,
     }
 }
 

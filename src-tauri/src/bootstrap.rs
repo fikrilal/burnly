@@ -896,10 +896,57 @@ mod tests {
 
         assert_eq!(summary["ok"], true);
         assert_eq!(summary["data"]["dataStatus"], "empty");
+        assert_eq!(summary["data"]["dataQuality"], "complete");
+        assert_eq!(summary["data"]["latestRefreshStatus"], "succeeded");
         assert!(summary["data"]["asOf"]
             .as_str()
             .expect("snapshot timestamp")
             .ends_with('Z'));
+
+        {
+            let connection = Connection::open(&database_path).expect("reopen persisted database");
+            let (source_id, import_id): (i64, i64) = connection
+                .query_row(
+                    "SELECT MIN(s.id), MIN(i.id) FROM sources s, import_runs i",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .expect("seed source and import ids");
+            let today = chrono::Utc::now().date_naive().to_string();
+            connection
+                .execute(
+                    "INSERT INTO daily_usage (
+                        source_id, source_key, identity_version, usage_date,
+                        aggregation_timezone, total_tokens, cost_kind, cost_status,
+                        data_quality, record_state, absence_count, first_seen_at_ms,
+                        last_seen_at_ms, removed_at_ms, latest_import_id
+                    ) VALUES (?1, 'antigravity', 1, ?2, 'UTC', 427001,
+                        'collector_calculated', 'unavailable', 'partial', 'active',
+                        0, 100, 200, NULL, ?3)",
+                    rusqlite::params![source_id, today, import_id],
+                )
+                .expect("seed partial daily usage");
+        }
+
+        let summary = tauri::test::get_ipc_response(
+            &webview,
+            request_with_body(
+                "usage_get_tray_summary",
+                json!({
+                    "request": {
+                        "reportingTimezone": "UTC"
+                    }
+                }),
+            ),
+        )
+        .expect("invoke usage tray summary after partial seed")
+        .deserialize::<Value>()
+        .expect("deserialize usage tray summary after partial seed");
+
+        assert_eq!(summary["ok"], true);
+        assert_eq!(summary["data"]["dataStatus"], "current");
+        assert_eq!(summary["data"]["dataQuality"], "partial");
+        assert_eq!(summary["data"]["latestRefreshStatus"], "succeeded");
     }
 
     #[cfg(unix)]

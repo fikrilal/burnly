@@ -3,8 +3,8 @@
 mod tray_summary;
 
 pub(crate) use tray_summary::{
-    OverviewDataStatus, PersistedRefreshStatus, TraySummaryModelRow, TraySummaryPeriodMetric,
-    TraySummaryQuery, TraySummaryQueryError, TraySummaryReadModel, TraySummaryScope,
-    TraySummaryStoreModelUsage, TraySummaryStoreResult, TraySummaryTrend,
+    OverviewDataStatus, PersistedRefreshStatus, TraySummaryDataQuality, TraySummaryModelRow,
+    TraySummaryPeriodMetric, TraySummaryQuery, TraySummaryQueryError, TraySummaryReadModel,
+    TraySummaryScope, TraySummaryStoreModelUsage, TraySummaryStoreResult, TraySummaryTrend,
     TraySummaryTrendDirection,
 };
