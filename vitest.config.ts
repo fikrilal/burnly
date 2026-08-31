@@ -15,5 +15,8 @@ export default defineConfig({
     globals: false,
     setupFiles: ["src/test/setup.ts"],
     exclude: ["node_modules", "dist", "tests/e2e/**"],
+    // React 19 exports `act` only from its development build; keep component
+    // tests on the development export condition instead of production.
+    env: { NODE_ENV: "development" },
   },
 });
