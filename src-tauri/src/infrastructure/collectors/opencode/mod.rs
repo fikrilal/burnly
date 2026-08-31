@@ -34,13 +34,16 @@ pub(crate) use mapper::{
     unused_imports,
     reason = "chunk 1 exposes the reader API for the adapter introduced in a later chunk"
 )]
-pub(crate) use schema::{OpenCodeGeneration, OpenCodeSchemaCapabilities, OpenCodeSchemaError};
+pub(crate) use schema::{
+    OpenCodeGeneration, OpenCodeGenerationState, OpenCodeSchemaError, OpenCodeSchemaInspection,
+    OpenCodeSchemaReason,
+};
 #[allow(
     unused_imports,
     reason = "chunk 1 exposes the reader API for the adapter introduced in a later chunk"
 )]
 pub(crate) use store::{
-    OpenCodeMessagePage, OpenCodeMessageUsage, OpenCodePageSize, OpenCodePageSizeError,
-    OpenCodeReadSnapshot, OpenCodeSessionHeader, OpenCodeStore, OpenCodeStoreError,
-    OpenCodeTokenCounters,
+    open_failure_code, OpenCodeMessagePage, OpenCodeMessageUsage, OpenCodePageSize,
+    OpenCodePageSizeError, OpenCodeReadSnapshot, OpenCodeSessionHeader, OpenCodeStore,
+    OpenCodeStoreError, OpenCodeTokenCounters,
 };
