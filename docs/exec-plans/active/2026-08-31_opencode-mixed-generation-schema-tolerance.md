@@ -254,6 +254,18 @@ pnpm verify:runtime
    `Incomplete(MissingRequiredColumn)` (selectable generation still works);
    only actual SQLite execution errors are fatal `QueryFailed`. Missing column
    is fatal only when no complete generation exists (`IncompatibleSchema`).
+6. **Redundancy proof not held across collection (medium, third review)** — the
+   proof snapshot was dropped before collection's per-page snapshots, so a row
+   added to the incomplete detail table mid-collection could be ignored with a
+   Complete result. The adapter now re-runs `residual_is_redundant` after all
+   collection reads and before building the result, so the proof must hold at
+   the end of collection. A store regression proves a fresh unique residual row
+   added after an earlier proof is detected by the next check.
+7. **Query failure downgraded by missing-column arm (medium, third review)** —
+   the tuple match let a `QueryFailed` on one table be swallowed when the other
+   table reported a missing column. Extracted `combine_column_results` so a
+   genuine `QueryFailed` on either table is always fatal and wins over a
+   structural `MissingColumn`, with direct unit coverage of every combination.
 
 ## Rollback And Stop Conditions
 
