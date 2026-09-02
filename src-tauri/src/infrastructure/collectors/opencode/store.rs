@@ -194,6 +194,20 @@ pub(crate) struct OpenCodeReadSnapshot<'connection> {
 }
 
 impl OpenCodeReadSnapshot<'_> {
+    /// Proves every row of the ignored generation's detail table is
+    /// redundant against the selected generation's detail table by stable
+    /// message ID (the cross-generation deduplication key). Returns true
+    /// when the residue is NOT fully redundant (ignoring would drop usage).
+    pub(crate) fn redundancy_exceeded(&self) -> Result<bool, OpenCodeStoreError> {
+        let (ignored, selected) = match (self.inspection.has_v1(), self.inspection.has_v2()) {
+            (true, false) => ("session_message", "message"),
+            (false, true) => ("message", "session_message"),
+            _ => return Ok(false),
+        };
+        super::schema::redundancy_exceeded(&self.transaction, ignored, selected)
+            .map_err(OpenCodeStoreError::Schema)
+    }
+
     pub(crate) fn read_sessions_page(
         &self,
         after_id: Option<&str>,

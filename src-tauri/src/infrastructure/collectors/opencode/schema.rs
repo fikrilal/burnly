@@ -30,8 +30,6 @@ pub(crate) enum OpenCodeSchemaReason {
 pub(crate) struct OpenCodeSchemaInspection {
     v1: OpenCodeGenerationState,
     v2: OpenCodeGenerationState,
-    v1_message_count: i64,
-    v2_message_count: i64,
 }
 
 impl OpenCodeSchemaInspection {
@@ -66,14 +64,6 @@ impl OpenCodeSchemaInspection {
             None => None,
         }
     }
-
-    pub(crate) const fn v1_message_count(self) -> i64 {
-        self.v1_message_count
-    }
-
-    pub(crate) const fn v2_message_count(self) -> i64 {
-        self.v2_message_count
-    }
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -84,15 +74,8 @@ pub(crate) enum OpenCodeSchemaError {
     IncompatibleSchema,
     #[error("OpenCode database schema could not be inspected")]
     QueryFailed,
-}
-
-impl OpenCodeSchemaError {
-    pub(crate) const fn capabilities_available(&self) -> Option<OpenCodeSchemaInspection> {
-        match self {
-            OpenCodeSchemaError::Unsupported | OpenCodeSchemaError::IncompatibleSchema => None,
-            OpenCodeSchemaError::QueryFailed => None,
-        }
-    }
+    #[error("OpenCode usage table is missing a required column")]
+    MissingColumn,
 }
 
 const V1_SESSION_COLUMNS: &[&str] = &[
@@ -157,34 +140,11 @@ pub(crate) fn inspect_schema(
         return Err(OpenCodeSchemaError::IncompatibleSchema);
     }
 
-    let v1_message_count = count_if_present(connection, &tables, "message")?;
-    let v2_message_count = count_if_present(connection, &tables, "session_message")?;
-
-    Ok(OpenCodeSchemaInspection {
-        v1,
-        v2,
-        v1_message_count,
-        v2_message_count,
-    })
+    Ok(OpenCodeSchemaInspection { v1, v2 })
 }
 
 const fn has_complete(state: OpenCodeGenerationState) -> bool {
     matches!(state, OpenCodeGenerationState::Complete)
-}
-
-fn count_if_present(
-    connection: &Connection,
-    tables: &HashSet<String>,
-    table: &'static str,
-) -> Result<i64, OpenCodeSchemaError> {
-    if tables.contains(table) {
-        let sql = format!("SELECT COUNT(*) FROM {table}");
-        connection
-            .query_row(&sql, [], |row| row.get(0))
-            .map_err(|_| OpenCodeSchemaError::QueryFailed)
-    } else {
-        Ok(0)
-    }
 }
 
 fn inspect_generation(
@@ -200,9 +160,19 @@ fn inspect_generation(
     match (has_session, has_message) {
         (false, false) => Ok(OpenCodeGenerationState::Absent),
         (true, true) => {
-            verify_columns(connection, session_table, session_columns)?;
-            verify_columns(connection, message_table, message_columns)?;
-            Ok(OpenCodeGenerationState::Complete)
+            match (
+                verify_columns(connection, session_table, session_columns),
+                verify_columns(connection, message_table, message_columns),
+            ) {
+                (Ok(()), Ok(())) => Ok(OpenCodeGenerationState::Complete),
+                (Err(OpenCodeSchemaError::MissingColumn), _)
+                | (_, Err(OpenCodeSchemaError::MissingColumn)) => {
+                    Ok(OpenCodeGenerationState::Incomplete(
+                        OpenCodeSchemaReason::MissingRequiredColumn,
+                    ))
+                }
+                (Err(error), _) | (_, Err(error)) => Err(error),
+            }
         }
         (false, true) => Ok(OpenCodeGenerationState::Incomplete(
             OpenCodeSchemaReason::MissingSessionTable,
@@ -225,6 +195,33 @@ fn table_names(connection: &Connection) -> Result<HashSet<String>, OpenCodeSchem
     Ok(tables)
 }
 
+/// Proves every detail row of the ignored generation is redundant: its
+/// stable message IDs must all exist in the selected generation's detail
+/// table. The stable message ID is the cross-generation deduplication key
+/// (V2 wins on overlap), so an ID present in the selected table represents
+/// the same usage. Returns true when any ignored row has no matching
+/// selected row, which means ignoring would silently drop usage.
+pub(crate) fn redundancy_exceeded(
+    connection: &Connection,
+    ignored_message_table: &'static str,
+    selected_message_table: &'static str,
+) -> Result<bool, OpenCodeSchemaError> {
+    let sql = format!(
+        "SELECT EXISTS(
+            SELECT 1 FROM {ignored_message_table} i
+            WHERE NOT EXISTS (
+                SELECT 1 FROM {selected_message_table} s WHERE s.id = i.id
+            )
+        )"
+    );
+    connection
+        .query_row(&sql, [], |row| row.get(0))
+        .map_err(|_| OpenCodeSchemaError::QueryFailed)
+}
+
+/// Verifies required columns. A SQLite execution error is fatal
+/// (`QueryFailed`); a successfully executed PRAGMA that reveals a missing
+/// column is structural incompleteness (`MissingRequiredColumn`).
 fn verify_columns(
     connection: &Connection,
     table: &'static str,
@@ -242,7 +239,7 @@ fn verify_columns(
 
     for column in required {
         if !columns.contains(*column) {
-            return Err(OpenCodeSchemaError::QueryFailed);
+            return Err(OpenCodeSchemaError::MissingColumn);
         }
     }
     Ok(())
@@ -378,8 +375,6 @@ mod tests {
             inspection.ignored_reason(),
             Some(OpenCodeSchemaReason::MissingSessionTable)
         );
-        assert_eq!(inspection.v1_message_count(), 0);
-        assert_eq!(inspection.v2_message_count(), 1);
     }
 
     #[test]
@@ -403,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_required_column_is_a_fatal_query_failure() {
+    fn missing_required_column_makes_generation_incomplete() {
         let connection = Connection::open_in_memory().expect("database");
         connection
             .execute_batch(
@@ -428,14 +423,21 @@ mod tests {
             )
             .expect("schema");
 
+        let inspection = inspect_schema(&connection).expect("inspection");
+        assert!(!inspection.has_v1());
+        assert!(inspection.has_v2());
         assert_eq!(
-            inspect_schema(&connection),
-            Err(OpenCodeSchemaError::QueryFailed)
+            inspection.ignored_generation(),
+            Some(OpenCodeGeneration::V1)
+        );
+        assert_eq!(
+            inspection.ignored_reason(),
+            Some(OpenCodeSchemaReason::MissingRequiredColumn)
         );
     }
 
     #[test]
-    fn missing_required_column_on_only_generation_is_fatal() {
+    fn missing_required_column_on_only_generation_is_incompatible_schema() {
         let connection = Connection::open_in_memory().expect("database");
         connection
             .execute_batch(
@@ -452,7 +454,7 @@ mod tests {
 
         assert_eq!(
             inspect_schema(&connection),
-            Err(OpenCodeSchemaError::QueryFailed)
+            Err(OpenCodeSchemaError::IncompatibleSchema)
         );
     }
 }

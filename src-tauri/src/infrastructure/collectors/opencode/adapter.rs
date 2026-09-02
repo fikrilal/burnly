@@ -182,7 +182,12 @@ impl Collector for OpenCodeCollector {
         let inspection = store.capabilities();
         if let Some(reason) = inspection.ignored_reason() {
             self.record_ignored_generation(&request, inspection, reason);
-            if !coverage_confirmed(inspection) {
+            let redundant = store
+                .begin_snapshot()
+                .ok()
+                .and_then(|snapshot| snapshot.redundancy_exceeded().ok())
+                .unwrap_or(true);
+            if redundant {
                 self.record_failure(
                     &request,
                     CollectorFailureCode::IncompatibleEnvelope,
@@ -746,20 +751,6 @@ const fn schema_reason_name(reason: OpenCodeSchemaReason) -> &'static str {
     }
 }
 
-/// An incomplete generation may only be ignored when its residual detail
-/// rows are already covered by the selected generation's cumulative
-/// counters. Without that proof, ignoring it could silently understate
-/// usage, so collection must fail closed instead.
-fn coverage_confirmed(inspection: OpenCodeSchemaInspection) -> bool {
-    if inspection.has_v1() && !inspection.has_v2() {
-        inspection.v2_message_count() <= inspection.v1_message_count()
-    } else if inspection.has_v2() && !inspection.has_v1() {
-        inspection.v1_message_count() <= inspection.v2_message_count()
-    } else {
-        true
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1115,9 +1106,11 @@ mod tests {
         );
         insert_v1_message(&connection, "message-v1", "session-v1-active", 5, 1_100);
         insert_v1_message(&connection, "message-v1b", "session-v1-active", 6, 1_150);
+        // The residual V2 row reuses a stable message ID present in V1, so it
+        // is redundant with the selected generation and can be ignored.
         insert_v2_message(
             &connection,
-            "residual-v2",
+            "message-v1",
             "session-v1-active",
             9,
             1_200,
@@ -1125,9 +1118,7 @@ mod tests {
         );
         drop(connection);
         // Remove the V2 session table to reproduce the reported production
-        // shape: complete V1 plus a residual `session_message`. The residual
-        // count stays at or below the V1 message count, so the selected V1
-        // cumulative session counters can represent it.
+        // shape: complete V1 plus a residual `session_message`.
         fixture
             .source()
             .execute("DROP TABLE session_v2", [])
@@ -1188,7 +1179,7 @@ mod tests {
             assert!(context.contains(r#""reason":"missing_session_table""#));
             assert!(context.contains(r#""selectedGenerations":"v1""#));
             assert!(!context.contains("session-v1-active"));
-            assert!(!context.contains("residual-v2"));
+            assert!(!context.contains("message-v1"));
             assert!(!context.contains(fixture.directory.path().to_string_lossy().as_ref()));
         }
     }
@@ -1252,7 +1243,7 @@ mod tests {
         insert_v1_message(&connection, "message-v1", "session-v1-active", 5, 1_100);
         insert_v2_message(
             &connection,
-            "residual-v2",
+            "message-v1",
             "session-v1-active",
             9,
             1_200,
