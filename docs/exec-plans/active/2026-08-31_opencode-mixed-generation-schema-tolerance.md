@@ -108,27 +108,27 @@ generation is complete.
 - An ignored generation contributes no rows because only complete
   generations enter the extraction queries.
 
-### Coverage proof (review finding 1)
+### Coverage proof (review finding 1, re-reviewed)
 
-An incomplete generation is ignored only when its residual detail rows are
-provably covered by the selected generation's cumulative counters. The
-inspection records each generation's message row count; the adapter requires
-`ignored_message_count <= selected_message_count` before collecting. When
-the residual count exceeds the selected count, collection fails closed with
-`collector.incompatible_envelope` instead of silently understating usage.
-This is a conservative bound: row-count coverage plus the selected
-generation's cumulative session counters (the authoritative completeness
-guard) means the residual projection cannot hold usage the selected
-generation cannot represent.
+An incomplete generation is ignored only when every residual detail row is
+provably redundant by identity: each ignored generation's message ID must
+exist in the selected generation's detail table (stable message ID is the
+cross-generation deduplication key). The snapshot runs an anti-join
+(`SELECT EXISTS(... WHERE NOT EXISTS(... s.id = i.id))`); if any ignored row
+has no matching selected row, collection fails closed with
+`collector.incompatible_envelope`. Row counts are not used as correctness
+evidence, and a non-empty incomplete generation that cannot be proven
+redundant fails closed.
 
-### Query failures are fatal (review finding 3)
+### Query failures are fatal; missing columns are structural (review findings 2-3)
 
-`PRAGMA table_info` and `SELECT COUNT(*)` failures are never converted to an
-ignorable incomplete reason. A schema-query failure can indicate corruption
-or authorization problems, so `verify_columns`/`count_if_present` propagate
-`OpenCodeSchemaError::QueryFailed`, which fails the whole inspection. Only
-successfully inspected missing-table shapes (`missing_session_table`,
-`missing_detail_table`) remain non-fatal residue reasons.
+`PRAGMA table_info` and anti-join execution failures propagate
+`OpenCodeSchemaError::QueryFailed`, which fails the whole inspection. A
+successfully executed PRAGMA that reveals a missing required column maps to
+the structural `Incomplete(MissingRequiredColumn)` state, so a complete V1
+plus structurally incomplete V2 selects V1 and ignores V2 with a diagnostic.
+A missing column remains fatal only when no complete generation exists
+(`IncompatibleSchema`).
 
 ### Adapter (`adapter.rs`)
 
@@ -231,22 +231,29 @@ pnpm verify:runtime
 - Command: privacy review
 - Outcome: no `part` selection; `content`/`title`/`directory` appear only in test fixtures asserting sentinels never leak; ignored-generation diagnostics carry only bounded allowlisted context (source, projection, selected/ignored generations, reason category), never paths, IDs, or row values.
 
-## Review Remediation (three findings addressed)
+## Review Remediation (five findings addressed across two reviews)
 
-1. **Silent residual omission (high)** — the adapter now requires the ignored
-   generation's message count to be at most the selected generation's count
-   before ignoring it (`coverage_confirmed`). Uncovered residue fails closed
-   with `collector.incompatible_envelope` instead of returning Complete with
-   understated totals.
-2. **Error classification (medium)** — `capabilities_available()` (which
-   returned `None` for every variant) is removed. `OpenCodeStoreError` is
-   classified by variant: `Schema`/`Configure`/`Snapshot`/`Query` →
-   `collector.incompatible_envelope`; `Open` → `open_failure_code(path)`
-   probing read access for `source.permission_denied` vs
-   `source.invalid_location`.
-3. **Schema-query failures (medium)** — `PRAGMA table_info` and `SELECT
-COUNT(*)` failures propagate `OpenCodeSchemaError::QueryFailed` and are
-   fatal; they are never converted to an ignorable incomplete reason.
+1. **Silent residual omission (high, first review)** — replaced the row-count
+   heuristic with an identity-level redundancy proof: the ignored generation's
+   detail rows must all exist by stable message ID in the selected generation
+   (`redundancy_exceeded` anti-join). Uncovered residue fails closed with
+   `collector.incompatible_envelope`.
+2. **Error classification (medium, first review)** — `capabilities_available()`
+   removed; `OpenCodeStoreError` classified by variant with
+   `open_failure_code(path)` probing read access for `source.permission_denied`
+   vs `source.invalid_location`.
+3. **Schema-query failures (medium, first review)** — `PRAGMA table_info` and
+   anti-join execution failures propagate `QueryFailed` and are fatal.
+4. **Row-count coverage unsound (high, second review)** — the count comparison
+   was removed entirely; only identity-level overlap (shared stable message
+   IDs) proves redundancy. The success test now uses a residual V2 row that
+   reuses a V1 message ID, and the uncovered test uses residual IDs absent from
+   V1.
+5. **Missing columns misclassified as query failures (medium, second review)** —
+   a successfully executed PRAGMA revealing a missing column maps to structural
+   `Incomplete(MissingRequiredColumn)` (selectable generation still works);
+   only actual SQLite execution errors are fatal `QueryFailed`. Missing column
+   is fatal only when no complete generation exists (`IncompatibleSchema`).
 
 ## Rollback And Stop Conditions
 
