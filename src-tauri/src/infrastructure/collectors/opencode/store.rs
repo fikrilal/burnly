@@ -866,6 +866,44 @@ mod tests {
     }
 
     #[test]
+    fn redundancy_exceeded_detects_rows_added_after_an_earlier_proof() {
+        let database = FixtureDatabase::new(true, true);
+        let connection = database.write();
+        insert_v1_session(&connection, "session-v1", 10);
+        insert_v1_message(&connection, "message-v1", "session-v1", 11, 7);
+        insert_v2_message(&connection, "message-v1", "session-v1", 12, 9, true);
+        drop(connection);
+        database
+            .write()
+            .execute("DROP TABLE session_v2", [])
+            .expect("drop V2 session table");
+
+        let mut store = OpenCodeStore::open_read_only(&database.path).expect("store");
+        assert!(!store
+            .begin_snapshot()
+            .expect("snapshot")
+            .redundancy_exceeded()
+            .expect("redundant"));
+
+        // A new unique residual row appears after the first proof (as if the
+        // source wrote it mid-collection). The next proof must report it.
+        database
+            .write()
+            .execute(
+                "INSERT INTO session_message (
+                    id, session_id, type, seq, time_created, time_updated, data
+                ) VALUES ('late-residual', 'session-v1', 'assistant', 2, 13, 13, '{}')",
+                [],
+            )
+            .expect("late residual row");
+        assert!(store
+            .begin_snapshot()
+            .expect("snapshot")
+            .redundancy_exceeded()
+            .expect("late residual detected"));
+    }
+
+    #[test]
     fn no_complete_generation_fails_as_schema_error() {
         let database = FixtureDatabase::new(true, true);
         let connection = database.write();

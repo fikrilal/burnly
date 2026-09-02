@@ -180,23 +180,11 @@ impl Collector for OpenCodeCollector {
             }
         };
         let inspection = store.capabilities();
+        let has_incomplete_residue = inspection.ignored_reason().is_some();
         if let Some(reason) = inspection.ignored_reason() {
             self.record_ignored_generation(&request, inspection, reason);
-            let redundant = store
-                .begin_snapshot()
-                .ok()
-                .and_then(|snapshot| snapshot.redundancy_exceeded().ok())
-                .unwrap_or(true);
-            if redundant {
-                self.record_failure(
-                    &request,
-                    CollectorFailureCode::IncompatibleEnvelope,
-                    CollectionStats::default(),
-                );
-                return Err(request_failure(
-                    &request,
-                    CollectorFailureCode::IncompatibleEnvelope,
-                ));
+            if !self.residual_is_redundant(&mut store, &request) {
+                return Err(incompatible(&request));
             }
         }
         let observed_at = Utc::now();
@@ -211,6 +199,13 @@ impl Collector for OpenCodeCollector {
                 self.record_failure(&request, failure.code, CollectionStats::default())
             })?;
         ensure_not_cancelled(&request, cancellation)?;
+        // Re-prove redundancy after every collection read: a unique row added
+        // to the incomplete generation mid-collection must not be silently
+        // ignored, so the proof must hold at the end of collection, not only
+        // at the start.
+        if has_incomplete_residue && !self.residual_is_redundant(&mut store, &request) {
+            return Err(incompatible(&request));
+        }
 
         if stats.counter_regressions > 0 {
             self.record_counter_regression(&request, stats);
@@ -283,6 +278,32 @@ impl Collector for OpenCodeCollector {
 }
 
 impl OpenCodeCollector {
+    /// Re-proves that every residual row of the ignored generation is
+    /// redundant with the selected generation. A failure is recorded as
+    /// `collector.incompatible_envelope` because ignoring a non-redundant
+    /// generation would silently understate usage.
+    fn residual_is_redundant(
+        &self,
+        store: &mut OpenCodeStore,
+        request: &CollectionRequest,
+    ) -> bool {
+        // `redundancy_exceeded` returns true when residue is NOT redundant.
+        let redundant = store
+            .begin_snapshot()
+            .ok()
+            .and_then(|snapshot| snapshot.redundancy_exceeded().ok())
+            .map(|exceeded| !exceeded)
+            .unwrap_or(false);
+        if !redundant {
+            self.record_failure(
+                request,
+                CollectorFailureCode::IncompatibleEnvelope,
+                CollectionStats::default(),
+            );
+        }
+        redundant
+    }
+
     fn reconcile_all_sessions(
         &self,
         store: &mut OpenCodeStore,

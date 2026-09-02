@@ -160,19 +160,9 @@ fn inspect_generation(
     match (has_session, has_message) {
         (false, false) => Ok(OpenCodeGenerationState::Absent),
         (true, true) => {
-            match (
-                verify_columns(connection, session_table, session_columns),
-                verify_columns(connection, message_table, message_columns),
-            ) {
-                (Ok(()), Ok(())) => Ok(OpenCodeGenerationState::Complete),
-                (Err(OpenCodeSchemaError::MissingColumn), _)
-                | (_, Err(OpenCodeSchemaError::MissingColumn)) => {
-                    Ok(OpenCodeGenerationState::Incomplete(
-                        OpenCodeSchemaReason::MissingRequiredColumn,
-                    ))
-                }
-                (Err(error), _) | (_, Err(error)) => Err(error),
-            }
+            let session_columns = verify_columns(connection, session_table, session_columns);
+            let message_columns = verify_columns(connection, message_table, message_columns);
+            combine_column_results(session_columns, message_columns)
         }
         (false, true) => Ok(OpenCodeGenerationState::Incomplete(
             OpenCodeSchemaReason::MissingSessionTable,
@@ -180,6 +170,27 @@ fn inspect_generation(
         (true, false) => Ok(OpenCodeGenerationState::Incomplete(
             OpenCodeSchemaReason::MissingDetailTable,
         )),
+    }
+}
+
+/// Combines the two required-column verifications for one generation. A
+/// genuine SQLite query failure on either table is fatal and wins over a
+/// structural missing column on the other table; a missing column makes the
+/// generation structurally incomplete.
+fn combine_column_results(
+    session: Result<(), OpenCodeSchemaError>,
+    message: Result<(), OpenCodeSchemaError>,
+) -> Result<OpenCodeGenerationState, OpenCodeSchemaError> {
+    match (session, message) {
+        (Ok(()), Ok(())) => Ok(OpenCodeGenerationState::Complete),
+        (Err(OpenCodeSchemaError::QueryFailed), _) | (_, Err(OpenCodeSchemaError::QueryFailed)) => {
+            Err(OpenCodeSchemaError::QueryFailed)
+        }
+        (Err(OpenCodeSchemaError::MissingColumn), _)
+        | (_, Err(OpenCodeSchemaError::MissingColumn)) => Ok(OpenCodeGenerationState::Incomplete(
+            OpenCodeSchemaReason::MissingRequiredColumn,
+        )),
+        _ => unreachable!("verify_columns returns only MissingColumn or QueryFailed"),
     }
 }
 
@@ -455,6 +466,42 @@ mod tests {
         assert_eq!(
             inspect_schema(&connection),
             Err(OpenCodeSchemaError::IncompatibleSchema)
+        );
+    }
+
+    #[test]
+    fn combine_column_results_prioritizes_query_failure() {
+        assert_eq!(
+            combine_column_results(Ok(()), Ok(())),
+            Ok(OpenCodeGenerationState::Complete)
+        );
+        assert_eq!(
+            combine_column_results(Err(OpenCodeSchemaError::MissingColumn), Ok(())),
+            Ok(OpenCodeGenerationState::Incomplete(
+                OpenCodeSchemaReason::MissingRequiredColumn
+            ))
+        );
+        assert_eq!(
+            combine_column_results(Ok(()), Err(OpenCodeSchemaError::MissingColumn)),
+            Ok(OpenCodeGenerationState::Incomplete(
+                OpenCodeSchemaReason::MissingRequiredColumn
+            ))
+        );
+        // A query failure on either table is fatal and wins over a missing
+        // column on the other table.
+        assert_eq!(
+            combine_column_results(
+                Err(OpenCodeSchemaError::QueryFailed),
+                Err(OpenCodeSchemaError::MissingColumn)
+            ),
+            Err(OpenCodeSchemaError::QueryFailed)
+        );
+        assert_eq!(
+            combine_column_results(
+                Err(OpenCodeSchemaError::MissingColumn),
+                Err(OpenCodeSchemaError::QueryFailed)
+            ),
+            Err(OpenCodeSchemaError::QueryFailed)
         );
     }
 }
