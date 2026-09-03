@@ -23,16 +23,16 @@ use crate::domain::source::SourceKey;
 
 use super::super::support::{
     available_detection, cancelled_detection, collection_metadata, daily_session_projections,
-    detection_issue, empty_collection_result, invalid_configuration_detection,
-    missing_or_invalid_location_code, not_found_detection, path_is_missing,
-    record_collector_diagnostic, request_failure, single_source_descriptor, unsupported_detection,
-    validate_source, validation_failure_preserving_all_rejected, CollectorDiagnosticCounter,
-    CollectorIdentity, LocalCollectionRun,
+    detection_issue, empty_collection_result, invalid_configuration_detection, not_found_detection,
+    path_is_missing, record_collector_diagnostic, request_failure, single_source_descriptor,
+    unsupported_detection, validate_source, validation_failure_preserving_all_rejected,
+    CollectorDiagnosticCounter, CollectorIdentity, LocalCollectionRun,
 };
 use super::{
-    default_opencode_database, map_daily, map_sessions, source_cost_usd_to_micros,
-    OpenCodeGeneration, OpenCodeMappingContext, OpenCodeMessageUsage, OpenCodePageSize,
-    OpenCodeSessionHeader, OpenCodeStore, OpenCodeTokenCounters,
+    default_opencode_database, map_daily, map_sessions, open_failure_code,
+    source_cost_usd_to_micros, OpenCodeGeneration, OpenCodeMappingContext, OpenCodeMessageUsage,
+    OpenCodePageSize, OpenCodeSchemaInspection, OpenCodeSchemaReason, OpenCodeSessionHeader,
+    OpenCodeStore, OpenCodeStoreError, OpenCodeTokenCounters,
 };
 
 const COLLECTOR_VERSION: &str = "local";
@@ -168,11 +168,25 @@ impl Collector for OpenCodeCollector {
             return empty_collection_result(IDENTITY, &request, &run);
         }
 
-        let mut store = OpenCodeStore::open_read_only(path).map_err(|_| {
-            let code = missing_or_invalid_location_code(path);
-            self.record_failure(&request, code, CollectionStats::default());
-            request_failure(&request, code)
-        })?;
+        let mut store = match OpenCodeStore::open_read_only(path) {
+            Ok(store) => store,
+            Err(error) => {
+                let code = match &error {
+                    OpenCodeStoreError::Open(_) => open_failure_code(path),
+                    _ => error.source_failure_code(),
+                };
+                self.record_failure(&request, code, CollectionStats::default());
+                return Err(request_failure(&request, code));
+            }
+        };
+        let inspection = store.capabilities();
+        let has_incomplete_residue = inspection.ignored_reason().is_some();
+        if let Some(reason) = inspection.ignored_reason() {
+            self.record_ignored_generation(&request, inspection, reason);
+            if !self.residual_is_redundant(&mut store, &request) {
+                return Err(incompatible(&request));
+            }
+        }
         let observed_at = Utc::now();
         let (reconciled, stats) = self
             .reconcile_all_sessions(
@@ -185,6 +199,13 @@ impl Collector for OpenCodeCollector {
                 self.record_failure(&request, failure.code, CollectionStats::default())
             })?;
         ensure_not_cancelled(&request, cancellation)?;
+        // Re-prove redundancy after every collection read: a unique row added
+        // to the incomplete generation mid-collection must not be silently
+        // ignored, so the proof must hold at the end of collection, not only
+        // at the start.
+        if has_incomplete_residue && !self.residual_is_redundant(&mut store, &request) {
+            return Err(incompatible(&request));
+        }
 
         if stats.counter_regressions > 0 {
             self.record_counter_regression(&request, stats);
@@ -257,6 +278,32 @@ impl Collector for OpenCodeCollector {
 }
 
 impl OpenCodeCollector {
+    /// Re-proves that every residual row of the ignored generation is
+    /// redundant with the selected generation. A failure is recorded as
+    /// `collector.incompatible_envelope` because ignoring a non-redundant
+    /// generation would silently understate usage.
+    fn residual_is_redundant(
+        &self,
+        store: &mut OpenCodeStore,
+        request: &CollectionRequest,
+    ) -> bool {
+        // `redundancy_exceeded` returns true when residue is NOT redundant.
+        let redundant = store
+            .begin_snapshot()
+            .ok()
+            .and_then(|snapshot| snapshot.redundancy_exceeded().ok())
+            .map(|exceeded| !exceeded)
+            .unwrap_or(false);
+        if !redundant {
+            self.record_failure(
+                request,
+                CollectorFailureCode::IncompatibleEnvelope,
+                CollectionStats::default(),
+            );
+        }
+        redundant
+    }
+
     fn reconcile_all_sessions(
         &self,
         store: &mut OpenCodeStore,
@@ -444,6 +491,43 @@ impl OpenCodeCollector {
             Some(code),
             &stats.counters(),
         );
+    }
+
+    fn record_ignored_generation(
+        &self,
+        request: &CollectionRequest,
+        inspection: OpenCodeSchemaInspection,
+        reason: OpenCodeSchemaReason,
+    ) {
+        let Some(recorder) = self.diagnostics.as_deref() else {
+            return;
+        };
+        let Ok(code) = crate::application::diagnostics::DiagnosticCode::new(
+            "opencode.incomplete_generation_ignored",
+        ) else {
+            return;
+        };
+        let Ok(summary) = crate::application::diagnostics::DiagnosticSummary::new(
+            "An incomplete OpenCode schema generation was ignored.",
+        ) else {
+            return;
+        };
+        let Ok(context) = crate::application::diagnostics::DiagnosticContext::new(
+            ignored_generation_context(request, inspection, reason),
+        ) else {
+            return;
+        };
+        let Ok(event) = crate::application::diagnostics::DiagnosticEvent::new(
+            crate::application::diagnostics::DiagnosticArea::Collector,
+            DiagnosticSeverity::Info,
+            code,
+            summary,
+            Some(context),
+            Utc::now().timestamp_millis(),
+        ) else {
+            return;
+        };
+        recorder.record(event);
     }
 
     fn record_counter_regression(&self, request: &CollectionRequest, stats: CollectionStats) {
@@ -648,6 +732,44 @@ fn incompatible(request: &CollectionRequest) -> CollectorFailure {
 
 fn internal(request: &CollectionRequest) -> CollectorFailure {
     request_failure(request, CollectorFailureCode::Internal)
+}
+
+fn ignored_generation_context(
+    request: &CollectionRequest,
+    inspection: OpenCodeSchemaInspection,
+    reason: OpenCodeSchemaReason,
+) -> String {
+    let selected = if inspection.has_v1() && inspection.has_v2() {
+        "combined"
+    } else if inspection.has_v1() {
+        "v1"
+    } else {
+        "v2"
+    };
+    serde_json::json!({
+        "source": SourceKey::OpenCode.as_str(),
+        "projection": match request.projection() {
+            CollectionProjection::Daily => "daily",
+            CollectionProjection::Session => "session",
+        },
+        "selectedGenerations": selected,
+        "ignoredGeneration": match inspection.ignored_generation() {
+            Some(OpenCodeGeneration::V1) => "v1",
+            Some(OpenCodeGeneration::V2) => "v2",
+            None => "none",
+        },
+        "reason": schema_reason_name(reason),
+    })
+    .to_string()
+}
+
+const fn schema_reason_name(reason: OpenCodeSchemaReason) -> &'static str {
+    match reason {
+        OpenCodeSchemaReason::MissingSessionTable => "missing_session_table",
+        OpenCodeSchemaReason::MissingDetailTable => "missing_detail_table",
+        OpenCodeSchemaReason::MissingRequiredColumn => "missing_required_column",
+        OpenCodeSchemaReason::SchemaQueryFailed => "schema_query_failed",
+    }
 }
 
 #[cfg(test)]
@@ -963,14 +1085,254 @@ mod tests {
                 &NeverCancelled,
             )
             .expect_err("incompatible source");
-        assert_eq!(failure.code, CollectorFailureCode::SourceInvalidLocation);
+        assert_eq!(failure.code, CollectorFailureCode::IncompatibleEnvelope);
         let events = diagnostics.events();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].code.as_str(), "opencode.collection_failed");
         let context = events[0].context.as_ref().expect("context").as_str();
-        assert!(context.contains(r#""failureCode":"source.invalid_location""#));
+        assert!(context.contains(r#""failureCode":"collector.incompatible_envelope""#));
         assert!(!context.contains("invalid-source.db"));
         assert!(!context.contains(fixture.directory.path().to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn missing_database_keeps_source_not_found_classification() {
+        let fixture = Fixture::new(true, false);
+        let missing_path = fixture.directory.path().join("missing.db");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = OpenCodeCollector::from_database_path(missing_path, fixture.ledger())
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let result = collector
+            .collect(
+                session_request("missing", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("missing source is an empty collection");
+        assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        assert!(result.session_candidates().is_empty());
+        assert!(diagnostics.events().is_empty());
+    }
+
+    #[test]
+    fn mixed_generation_collects_v1_and_ignores_residual_session_message() {
+        let fixture = Fixture::new(true, true);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-v1-active",
+            Counters::new(11, 4, 6, 8, 10),
+            0.5,
+            1_000,
+        );
+        insert_v1_message(&connection, "message-v1", "session-v1-active", 5, 1_100);
+        insert_v1_message(&connection, "message-v1b", "session-v1-active", 6, 1_150);
+        // The residual V2 row reuses a stable message ID present in V1, so it
+        // is redundant with the selected generation and can be ignored.
+        insert_v2_message(
+            &connection,
+            "message-v1",
+            "session-v1-active",
+            9,
+            1_200,
+            true,
+        );
+        drop(connection);
+        // Remove the V2 session table to reproduce the reported production
+        // shape: complete V1 plus a residual `session_message`.
+        fixture
+            .source()
+            .execute("DROP TABLE session_v2", [])
+            .expect("drop residual V2 session table");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let sessions = collector
+            .collect(
+                session_request("mixed-session", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("session collection");
+        assert_eq!(sessions.outcome(), CollectionOutcome::Complete);
+        assert_eq!(sessions.session_candidates().len(), 1);
+        let candidate = &sessions.session_candidates()[0];
+        assert_eq!(candidate.tokens.total_tokens(), 39);
+        assert_eq!(
+            candidate.model_breakdowns[0].raw_model_id,
+            "provider-v1/model"
+        );
+        assert!(candidate
+            .model_breakdowns
+            .iter()
+            .all(|model| model.raw_model_id != "provider-v2/model"));
+
+        let daily = collector
+            .collect(
+                daily_request(
+                    "mixed-daily",
+                    SourceKey::OpenCode,
+                    CollectionScope::Full,
+                    "UTC",
+                    Utc::now(),
+                ),
+                &NeverCancelled,
+            )
+            .expect("daily collection");
+        assert_eq!(daily.outcome(), CollectionOutcome::Complete);
+        assert_eq!(daily.daily_candidates().len(), 1);
+        assert_eq!(daily.daily_candidates()[0].tokens.total_tokens(), 39);
+        assert!(daily.daily_candidates()[0]
+            .model_breakdowns
+            .iter()
+            .all(|model| model.raw_model_id != "provider-v2/model"));
+
+        let events = diagnostics.events();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| {
+            event.code.as_str() == "opencode.incomplete_generation_ignored"
+                && event.severity == DiagnosticSeverity::Info
+        }));
+        for event in &events {
+            let context = event.context.as_ref().expect("context").as_str();
+            assert!(context.contains(r#""ignoredGeneration":"v2""#));
+            assert!(context.contains(r#""reason":"missing_session_table""#));
+            assert!(context.contains(r#""selectedGenerations":"v1""#));
+            assert!(!context.contains("session-v1-active"));
+            assert!(!context.contains("message-v1"));
+            assert!(!context.contains(fixture.directory.path().to_string_lossy().as_ref()));
+        }
+    }
+
+    #[test]
+    fn uncovered_residual_generation_fails_closed() {
+        let fixture = Fixture::new(true, true);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-v1-active",
+            Counters::message(5),
+            0.25,
+            1_000,
+        );
+        insert_v1_message(&connection, "message-v1", "session-v1-active", 5, 1_100);
+        insert_v2_message(
+            &connection,
+            "residual-v2a",
+            "session-v1-active",
+            9,
+            1_200,
+            true,
+        );
+        insert_v2_message(
+            &connection,
+            "residual-v2b",
+            "session-v1-active",
+            10,
+            1_250,
+            true,
+        );
+        drop(connection);
+        fixture
+            .source()
+            .execute("DROP TABLE session_v2", [])
+            .expect("drop residual V2 session table");
+        let collector = fixture.collector();
+
+        let failure = collector
+            .collect(
+                session_request("uncovered", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect_err("residual rows exceed the selected generation");
+
+        assert_eq!(failure.code, CollectorFailureCode::IncompatibleEnvelope);
+    }
+
+    #[test]
+    fn mixed_generation_repeated_refresh_is_idempotent() {
+        let fixture = Fixture::new(true, true);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-v1-active",
+            Counters::message(5),
+            0.25,
+            1_000,
+        );
+        insert_v1_message(&connection, "message-v1", "session-v1-active", 5, 1_100);
+        insert_v2_message(
+            &connection,
+            "message-v1",
+            "session-v1-active",
+            9,
+            1_200,
+            true,
+        );
+        drop(connection);
+        fixture
+            .source()
+            .execute("DROP TABLE session_v2", [])
+            .expect("drop residual V2 session table");
+        let collector = fixture.collector();
+
+        let first = collector
+            .collect(
+                session_request("mixed-first", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("first collection");
+        let second = collector
+            .collect(
+                session_request("mixed-second", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("second collection");
+
+        let first = &first.session_candidates()[0];
+        let second = &second.session_candidates()[0];
+        assert_eq!(first.tokens, second.tokens);
+        assert_eq!(first.cost, second.cost);
+        assert_eq!(first.model_breakdowns, second.model_breakdowns);
+    }
+
+    #[test]
+    fn no_complete_generation_fails_as_incompatible_envelope() {
+        let fixture = Fixture::new(true, false);
+        let incompatible_path = fixture.directory.path().join("partial.db");
+        {
+            let connection = Connection::open(&incompatible_path).expect("partial database");
+            connection
+                .execute(
+                    "CREATE TABLE session (
+                        id TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER,
+                        tokens_reasoning INTEGER, tokens_cache_read INTEGER,
+                        tokens_cache_write INTEGER, time_created INTEGER, time_updated INTEGER
+                    )",
+                    [],
+                )
+                .expect("incomplete V1 session table");
+            connection
+                .execute(
+                    "CREATE TABLE session_message (
+                        id TEXT, session_id TEXT, type TEXT, seq INTEGER,
+                        time_created INTEGER, time_updated INTEGER, data TEXT
+                    )",
+                    [],
+                )
+                .expect("residual V2 detail table");
+        }
+        let collector = OpenCodeCollector::from_database_path(incompatible_path, fixture.ledger());
+
+        let failure = collector
+            .collect(
+                session_request("no-complete", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect_err("no complete generation");
+
+        assert_eq!(failure.code, CollectorFailureCode::IncompatibleEnvelope);
     }
 
     #[test]

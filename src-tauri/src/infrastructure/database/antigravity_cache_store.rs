@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
@@ -5,9 +6,10 @@ use chrono_tz::Tz;
 use rusqlite::{params, params_from_iter, ToSql};
 
 use crate::application::collection::CollectionScope;
+use crate::application::ports::antigravity_baseline_store::AntigravityBaselineStatus;
 use crate::application::ports::antigravity_usage_cache::{
-    AntigravityTimestampOrigin, AntigravityUsageCache, AntigravityUsageCacheError,
-    AntigravityUsageCacheReconcileResult, AntigravityUsageCacheUpsert,
+    AntigravityCalendarAttribution, AntigravityTimestampOrigin, AntigravityUsageCache,
+    AntigravityUsageCacheError, AntigravityUsageCacheReconcileResult, AntigravityUsageCacheUpsert,
     CachedAntigravityUsageRecord,
 };
 
@@ -50,6 +52,8 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
 
         let mut resolved = Vec::with_capacity(records.len());
         let mut legacy_records_repaired = 0_u32;
+        let mut baseline_statuses = HashMap::new();
+
         for entry in records {
             let record = &entry.record;
             let proposed_dedupe_key = dedupe_key(record);
@@ -63,12 +67,25 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
             let dedupe_key = existing
                 .as_ref()
                 .map_or(proposed_dedupe_key, |value| value.dedupe_key.clone());
-            let (observed_at, timestamp_origin, first_seen_at_ms) = resolve_timestamp(
-                record,
-                entry.legacy_fallback_at,
-                existing.as_ref(),
-                collected_at,
-            )?;
+
+            let baseline_status = match baseline_statuses.get(record.variant.as_str()) {
+                Some(&status) => status,
+                None => {
+                    let status = variant_baseline_status(&transaction, &record.variant)?;
+                    baseline_statuses.insert(record.variant.clone(), status);
+                    status
+                }
+            };
+
+            let (observed_at, timestamp_origin, calendar_attribution, first_seen_at_ms) =
+                resolve_timestamp_and_attribution(
+                    record,
+                    entry.legacy_fallback_at,
+                    existing.as_ref(),
+                    baseline_status,
+                    collected_at,
+                )?;
+
             if existing.as_ref().is_some_and(|existing| {
                 existing.timestamp_origin == AntigravityTimestampOrigin::LegacyUnknown
                     && timestamp_origin != AntigravityTimestampOrigin::LegacyUnknown
@@ -84,9 +101,9 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
                         thinking_output_tokens, response_output_tokens, cache_read_tokens,
                         cache_write_tokens, observed_at_ms, collector_version,
                         first_seen_at_ms, last_seen_at_ms, source_record_index,
-                        timestamp_origin
+                        timestamp_origin, calendar_attribution
                     ) VALUES (
-                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
                     )
                     ON CONFLICT(dedupe_key) DO UPDATE SET
                         model_label = excluded.model_label,
@@ -104,7 +121,8 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
                             excluded.source_record_index,
                             antigravity_usage_cache.source_record_index
                         ),
-                        timestamp_origin = excluded.timestamp_origin",
+                        timestamp_origin = excluded.timestamp_origin,
+                        calendar_attribution = excluded.calendar_attribution",
                     params![
                         dedupe_key,
                         record.variant,
@@ -125,6 +143,7 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
                         now_ms,
                         record.source_record_index,
                         timestamp_origin_value(timestamp_origin),
+                        calendar_attribution.as_str(),
                     ],
                 )
                 .map_err(|_| AntigravityUsageCacheError::Storage)?;
@@ -132,6 +151,7 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
             let mut canonical = record.clone();
             canonical.observed_at = Some(observed_at);
             canonical.timestamp_origin = timestamp_origin;
+            canonical.calendar_attribution = calendar_attribution;
             resolved.push(canonical);
         }
 
@@ -168,9 +188,9 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
             "SELECT variant, conversation_id, response_id, raw_model_id, model_label,
                     api_provider, input_tokens, output_tokens, thinking_output_tokens,
                     response_output_tokens, cache_read_tokens, cache_write_tokens,
-                    source_record_index, observed_at_ms, timestamp_origin
+                    source_record_index, observed_at_ms, timestamp_origin, calendar_attribution
              FROM antigravity_usage_cache
-             WHERE observed_at_ms >= ?1 AND observed_at_ms < ?2 AND (",
+             WHERE calendar_attribution = 'dated' AND observed_at_ms >= ?1 AND observed_at_ms < ?2 AND (",
         );
         let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(start_ms), Box::new(end_ms)];
         for (index, (variant, conversation_id)) in conversations.iter().enumerate() {
@@ -239,6 +259,7 @@ struct ExistingTimestamp {
     dedupe_key: String,
     observed_at: DateTime<Utc>,
     timestamp_origin: AntigravityTimestampOrigin,
+    calendar_attribution: AntigravityCalendarAttribution,
     first_seen_at_ms: i64,
 }
 
@@ -252,7 +273,7 @@ fn existing_timestamp(
 
     let row = transaction
         .query_row(
-            "SELECT dedupe_key, observed_at_ms, timestamp_origin, first_seen_at_ms
+            "SELECT dedupe_key, observed_at_ms, timestamp_origin, calendar_attribution, first_seen_at_ms
              FROM antigravity_usage_cache
              WHERE dedupe_key = ?1
                 OR (?2 IS NOT NULL AND dedupe_key = ?2)
@@ -276,72 +297,144 @@ fn existing_timestamp(
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             },
         )
         .optional()
         .map_err(|_| AntigravityUsageCacheError::Storage)?;
 
-    row.map(|(dedupe_key, observed_at_ms, origin, first_seen_at_ms)| {
-        Ok(ExistingTimestamp {
-            dedupe_key,
-            observed_at: DateTime::<Utc>::from_timestamp_millis(observed_at_ms)
-                .ok_or(AntigravityUsageCacheError::Storage)?,
-            timestamp_origin: parse_timestamp_origin(&origin)?,
-            first_seen_at_ms,
-        })
-    })
+    row.map(
+        |(dedupe_key, observed_at_ms, origin, attribution_str, first_seen_at_ms)| {
+            Ok(ExistingTimestamp {
+                dedupe_key,
+                observed_at: DateTime::<Utc>::from_timestamp_millis(observed_at_ms)
+                    .ok_or(AntigravityUsageCacheError::Storage)?,
+                timestamp_origin: parse_timestamp_origin(&origin)?,
+                calendar_attribution: AntigravityCalendarAttribution::from_str(&attribution_str)
+                    .ok_or(AntigravityUsageCacheError::Storage)?,
+                first_seen_at_ms,
+            })
+        },
+    )
     .transpose()
 }
 
-fn resolve_timestamp(
+fn variant_baseline_status(
+    transaction: &rusqlite::Transaction<'_>,
+    variant: &str,
+) -> Result<AntigravityBaselineStatus, AntigravityUsageCacheError> {
+    use rusqlite::OptionalExtension;
+    let status_str: Option<String> = transaction
+        .query_row(
+            "SELECT status FROM antigravity_baseline_state WHERE variant = ?1",
+            [variant],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| AntigravityUsageCacheError::Storage)?;
+
+    match status_str.as_deref() {
+        Some("complete") => Ok(AntigravityBaselineStatus::Complete),
+        Some("pending") | None => Ok(AntigravityBaselineStatus::Pending),
+        _ => Err(AntigravityUsageCacheError::Storage),
+    }
+}
+
+fn resolve_timestamp_and_attribution(
     record: &CachedAntigravityUsageRecord,
     legacy_fallback_at: Option<DateTime<Utc>>,
     existing: Option<&ExistingTimestamp>,
+    baseline_status: AntigravityBaselineStatus,
     collected_at: DateTime<Utc>,
-) -> Result<(DateTime<Utc>, AntigravityTimestampOrigin, i64), AntigravityUsageCacheError> {
+) -> Result<
+    (
+        DateTime<Utc>,
+        AntigravityTimestampOrigin,
+        AntigravityCalendarAttribution,
+        i64,
+    ),
+    AntigravityUsageCacheError,
+> {
     let Some(existing) = existing else {
-        let (observed_at, origin) = match record.timestamp_origin {
+        let (observed_at, origin, attribution) = match record.timestamp_origin {
             AntigravityTimestampOrigin::SourceReported => (
                 record
                     .observed_at
                     .ok_or(AntigravityUsageCacheError::Storage)?,
                 AntigravityTimestampOrigin::SourceReported,
+                AntigravityCalendarAttribution::Dated,
             ),
-            AntigravityTimestampOrigin::FirstSeen => (
-                record.observed_at.unwrap_or(collected_at),
-                AntigravityTimestampOrigin::FirstSeen,
-            ),
-            AntigravityTimestampOrigin::LegacyUnknown => (
-                record
-                    .observed_at
-                    .ok_or(AntigravityUsageCacheError::Storage)?,
-                AntigravityTimestampOrigin::LegacyUnknown,
-            ),
+            AntigravityTimestampOrigin::FirstSeen => {
+                let observed_at = record.observed_at.unwrap_or(collected_at);
+                let attribution = match baseline_status {
+                    AntigravityBaselineStatus::Pending => {
+                        AntigravityCalendarAttribution::UndatedBaseline
+                    }
+                    AntigravityBaselineStatus::Complete => AntigravityCalendarAttribution::Dated,
+                };
+                (
+                    observed_at,
+                    AntigravityTimestampOrigin::FirstSeen,
+                    attribution,
+                )
+            }
+            AntigravityTimestampOrigin::LegacyUnknown => {
+                let observed_at = record.observed_at.unwrap_or(collected_at);
+                let attribution = match baseline_status {
+                    AntigravityBaselineStatus::Pending => {
+                        AntigravityCalendarAttribution::UndatedBaseline
+                    }
+                    AntigravityBaselineStatus::Complete => AntigravityCalendarAttribution::Dated,
+                };
+                (
+                    observed_at,
+                    AntigravityTimestampOrigin::LegacyUnknown,
+                    attribution,
+                )
+            }
             AntigravityTimestampOrigin::Unresolved => {
-                (collected_at, AntigravityTimestampOrigin::FirstSeen)
+                let observed_at = record.observed_at.unwrap_or(collected_at);
+                let attribution = match baseline_status {
+                    AntigravityBaselineStatus::Pending => {
+                        AntigravityCalendarAttribution::UndatedBaseline
+                    }
+                    AntigravityBaselineStatus::Complete => AntigravityCalendarAttribution::Dated,
+                };
+                (
+                    observed_at,
+                    AntigravityTimestampOrigin::FirstSeen,
+                    attribution,
+                )
             }
         };
-        return Ok((observed_at, origin, collected_at.timestamp_millis()));
+        return Ok((
+            observed_at,
+            origin,
+            attribution,
+            collected_at.timestamp_millis(),
+        ));
     };
 
-    let resolved = match existing.timestamp_origin {
+    if record.timestamp_origin == AntigravityTimestampOrigin::SourceReported {
+        let observed_at = record
+            .observed_at
+            .ok_or(AntigravityUsageCacheError::Storage)?;
+        return Ok((
+            observed_at,
+            AntigravityTimestampOrigin::SourceReported,
+            AntigravityCalendarAttribution::Dated,
+            existing.first_seen_at_ms,
+        ));
+    }
+
+    let (observed_at, origin) = match existing.timestamp_origin {
         AntigravityTimestampOrigin::SourceReported | AntigravityTimestampOrigin::FirstSeen => {
             (existing.observed_at, existing.timestamp_origin)
         }
         AntigravityTimestampOrigin::LegacyUnknown => {
-            // Keep this compatibility branch while direct upgrades from any release that wrote
-            // profile-1 Antigravity cache rows remain supported. It can be retired only with an
-            // explicit policy for any legacy_unknown rows still present at that point.
-            if record.timestamp_origin == AntigravityTimestampOrigin::SourceReported {
-                (
-                    record
-                        .observed_at
-                        .ok_or(AntigravityUsageCacheError::Storage)?,
-                    AntigravityTimestampOrigin::SourceReported,
-                )
-            } else if legacy_fallback_at == Some(existing.observed_at) {
+            if legacy_fallback_at == Some(existing.observed_at) {
                 (
                     DateTime::<Utc>::from_timestamp_millis(existing.first_seen_at_ms)
                         .ok_or(AntigravityUsageCacheError::Storage)?,
@@ -356,7 +449,13 @@ fn resolve_timestamp(
         }
         AntigravityTimestampOrigin::Unresolved => return Err(AntigravityUsageCacheError::Storage),
     };
-    Ok((resolved.0, resolved.1, existing.first_seen_at_ms))
+
+    Ok((
+        observed_at,
+        origin,
+        existing.calendar_attribution,
+        existing.first_seen_at_ms,
+    ))
 }
 
 fn timestamp_origin_value(origin: AntigravityTimestampOrigin) -> &'static str {
@@ -413,6 +512,7 @@ fn map_cached_row(
 ) -> Result<CachedAntigravityUsageRecord, rusqlite::Error> {
     let observed_at_ms: i64 = row.get(13)?;
     let timestamp_origin: String = row.get(14)?;
+    let calendar_attribution: String = row.get(15)?;
     Ok(CachedAntigravityUsageRecord {
         variant: row.get(0)?,
         conversation_id: row.get(1)?,
@@ -430,6 +530,8 @@ fn map_cached_row(
         observed_at: DateTime::<Utc>::from_timestamp_millis(observed_at_ms),
         timestamp_origin: parse_timestamp_origin(&timestamp_origin)
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        calendar_attribution: AntigravityCalendarAttribution::from_str(&calendar_attribution)
+            .ok_or(rusqlite::Error::InvalidQuery)?,
     })
 }
 
@@ -462,6 +564,7 @@ mod tests {
             cache_write_tokens: 0,
             observed_at,
             timestamp_origin,
+            calendar_attribution: AntigravityCalendarAttribution::Dated,
         }
     }
 
@@ -689,6 +792,7 @@ mod tests {
                         cache_write_tokens: 1,
                         observed_at: Some(observed_at),
                         timestamp_origin: AntigravityTimestampOrigin::SourceReported,
+                        calendar_attribution: AntigravityCalendarAttribution::Dated,
                     },
                     legacy_fallback_at: None,
                     collector_version: "local-rpc".to_owned(),
@@ -738,6 +842,7 @@ mod tests {
                 cache_write_tokens: 0,
                 observed_at: Some(observed_at),
                 timestamp_origin: AntigravityTimestampOrigin::SourceReported,
+                calendar_attribution: AntigravityCalendarAttribution::Dated,
             },
             legacy_fallback_at: None,
             collector_version: "local-rpc".to_owned(),
@@ -790,6 +895,7 @@ mod tests {
                         cache_write_tokens: 0,
                         observed_at: Some(observed_at),
                         timestamp_origin: AntigravityTimestampOrigin::SourceReported,
+                        calendar_attribution: AntigravityCalendarAttribution::Dated,
                     },
                     legacy_fallback_at: None,
                     collector_version: "local-rpc".to_owned(),
@@ -811,5 +917,227 @@ mod tests {
             .expect("read");
 
         assert!(records.is_empty());
+    }
+
+    #[test]
+    fn baseline_attribution_logic_governs_dated_vs_undated_baseline() {
+        let (database, store) = migrated_cache_store();
+        let collected_at = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
+        let source_time = Utc.with_ymd_and_hms(2026, 8, 1, 10, 0, 0).unwrap();
+
+        // 1. By default (no entry in antigravity_baseline_state), variant baseline status is Pending.
+        // A new Unresolved record resolves to UndatedBaseline and FirstSeen.
+        let mut unresolved_rec = cache_record(
+            "resp-unresolved",
+            None,
+            AntigravityTimestampOrigin::Unresolved,
+        );
+        unresolved_rec.source_record_index = Some(1);
+        let result = store
+            .reconcile(
+                &[AntigravityUsageCacheUpsert {
+                    record: unresolved_rec,
+                    legacy_fallback_at: None,
+                    collector_version: "local-rpc".to_owned(),
+                }],
+                collected_at,
+            )
+            .expect("reconcile unresolved");
+        assert_eq!(
+            result.records[0].calendar_attribution,
+            AntigravityCalendarAttribution::UndatedBaseline
+        );
+        assert_eq!(
+            result.records[0].timestamp_origin,
+            AntigravityTimestampOrigin::FirstSeen
+        );
+
+        // 2. A new LegacyUnknown record during Pending baseline resolves to UndatedBaseline.
+        let mut legacy_rec = cache_record(
+            "resp-legacy",
+            Some(collected_at),
+            AntigravityTimestampOrigin::LegacyUnknown,
+        );
+        legacy_rec.source_record_index = Some(2);
+        let result = store
+            .reconcile(
+                &[AntigravityUsageCacheUpsert {
+                    record: legacy_rec,
+                    legacy_fallback_at: None,
+                    collector_version: "local-rpc".to_owned(),
+                }],
+                collected_at,
+            )
+            .expect("reconcile legacy");
+        assert_eq!(
+            result.records[0].calendar_attribution,
+            AntigravityCalendarAttribution::UndatedBaseline
+        );
+        assert_eq!(
+            result.records[0].timestamp_origin,
+            AntigravityTimestampOrigin::LegacyUnknown
+        );
+
+        // 3. A new SourceReported record during Pending baseline resolves to Dated.
+        let mut source_rec = cache_record(
+            "resp-source",
+            Some(source_time),
+            AntigravityTimestampOrigin::SourceReported,
+        );
+        source_rec.source_record_index = Some(3);
+        let result = store
+            .reconcile(
+                &[AntigravityUsageCacheUpsert {
+                    record: source_rec,
+                    legacy_fallback_at: None,
+                    collector_version: "local-rpc".to_owned(),
+                }],
+                collected_at,
+            )
+            .expect("reconcile source");
+        assert_eq!(
+            result.records[0].calendar_attribution,
+            AntigravityCalendarAttribution::Dated
+        );
+        assert_eq!(
+            result.records[0].timestamp_origin,
+            AntigravityTimestampOrigin::SourceReported
+        );
+
+        // 4. Existing UndatedBaseline record re-scanned without source timestamp preserves UndatedBaseline.
+        let mut unresolved_rescan = cache_record(
+            "resp-unresolved",
+            None,
+            AntigravityTimestampOrigin::Unresolved,
+        );
+        unresolved_rescan.source_record_index = Some(1);
+        let result = store
+            .reconcile(
+                &[AntigravityUsageCacheUpsert {
+                    record: unresolved_rescan,
+                    legacy_fallback_at: None,
+                    collector_version: "local-rpc".to_owned(),
+                }],
+                collected_at,
+            )
+            .expect("rescan unresolved");
+        assert_eq!(
+            result.records[0].calendar_attribution,
+            AntigravityCalendarAttribution::UndatedBaseline
+        );
+
+        // 5. Existing UndatedBaseline record re-scanned WITH genuine SourceReported timestamp upgrades to Dated.
+        let mut upgraded_rec = cache_record(
+            "resp-unresolved",
+            Some(source_time),
+            AntigravityTimestampOrigin::SourceReported,
+        );
+        upgraded_rec.source_record_index = Some(1);
+        let result = store
+            .reconcile(
+                &[AntigravityUsageCacheUpsert {
+                    record: upgraded_rec,
+                    legacy_fallback_at: None,
+                    collector_version: "local-rpc".to_owned(),
+                }],
+                collected_at,
+            )
+            .expect("upgrade unresolved to source reported");
+        assert_eq!(
+            result.records[0].calendar_attribution,
+            AntigravityCalendarAttribution::Dated
+        );
+        assert_eq!(
+            result.records[0].timestamp_origin,
+            AntigravityTimestampOrigin::SourceReported
+        );
+        assert_eq!(result.records[0].observed_at, Some(source_time));
+
+        // 6. Mark variant baseline as complete.
+        database
+            .database()
+            .connection
+            .execute(
+                "INSERT INTO antigravity_baseline_state (
+                    variant, status, started_at_ms, completed_at_ms, updated_at_ms
+                ) VALUES ('antigravity-cli', 'complete', 1000, 2000, 2000)",
+                [],
+            )
+            .expect("insert complete baseline");
+
+        // Now, a new Unresolved record after Complete baseline resolves to Dated and FirstSeen.
+        let mut post_baseline_unresolved = cache_record(
+            "resp-post-baseline",
+            None,
+            AntigravityTimestampOrigin::Unresolved,
+        );
+        post_baseline_unresolved.source_record_index = Some(4);
+        let result = store
+            .reconcile(
+                &[AntigravityUsageCacheUpsert {
+                    record: post_baseline_unresolved,
+                    legacy_fallback_at: None,
+                    collector_version: "local-rpc".to_owned(),
+                }],
+                collected_at,
+            )
+            .expect("reconcile post-baseline unresolved");
+        assert_eq!(
+            result.records[0].calendar_attribution,
+            AntigravityCalendarAttribution::Dated
+        );
+        assert_eq!(
+            result.records[0].timestamp_origin,
+            AntigravityTimestampOrigin::FirstSeen
+        );
+
+        // A new LegacyUnknown record after Complete baseline resolves to Dated.
+        let mut post_baseline_legacy = cache_record(
+            "resp-post-legacy",
+            Some(collected_at),
+            AntigravityTimestampOrigin::LegacyUnknown,
+        );
+        post_baseline_legacy.source_record_index = Some(5);
+        let result = store
+            .reconcile(
+                &[AntigravityUsageCacheUpsert {
+                    record: post_baseline_legacy,
+                    legacy_fallback_at: None,
+                    collector_version: "local-rpc".to_owned(),
+                }],
+                collected_at,
+            )
+            .expect("reconcile post-baseline legacy");
+        assert_eq!(
+            result.records[0].calendar_attribution,
+            AntigravityCalendarAttribution::Dated
+        );
+
+        // 7. read_for_scope returns only Dated records, excluding UndatedBaseline.
+        // We still have resp-legacy as UndatedBaseline!
+        let scope_records = store
+            .read_for_scope(
+                &CollectionScope::Full,
+                "UTC",
+                &[("antigravity-cli", "conversation-a")],
+            )
+            .expect("read for scope");
+
+        let response_ids: Vec<_> = scope_records
+            .iter()
+            .filter_map(|r| r.response_id.as_deref())
+            .collect();
+        assert!(response_ids.contains(&"resp-source"));
+        assert!(response_ids.contains(&"resp-unresolved")); // upgraded to dated
+        assert!(response_ids.contains(&"resp-post-baseline"));
+        assert!(response_ids.contains(&"resp-post-legacy"));
+        assert!(!response_ids.contains(&"resp-legacy")); // undated baseline excluded!
+
+        for rec in &scope_records {
+            assert_eq!(
+                rec.calendar_attribution,
+                AntigravityCalendarAttribution::Dated
+            );
+        }
     }
 }

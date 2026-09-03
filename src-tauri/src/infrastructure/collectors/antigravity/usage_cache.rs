@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 
 use crate::application::collection::CollectionScope;
 use crate::application::ports::antigravity_usage_cache::{
-    AntigravityTimestampOrigin, AntigravityUsageCache, AntigravityUsageCacheError,
-    AntigravityUsageCacheReconcileResult, AntigravityUsageCacheUpsert,
+    AntigravityCalendarAttribution, AntigravityTimestampOrigin, AntigravityUsageCache,
+    AntigravityUsageCacheError, AntigravityUsageCacheReconcileResult, AntigravityUsageCacheUpsert,
     CachedAntigravityUsageRecord,
 };
 
@@ -29,6 +29,9 @@ pub(crate) struct AntigravityCacheResolutionReport {
     pub(crate) first_seen_records: u32,
     pub(crate) legacy_records_repaired: u32,
     pub(crate) unresolved_legacy_records: u32,
+    pub(crate) undated_baseline_records: u32,
+    pub(crate) dated_source_reported_records: u32,
+    pub(crate) dated_first_seen_records: u32,
 }
 
 impl AntigravityCacheResolutionReport {
@@ -44,6 +47,22 @@ impl AntigravityCacheResolutionReport {
                 AntigravityTimestampOrigin::Unresolved => continue,
             };
             *counter = counter.saturating_add(1);
+
+            if record.calendar_attribution == AntigravityCalendarAttribution::UndatedBaseline {
+                self.undated_baseline_records = self.undated_baseline_records.saturating_add(1);
+            } else {
+                match record.timestamp_origin {
+                    AntigravityTimestampOrigin::SourceReported => {
+                        self.dated_source_reported_records =
+                            self.dated_source_reported_records.saturating_add(1);
+                    }
+                    AntigravityTimestampOrigin::FirstSeen => {
+                        self.dated_first_seen_records =
+                            self.dated_first_seen_records.saturating_add(1);
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 }
@@ -208,19 +227,9 @@ impl AntigravityUsageCacheClient {
 
 fn cached_record_from_usage(
     record: &AntigravityUsageRecord,
-    observed_at: DateTime<Utc>,
+    _observed_at: DateTime<Utc>,
 ) -> CachedAntigravityUsageRecord {
-    let (resolved_at, timestamp_origin) = match record.timestamp_origin {
-        AntigravityTimestampOrigin::Unresolved
-            if record.variant != AntigravityProductVariant::Cli =>
-        {
-            (
-                Some(record.observed_at.unwrap_or(observed_at)),
-                AntigravityTimestampOrigin::LegacyUnknown,
-            )
-        }
-        _ => (record.observed_at, record.timestamp_origin),
-    };
+    let (resolved_at, timestamp_origin) = (record.observed_at, record.timestamp_origin);
     CachedAntigravityUsageRecord {
         variant: record.variant.as_str().to_owned(),
         conversation_id: record.conversation_id.clone(),
@@ -237,6 +246,7 @@ fn cached_record_from_usage(
         cache_write_tokens: record.cache_write_tokens,
         observed_at: resolved_at,
         timestamp_origin,
+        calendar_attribution: record.calendar_attribution,
     }
 }
 
@@ -260,6 +270,7 @@ fn usage_record_from_cached(
         observed_at: Some(observed_at),
         timestamp_origin: record.timestamp_origin,
         legacy_fallback_at: None,
+        calendar_attribution: record.calendar_attribution,
         input_tokens: record.input_tokens,
         output_tokens: record.output_tokens,
         thinking_output_tokens: record.thinking_output_tokens,
@@ -384,6 +395,7 @@ pub(crate) mod tests {
             cache_write_tokens: 0,
             observed_at: Some(Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0).unwrap()),
             timestamp_origin: AntigravityTimestampOrigin::SourceReported,
+            calendar_attribution: AntigravityCalendarAttribution::Dated,
         }
     }
 

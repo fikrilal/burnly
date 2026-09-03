@@ -40,6 +40,20 @@ impl CommittedDailyUploadSink for CollectSyncBridge {
     }
 }
 
+impl crate::application::ports::baseline_repair::BaselineRepairSyncTrigger for CollectSyncBridge {
+    fn kick(&self) {
+        self.service.retry_now();
+    }
+}
+
+struct SessionAuthReader(Arc<CloudSession>);
+
+impl crate::application::ports::baseline_repair::BaselineRepairAuthReader for SessionAuthReader {
+    fn is_signed_in(&self) -> bool {
+        self.0.is_signed_in()
+    }
+}
+
 pub(crate) struct CollectSyncInstallArgs<'a, R: Runtime> {
     pub app: &'a AppHandle<R>,
     pub database_path: &'a std::path::Path,
@@ -101,7 +115,7 @@ pub(crate) fn install_collect_sync<R: Runtime>(
         Arc::new(CollectSyncEventSink::new(app.clone()));
 
     let service = CollectSync::new(
-        session,
+        session.clone(),
         CollectSyncConfig {
             device_id,
             device_name,
@@ -110,7 +124,7 @@ pub(crate) fn install_collect_sync<R: Runtime>(
             reporting_timezone: reporting_timezone.to_owned(),
         },
         export_store,
-        collect_store,
+        collect_store.clone(),
         remote,
         Arc::new(SystemClock),
         status_sink,
@@ -120,7 +134,40 @@ pub(crate) fn install_collect_sync<R: Runtime>(
         service: service.clone(),
     });
     account.set_lifecycle_listener(Some(bridge.clone()));
-    refresh_coordinator.set_committed_daily_upload_sink(bridge);
+    refresh_coordinator.set_committed_daily_upload_sink(bridge.clone());
+
+    if let (Ok(repair_db), Ok(baseline_db)) =
+        (Database::open(database_path), Database::open(database_path))
+    {
+        let baseline_store = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(baseline_db),
+        );
+        let auth_reader: Arc<
+            dyn crate::application::ports::baseline_repair::BaselineRepairAuthReader,
+        > = Arc::new(SessionAuthReader(session));
+        let sync_trigger: Arc<
+            dyn crate::application::ports::baseline_repair::BaselineRepairSyncTrigger,
+        > = bridge;
+        let diag_recorder: Option<
+            Arc<dyn crate::application::ports::diagnostic_recorder::DiagnosticRecorder>,
+        > = Database::open(database_path).ok().map(|db| {
+            Arc::new(crate::infrastructure::database::SqliteDiagnosticStore::new(
+                db,
+            ))
+                as Arc<dyn crate::application::ports::diagnostic_recorder::DiagnosticRecorder>
+        });
+        let repair_coordinator = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineRepairCoordinator::new(
+                repair_db,
+                baseline_store,
+                collect_store,
+                auth_reader,
+                sync_trigger,
+                diag_recorder,
+            ),
+        );
+        refresh_coordinator.set_baseline_repair_coordinator(repair_coordinator);
+    }
 
     service.on_startup();
     app.manage(service.clone());

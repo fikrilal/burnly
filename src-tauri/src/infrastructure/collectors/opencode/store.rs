@@ -9,8 +9,9 @@ use thiserror::Error;
 
 use super::super::support::open_external_read_only;
 use super::schema::{
-    inspect_schema, OpenCodeGeneration, OpenCodeSchemaCapabilities, OpenCodeSchemaError,
+    inspect_schema, OpenCodeGeneration, OpenCodeSchemaError, OpenCodeSchemaInspection,
 };
+use crate::application::collection::CollectorFailureCode;
 
 const MAX_PAGE_SIZE: usize = 1_000;
 const BUSY_TIMEOUT: Duration = Duration::from_millis(500);
@@ -119,10 +120,38 @@ pub(crate) enum OpenCodeStoreError {
     InvalidCursor,
 }
 
+impl OpenCodeStoreError {
+    /// Classifies an open/schema failure into the source-level collector
+    /// failure code the adapter should surface. The `Open` arm is
+    /// path-dependent (permission vs invalid location) and is classified by
+    /// `open_failure_code` where the path is available.
+    pub(crate) fn source_failure_code(&self) -> CollectorFailureCode {
+        match self {
+            Self::Open(_) => CollectorFailureCode::SourceInvalidLocation,
+            Self::Configure(_) | Self::Schema(_) => CollectorFailureCode::IncompatibleEnvelope,
+            Self::Snapshot(_) | Self::Query(_) => CollectorFailureCode::IncompatibleEnvelope,
+            Self::Incompatible | Self::InvalidCursor => CollectorFailureCode::IncompatibleEnvelope,
+        }
+    }
+}
+
+/// Classifies a failed read-only open of an existing path. SQLite reports an
+/// unreadable file as `SQLITE_CANTOPEN` rather than `SQLITE_PERM`, so probe the
+/// same read access SQLite needs: a `PermissionDenied` from `File::open` means
+/// the user cannot read the source artifact.
+pub(crate) fn open_failure_code(path: &Path) -> CollectorFailureCode {
+    match std::fs::File::open(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            CollectorFailureCode::SourcePermissionDenied
+        }
+        _ => CollectorFailureCode::SourceInvalidLocation,
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct OpenCodeStore {
     connection: Connection,
-    capabilities: OpenCodeSchemaCapabilities,
+    inspection: OpenCodeSchemaInspection,
 }
 
 impl OpenCodeStore {
@@ -134,15 +163,15 @@ impl OpenCodeStore {
         connection
             .pragma_update(None, "query_only", true)
             .map_err(OpenCodeStoreError::Configure)?;
-        let capabilities = inspect_schema(&connection).map_err(OpenCodeStoreError::Schema)?;
+        let inspection = inspect_schema(&connection).map_err(OpenCodeStoreError::Schema)?;
         Ok(Self {
             connection,
-            capabilities,
+            inspection,
         })
     }
 
-    pub(crate) const fn capabilities(&self) -> OpenCodeSchemaCapabilities {
-        self.capabilities
+    pub(crate) const fn capabilities(&self) -> OpenCodeSchemaInspection {
+        self.inspection
     }
 
     pub(crate) fn begin_snapshot(
@@ -154,24 +183,38 @@ impl OpenCodeStore {
             .map_err(OpenCodeStoreError::Snapshot)?;
         Ok(OpenCodeReadSnapshot {
             transaction,
-            capabilities: self.capabilities,
+            inspection: self.inspection,
         })
     }
 }
 
 pub(crate) struct OpenCodeReadSnapshot<'connection> {
     transaction: Transaction<'connection>,
-    capabilities: OpenCodeSchemaCapabilities,
+    inspection: OpenCodeSchemaInspection,
 }
 
 impl OpenCodeReadSnapshot<'_> {
+    /// Proves every row of the ignored generation's detail table is
+    /// redundant against the selected generation's detail table by stable
+    /// message ID (the cross-generation deduplication key). Returns true
+    /// when the residue is NOT fully redundant (ignoring would drop usage).
+    pub(crate) fn redundancy_exceeded(&self) -> Result<bool, OpenCodeStoreError> {
+        let (ignored, selected) = match (self.inspection.has_v1(), self.inspection.has_v2()) {
+            (true, false) => ("session_message", "message"),
+            (false, true) => ("message", "session_message"),
+            _ => return Ok(false),
+        };
+        super::schema::redundancy_exceeded(&self.transaction, ignored, selected)
+            .map_err(OpenCodeStoreError::Schema)
+    }
+
     pub(crate) fn read_sessions_page(
         &self,
         after_id: Option<&str>,
         page_size: OpenCodePageSize,
     ) -> Result<Vec<OpenCodeSessionHeader>, OpenCodeStoreError> {
         validate_cursor(after_id)?;
-        let sql = session_query(self.capabilities);
+        let sql = session_query(self.inspection);
         let mut statement = self
             .transaction
             .prepare(sql)
@@ -210,7 +253,7 @@ impl OpenCodeReadSnapshot<'_> {
             return Err(OpenCodeStoreError::InvalidCursor);
         }
         validate_cursor(after_id)?;
-        let sql = message_query(self.capabilities);
+        let sql = message_query(self.inspection);
         let mut statement = self
             .transaction
             .prepare(sql)
@@ -435,8 +478,8 @@ fn validate_cursor(cursor: Option<&str>) -> Result<(), OpenCodeStoreError> {
     }
 }
 
-fn session_query(capabilities: OpenCodeSchemaCapabilities) -> &'static str {
-    match (capabilities.has_v1(), capabilities.has_v2()) {
+fn session_query(inspection: OpenCodeSchemaInspection) -> &'static str {
+    match (inspection.has_v1(), inspection.has_v2()) {
         (true, false) => V1_SESSION_QUERY,
         (false, true) => V2_SESSION_QUERY,
         (true, true) => COMBINED_SESSION_QUERY,
@@ -444,8 +487,8 @@ fn session_query(capabilities: OpenCodeSchemaCapabilities) -> &'static str {
     }
 }
 
-fn message_query(capabilities: OpenCodeSchemaCapabilities) -> &'static str {
-    match (capabilities.has_v1(), capabilities.has_v2()) {
+fn message_query(inspection: OpenCodeSchemaInspection) -> &'static str {
+    match (inspection.has_v1(), inspection.has_v2()) {
         (true, false) => V1_MESSAGE_QUERY,
         (false, true) => V2_MESSAGE_QUERY,
         (true, true) => COMBINED_MESSAGE_QUERY,
@@ -783,6 +826,149 @@ mod tests {
         assert_eq!(messages[0].generation, OpenCodeGeneration::V1);
         assert_eq!(messages[1].generation, OpenCodeGeneration::V2);
         assert_eq!(messages[1].tokens.input, 40);
+    }
+
+    #[test]
+    fn mixed_generation_exposes_v1_only_and_never_reads_residual_v2() {
+        let database = FixtureDatabase::new(true, true);
+        let connection = database.write();
+        insert_v1_session(&connection, "session-v1", 10);
+        insert_v1_message(&connection, "message-v1", "session-v1", 11, 7);
+        insert_v2_message(&connection, "residual-v2", "session-v1", 12, 9, true);
+        drop(connection);
+        // Reproduce the reported production shape: `session_message` exists
+        // while `session_v2` does not.
+        database
+            .write()
+            .execute("DROP TABLE session_v2", [])
+            .expect("drop V2 session table");
+
+        let mut store = OpenCodeStore::open_read_only(&database.path).expect("store");
+        assert!(store.capabilities().has_v1());
+        assert!(!store.capabilities().has_v2());
+        assert_eq!(
+            store.capabilities().ignored_generation(),
+            Some(OpenCodeGeneration::V2)
+        );
+        let snapshot = store.begin_snapshot().expect("snapshot");
+        let sessions = snapshot
+            .read_sessions_page(None, page_size(10))
+            .expect("sessions");
+        let messages = snapshot
+            .read_messages_page("session-v1", None, page_size(10))
+            .expect("messages");
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].generation, OpenCodeGeneration::V1);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id, "message-v1");
+        assert_eq!(messages[0].generation, OpenCodeGeneration::V1);
+    }
+
+    #[test]
+    fn redundancy_exceeded_detects_rows_added_after_an_earlier_proof() {
+        let database = FixtureDatabase::new(true, true);
+        let connection = database.write();
+        insert_v1_session(&connection, "session-v1", 10);
+        insert_v1_message(&connection, "message-v1", "session-v1", 11, 7);
+        insert_v2_message(&connection, "message-v1", "session-v1", 12, 9, true);
+        drop(connection);
+        database
+            .write()
+            .execute("DROP TABLE session_v2", [])
+            .expect("drop V2 session table");
+
+        let mut store = OpenCodeStore::open_read_only(&database.path).expect("store");
+        assert!(!store
+            .begin_snapshot()
+            .expect("snapshot")
+            .redundancy_exceeded()
+            .expect("redundant"));
+
+        // A new unique residual row appears after the first proof (as if the
+        // source wrote it mid-collection). The next proof must report it.
+        database
+            .write()
+            .execute(
+                "INSERT INTO session_message (
+                    id, session_id, type, seq, time_created, time_updated, data
+                ) VALUES ('late-residual', 'session-v1', 'assistant', 2, 13, 13, '{}')",
+                [],
+            )
+            .expect("late residual row");
+        assert!(store
+            .begin_snapshot()
+            .expect("snapshot")
+            .redundancy_exceeded()
+            .expect("late residual detected"));
+    }
+
+    #[test]
+    fn no_complete_generation_fails_as_schema_error() {
+        let database = FixtureDatabase::new(true, true);
+        let connection = database.write();
+        connection
+            .execute("DROP TABLE session_v2", [])
+            .expect("drop V2 session table");
+        connection
+            .execute("DROP TABLE message", [])
+            .expect("drop V1 detail table");
+        drop(connection);
+
+        let error = OpenCodeStore::open_read_only(&database.path).expect_err("no complete schema");
+
+        assert!(matches!(error, OpenCodeStoreError::Schema(_)));
+        assert_eq!(
+            error.source_failure_code(),
+            CollectorFailureCode::IncompatibleEnvelope
+        );
+    }
+
+    #[test]
+    fn missing_database_classifies_as_invalid_location() {
+        let directory = TempDir::new().expect("directory");
+        let missing_path = directory.path().join("missing.db");
+
+        let error = OpenCodeStore::open_read_only(&missing_path).expect_err("missing database");
+
+        assert!(matches!(error, OpenCodeStoreError::Open(_)));
+        assert_eq!(
+            open_failure_code(&missing_path),
+            CollectorFailureCode::SourceInvalidLocation
+        );
+    }
+
+    #[test]
+    fn permission_denied_open_classifies_as_permission_denied() {
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = TempDir::new().expect("directory");
+        let path = directory.path().join("opencode.db");
+        {
+            let connection = Connection::open(&path).expect("database");
+            connection
+                .execute("CREATE TABLE session (id TEXT)", [])
+                .expect("schema");
+        }
+        #[cfg(unix)]
+        {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000))
+                .expect("remove permissions");
+        }
+
+        let error = OpenCodeStore::open_read_only(&path).expect_err("permission denied");
+
+        assert!(matches!(error, OpenCodeStoreError::Open(_)));
+        assert_eq!(
+            open_failure_code(&path),
+            CollectorFailureCode::SourcePermissionDenied
+        );
+        #[cfg(unix)]
+        {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("restore permissions");
+        }
     }
 
     #[test]

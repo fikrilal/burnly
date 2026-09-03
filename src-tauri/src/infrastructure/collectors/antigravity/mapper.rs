@@ -4,7 +4,9 @@ use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use thiserror::Error;
 
-use crate::application::ports::antigravity_usage_cache::AntigravityTimestampOrigin;
+use crate::application::ports::antigravity_usage_cache::{
+    AntigravityCalendarAttribution, AntigravityTimestampOrigin,
+};
 use crate::{
     application::collection::{
         CandidateProvenance, CandidateWarning, CollectionId, CollectionScope, CollectorKey,
@@ -90,6 +92,9 @@ pub(crate) fn map_daily(
 
     for conversation in conversations {
         for record in conversation.records {
+            if record.calendar_attribution == AntigravityCalendarAttribution::UndatedBaseline {
+                continue;
+            }
             let activity_at = record
                 .observed_at
                 .ok_or(AntigravityMappingError::MissingActivityTimestamp)?;
@@ -145,6 +150,9 @@ pub(crate) fn map_sessions(
         let mut last_activity_at = None;
         let mut inferred_activity_time = false;
         for record in conversation.records {
+            if record.calendar_attribution == AntigravityCalendarAttribution::UndatedBaseline {
+                continue;
+            }
             let activity_at = record
                 .observed_at
                 .ok_or(AntigravityMappingError::MissingActivityTimestamp)?;
@@ -444,6 +452,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn map_daily_skips_undated_baseline_records() {
+        let mut convs = conversations();
+        convs[0].records[0].calendar_attribution = AntigravityCalendarAttribution::UndatedBaseline;
+
+        let candidates = map_daily(
+            convs,
+            "UTC",
+            &CollectionScope::Full,
+            &context(),
+            &calculator(),
+        )
+        .expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].tokens.input_tokens(), Some(80));
+    }
+
+    #[test]
+    fn map_sessions_skips_undated_baseline_records() {
+        let mut convs = conversations();
+        convs[0].records[0].calendar_attribution = AntigravityCalendarAttribution::UndatedBaseline;
+
+        let candidates = map_sessions(convs, &context(), &calculator()).expect("mapped candidates");
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].tokens.input_tokens(), Some(80));
+    }
+
     fn conversations() -> Vec<ConversationUsage> {
         vec![
             ConversationUsage {
@@ -525,6 +562,7 @@ mod tests {
             observed_at: Some(Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0).unwrap()),
             timestamp_origin: AntigravityTimestampOrigin::SourceReported,
             legacy_fallback_at: None,
+            calendar_attribution: AntigravityCalendarAttribution::Dated,
             input_tokens,
             output_tokens,
             thinking_output_tokens: 0,

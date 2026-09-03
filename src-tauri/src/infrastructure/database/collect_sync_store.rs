@@ -102,6 +102,68 @@ impl CollectSyncStore for SqliteCollectSyncStore {
         Ok(merged)
     }
 
+    fn merge_pending_scope_for_all_accounts(
+        &self,
+        scope: &UploadScope,
+        now_ms: i64,
+    ) -> Result<usize, CollectSyncStoreError> {
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        let transaction = database
+            .connection_mut()
+            .transaction()
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+
+        let mut statement = transaction
+            .prepare(
+                "SELECT user_id, client_device_id, pending_scope_json
+                 FROM collect_sync_state",
+            )
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+
+        let accounts: Vec<(String, String, Option<String>)> = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|_| CollectSyncStoreError::Backend)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        drop(statement);
+
+        let mut updated = 0;
+        for (user_id, client_device_id, pending_json) in accounts {
+            let current_scope = pending_json
+                .as_deref()
+                .and_then(|raw| serde_json::from_str::<StoredUploadScope>(raw).ok())
+                .and_then(|stored| UploadScope::try_from(stored).ok());
+
+            let merged = merge_upload_scopes(current_scope, scope.clone());
+            let updated_pending_json = serde_json::to_string(&StoredUploadScope::from(&merged))
+                .map_err(|_| CollectSyncStoreError::Backend)?;
+
+            transaction
+                .execute(
+                    "UPDATE collect_sync_state
+                     SET pending_scope_json = ?1, updated_at_ms = ?2
+                     WHERE user_id = ?3 AND client_device_id = ?4",
+                    params![updated_pending_json, now_ms, user_id, client_device_id],
+                )
+                .map_err(|_| CollectSyncStoreError::Backend)?;
+            updated += 1;
+        }
+
+        transaction
+            .commit()
+            .map_err(|_| CollectSyncStoreError::Backend)?;
+        Ok(updated)
+    }
+
     fn create_generation(
         &self,
         input: CreateGenerationInput,
@@ -841,5 +903,51 @@ mod tests {
             .merge_pending_scope(&a, UploadScope::Full, 2)
             .expect("full");
         assert_eq!(merged, UploadScope::Full);
+    }
+
+    #[test]
+    fn merge_pending_scope_for_all_accounts_updates_every_account() {
+        let store = open_store();
+        let a = account("user-a");
+        let b = account("user-b");
+
+        let initial_a = UploadScope::incremental(
+            ["antigravity".to_owned()],
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 1).expect("d"),
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 2).expect("d"),
+        )
+        .expect("scope");
+        store
+            .merge_pending_scope(&a, initial_a, 1)
+            .expect("merge a");
+        store.ensure_state(&b, 1).expect("ensure b");
+
+        let incoming = UploadScope::incremental(
+            ["antigravity".to_owned()],
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 3).expect("d"),
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 4).expect("d"),
+        )
+        .expect("scope");
+
+        let updated = store
+            .merge_pending_scope_for_all_accounts(&incoming, 2)
+            .expect("merge all");
+        assert_eq!(updated, 2);
+
+        let state_a = store.load_state(&a).expect("load a").expect("state a");
+        let state_b = store.load_state(&b).expect("load b").expect("state b");
+
+        assert_eq!(
+            state_a.pending_scope,
+            Some(
+                UploadScope::incremental(
+                    ["antigravity".to_owned()],
+                    chrono::NaiveDate::from_ymd_opt(2026, 7, 1).expect("d"),
+                    chrono::NaiveDate::from_ymd_opt(2026, 7, 4).expect("d"),
+                )
+                .expect("merged")
+            )
+        );
+        assert_eq!(state_b.pending_scope, Some(incoming));
     }
 }

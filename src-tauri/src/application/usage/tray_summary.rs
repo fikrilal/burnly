@@ -26,9 +26,13 @@ pub(crate) enum OverviewDataStatus {
         reason = "reserved for age-based summary freshness once the UI distinguishes stale from failed"
     )]
     Stale,
-    Partial,
-    Failed,
     Empty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TraySummaryDataQuality {
+    Complete,
+    Partial,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +127,8 @@ pub(crate) struct TraySummaryReadModel {
     pub as_of_ms: i64,
     pub last_successful_refresh_at_ms: Option<i64>,
     pub data_status: OverviewDataStatus,
+    pub data_quality: TraySummaryDataQuality,
+    pub latest_refresh_status: Option<PersistedRefreshStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,12 +238,7 @@ fn read_model(
     let has_partial_data = result.has_partial_data;
     let latest_refresh_status = result.latest_refresh_status;
     let models = model_rows(result.today_models, &yesterday_models);
-    let data_status = data_status(
-        result.today_total_tokens,
-        has_partial_data,
-        latest_refresh_status,
-        &models,
-    );
+    let data_status = data_status(result.today_total_tokens, &models);
 
     TraySummaryReadModel {
         today: TraySummaryPeriodMetric {
@@ -259,6 +260,8 @@ fn read_model(
         as_of_ms,
         last_successful_refresh_at_ms: result.last_successful_refresh_at_ms,
         data_status,
+        data_quality: data_quality(has_partial_data),
+        latest_refresh_status,
     }
 }
 
@@ -343,25 +346,19 @@ fn trend(today: u64, yesterday: u64) -> Option<TraySummaryTrend> {
     })
 }
 
-fn data_status(
-    today_total_tokens: u64,
-    has_partial_data: bool,
-    latest_refresh_status: Option<PersistedRefreshStatus>,
-    models: &[TraySummaryModelRow],
-) -> OverviewDataStatus {
-    if has_partial_data || matches!(latest_refresh_status, Some(PersistedRefreshStatus::Partial)) {
-        return OverviewDataStatus::Partial;
-    }
-    if matches!(
-        latest_refresh_status,
-        Some(PersistedRefreshStatus::Failed | PersistedRefreshStatus::Cancelled)
-    ) {
-        return OverviewDataStatus::Failed;
-    }
+fn data_status(today_total_tokens: u64, models: &[TraySummaryModelRow]) -> OverviewDataStatus {
     if today_total_tokens == 0 && models.is_empty() {
         return OverviewDataStatus::Empty;
     }
     OverviewDataStatus::Current
+}
+
+const fn data_quality(has_partial_data: bool) -> TraySummaryDataQuality {
+    if has_partial_data {
+        TraySummaryDataQuality::Partial
+    } else {
+        TraySummaryDataQuality::Complete
+    }
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -480,6 +477,12 @@ mod tests {
         assert_eq!(model.models[4].model_name, "small");
         assert_eq!(model.models[4].agent_label, "Codex");
         assert_eq!(model.models[4].total_tokens, 20);
+        assert_eq!(model.data_status, OverviewDataStatus::Current);
+        assert_eq!(model.data_quality, TraySummaryDataQuality::Complete);
+        assert_eq!(
+            model.latest_refresh_status,
+            Some(PersistedRefreshStatus::Succeeded)
+        );
     }
 
     #[test]
@@ -488,27 +491,111 @@ mod tests {
     }
 
     #[test]
-    fn failed_refresh_status_is_not_flattened_to_empty_or_stale() {
-        assert_eq!(
-            data_status(0, false, Some(PersistedRefreshStatus::Failed), &[]),
-            OverviewDataStatus::Failed
-        );
-        assert_eq!(
-            data_status(100, false, Some(PersistedRefreshStatus::Cancelled), &[]),
-            OverviewDataStatus::Failed
-        );
+    fn read_model_keeps_availability_quality_and_refresh_status_independent() {
+        let cases: &[(
+            u64,
+            bool,
+            Option<PersistedRefreshStatus>,
+            OverviewDataStatus,
+            TraySummaryDataQuality,
+        )] = &[
+            (
+                0,
+                false,
+                Some(PersistedRefreshStatus::Failed),
+                OverviewDataStatus::Empty,
+                TraySummaryDataQuality::Complete,
+            ),
+            (
+                1_000,
+                false,
+                Some(PersistedRefreshStatus::Succeeded),
+                OverviewDataStatus::Current,
+                TraySummaryDataQuality::Complete,
+            ),
+            (
+                1_000,
+                true,
+                Some(PersistedRefreshStatus::Succeeded),
+                OverviewDataStatus::Current,
+                TraySummaryDataQuality::Partial,
+            ),
+            (
+                1_000,
+                false,
+                Some(PersistedRefreshStatus::Partial),
+                OverviewDataStatus::Current,
+                TraySummaryDataQuality::Complete,
+            ),
+            (
+                1_000,
+                true,
+                Some(PersistedRefreshStatus::Partial),
+                OverviewDataStatus::Current,
+                TraySummaryDataQuality::Partial,
+            ),
+            (
+                1_000,
+                false,
+                Some(PersistedRefreshStatus::Cancelled),
+                OverviewDataStatus::Current,
+                TraySummaryDataQuality::Complete,
+            ),
+        ];
+
+        for &(
+            today_total_tokens,
+            has_partial_data,
+            latest_refresh_status,
+            expected_status,
+            expected_quality,
+        ) in cases
+        {
+            let model = read_model(
+                scope(),
+                store_result(today_total_tokens, has_partial_data, latest_refresh_status),
+                1_782_375_600_000,
+            );
+
+            assert_eq!(
+                model.data_status, expected_status,
+                "tokens={today_total_tokens} partial={has_partial_data} refresh={latest_refresh_status:?}"
+            );
+            assert_eq!(
+                model.data_quality, expected_quality,
+                "tokens={today_total_tokens} partial={has_partial_data} refresh={latest_refresh_status:?}"
+            );
+            assert_eq!(
+                model.latest_refresh_status, latest_refresh_status,
+                "tokens={today_total_tokens} partial={has_partial_data} refresh={latest_refresh_status:?}"
+            );
+        }
     }
 
-    #[test]
-    fn partial_refresh_status_takes_precedence_over_failed_data_flags() {
-        assert_eq!(
-            data_status(0, true, Some(PersistedRefreshStatus::Failed), &[]),
-            OverviewDataStatus::Partial
-        );
-        assert_eq!(
-            data_status(100, false, Some(PersistedRefreshStatus::Partial), &[]),
-            OverviewDataStatus::Partial
-        );
+    fn store_result(
+        today_total_tokens: u64,
+        has_partial_data: bool,
+        latest_refresh_status: Option<PersistedRefreshStatus>,
+    ) -> TraySummaryStoreResult {
+        let today_models = if today_total_tokens == 0 {
+            Vec::new()
+        } else {
+            vec![usage("gpt-5.1", &[SourceKey::Codex], today_total_tokens)]
+        };
+        TraySummaryStoreResult {
+            today_total_tokens,
+            week_total_tokens: 2_000,
+            month_total_tokens: 3_000,
+            today_models,
+            yesterday_models: Vec::new(),
+            has_partial_data,
+            latest_refresh_status,
+            last_successful_refresh_at_ms: Some(1_000),
+        }
+    }
+
+    fn scope() -> TraySummaryScope {
+        TraySummaryScope::new(date(2026, 6, 25), "Asia/Jakarta").expect("scope")
     }
 
     #[test]

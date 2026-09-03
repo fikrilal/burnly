@@ -263,6 +263,35 @@ describe("IPC command responses - usage", () => {
 
     expect(result.data.today.totalTokens).toBe("42180");
     expect(result.data.models[0]?.modelName).toBe("GPT-5.1");
+    expect(result.data.dataStatus).toBe("current");
+    expect(result.data.dataQuality).toBe("complete");
+    expect(result.data.latestRefreshStatus).toBe("succeeded");
+  });
+
+  it("rejects tray summary with unknown status dimensions", async () => {
+    const invalidDimensions: {
+      dataStatus?: unknown;
+      dataQuality?: unknown;
+      latestRefreshStatus?: unknown;
+    }[] = [
+      { dataStatus: "partial" },
+      { dataQuality: "estimated" },
+      { latestRefreshStatus: "running" },
+    ];
+
+    for (const invalid of invalidDimensions) {
+      const fixture = traySummary();
+      if (!fixture.ok) {
+        throw new Error("tray summary fixture must be a success envelope");
+      }
+      const data = { ...fixture.data, ...invalid };
+      const invoker: CommandInvoker = () =>
+        Promise.resolve({ ok: true, data, meta });
+
+      await expect(
+        getTraySummary({ reportingTimezone: "Asia/Jakarta" }, invoker),
+      ).rejects.toThrow();
+    }
   });
 });
 
@@ -379,6 +408,8 @@ function traySummary(): IpcResponse<TraySummaryResponse> {
       asOf: "2026-06-25T07:30:00.000Z",
       lastSuccessfulRefreshAt: "2026-06-25T07:25:00.000Z",
       dataStatus: "current",
+      dataQuality: "complete",
+      latestRefreshStatus: "succeeded",
     },
     meta,
   };

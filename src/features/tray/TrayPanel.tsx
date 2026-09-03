@@ -13,7 +13,7 @@ import { userSafeErrorMessage } from "../../lib/user-safe-error";
 import { SettingsTab } from "../settings/SettingsTab";
 import { OverviewTab } from "./OverviewTab";
 import { TrayScrollArea } from "./TrayScrollArea";
-import { freshnessState, relativeUpdated } from "./tray-utils";
+import { trayHeaderStatus, relativeUpdated } from "./tray-utils";
 import { useTraySummary } from "./use-tray-summary";
 
 interface TrayPanelProps {
@@ -115,11 +115,13 @@ function TrayPanelContent({
             />
             <div className="mt-0.5">
               <HeaderStatus
-                state={freshnessState(
-                  summary.dataStatus,
+                state={trayHeaderStatus({
+                  dataStatus: summary.dataStatus,
+                  dataQuality: summary.dataQuality,
+                  latestRefreshStatus: summary.latestRefreshStatus,
                   isRefreshing,
                   isError,
-                )}
+                })}
                 updatedAt={summary.lastSuccessfulRefreshAt}
               />
             </div>
@@ -250,6 +252,13 @@ function HeaderStatus({
   if (state === "partial") {
     return (
       <span className="text-xs text-muted-foreground">Some sources failed</span>
+    );
+  }
+  if (state === "estimated") {
+    return (
+      <span className="text-xs text-muted-foreground">
+        Some usage is estimated
+      </span>
     );
   }
   if (state === "refreshing") {

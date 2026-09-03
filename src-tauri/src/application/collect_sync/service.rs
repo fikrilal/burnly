@@ -994,6 +994,24 @@ mod tests {
             Ok(merged)
         }
 
+        fn merge_pending_scope_for_all_accounts(
+            &self,
+            scope: &UploadScope,
+            _now_ms: i64,
+        ) -> Result<usize, CollectSyncStoreError> {
+            let mut states = self.states.lock().expect("states");
+            let mut count = 0;
+            for state in states.values_mut() {
+                let merged = crate::application::collect_sync::merge_upload_scopes(
+                    state.pending_scope.clone(),
+                    scope.clone(),
+                );
+                state.pending_scope = Some(merged);
+                count += 1;
+            }
+            Ok(count)
+        }
+
         fn create_generation(
             &self,
             input: CreateGenerationInput,

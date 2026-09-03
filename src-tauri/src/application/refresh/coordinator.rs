@@ -23,6 +23,9 @@ pub(crate) enum BudgetEvaluationError {
     StorageUnavailable,
 }
 use crate::application::diagnostics::DiagnosticEvent;
+use crate::application::ports::baseline_repair::{
+    AntigravityBaselineRepairCoordinator, NoopBaselineRepairCoordinator,
+};
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::Collector;
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
@@ -105,6 +108,8 @@ pub(crate) struct RefreshCoordinatorHooks {
     budget_evaluator: Arc<dyn BudgetEvaluationRunner>,
     committed_daily_upload_sink: Arc<Mutex<Arc<dyn CommittedDailyUploadSink>>>,
     diagnostic_recorder: Arc<Mutex<Arc<dyn DiagnosticRecorder>>>,
+    pub(crate) baseline_repair_coordinator:
+        Arc<Mutex<Arc<dyn AntigravityBaselineRepairCoordinator>>>,
 }
 
 impl RefreshCoordinatorHooks {
@@ -119,7 +124,21 @@ impl RefreshCoordinatorHooks {
                 NoopCommittedDailyUploadSink,
             ))),
             diagnostic_recorder: Arc::new(Mutex::new(Arc::new(NoopDiagnosticRecorder))),
+            baseline_repair_coordinator: Arc::new(Mutex::new(Arc::new(
+                NoopBaselineRepairCoordinator,
+            ))),
         }
+    }
+
+    pub(crate) fn with_baseline_repair_coordinator(
+        self,
+        baseline_repair_coordinator: Arc<dyn AntigravityBaselineRepairCoordinator>,
+    ) -> Self {
+        *self
+            .baseline_repair_coordinator
+            .lock()
+            .expect("repair coordinator lock is poisoned") = baseline_repair_coordinator;
+        self
     }
 }
 
@@ -139,6 +158,7 @@ pub(crate) struct RefreshCoordinator {
     event_sink: Arc<dyn RefreshEventSink>,
     committed_daily_upload_sink: Arc<Mutex<Arc<dyn CommittedDailyUploadSink>>>,
     diagnostic_recorder: Arc<Mutex<Arc<dyn DiagnosticRecorder>>>,
+    baseline_repair_coordinator: Arc<Mutex<Arc<dyn AntigravityBaselineRepairCoordinator>>>,
     app_version: String,
     aggregation_timezone: Arc<Mutex<String>>,
     sequence: Arc<AtomicU64>,
@@ -203,6 +223,7 @@ impl RefreshCoordinator {
             event_sink: hooks.event_sink,
             committed_daily_upload_sink: hooks.committed_daily_upload_sink,
             diagnostic_recorder: hooks.diagnostic_recorder,
+            baseline_repair_coordinator: hooks.baseline_repair_coordinator,
             app_version: app_version.into(),
             aggregation_timezone: Arc::new(Mutex::new(aggregation_timezone.into())),
             sequence: Arc::new(AtomicU64::new(0)),
@@ -231,6 +252,16 @@ impl RefreshCoordinator {
             .diagnostic_recorder
             .lock()
             .expect("diagnostic recorder lock is poisoned") = recorder;
+    }
+
+    pub(crate) fn set_baseline_repair_coordinator(
+        &self,
+        coordinator: Arc<dyn AntigravityBaselineRepairCoordinator>,
+    ) {
+        *self
+            .baseline_repair_coordinator
+            .lock()
+            .expect("repair coordinator lock is poisoned") = coordinator;
     }
 
     pub(crate) fn set_aggregation_timezone(&self, timezone: impl Into<String>) {
@@ -328,6 +359,11 @@ impl RefreshCoordinator {
             .lock()
             .expect("diagnostic recorder lock is poisoned")
             .clone();
+        let repair_coordinator = self
+            .baseline_repair_coordinator
+            .lock()
+            .expect("repair coordinator lock is poisoned")
+            .clone();
         let result = execute_refresh(
             RefreshExecution {
                 collector: self.collector.as_ref(),
@@ -336,6 +372,7 @@ impl RefreshCoordinator {
                 budget_evaluator: self.budget_evaluator.as_ref(),
                 clock: self.clock.as_ref(),
                 diagnostic_recorder: diagnostic_recorder.as_ref(),
+                baseline_repair_coordinator: repair_coordinator.as_ref(),
                 app_version: &self.app_version,
                 aggregation_timezone,
             },
@@ -352,6 +389,40 @@ impl RefreshCoordinator {
             }
             state.snapshot()
         };
+
+        let repair_completion = {
+            let coordinator = repair_coordinator;
+            match coordinator.on_refresh_completed(&result.target_outcomes, result.finished_at_ms) {
+                Ok(completion) => completion,
+                Err(error) => {
+                    if let (Ok(code), Ok(summary)) = (
+                        crate::application::diagnostics::DiagnosticCode::new(
+                            "antigravity.baseline_repair_failed",
+                        ),
+                        crate::application::diagnostics::DiagnosticSummary::new(
+                            "Antigravity baseline repair encountered an error.",
+                        ),
+                    ) {
+                        let context = crate::application::diagnostics::DiagnosticContext::new(
+                            serde_json::json!({ "error": error.to_string() }).to_string(),
+                        )
+                        .ok();
+                        if let Ok(event) = crate::application::diagnostics::DiagnosticEvent::new(
+                            crate::application::diagnostics::DiagnosticArea::Collector,
+                            crate::application::diagnostics::DiagnosticSeverity::Warning,
+                            code,
+                            summary,
+                            context,
+                            result.finished_at_ms,
+                        ) {
+                            diagnostic_recorder.record(event);
+                        }
+                    }
+                    None
+                }
+            }
+        };
+
         // Cloud upload is best-effort and never changes refresh outcome.
         if !result.committed_daily_upload.is_empty() {
             let sink = self
@@ -361,6 +432,10 @@ impl RefreshCoordinator {
                 .clone();
             sink.on_committed_daily_upload(result.committed_daily_upload);
         }
-        self.event_sink.publish(snapshot, result.usage_changed);
+
+        let usage_changed =
+            result.usage_changed || repair_completion.map(|c| c.usage_changed).unwrap_or(false);
+
+        self.event_sink.publish(snapshot, usage_changed);
     }
 }

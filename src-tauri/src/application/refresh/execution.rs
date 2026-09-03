@@ -11,6 +11,7 @@ use crate::application::diagnostics::{
     DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
     DiagnosticSummary,
 };
+use crate::application::ports::baseline_repair::AntigravityBaselineRepairCoordinator;
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
@@ -42,6 +43,7 @@ pub(super) struct RefreshExecution<'a> {
     pub(super) budget_evaluator: &'a dyn BudgetEvaluationRunner,
     pub(super) clock: &'a dyn Clock,
     pub(super) diagnostic_recorder: &'a dyn DiagnosticRecorder,
+    pub(super) baseline_repair_coordinator: &'a dyn AntigravityBaselineRepairCoordinator,
     pub(super) app_version: &'a str,
     pub(super) aggregation_timezone: String,
 }
@@ -101,6 +103,7 @@ pub(super) fn execute_refresh(
                 finished_at_ms: failure.finished_at_ms,
                 usage_changed: failure.usage_changed,
                 committed_daily_upload: failure.committed_daily_upload,
+                target_outcomes: failure.target_outcomes,
             }
         }
     }
@@ -112,14 +115,15 @@ fn execute_open_refresh(
     scope_policy: RefreshScopePolicy,
     job_id: &str,
     started_at_ms: i64,
-) -> Result<ExecutionResult, ExecutionFailure> {
+) -> Result<ExecutionResult, Box<ExecutionFailure>> {
     let requested_at = DateTime::from_timestamp_millis(started_at_ms)
         .ok_or_else(|| failure(context, "refresh.time", "Refresh time is invalid."))?;
 
     let mut aggregate = TargetRunAccumulator::default();
-    let mut first_error = None;
-    let mut usage_changed = false;
     let mut finished_at_ms = started_at_ms;
+    let mut usage_changed = false;
+    let mut first_error = None;
+    let mut target_outcomes = Vec::new();
     let mut committed_daily_upload = CommittedDailyUpload {
         targets: Vec::new(),
         full_refresh_complete: matches!(scope_policy, RefreshScopePolicy::Full),
@@ -159,6 +163,7 @@ fn execute_open_refresh(
             })?;
         let request = planned_collection_request(
             context.run_store,
+            context.baseline_repair_coordinator,
             job_id,
             target,
             profile,
@@ -167,9 +172,18 @@ fn execute_open_refresh(
             scope_policy,
         )
         .map_err(|error| failure(context, error.code(), error.summary()))?;
-        let collection = match context.collector.collect(request, &NeverCancelled) {
+        let collection = match context.collector.collect(request.clone(), &NeverCancelled) {
             Ok(collection) => collection,
             Err(failure) => {
+                target_outcomes.push(
+                    crate::application::ports::baseline_repair::TargetExecutionOutcome {
+                        source: target.source,
+                        projection: target.projection,
+                        effective_scope: request.scope().clone(),
+                        outcome:
+                            crate::application::ports::baseline_repair::TargetRunOutcome::Failed,
+                    },
+                );
                 committed_daily_upload.full_refresh_complete = false;
                 aggregate.record(RunOutcome::Failed);
                 finished_at_ms = context.clock.now_epoch_ms();
@@ -186,13 +200,47 @@ fn execute_open_refresh(
                 continue;
             }
         };
-        let result = persist(
+        let result = match persist(
             context,
             refresh_run_id,
             source_id,
             started_at_ms,
             &collection,
-        )?;
+        ) {
+            Ok(result) => result,
+            Err(mut failure) => {
+                target_outcomes.push(
+                    crate::application::ports::baseline_repair::TargetExecutionOutcome {
+                        source: target.source,
+                        projection: target.projection,
+                        effective_scope: collection.metadata().effective_scope().clone(),
+                        outcome:
+                            crate::application::ports::baseline_repair::TargetRunOutcome::Failed,
+                    },
+                );
+                failure.target_outcomes = target_outcomes;
+                return Err(failure);
+            }
+        };
+        let target_outcome = match result.outcome {
+            RunOutcome::Succeeded => {
+                crate::application::ports::baseline_repair::TargetRunOutcome::Succeeded
+            }
+            RunOutcome::Partial => {
+                crate::application::ports::baseline_repair::TargetRunOutcome::Partial
+            }
+            RunOutcome::Failed => {
+                crate::application::ports::baseline_repair::TargetRunOutcome::Failed
+            }
+        };
+        target_outcomes.push(
+            crate::application::ports::baseline_repair::TargetExecutionOutcome {
+                source: target.source,
+                projection: target.projection,
+                effective_scope: collection.metadata().effective_scope().clone(),
+                outcome: target_outcome,
+            },
+        );
         aggregate.record(result.outcome);
         if !matches!(result.outcome, RunOutcome::Succeeded) {
             committed_daily_upload.full_refresh_complete = false;
@@ -224,15 +272,18 @@ fn execute_open_refresh(
                 },
             },
         )
-        .map_err(|_| ExecutionFailure {
-            import_run_id: None,
-            records_seen: 0,
-            records_rejected: 0,
-            finished_at_ms,
-            usage_changed,
-            code: "refresh.completion",
-            summary: "Could not complete the refresh run.",
-            committed_daily_upload: committed_daily_upload.clone(),
+        .map_err(|_| {
+            Box::new(ExecutionFailure {
+                import_run_id: None,
+                records_seen: 0,
+                records_rejected: 0,
+                finished_at_ms,
+                usage_changed,
+                code: "refresh.completion",
+                summary: "Could not complete the refresh run.",
+                committed_daily_upload: committed_daily_upload.clone(),
+                target_outcomes: target_outcomes.clone(),
+            })
         })?;
 
     Ok(ExecutionResult {
@@ -240,6 +291,7 @@ fn execute_open_refresh(
         finished_at_ms,
         usage_changed,
         committed_daily_upload,
+        target_outcomes,
     })
 }
 
@@ -269,7 +321,7 @@ fn persist(
     source_id: SourceId,
     now_ms: i64,
     collection: &CollectionResult,
-) -> Result<ExecutionResult, ExecutionFailure> {
+) -> Result<ExecutionResult, Box<ExecutionFailure>> {
     let metadata = collection.metadata();
     let import_collector = ImportCollector::new(
         metadata.collector().as_str(),
@@ -343,6 +395,7 @@ fn persist(
         finished_at_ms,
         usage_changed: true,
         committed_daily_upload: CommittedDailyUpload::default(),
+        target_outcomes: Vec::new(),
     })
 }
 
@@ -404,6 +457,7 @@ fn failed_result(context: &RefreshExecution<'_>, usage_changed: bool) -> Executi
         finished_at_ms: context.clock.now_epoch_ms(),
         usage_changed,
         committed_daily_upload: CommittedDailyUpload::default(),
+        target_outcomes: Vec::new(),
     }
 }
 
@@ -448,8 +502,8 @@ fn failure(
     context: &RefreshExecution<'_>,
     code: &'static str,
     summary: &'static str,
-) -> ExecutionFailure {
-    ExecutionFailure {
+) -> Box<ExecutionFailure> {
+    Box::new(ExecutionFailure {
         import_run_id: None,
         records_seen: 0,
         records_rejected: 0,
@@ -458,7 +512,8 @@ fn failure(
         code,
         summary,
         committed_daily_upload: CommittedDailyUpload::default(),
-    }
+        target_outcomes: Vec::new(),
+    })
 }
 
 fn import_failure(
@@ -469,8 +524,8 @@ fn import_failure(
     usage_changed: bool,
     code: &'static str,
     summary: &'static str,
-) -> ExecutionFailure {
-    ExecutionFailure {
+) -> Box<ExecutionFailure> {
+    Box::new(ExecutionFailure {
         import_run_id: Some(import_run_id),
         records_seen,
         records_rejected,
@@ -479,7 +534,8 @@ fn import_failure(
         code,
         summary,
         committed_daily_upload: CommittedDailyUpload::default(),
-    }
+        target_outcomes: Vec::new(),
+    })
 }
 
 struct NeverCancelled;

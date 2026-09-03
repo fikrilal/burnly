@@ -11,6 +11,29 @@ pub(crate) enum AntigravityTimestampOrigin {
     Unresolved,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AntigravityCalendarAttribution {
+    Dated,
+    UndatedBaseline,
+}
+
+impl AntigravityCalendarAttribution {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dated => "dated",
+            Self::UndatedBaseline => "undated_baseline",
+        }
+    }
+
+    pub(crate) fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "dated" => Some(Self::Dated),
+            "undated_baseline" => Some(Self::UndatedBaseline),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CachedAntigravityUsageRecord {
     pub(crate) variant: String,
@@ -28,6 +51,7 @@ pub(crate) struct CachedAntigravityUsageRecord {
     pub(crate) cache_write_tokens: u64,
     pub(crate) observed_at: Option<DateTime<Utc>>,
     pub(crate) timestamp_origin: AntigravityTimestampOrigin,
+    pub(crate) calendar_attribution: AntigravityCalendarAttribution,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

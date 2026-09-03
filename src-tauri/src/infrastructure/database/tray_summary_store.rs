@@ -342,6 +342,67 @@ mod tests {
         assert_eq!(summary.latest_refresh_status, None);
     }
 
+    #[test]
+    fn successful_refresh_with_partial_today_usage_is_observable_independently() {
+        let (_directory, store) = migrated_store();
+        {
+            let guard = store.connection();
+            let conn = guard.connection();
+            seed_source(conn, 1, "antigravity");
+            seed_model(conn, 10, 1, "gemini-3-pro", Some("Gemini 3 Pro"));
+
+            let refresh_id = seed_refresh(conn, "succeeded", 1_500);
+            let import = seed_import(conn, refresh_id, 1);
+
+            let today = seed_daily(
+                conn,
+                DailySeed::new(1, import, "antigravity-today", "2026-06-25", 427_001)
+                    .quality("partial"),
+            );
+            seed_daily_model_usage(conn, today, 1, 10, 427_001, import);
+        }
+
+        let summary = store.read_tray_summary(&scope()).expect("summary");
+
+        assert_eq!(summary.today_total_tokens, 427_001);
+        assert!(summary.has_partial_data);
+        assert_eq!(
+            summary.latest_refresh_status,
+            Some(PersistedRefreshStatus::Succeeded)
+        );
+        assert_eq!(summary.last_successful_refresh_at_ms, Some(1_500));
+    }
+
+    #[test]
+    fn partial_refresh_with_complete_today_usage_is_observable_independently() {
+        let (_directory, store) = migrated_store();
+        {
+            let guard = store.connection();
+            let conn = guard.connection();
+            seed_source(conn, 1, "codex");
+            seed_model(conn, 10, 1, "gpt-5.1", Some("GPT-5.1"));
+
+            let refresh_id = seed_refresh(conn, "partial", 1_500);
+            let import = seed_import(conn, refresh_id, 1);
+
+            let today = seed_daily(
+                conn,
+                DailySeed::new(1, import, "codex-today", "2026-06-25", 800),
+            );
+            seed_daily_model_usage(conn, today, 1, 10, 800, import);
+        }
+
+        let summary = store.read_tray_summary(&scope()).expect("summary");
+
+        assert_eq!(summary.today_total_tokens, 800);
+        assert!(!summary.has_partial_data);
+        assert_eq!(
+            summary.latest_refresh_status,
+            Some(PersistedRefreshStatus::Partial)
+        );
+        assert_eq!(summary.last_successful_refresh_at_ms, None);
+    }
+
     impl SqliteTraySummaryStore {
         fn connection(&self) -> std::sync::MutexGuard<'_, Database> {
             self.database.lock().expect("database lock")

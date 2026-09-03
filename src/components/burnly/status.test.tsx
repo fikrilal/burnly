@@ -17,6 +17,12 @@ describe("FreshnessStatus", () => {
     rerender(<FreshnessStatus state="refreshing" />);
     expect(screen.getByText("Refreshing")).toBeInTheDocument();
 
+    rerender(<FreshnessStatus state="estimated" />);
+    expect(screen.getByText("Some usage is estimated")).toBeInTheDocument();
+
+    rerender(<FreshnessStatus state="partial" />);
+    expect(screen.getByText("Some sources failed")).toBeInTheDocument();
+
     rerender(<FreshnessStatus state="failed" />);
     expect(screen.getByText("Refresh failed")).toBeInTheDocument();
   });

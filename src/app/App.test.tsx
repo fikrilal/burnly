@@ -60,7 +60,7 @@ describe("App", () => {
 
     render(
       <App
-        loadBootstrap={() => Promise.resolve(bootstrapResult(2))}
+        loadBootstrap={() => Promise.resolve(bootstrapResult(3))}
         loadCapabilities={loadCapabilities}
       />,
     );
@@ -68,7 +68,7 @@ describe("App", () => {
     expect(
       await screen.findByText("Contract Incompatible"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Frontend v1, runtime v2")).toBeInTheDocument();
+    expect(screen.getByText("Frontend v2, runtime v3")).toBeInTheDocument();
     expect(loadCapabilities).not.toHaveBeenCalled();
   });
 });
@@ -147,7 +147,7 @@ describe("App startup failures", () => {
 });
 
 function bootstrapResult(
-  contractVersion: typeof CONTRACT_VERSION | 2 = CONTRACT_VERSION,
+  contractVersion: typeof CONTRACT_VERSION | 3 = CONTRACT_VERSION,
 ): CommandResult<AppBootstrapResponse> {
   return {
     data: {

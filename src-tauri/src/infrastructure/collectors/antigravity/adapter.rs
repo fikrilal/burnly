@@ -16,9 +16,14 @@ use crate::application::diagnostics::{
     DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
     DiagnosticSummary,
 };
+use crate::application::ports::antigravity_baseline_store::{
+    AntigravityBaselineStatus, AntigravityBaselineStore, AntigravityBaselineVariant,
+    NoopAntigravityBaselineStore,
+};
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::domain::source::SourceKey;
+use crate::infrastructure::database::AntigravityBaselineRepairService;
 
 use super::app_ide_sqlite_reader::{collect_app_ide_sqlite_fallback, AppIdeSqliteCollectionReport};
 use super::cli_sqlite_reader::{
@@ -51,6 +56,8 @@ pub(crate) struct AntigravityCollector {
     endpoint_validation: EndpointValidationSource,
     runtime_usage: RuntimeUsageSource,
     usage_cache: AntigravityUsageCacheClient,
+    baseline_store: Arc<dyn AntigravityBaselineStore>,
+    repair_service: Option<Arc<AntigravityBaselineRepairService>>,
     diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
     calculator: BurnlyCostCalculator,
 }
@@ -64,9 +71,27 @@ impl AntigravityCollector {
             endpoint_validation: EndpointValidationSource::Current(runtime_client.clone()),
             runtime_usage: RuntimeUsageSource::Current(runtime_client),
             usage_cache: AntigravityUsageCacheClient::new(Arc::new(NoOpAntigravityUsageCache)),
+            baseline_store: Arc::new(NoopAntigravityBaselineStore),
+            repair_service: None,
             diagnostics: None,
             calculator: BurnlyCostCalculator::new(),
         }
+    }
+
+    pub(crate) fn with_baseline_store(
+        mut self,
+        baseline_store: Arc<dyn AntigravityBaselineStore>,
+    ) -> Self {
+        self.baseline_store = baseline_store;
+        self
+    }
+
+    pub(crate) fn with_repair_service(
+        mut self,
+        repair_service: Arc<AntigravityBaselineRepairService>,
+    ) -> Self {
+        self.repair_service = Some(repair_service);
+        self
     }
 
     pub(crate) fn with_diagnostic_recorder(
@@ -116,6 +141,8 @@ impl AntigravityCollector {
             endpoint_validation,
             runtime_usage,
             usage_cache,
+            baseline_store: Arc::new(NoopAntigravityBaselineStore),
+            repair_service: None,
             diagnostics: None,
             calculator: BurnlyCostCalculator::new(),
         }
@@ -394,6 +421,13 @@ impl Collector for AntigravityCollector {
             return Err(failure(&request, CollectorFailureCode::Cancelled));
         }
 
+        let started_at_ms = started_at.timestamp_millis();
+        if let Some(repair_service) = &self.repair_service {
+            repair_service
+                .ensure_cache_reclassified(started_at_ms)
+                .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
+        }
+
         let discovery = self.runtime_discovery.discover();
         let validation = self.endpoint_validation.validate(&discovery.endpoints);
         let mut diagnostics = AntigravityDiagnosticCounters {
@@ -432,7 +466,44 @@ impl Collector for AntigravityCollector {
             .filter(|conversation| is_sqlite_artifact(&conversation.path))
             .count();
         diagnostics.conversations_found = conversations.len();
+
+        let mut pending_variants = Vec::new();
+        for baseline_variant in AntigravityBaselineVariant::all() {
+            let product_variant = match baseline_variant {
+                AntigravityBaselineVariant::App => AntigravityProductVariant::App,
+                AntigravityBaselineVariant::Ide => AntigravityProductVariant::Ide,
+                AntigravityBaselineVariant::Cli => AntigravityProductVariant::Cli,
+            };
+            let artifact_count = conversations
+                .iter()
+                .filter(|c| c.variant == product_variant)
+                .count();
+            let status = self
+                .baseline_store
+                .get_status(baseline_variant)
+                .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
+            match status {
+                None => {
+                    if artifact_count == 0 {
+                        self.baseline_store
+                            .complete_baseline(baseline_variant, started_at_ms)
+                            .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
+                    } else {
+                        self.baseline_store
+                            .begin_baseline(baseline_variant, started_at_ms)
+                            .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
+                        pending_variants.push(baseline_variant);
+                    }
+                }
+                Some(AntigravityBaselineStatus::Pending) => {
+                    pending_variants.push(baseline_variant);
+                }
+                Some(AntigravityBaselineStatus::Complete) => {}
+            }
+        }
+
         if conversations.is_empty() {
+            update_baseline_variant_counters(&*self.baseline_store, &mut diagnostics);
             self.record_diagnostic(
                 &request,
                 AntigravityDiagnosticInput {
@@ -602,6 +673,9 @@ impl Collector for AntigravityCollector {
             diagnostics.first_seen_timestamp_records = resolution.first_seen_records;
             diagnostics.legacy_records_repaired = resolution.legacy_records_repaired;
             diagnostics.unresolved_legacy_records = resolution.unresolved_legacy_records;
+            diagnostics.undated_baseline_records = resolution.undated_baseline_records;
+            diagnostics.dated_source_reported_records = resolution.dated_source_reported_records;
+            diagnostics.dated_first_seen_records = resolution.dated_first_seen_records;
         }
 
         self.finish_collection(FinishCollectionInput {
@@ -611,6 +685,7 @@ impl Collector for AntigravityCollector {
             diagnostics: &mut diagnostics,
             conversations: &conversations,
             usage: collected_usage,
+            pending_variants,
             runtime_failure,
             default_failure_reason,
         })
@@ -634,6 +709,7 @@ struct FinishCollectionInput<'a> {
     diagnostics: &'a mut AntigravityDiagnosticCounters,
     conversations: &'a [ConversationDatabase],
     usage: Vec<ConversationUsage>,
+    pending_variants: Vec<AntigravityBaselineVariant>,
     runtime_failure: Option<AntigravityRuntimeCollectionFailureReason>,
     default_failure_reason: AntigravityRuntimeCollectionFailureReason,
 }
@@ -650,6 +726,7 @@ impl AntigravityCollector {
             diagnostics,
             conversations,
             mut usage,
+            pending_variants,
             runtime_failure,
             default_failure_reason,
         } = input;
@@ -700,6 +777,16 @@ impl AntigravityCollector {
                 },
             );
         }
+
+        if matches!(request.scope(), CollectionScope::Full) {
+            let finished_at_ms = Utc::now().timestamp_millis();
+            for variant in pending_variants {
+                self.baseline_store
+                    .complete_baseline(variant, finished_at_ms)
+                    .map_err(|_| failure(request, CollectorFailureCode::Internal))?;
+            }
+        }
+        update_baseline_variant_counters(&*self.baseline_store, diagnostics);
 
         self.record_diagnostic(
             request,
@@ -763,6 +850,11 @@ impl AntigravityCollector {
                 "appIdeSqliteRecordsRejected": input.counters.app_ide_sqlite_records_rejected,
                 "appIdeSqliteConversationsAccepted": input.counters.app_ide_sqlite_conversations_accepted,
                 "appIdeSqliteConversationsRejected": input.counters.app_ide_sqlite_conversations_rejected,
+                "undatedBaselineRecords": input.counters.undated_baseline_records,
+                "datedSourceReportedRecords": input.counters.dated_source_reported_records,
+                "datedFirstSeenRecords": input.counters.dated_first_seen_records,
+                "baselineVariantsCompleted": input.counters.baseline_variants_completed,
+                "baselineVariantsPending": input.counters.baseline_variants_pending,
                 "variants": input.variants,
             })
             .to_string(),
@@ -952,6 +1044,29 @@ struct AntigravityDiagnosticCounters {
     app_ide_sqlite_records_rejected: u32,
     app_ide_sqlite_conversations_accepted: u32,
     app_ide_sqlite_conversations_rejected: u32,
+    undated_baseline_records: u32,
+    dated_source_reported_records: u32,
+    dated_first_seen_records: u32,
+    baseline_variants_completed: u32,
+    baseline_variants_pending: u32,
+}
+
+fn update_baseline_variant_counters(
+    baseline_store: &dyn AntigravityBaselineStore,
+    diagnostics: &mut AntigravityDiagnosticCounters,
+) {
+    let mut completed = 0u32;
+    let mut pending = 0u32;
+    for variant in AntigravityBaselineVariant::all() {
+        if let Ok(Some(status)) = baseline_store.get_status(variant) {
+            match status {
+                AntigravityBaselineStatus::Complete => completed = completed.saturating_add(1),
+                AntigravityBaselineStatus::Pending => pending = pending.saturating_add(1),
+            }
+        }
+    }
+    diagnostics.baseline_variants_completed = completed;
+    diagnostics.baseline_variants_pending = pending;
 }
 
 fn variant_names(
@@ -2302,6 +2417,7 @@ mod tests {
             observed_at: None,
             timestamp_origin: crate::application::ports::antigravity_usage_cache::AntigravityTimestampOrigin::Unresolved,
             legacy_fallback_at: None,
+            calendar_attribution: crate::application::ports::antigravity_usage_cache::AntigravityCalendarAttribution::Dated,
             input_tokens,
             output_tokens,
             thinking_output_tokens: 0,
@@ -2318,6 +2434,20 @@ mod tests {
         let directory = root.join(variant.data_dir_name()).join("conversations");
         fs::create_dir_all(&directory).expect("conversation dir");
         File::create(directory.join(format!("{name}.db"))).expect("db file");
+    }
+
+    fn create_cli_db(root: &std::path::Path, name: &str) {
+        let directory = root
+            .join(AntigravityProductVariant::Cli.data_dir_name())
+            .join("conversations");
+        fs::create_dir_all(&directory).expect("conversation dir");
+        let path = directory.join(format!("{name}.db"));
+        let conn = rusqlite::Connection::open(&path).expect("open cli db");
+        conn.execute(
+            "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)",
+            [],
+        )
+        .expect("create gen_metadata");
     }
 
     fn detection_request(source: SourceKey) -> DetectionRequest {
@@ -2340,5 +2470,542 @@ mod tests {
 
     fn timestamp() -> chrono::DateTime<chrono::Utc> {
         fixed_timestamp(2026, 7, 2, 8, 0, 0)
+    }
+
+    #[derive(Default)]
+    struct MockBaselineStore {
+        statuses: std::sync::Mutex<
+            std::collections::HashMap<AntigravityBaselineVariant, AntigravityBaselineStatus>,
+        >,
+    }
+
+    impl AntigravityBaselineStore for MockBaselineStore {
+        fn get_status(
+            &self,
+            variant: AntigravityBaselineVariant,
+        ) -> Result<
+            Option<AntigravityBaselineStatus>,
+            crate::application::ports::antigravity_baseline_store::AntigravityBaselineStoreError,
+        > {
+            Ok(self.statuses.lock().unwrap().get(&variant).copied())
+        }
+
+        fn begin_baseline(
+            &self,
+            variant: AntigravityBaselineVariant,
+            _started_at_ms: i64,
+        ) -> Result<
+            (),
+            crate::application::ports::antigravity_baseline_store::AntigravityBaselineStoreError,
+        > {
+            self.statuses
+                .lock()
+                .unwrap()
+                .insert(variant, AntigravityBaselineStatus::Pending);
+            Ok(())
+        }
+
+        fn complete_baseline(
+            &self,
+            variant: AntigravityBaselineVariant,
+            _completed_at_ms: i64,
+        ) -> Result<
+            (),
+            crate::application::ports::antigravity_baseline_store::AntigravityBaselineStoreError,
+        > {
+            self.statuses
+                .lock()
+                .unwrap()
+                .insert(variant, AntigravityBaselineStatus::Complete);
+            Ok(())
+        }
+
+        fn list_statuses(
+            &self,
+        ) -> Result<
+            Vec<crate::application::ports::antigravity_baseline_store::AntigravityBaselineRecord>,
+            crate::application::ports::antigravity_baseline_store::AntigravityBaselineStoreError,
+        > {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn full_collection_transitions_pending_baselines_to_complete_and_zero_artifacts_to_complete() {
+        let (_directory, collector) = collector_with_usage();
+        let baseline_store = Arc::new(MockBaselineStore::default());
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = collector
+            .with_baseline_store(baseline_store.clone())
+            .with_test_diagnostics(diagnostics.clone());
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection succeeds");
+
+        assert_eq!(
+            result.outcome(),
+            crate::application::collection::CollectionOutcome::Complete
+        );
+        assert_eq!(
+            baseline_store
+                .get_status(AntigravityBaselineVariant::App)
+                .unwrap(),
+            Some(AntigravityBaselineStatus::Complete)
+        );
+        assert_eq!(
+            baseline_store
+                .get_status(AntigravityBaselineVariant::Ide)
+                .unwrap(),
+            Some(AntigravityBaselineStatus::Complete)
+        );
+        assert_eq!(
+            baseline_store
+                .get_status(AntigravityBaselineVariant::Cli)
+                .unwrap(),
+            Some(AntigravityBaselineStatus::Complete)
+        );
+
+        let events = diagnostics.events();
+        let completed_event = events
+            .iter()
+            .find(|e| e.code.as_str() == "antigravity.collection_completed")
+            .expect("completed event");
+        let context = completed_event.context.as_ref().expect("context").as_str();
+        assert!(context.contains(r#""baselineVariantsCompleted":3"#));
+        assert!(context.contains(r#""baselineVariantsPending":0"#));
+        assert!(context.contains(r#""undatedBaselineRecords":"#));
+        assert!(context.contains(r#""datedSourceReportedRecords":"#));
+        assert!(context.contains(r#""datedFirstSeenRecords":"#));
+    }
+
+    #[test]
+    fn incremental_collection_does_not_transition_pending_baseline_to_complete() {
+        let (_directory, collector) = collector_with_usage();
+        let baseline_store = Arc::new(MockBaselineStore::default());
+        let collector = collector.with_baseline_store(baseline_store.clone());
+
+        let today = Utc::now().date_naive();
+        let request = support_daily_request(
+            "antigravity-incremental",
+            SourceKey::Antigravity,
+            CollectionScope::incremental(today, today).expect("scope"),
+            "UTC",
+            Utc::now(),
+        );
+
+        let result = collector
+            .collect(request, &NeverCancelled)
+            .expect("collection succeeds");
+
+        assert_eq!(
+            result.outcome(),
+            crate::application::collection::CollectionOutcome::Complete
+        );
+        assert_eq!(
+            baseline_store
+                .get_status(AntigravityBaselineVariant::App)
+                .unwrap(),
+            Some(AntigravityBaselineStatus::Pending)
+        );
+        assert_eq!(
+            baseline_store
+                .get_status(AntigravityBaselineVariant::Ide)
+                .unwrap(),
+            Some(AntigravityBaselineStatus::Pending)
+        );
+        assert_eq!(
+            baseline_store
+                .get_status(AntigravityBaselineVariant::Cli)
+                .unwrap(),
+            Some(AntigravityBaselineStatus::Complete)
+        );
+    }
+
+    #[test]
+    fn initial_baseline_scan_with_undated_records_yields_zero_daily_tokens() {
+        let db_dir = TempDir::new().expect("tempdir");
+        let db_path = db_dir.path().join("test.db");
+        let mut migrator =
+            crate::infrastructure::database::Database::open(&db_path).expect("open db");
+        migrator.migrate_to_latest().expect("migrate to latest");
+        let baseline_store = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                crate::infrastructure::database::Database::open(&db_path).expect("open db"),
+            ),
+        );
+        let usage_cache = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityUsageCacheStore::new(
+                crate::infrastructure::database::Database::open(&db_path).expect("open db"),
+            ),
+        );
+
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), AntigravityProductVariant::App, "app-conv");
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(vec![ConversationUsage {
+                database: database(AntigravityProductVariant::App, "app-conv"),
+                records: vec![record(
+                    AntigravityProductVariant::App,
+                    "app-conv",
+                    "gemini-3.1",
+                    "gemini-3.1",
+                    100,
+                    50,
+                    0,
+                    0,
+                )],
+            }]),
+            AntigravityUsageCacheClient::new(usage_cache),
+        )
+        .with_baseline_store(baseline_store.clone());
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection succeeds");
+
+        assert!(result.daily_candidates().is_empty());
+        assert_eq!(
+            baseline_store
+                .get_status(AntigravityBaselineVariant::App)
+                .unwrap(),
+            Some(AntigravityBaselineStatus::Complete)
+        );
+    }
+
+    #[test]
+    fn initial_baseline_scan_with_source_timestamped_records_yields_dated_daily_tokens() {
+        let db_dir = TempDir::new().expect("tempdir");
+        let db_path = db_dir.path().join("test.db");
+        let mut migrator =
+            crate::infrastructure::database::Database::open(&db_path).expect("open db");
+        migrator.migrate_to_latest().expect("migrate to latest");
+        let baseline_store = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                crate::infrastructure::database::Database::open(&db_path).expect("open db"),
+            ),
+        );
+        let usage_cache = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityUsageCacheStore::new(
+                crate::infrastructure::database::Database::open(&db_path).expect("open db"),
+            ),
+        );
+
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), AntigravityProductVariant::Ide, "ide-conv");
+        let mut rec = record(
+            AntigravityProductVariant::Ide,
+            "ide-conv",
+            "gemini-3.1",
+            "gemini-3.1",
+            100,
+            50,
+            0,
+            0,
+        );
+        rec.observed_at = Some(timestamp());
+        rec.timestamp_origin = crate::application::ports::antigravity_usage_cache::AntigravityTimestampOrigin::SourceReported;
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(vec![ConversationUsage {
+                database: database(AntigravityProductVariant::Ide, "ide-conv"),
+                records: vec![rec],
+            }]),
+            AntigravityUsageCacheClient::new(usage_cache),
+        )
+        .with_baseline_store(baseline_store.clone());
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection succeeds");
+
+        assert_eq!(result.daily_candidates().len(), 1);
+        assert_eq!(
+            result.daily_candidates()[0].tokens.input_tokens(),
+            Some(100)
+        );
+        assert_eq!(
+            result.daily_candidates()[0].provenance.data_quality,
+            crate::domain::usage::DataQuality::Complete
+        );
+    }
+
+    #[test]
+    fn post_baseline_new_prompt_yields_daily_tokens_with_inferred_first_seen() {
+        let db_dir = TempDir::new().expect("tempdir");
+        let db_path = db_dir.path().join("test.db");
+        let mut migrator =
+            crate::infrastructure::database::Database::open(&db_path).expect("open db");
+        migrator.migrate_to_latest().expect("migrate to latest");
+        let baseline_store = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                crate::infrastructure::database::Database::open(&db_path).expect("open db"),
+            ),
+        );
+        let usage_cache = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityUsageCacheStore::new(
+                crate::infrastructure::database::Database::open(&db_path).expect("open db"),
+            ),
+        );
+
+        baseline_store
+            .complete_all_variants(100)
+            .expect("complete all");
+
+        let data_root = TempDir::new().expect("tempdir");
+        create_db(data_root.path(), AntigravityProductVariant::App, "app-conv");
+        let rec = record(
+            AntigravityProductVariant::App,
+            "app-conv",
+            "gemini-flash",
+            "gemini-flash",
+            200,
+            80,
+            0,
+            0,
+        );
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(vec![ConversationUsage {
+                database: database(AntigravityProductVariant::App, "app-conv"),
+                records: vec![rec],
+            }]),
+            AntigravityUsageCacheClient::new(usage_cache),
+        )
+        .with_baseline_store(baseline_store.clone());
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection succeeds");
+
+        assert_eq!(result.daily_candidates().len(), 1);
+        assert_eq!(
+            result.daily_candidates()[0].tokens.input_tokens(),
+            Some(200)
+        );
+        assert_eq!(
+            result.daily_candidates()[0].provenance.data_quality,
+            crate::domain::usage::DataQuality::Partial
+        );
+    }
+
+    #[test]
+    fn scenario_1_fresh_installation_with_cli_and_app_ide_corpus_yields_zero_today_tokens() {
+        let db_dir = TempDir::new().expect("tempdir");
+        let db_path = db_dir.path().join("test.db");
+        let mut migrator = Database::open(&db_path).expect("open db");
+        migrator.migrate_to_latest().expect("migrate to latest");
+        let baseline_store = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                Database::open(&db_path).expect("open db"),
+            ),
+        );
+        let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(
+            Database::open(&db_path).expect("open db"),
+        ));
+
+        let data_root = TempDir::new().expect("tempdir");
+        create_cli_db(data_root.path(), "cli-1");
+        create_db(data_root.path(), AntigravityProductVariant::App, "app-1");
+        create_db(data_root.path(), AntigravityProductVariant::Ide, "ide-1");
+
+        let cli_rec = record(
+            AntigravityProductVariant::Cli,
+            "cli-1",
+            "gemini-flash",
+            "gemini-flash",
+            1000,
+            500,
+            0,
+            0,
+        );
+        let app_rec = record(
+            AntigravityProductVariant::App,
+            "app-1",
+            "gemini-flash",
+            "gemini-flash",
+            2000,
+            1000,
+            0,
+            0,
+        );
+        let ide_rec = record(
+            AntigravityProductVariant::Ide,
+            "ide-1",
+            "gemini-flash",
+            "gemini-flash",
+            3000,
+            1500,
+            0,
+            0,
+        );
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(vec![
+                ConversationUsage {
+                    database: database(AntigravityProductVariant::Cli, "cli-1"),
+                    records: vec![cli_rec],
+                },
+                ConversationUsage {
+                    database: database(AntigravityProductVariant::App, "app-1"),
+                    records: vec![app_rec],
+                },
+                ConversationUsage {
+                    database: database(AntigravityProductVariant::Ide, "ide-1"),
+                    records: vec![ide_rec],
+                },
+            ]),
+            AntigravityUsageCacheClient::new(usage_cache),
+        )
+        .with_baseline_store(baseline_store.clone());
+
+        // Baseline is not complete yet -> initial scan marks baseline Pending, returns 0 daily candidates
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection succeeds");
+
+        assert_eq!(result.daily_candidates().len(), 0);
+
+        // Verify all 3 records in cache are UndatedBaseline
+        let conn = rusqlite::Connection::open(&db_path).expect("open db");
+        let undated_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM antigravity_usage_cache WHERE calendar_attribution = 'undated_baseline'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(undated_count, 3);
+
+        // Complete baseline with a timestamp at or after start
+        let complete_time = chrono::Utc::now().timestamp_millis() + 10_000;
+        baseline_store.complete_all_variants(complete_time).unwrap();
+
+        // Second collection run: no new prompt activity -> 0 candidates, 0 duplicates
+        let result2 = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("second collection succeeds");
+        assert_eq!(result2.daily_candidates().len(), 0);
+        let total_cache_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM antigravity_usage_cache", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(total_cache_count, 3);
+    }
+
+    struct SignalCancelled(std::sync::atomic::AtomicBool);
+    impl CancellationSignal for SignalCancelled {
+        fn is_cancelled(&self) -> bool {
+            self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[test]
+    fn scenario_8_interrupted_baseline_recovery_resumes_without_duplicates() {
+        let db_dir = TempDir::new().expect("tempdir");
+        let db_path = db_dir.path().join("test.db");
+        let mut migrator = Database::open(&db_path).expect("open db");
+        migrator.migrate_to_latest().expect("migrate to latest");
+        let baseline_store = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                Database::open(&db_path).expect("open db"),
+            ),
+        );
+        let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(
+            Database::open(&db_path).expect("open db"),
+        ));
+
+        let data_root = TempDir::new().expect("tempdir");
+        create_cli_db(data_root.path(), "cli-1");
+        let cli_rec = record(
+            AntigravityProductVariant::Cli,
+            "cli-1",
+            "gemini-flash",
+            "gemini-flash",
+            1000,
+            500,
+            0,
+            0,
+        );
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(vec![ConversationUsage {
+                database: database(AntigravityProductVariant::Cli, "cli-1"),
+                records: vec![cli_rec],
+            }]),
+            AntigravityUsageCacheClient::new(usage_cache),
+        )
+        .with_baseline_store(baseline_store.clone());
+
+        // Cancelled collection
+        let cancelled = SignalCancelled(std::sync::atomic::AtomicBool::new(true));
+        let err = collector.collect(daily_request(SourceKey::Antigravity), &cancelled);
+        assert!(err.is_err());
+
+        // Baseline state is NOT Complete
+        assert_ne!(
+            baseline_store
+                .get_status(crate::application::ports::antigravity_baseline_store::AntigravityBaselineVariant::Cli)
+                .unwrap(),
+            Some(crate::application::ports::antigravity_baseline_store::AntigravityBaselineStatus::Complete)
+        );
+
+        // Resume with non-cancelled collection
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("resumed collection succeeds");
+        assert_eq!(result.daily_candidates().len(), 0);
+
+        // Complete baseline and verify no duplicate records
+        let complete_time = chrono::Utc::now().timestamp_millis() + 10_000;
+        baseline_store.complete_all_variants(complete_time).unwrap();
+        let conn = rusqlite::Connection::open(&db_path).expect("open db");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM antigravity_usage_cache", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

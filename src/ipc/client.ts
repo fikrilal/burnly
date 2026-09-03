@@ -276,7 +276,11 @@ const traySummaryDataSchema: z.ZodType<TraySummaryResponse> = z.object({
   models: z.array(traySummaryModelSchema),
   asOf: z.iso.datetime({ offset: true }),
   lastSuccessfulRefreshAt: z.iso.datetime({ offset: true }).nullable(),
-  dataStatus: z.enum(["current", "stale", "partial", "failed", "empty"]),
+  dataStatus: z.enum(["current", "stale", "empty"]),
+  dataQuality: z.enum(["complete", "partial"]),
+  latestRefreshStatus: z
+    .enum(["succeeded", "partial", "failed", "cancelled"])
+    .nullable(),
 });
 
 const updateSettingsRequestSchema = z.object({
