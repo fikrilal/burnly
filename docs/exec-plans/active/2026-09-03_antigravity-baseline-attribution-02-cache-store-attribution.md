@@ -92,12 +92,12 @@ Undated baseline records are completely excluded from `read_for_scope`.
 
 ## Checklist
 
-- [ ] Add `calendar_attribution` field to `CachedAntigravityUsageRecord`.
-- [ ] Update `AntigravityUsageCacheUpsert` / `AntigravityUsageCache::reconcile` to accept `baseline_status` (or query baseline store within transaction).
-- [ ] Implement attribution resolution rules in `resolve_timestamp`, covering both `Unresolved` and `LegacyUnknown`.
-- [ ] Update SQL `INSERT ... ON CONFLICT(dedupe_key)` to persist `calendar_attribution`.
-- [ ] Update `read_for_scope` query to filter `calendar_attribution = 'dated'`.
-- [ ] Add unit tests verifying:
+- [x] Add `calendar_attribution` field to `CachedAntigravityUsageRecord`.
+- [x] Update `AntigravityUsageCacheUpsert` / `AntigravityUsageCache::reconcile` to accept `baseline_status` (or query baseline store within transaction).
+- [x] Implement attribution resolution rules in `resolve_timestamp`, covering both `Unresolved` and `LegacyUnknown`.
+- [x] Update SQL `INSERT ... ON CONFLICT(dedupe_key)` to persist `calendar_attribution`.
+- [x] Update `read_for_scope` query to filter `calendar_attribution = 'dated'`.
+- [x] Add unit tests verifying:
   - New `Unresolved` record during `Pending` baseline resolves to `UndatedBaseline`.
   - New `LegacyUnknown` record during `Pending` baseline resolves to `UndatedBaseline`.
   - New `SourceReported` record during `Pending` baseline resolves to `Dated`.
@@ -105,7 +105,7 @@ Undated baseline records are completely excluded from `read_for_scope`.
   - Existing `UndatedBaseline` record re-scanned preserves attribution.
   - Existing `UndatedBaseline` re-scanned with new source timestamp upgrades to `Dated`.
   - `read_for_scope` returns only `Dated` records.
-- [ ] Verify: `cargo test --manifest-path src-tauri/Cargo.toml antigravity_cache_store`.
+- [x] Verify: `cargo test --manifest-path src-tauri/Cargo.toml antigravity_cache_store`.
 
 ## Test Plan
 
@@ -116,17 +116,37 @@ Undated baseline records are completely excluded from `read_for_scope`.
   - Re-scanning unchanged records is idempotent.
 - **Commands**:
   - `cargo test --manifest-path src-tauri/Cargo.toml antigravity_cache_store`
+  - `cargo test --manifest-path src-tauri/Cargo.toml collectors::antigravity`
+  - `pnpm architecture:check`
   - `pnpm verify:fast`
+  - `pnpm verify`
+  - `pnpm verify:runtime`
 
 ## Decisions
 
 - **Defensive handling of `LegacyUnknown` in cache store**: Handling
   `LegacyUnknown` in `resolve_timestamp` ensures correctness regardless of
   whether upstream collectors send `Unresolved` or `LegacyUnknown`.
+- **In-transaction baseline status query**: Querying `antigravity_baseline_state`
+  directly inside the SQLite transaction during `reconcile` guarantees atomic
+  consistency without changing the `AntigravityUsageCache` trait signature.
 
 ## Verification
 
-- Queued.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml antigravity_cache_store`
+  - Outcome: passed (8 passed, 0 failed; all existing tests + comprehensive `baseline_attribution_logic_governs_dated_vs_undated_baseline`).
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml collectors::antigravity`
+  - Outcome: passed (80 passed, 0 failed).
+- Command: `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+  - Outcome: passed (clean, 0 warnings).
+- Command: `pnpm architecture:check`
+  - Outcome: passed ("Architecture boundary check passed.").
+- Command: `pnpm verify:fast`
+  - Outcome: passed (harness checks, Prettier, ESLint, TypeScript, Clippy, jscpd clean).
+- Command: `pnpm verify`
+  - Outcome: passed (full local gate, 683 Rust tests passed, 117 Vitest tests passed).
+- Command: `pnpm verify:runtime`
+  - Outcome: passed ("Desktop runtime evidence passed.").
 
 ## Follow-Up Debt
 

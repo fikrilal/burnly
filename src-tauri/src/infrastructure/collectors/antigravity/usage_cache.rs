@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 
 use crate::application::collection::CollectionScope;
 use crate::application::ports::antigravity_usage_cache::{
-    AntigravityTimestampOrigin, AntigravityUsageCache, AntigravityUsageCacheError,
-    AntigravityUsageCacheReconcileResult, AntigravityUsageCacheUpsert,
+    AntigravityCalendarAttribution, AntigravityTimestampOrigin, AntigravityUsageCache,
+    AntigravityUsageCacheError, AntigravityUsageCacheReconcileResult, AntigravityUsageCacheUpsert,
     CachedAntigravityUsageRecord,
 };
 
@@ -237,6 +237,7 @@ fn cached_record_from_usage(
         cache_write_tokens: record.cache_write_tokens,
         observed_at: resolved_at,
         timestamp_origin,
+        calendar_attribution: AntigravityCalendarAttribution::Dated,
     }
 }
 
@@ -384,6 +385,7 @@ pub(crate) mod tests {
             cache_write_tokens: 0,
             observed_at: Some(Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0).unwrap()),
             timestamp_origin: AntigravityTimestampOrigin::SourceReported,
+            calendar_attribution: AntigravityCalendarAttribution::Dated,
         }
     }
 
