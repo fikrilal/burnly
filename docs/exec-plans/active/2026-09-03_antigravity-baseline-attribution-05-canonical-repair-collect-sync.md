@@ -252,25 +252,25 @@ WHERE source_id = ?2
 
 ## Checklist
 
-- [ ] Define `AntigravityBaselineRepairCoordinator` trait, `TargetRunOutcome`, `TargetExecutionOutcome`, and `RepairCompletion` in `src-tauri/src/application/ports/baseline_repair.rs`.
-- [ ] Add `target_outcomes` to `ExecutionResult` and `ExecutionFailure` in `src-tauri/src/application/refresh/outcome.rs` and populate in `execution.rs`.
-- [ ] Add `baseline_repair_coordinator` to `RefreshCoordinatorHooks` and call `on_refresh_completed` in `coordinator.rs`.
-- [ ] Handle post-refresh errors: log diagnostic warning, keep stage resumable, combine `result.usage_changed || repair.usage_changed`.
-- [ ] Implement stage-specific resumption in `SqliteAntigravityBaselineRepairCoordinator`:
+- [x] Define `AntigravityBaselineRepairCoordinator` trait, `TargetRunOutcome`, `TargetExecutionOutcome`, and `RepairCompletion` in `src-tauri/src/application/ports/baseline_repair.rs`.
+- [x] Add `target_outcomes` to `ExecutionResult` and `ExecutionFailure` in `src-tauri/src/application/refresh/outcome.rs` and populate in `execution.rs`.
+- [x] Add `baseline_repair_coordinator` to `RefreshCoordinatorHooks` and call `on_refresh_completed` in `coordinator.rs`.
+- [x] Handle post-refresh errors: log diagnostic warning, keep stage resumable, combine `result.usage_changed || repair.usage_changed`.
+- [x] Implement stage-specific resumption in `SqliteAntigravityBaselineRepairCoordinator`:
   - Gate on outcomes only in `cache_reclassified`.
   - Skip outcome gate in `canonical_corrected` and retry sync scheduling.
   - Finish baseline completion in `sync_scheduled`.
-- [ ] Implement `merge_pending_scope_for_all_accounts` on `CollectSyncStore`.
-- [ ] Implement canonical daily and session tombstones (`record_state = 'removed'`).
-- [ ] Compose coordinator in `src-tauri/src/bootstrap/` and wire into `RefreshCoordinator`.
-- [ ] Add integration tests verifying:
+- [x] Implement `merge_pending_scope_for_all_accounts` on `CollectSyncStore`.
+- [x] Implement canonical daily and session tombstones (`record_state = 'removed'`).
+- [x] Compose coordinator in `src-tauri/src/bootstrap/` and wire into `RefreshCoordinator`.
+- [x] Add integration tests verifying:
   - If daily import fails or session import fails, repair stage stays `cache_reclassified` and canonical correction does not run.
   - On retry following partial failure, both projections run with `CollectionScope::Full`.
   - If sync scheduling fails after `canonical_corrected`, the next refresh skips the outcome gate and successfully resumes sync scheduling and completion.
   - When repair completes, event sink publishes `usage_changed = true`.
   - When repair returns an error, diagnostic warning is emitted and repair remains resumable.
   - Scope is merged into all accounts in `collect_sync_state`; signed-out accounts preserve scope until sign-in.
-- [ ] Verify: `cargo test --manifest-path src-tauri/Cargo.toml canonical_repair`.
+- [x] Verify: `cargo test --manifest-path src-tauri/Cargo.toml canonical_repair`.
 
 ## Test Plan
 
@@ -301,7 +301,13 @@ WHERE source_id = ?2
 
 ## Verification
 
-- Queued.
+- `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_repair`: 8 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml merge_pending_scope_for_all_accounts`: 1 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml baseline_repair_`: 2 passed.
+- `pnpm architecture:check`: Passed.
+- `pnpm verify:fast`: Passed.
+- `pnpm verify`: Passed (705 Rust tests + 117 TS tests passed; all contract, lint, formatting, duplication checks passed).
+- `pnpm verify:runtime`: Passed (desktop build, packaging, contract evidence, lifecycle and scheduler evidence passed).
 
 ## Follow-Up Debt
 

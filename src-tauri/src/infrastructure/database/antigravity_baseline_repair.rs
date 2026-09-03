@@ -8,14 +8,23 @@ use std::sync::{Arc, Mutex};
 use rusqlite::params;
 use serde_json::json;
 
+use crate::application::collect_sync::UploadScope;
+use crate::application::collection::{CollectionProjection, CollectionScope};
 use crate::application::diagnostics::{
     DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
     DiagnosticSummary,
 };
-use crate::application::ports::baseline_repair::{
-    AntigravityBaselineRepairStage, BaselineRepairError,
+use crate::application::ports::antigravity_baseline_store::{
+    AntigravityBaselineStatus, AntigravityBaselineStore, AntigravityBaselineVariant,
 };
+use crate::application::ports::baseline_repair::{
+    AntigravityBaselineRepairCoordinator, AntigravityBaselineRepairStage, BaselineRepairAuthReader,
+    BaselineRepairError, BaselineRepairSyncTrigger, RepairCompletion, TargetExecutionOutcome,
+    TargetRunOutcome,
+};
+use crate::application::ports::collect_sync_store::CollectSyncStore;
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
+use crate::domain::source::SourceKey;
 use crate::infrastructure::database::Database;
 
 const REPAIR_VERSION: i64 = 1;
@@ -491,10 +500,303 @@ impl AntigravityBaselineRepairService {
     }
 }
 
+pub(crate) struct SqliteAntigravityBaselineRepairCoordinator {
+    database: Mutex<Database>,
+    baseline_store: Arc<dyn AntigravityBaselineStore>,
+    collect_sync_store: Arc<dyn CollectSyncStore>,
+    auth_reader: Arc<dyn BaselineRepairAuthReader>,
+    sync_trigger: Arc<dyn BaselineRepairSyncTrigger>,
+    diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
+}
+
+impl SqliteAntigravityBaselineRepairCoordinator {
+    pub(crate) fn new(
+        database: Database,
+        baseline_store: Arc<dyn AntigravityBaselineStore>,
+        collect_sync_store: Arc<dyn CollectSyncStore>,
+        auth_reader: Arc<dyn BaselineRepairAuthReader>,
+        sync_trigger: Arc<dyn BaselineRepairSyncTrigger>,
+        diagnostics: Option<Arc<dyn DiagnosticRecorder>>,
+    ) -> Self {
+        Self {
+            database: Mutex::new(database),
+            baseline_store,
+            collect_sync_store,
+            auth_reader,
+            sync_trigger,
+            diagnostics,
+        }
+    }
+
+    fn apply_canonical_correction(&self, now_ms: i64) -> Result<(), BaselineRepairError> {
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+        let transaction = database
+            .connection_mut()
+            .transaction()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+
+        use rusqlite::OptionalExtension;
+        let source_id: Option<i64> = transaction
+            .query_row(
+                "SELECT id FROM sources WHERE source_key = 'antigravity'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+
+        let Some(source_id) = source_id else {
+            return Ok(());
+        };
+
+        // Latest full daily import for Antigravity with profile_version = 3
+        let latest_daily_import_id: Option<i64> = transaction
+            .query_row(
+                "SELECT id FROM import_runs
+                 WHERE source_id = ?1
+                   AND profile_version = 3
+                   AND projection = 'daily'
+                   AND scope_kind = 'full'
+                   AND status = 'succeeded'
+                 ORDER BY id DESC
+                 LIMIT 1",
+                params![source_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+
+        if let Some(daily_import_id) = latest_daily_import_id {
+            transaction
+                .execute(
+                    "UPDATE daily_usage
+                     SET record_state = 'removed',
+                         absence_count = 2,
+                         removed_at_ms = CASE WHEN ?1 >= last_seen_at_ms THEN ?1 ELSE last_seen_at_ms END
+                     WHERE source_id = ?2
+                       AND latest_import_id != ?3
+                       AND record_state != 'removed'",
+                    params![now_ms, source_id, daily_import_id],
+                )
+                .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+        }
+
+        // Latest full session import for Antigravity with profile_version = 3
+        let latest_session_import_id: Option<i64> = transaction
+            .query_row(
+                "SELECT id FROM import_runs
+                 WHERE source_id = ?1
+                   AND profile_version = 3
+                   AND projection = 'session'
+                   AND scope_kind = 'full'
+                   AND status = 'succeeded'
+                 ORDER BY id DESC
+                 LIMIT 1",
+                params![source_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+
+        if let Some(session_import_id) = latest_session_import_id {
+            transaction
+                .execute(
+                    "UPDATE sessions
+                     SET record_state = 'removed',
+                         absence_count = 2,
+                         removed_at_ms = CASE WHEN ?1 >= last_seen_at_ms THEN ?1 ELSE last_seen_at_ms END
+                     WHERE source_id = ?2
+                       AND latest_import_id != ?3
+                       AND record_state != 'removed'",
+                    params![now_ms, source_id, session_import_id],
+                )
+                .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    fn compute_repair_upload_scope(&self) -> Result<UploadScope, BaselineRepairError> {
+        let database = self
+            .database
+            .lock()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+        let conn = database.connection();
+
+        use rusqlite::OptionalExtension;
+        let source_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM sources WHERE source_key = 'antigravity'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+
+        let Some(source_id) = source_id else {
+            return Ok(UploadScope::Full);
+        };
+
+        let dates: Option<(String, String)> = conn
+            .query_row(
+                "SELECT MIN(usage_date), MAX(usage_date)
+                 FROM daily_usage
+                 WHERE source_id = ?1 AND record_state = 'removed'",
+                params![source_id],
+                |row| {
+                    let min: Option<String> = row.get(0)?;
+                    let max: Option<String> = row.get(1)?;
+                    match (min, max) {
+                        (Some(min), Some(max)) => Ok(Some((min, max))),
+                        _ => Ok(None),
+                    }
+                },
+            )
+            .optional()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?
+            .flatten();
+
+        if let Some((min_str, max_str)) = dates {
+            if let (Ok(start), Ok(end)) = (
+                chrono::NaiveDate::parse_from_str(&min_str, "%Y-%m-%d"),
+                chrono::NaiveDate::parse_from_str(&max_str, "%Y-%m-%d"),
+            ) {
+                if let Ok(scope) = UploadScope::incremental(["antigravity".to_owned()], start, end)
+                {
+                    return Ok(scope);
+                }
+            }
+        }
+
+        Ok(UploadScope::Full)
+    }
+
+    fn set_stage(
+        &self,
+        stage: AntigravityBaselineRepairStage,
+        now_ms: i64,
+    ) -> Result<(), BaselineRepairError> {
+        let database = self
+            .database
+            .lock()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+        database
+            .connection()
+            .execute(
+                "INSERT INTO antigravity_baseline_repair_state (
+                    repair_version, stage, records_reclassified, import_run_id,
+                    interval_started_at_ms, interval_finished_at_ms, stage_updated_at_ms, skip_reason
+                ) VALUES (?1, ?2, 0, NULL, NULL, NULL, ?3, NULL)
+                ON CONFLICT(repair_version) DO UPDATE SET
+                    stage = excluded.stage,
+                    stage_updated_at_ms = excluded.stage_updated_at_ms",
+                params![REPAIR_VERSION, stage.as_str(), now_ms],
+            )
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+        Ok(())
+    }
+}
+
+impl AntigravityBaselineRepairCoordinator for SqliteAntigravityBaselineRepairCoordinator {
+    fn requires_full_scope(&self) -> Result<bool, BaselineRepairError> {
+        let stage = self.current_stage()?;
+        if stage == AntigravityBaselineRepairStage::CacheReclassified {
+            return Ok(true);
+        }
+
+        for variant in AntigravityBaselineVariant::all() {
+            let status = self
+                .baseline_store
+                .get_status(variant)
+                .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+            match status {
+                None | Some(AntigravityBaselineStatus::Pending) => return Ok(true),
+                Some(AntigravityBaselineStatus::Complete) => {}
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn current_stage(&self) -> Result<AntigravityBaselineRepairStage, BaselineRepairError> {
+        let database = self
+            .database
+            .lock()
+            .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+        AntigravityBaselineRepairService::current_stage_from_conn(database.connection())
+    }
+
+    fn on_refresh_completed(
+        &self,
+        target_outcomes: &[TargetExecutionOutcome],
+        now_ms: i64,
+    ) -> Result<Option<RepairCompletion>, BaselineRepairError> {
+        let mut current_stage = self.current_stage()?;
+
+        // 1. Stage: CacheReclassified
+        if current_stage == AntigravityBaselineRepairStage::CacheReclassified {
+            let daily_full_success = target_outcomes.iter().any(|o| {
+                o.source == SourceKey::Antigravity
+                    && o.projection == CollectionProjection::Daily
+                    && o.effective_scope == CollectionScope::Full
+                    && o.outcome == TargetRunOutcome::Succeeded
+            });
+            let session_full_success = target_outcomes.iter().any(|o| {
+                o.source == SourceKey::Antigravity
+                    && o.projection == CollectionProjection::Session
+                    && o.effective_scope == CollectionScope::Full
+                    && o.outcome == TargetRunOutcome::Succeeded
+            });
+
+            if !daily_full_success || !session_full_success {
+                return Ok(None);
+            }
+
+            self.apply_canonical_correction(now_ms)?;
+            self.set_stage(AntigravityBaselineRepairStage::CanonicalCorrected, now_ms)?;
+            current_stage = AntigravityBaselineRepairStage::CanonicalCorrected;
+        }
+
+        // 2. Stage: CanonicalCorrected (Skips outcome gate!)
+        if current_stage == AntigravityBaselineRepairStage::CanonicalCorrected {
+            let upload_scope = self.compute_repair_upload_scope()?;
+            self.collect_sync_store
+                .merge_pending_scope_for_all_accounts(&upload_scope, now_ms)
+                .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+
+            if self.auth_reader.is_signed_in() {
+                self.sync_trigger.kick();
+            }
+            self.set_stage(AntigravityBaselineRepairStage::SyncScheduled, now_ms)?;
+            current_stage = AntigravityBaselineRepairStage::SyncScheduled;
+        }
+
+        // 3. Stage: SyncScheduled
+        if current_stage == AntigravityBaselineRepairStage::SyncScheduled {
+            self.baseline_store
+                .complete_all_variants(now_ms)
+                .map_err(|e| BaselineRepairError::Database(e.to_string()))?;
+            self.set_stage(AntigravityBaselineRepairStage::Complete, now_ms)?;
+            return Ok(Some(RepairCompletion {
+                usage_changed: true,
+            }));
+        }
+
+        Ok(None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::infrastructure::database::test_database::TestDatabase;
+    use crate::infrastructure::database::{SqliteAntigravityBaselineStore, SqliteCollectSyncStore};
 
     #[derive(Default)]
     struct RecordingDiagnosticRecorder {
@@ -903,5 +1205,475 @@ mod tests {
         // State update timestamp must remain the first one (20_000)
         let state = service.get_repair_state().unwrap().unwrap();
         assert_eq!(state.stage_updated_at_ms, 20_000);
+    }
+
+    fn seed_daily_usage(
+        conn: &rusqlite::Connection,
+        source_id: i64,
+        key: &str,
+        date: &str,
+        tokens: i64,
+        import_id: i64,
+        observed_at_ms: i64,
+    ) {
+        conn.execute(
+            "INSERT INTO daily_usage (
+                source_id, source_key, identity_version, usage_date, aggregation_timezone,
+                total_tokens, cost_kind, cost_status, data_quality, record_state, absence_count,
+                first_seen_at_ms, last_seen_at_ms, removed_at_ms, latest_import_id
+            ) VALUES (
+                ?1, ?2, 1, ?3, 'UTC',
+                ?4, 'burnly_calculated', 'unavailable', 'verified', 'active', 0,
+                ?5, ?5, NULL, ?6
+            )",
+            params![source_id, key, date, tokens, observed_at_ms, import_id],
+        )
+        .expect("seed daily usage");
+    }
+
+    fn seed_session(
+        conn: &rusqlite::Connection,
+        source_id: i64,
+        key: &str,
+        session_id: &str,
+        tokens: i64,
+        import_id: i64,
+        observed_at_ms: i64,
+    ) {
+        conn.execute(
+            "INSERT INTO sessions (
+                source_id, source_key, identity_version, source_session_id,
+                total_tokens, cost_kind, cost_status, data_quality, record_state, absence_count,
+                first_seen_at_ms, last_seen_at_ms, removed_at_ms, latest_import_id
+            ) VALUES (
+                ?1, ?2, 1, ?3,
+                ?4, 'burnly_calculated', 'unavailable', 'verified', 'active', 0,
+                ?5, ?5, NULL, ?6
+            )",
+            params![
+                source_id,
+                key,
+                session_id,
+                tokens,
+                observed_at_ms,
+                import_id
+            ],
+        )
+        .expect("seed session");
+    }
+
+    #[derive(Default)]
+    struct TestAuthReader {
+        signed_in: std::sync::atomic::AtomicBool,
+    }
+
+    impl BaselineRepairAuthReader for TestAuthReader {
+        fn is_signed_in(&self) -> bool {
+            self.signed_in.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[derive(Default)]
+    struct TestSyncTrigger {
+        kicks: std::sync::atomic::AtomicUsize,
+    }
+
+    impl BaselineRepairSyncTrigger for TestSyncTrigger {
+        fn kick(&self) {
+            self.kicks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn repair_stage_stays_cache_reclassified_if_target_outcomes_incomplete() {
+        let mut test_database = TestDatabase::open();
+        test_database.database_mut().migrate_to_latest().unwrap();
+        let path = test_database.path().to_path_buf();
+        let conn = &test_database.database().connection;
+
+        let source_id = seed_source(conn);
+        seed_refresh_run(conn, 100, 10_000);
+        seed_import_run(
+            conn,
+            1,
+            100,
+            source_id,
+            2,
+            "daily",
+            "full",
+            "succeeded",
+            10_000,
+            Some(12_000),
+        );
+        seed_import_run(
+            conn,
+            2,
+            100,
+            source_id,
+            2,
+            "session",
+            "full",
+            "succeeded",
+            10_000,
+            Some(12_000),
+        );
+        seed_cache_row(conn, "cli-1", "antigravity-cli", 11_000, "first_seen");
+
+        let db = Database::open(&path).expect("open db");
+        let service = AntigravityBaselineRepairService::new(db);
+        let stage = service.ensure_cache_reclassified(20_000).unwrap();
+        assert_eq!(stage, AntigravityBaselineRepairStage::CacheReclassified);
+
+        let repair_db = Database::open(&path).expect("repair db");
+        let baseline_db = Database::open(&path).expect("baseline db");
+        let collect_db = Database::open(&path).expect("collect db");
+        let baseline_store = Arc::new(SqliteAntigravityBaselineStore::new(baseline_db));
+        let collect_store = Arc::new(SqliteCollectSyncStore::new(collect_db));
+        let auth_reader = Arc::new(TestAuthReader::default());
+        let sync_trigger = Arc::new(TestSyncTrigger::default());
+
+        let coordinator = SqliteAntigravityBaselineRepairCoordinator::new(
+            repair_db,
+            baseline_store,
+            collect_store,
+            auth_reader,
+            sync_trigger,
+            None,
+        );
+
+        assert!(coordinator.requires_full_scope().unwrap());
+
+        // Incomplete target outcomes (only daily, missing session):
+        let outcomes = vec![TargetExecutionOutcome {
+            source: SourceKey::Antigravity,
+            projection: CollectionProjection::Daily,
+            effective_scope: CollectionScope::Full,
+            outcome: TargetRunOutcome::Succeeded,
+        }];
+
+        let result = coordinator
+            .on_refresh_completed(&outcomes, 25_000)
+            .expect("on_refresh_completed");
+        assert!(result.is_none());
+        assert_eq!(
+            coordinator.current_stage().unwrap(),
+            AntigravityBaselineRepairStage::CacheReclassified
+        );
+        assert!(coordinator.requires_full_scope().unwrap());
+    }
+
+    #[test]
+    fn canonical_repair_tombstones_empty_dates_and_sessions_and_advances_to_complete() {
+        let mut test_database = TestDatabase::open();
+        test_database.database_mut().migrate_to_latest().unwrap();
+        let path = test_database.path().to_path_buf();
+        let conn = &test_database.database().connection;
+
+        let source_id = seed_source(conn);
+        seed_refresh_run(conn, 100, 10_000);
+        seed_import_run(
+            conn,
+            1,
+            100,
+            source_id,
+            2,
+            "daily",
+            "full",
+            "succeeded",
+            10_000,
+            Some(12_000),
+        );
+        seed_import_run(
+            conn,
+            2,
+            100,
+            source_id,
+            2,
+            "session",
+            "full",
+            "succeeded",
+            10_000,
+            Some(12_000),
+        );
+        seed_cache_row(conn, "cli-1", "antigravity-cli", 11_000, "first_seen");
+
+        let db = Database::open(&path).expect("open db");
+        let service = AntigravityBaselineRepairService::new(db);
+        service.ensure_cache_reclassified(20_000).unwrap();
+
+        // Seed Profile 3 refresh run and import runs
+        seed_refresh_run(conn, 200, 30_000);
+        seed_import_run(
+            conn,
+            10,
+            200,
+            source_id,
+            3,
+            "daily",
+            "full",
+            "succeeded",
+            30_000,
+            Some(31_000),
+        );
+        seed_import_run(
+            conn,
+            11,
+            200,
+            source_id,
+            3,
+            "session",
+            "full",
+            "succeeded",
+            30_000,
+            Some(31_000),
+        );
+
+        // Daily usage: 2026-07-01 belongs to import 1 (older import, no dated candidates in profile 3)
+        // Daily usage: 2026-07-02 belongs to import 10 (new profile 3 full scan)
+        seed_daily_usage(conn, source_id, "d1", "2026-07-01", 100, 1, 10_000);
+        seed_daily_usage(conn, source_id, "d2", "2026-07-02", 200, 10, 30_000);
+
+        // Sessions: sess-1 belongs to import 2 (older import)
+        // Sessions: sess-2 belongs to import 11 (new profile 3 full scan)
+        seed_session(conn, source_id, "s1", "sess-1", 100, 2, 10_000);
+        seed_session(conn, source_id, "s2", "sess-2", 200, 11, 30_000);
+
+        let repair_db = Database::open(&path).expect("repair db");
+        let baseline_db = Database::open(&path).expect("baseline db");
+        let collect_db = Database::open(&path).expect("collect db");
+        let baseline_store = Arc::new(SqliteAntigravityBaselineStore::new(baseline_db));
+        let collect_store = Arc::new(SqliteCollectSyncStore::new(collect_db));
+        let auth_reader = Arc::new(TestAuthReader::default());
+        auth_reader
+            .signed_in
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let sync_trigger = Arc::new(TestSyncTrigger::default());
+
+        let account = crate::application::ports::collect_sync_store::CollectSyncAccountKey {
+            user_id: "user-1".to_owned(),
+            client_device_id: "dev-1".to_owned(),
+        };
+        collect_store.ensure_state(&account, 10_000).unwrap();
+
+        let coordinator = SqliteAntigravityBaselineRepairCoordinator::new(
+            repair_db,
+            baseline_store,
+            collect_store.clone(),
+            auth_reader,
+            sync_trigger.clone(),
+            None,
+        );
+
+        let target_outcomes = vec![
+            TargetExecutionOutcome {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Daily,
+                effective_scope: CollectionScope::Full,
+                outcome: TargetRunOutcome::Succeeded,
+            },
+            TargetExecutionOutcome {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Session,
+                effective_scope: CollectionScope::Full,
+                outcome: TargetRunOutcome::Succeeded,
+            },
+        ];
+
+        let result = coordinator
+            .on_refresh_completed(&target_outcomes, 32_000)
+            .unwrap();
+        assert_eq!(
+            result,
+            Some(RepairCompletion {
+                usage_changed: true
+            })
+        );
+        assert_eq!(
+            coordinator.current_stage().unwrap(),
+            AntigravityBaselineRepairStage::Complete
+        );
+        assert!(!coordinator.requires_full_scope().unwrap());
+
+        // Check canonical daily tombstones
+        let (state_d1, absence_d1, removed_d1): (String, i64, Option<i64>) = conn
+            .query_row(
+                "SELECT record_state, absence_count, removed_at_ms FROM daily_usage WHERE source_key = 'd1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(state_d1, "removed");
+        assert_eq!(absence_d1, 2);
+        assert_eq!(removed_d1, Some(32_000));
+
+        let (state_d2, absence_d2, removed_d2): (String, i64, Option<i64>) = conn
+            .query_row(
+                "SELECT record_state, absence_count, removed_at_ms FROM daily_usage WHERE source_key = 'd2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(state_d2, "active");
+        assert_eq!(absence_d2, 0);
+        assert_eq!(removed_d2, None);
+
+        // Check canonical session tombstones
+        let (state_s1, absence_s1, removed_s1): (String, i64, Option<i64>) = conn
+            .query_row(
+                "SELECT record_state, absence_count, removed_at_ms FROM sessions WHERE source_key = 's1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(state_s1, "removed");
+        assert_eq!(absence_s1, 2);
+        assert_eq!(removed_s1, Some(32_000));
+
+        let (state_s2, absence_s2, removed_s2): (String, i64, Option<i64>) = conn
+            .query_row(
+                "SELECT record_state, absence_count, removed_at_ms FROM sessions WHERE source_key = 's2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(state_s2, "active");
+        assert_eq!(absence_s2, 0);
+        assert_eq!(removed_s2, None);
+
+        // Check sync kicked and pending scope merged
+        assert_eq!(
+            sync_trigger.kicks.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        let state = collect_store
+            .load_state(&account)
+            .unwrap()
+            .expect("state exists");
+        assert!(state.pending_scope.is_some());
+    }
+
+    #[test]
+    fn resumption_skips_outcome_gate_when_stage_is_canonical_corrected() {
+        let mut test_database = TestDatabase::open();
+        test_database.database_mut().migrate_to_latest().unwrap();
+        let path = test_database.path().to_path_buf();
+        let conn = &test_database.database().connection;
+
+        let _source_id = seed_source(conn);
+        conn.execute(
+            "INSERT INTO antigravity_baseline_repair_state (
+                repair_version, stage, records_reclassified, stage_updated_at_ms
+            ) VALUES (1, 'canonical_corrected', 5, 20_000)",
+            [],
+        )
+        .unwrap();
+
+        let repair_db = Database::open(&path).expect("repair db");
+        let baseline_db = Database::open(&path).expect("baseline db");
+        let collect_db = Database::open(&path).expect("collect db");
+        let baseline_store = Arc::new(SqliteAntigravityBaselineStore::new(baseline_db));
+        let collect_store = Arc::new(SqliteCollectSyncStore::new(collect_db));
+        let auth_reader = Arc::new(TestAuthReader::default());
+        let sync_trigger = Arc::new(TestSyncTrigger::default());
+
+        let coordinator = SqliteAntigravityBaselineRepairCoordinator::new(
+            repair_db,
+            baseline_store,
+            collect_store,
+            auth_reader,
+            sync_trigger,
+            None,
+        );
+
+        // Empty outcomes (e.g. incremental refresh or other sources only):
+        let outcomes = vec![];
+        let result = coordinator.on_refresh_completed(&outcomes, 25_000).unwrap();
+
+        assert_eq!(
+            result,
+            Some(RepairCompletion {
+                usage_changed: true
+            })
+        );
+        assert_eq!(
+            coordinator.current_stage().unwrap(),
+            AntigravityBaselineRepairStage::Complete
+        );
+    }
+
+    #[test]
+    fn signed_out_account_preserves_merged_scope_until_login() {
+        let mut test_database = TestDatabase::open();
+        test_database.database_mut().migrate_to_latest().unwrap();
+        let path = test_database.path().to_path_buf();
+        let conn = &test_database.database().connection;
+
+        let _source_id = seed_source(conn);
+        conn.execute(
+            "INSERT INTO antigravity_baseline_repair_state (
+                repair_version, stage, records_reclassified, stage_updated_at_ms
+            ) VALUES (1, 'canonical_corrected', 5, 20_000)",
+            [],
+        )
+        .unwrap();
+
+        let account_1 = crate::application::ports::collect_sync_store::CollectSyncAccountKey {
+            user_id: "user-1".to_owned(),
+            client_device_id: "dev-1".to_owned(),
+        };
+        let account_2 = crate::application::ports::collect_sync_store::CollectSyncAccountKey {
+            user_id: "user-2".to_owned(),
+            client_device_id: "dev-2".to_owned(),
+        };
+
+        let repair_db = Database::open(&path).expect("repair db");
+        let baseline_db = Database::open(&path).expect("baseline db");
+        let collect_db = Database::open(&path).expect("collect db");
+        let baseline_store = Arc::new(SqliteAntigravityBaselineStore::new(baseline_db));
+        let collect_store = Arc::new(SqliteCollectSyncStore::new(collect_db));
+        collect_store.ensure_state(&account_1, 10_000).unwrap();
+        collect_store.ensure_state(&account_2, 10_000).unwrap();
+
+        let auth_reader = Arc::new(TestAuthReader::default()); // signed_in: false
+        let sync_trigger = Arc::new(TestSyncTrigger::default());
+
+        let coordinator = SqliteAntigravityBaselineRepairCoordinator::new(
+            repair_db,
+            baseline_store,
+            collect_store.clone(),
+            auth_reader,
+            sync_trigger.clone(),
+            None,
+        );
+
+        let result = coordinator.on_refresh_completed(&[], 25_000).unwrap();
+        assert_eq!(
+            result,
+            Some(RepairCompletion {
+                usage_changed: true
+            })
+        );
+        assert_eq!(
+            coordinator.current_stage().unwrap(),
+            AntigravityBaselineRepairStage::Complete
+        );
+
+        // Sync was NOT kicked because user is signed out
+        assert_eq!(
+            sync_trigger.kicks.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+
+        // Both accounts have pending scope merged
+        let state_1 = collect_store
+            .load_state(&account_1)
+            .unwrap()
+            .expect("state 1");
+        let state_2 = collect_store
+            .load_state(&account_2)
+            .unwrap()
+            .expect("state 2");
+        assert!(state_1.pending_scope.is_some());
+        assert!(state_2.pending_scope.is_some());
     }
 }

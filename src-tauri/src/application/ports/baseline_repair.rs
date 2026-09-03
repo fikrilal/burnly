@@ -63,7 +63,7 @@ impl AntigravityBaselineRepairStage {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(crate) enum BaselineRepairError {
     #[error("baseline repair query or transaction failed: {0}")]
     Database(String),
@@ -106,4 +106,26 @@ impl AntigravityBaselineRepairCoordinator for NoopBaselineRepairCoordinator {
     ) -> Result<Option<RepairCompletion>, BaselineRepairError> {
         Ok(None)
     }
+}
+
+pub(crate) trait BaselineRepairAuthReader: Send + Sync {
+    fn is_signed_in(&self) -> bool;
+}
+
+pub(crate) struct NoopBaselineRepairAuthReader;
+
+impl BaselineRepairAuthReader for NoopBaselineRepairAuthReader {
+    fn is_signed_in(&self) -> bool {
+        false
+    }
+}
+
+pub(crate) trait BaselineRepairSyncTrigger: Send + Sync {
+    fn kick(&self);
+}
+
+pub(crate) struct NoopBaselineRepairSyncTrigger;
+
+impl BaselineRepairSyncTrigger for NoopBaselineRepairSyncTrigger {
+    fn kick(&self) {}
 }

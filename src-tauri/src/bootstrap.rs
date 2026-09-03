@@ -363,7 +363,27 @@ fn compose_refresh_coordinator(
         env!("CARGO_PKG_VERSION"),
         reporting_timezone,
     );
-    coordinator.set_diagnostic_recorder(diagnostic_recorder);
+    coordinator.set_diagnostic_recorder(diagnostic_recorder.clone());
+
+    let repair_db = Database::open(database_path).map_err(StartupError::Persistence)?;
+    let baseline_db = Database::open(database_path).map_err(StartupError::Persistence)?;
+    let collect_db = Database::open(database_path).map_err(StartupError::Persistence)?;
+    let baseline_store =
+        Arc::new(crate::infrastructure::database::SqliteAntigravityBaselineStore::new(baseline_db));
+    let collect_store =
+        Arc::new(crate::infrastructure::database::SqliteCollectSyncStore::new(collect_db));
+    let initial_repair_coordinator = Arc::new(
+        crate::infrastructure::database::SqliteAntigravityBaselineRepairCoordinator::new(
+            repair_db,
+            baseline_store,
+            collect_store,
+            Arc::new(crate::application::ports::baseline_repair::NoopBaselineRepairAuthReader),
+            Arc::new(crate::application::ports::baseline_repair::NoopBaselineRepairSyncTrigger),
+            Some(diagnostic_recorder),
+        ),
+    );
+    coordinator.set_baseline_repair_coordinator(initial_repair_coordinator);
+
     Ok(coordinator)
 }
 

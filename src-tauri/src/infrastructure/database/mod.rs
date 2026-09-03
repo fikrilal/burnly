@@ -18,8 +18,9 @@ mod settings_store;
 mod test_database;
 mod tray_summary_store;
 
-#[allow(unused_imports)]
-pub(crate) use antigravity_baseline_repair::AntigravityBaselineRepairService;
+pub(crate) use antigravity_baseline_repair::{
+    AntigravityBaselineRepairService, SqliteAntigravityBaselineRepairCoordinator,
+};
 #[allow(unused_imports)]
 pub(crate) use antigravity_baseline_store::SqliteAntigravityBaselineStore;
 pub(crate) use antigravity_cache_store::SqliteAntigravityUsageCacheStore;

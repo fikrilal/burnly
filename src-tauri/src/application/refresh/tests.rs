@@ -18,6 +18,10 @@ use crate::application::collection::{
     RejectedRecord, SessionUsageCandidate,
 };
 use crate::application::diagnostics::{DiagnosticArea, DiagnosticEvent, DiagnosticSeverity};
+use crate::application::ports::baseline_repair::{
+    AntigravityBaselineRepairCoordinator, AntigravityBaselineRepairStage, BaselineRepairError,
+    RepairCompletion, TargetExecutionOutcome,
+};
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
@@ -1214,5 +1218,109 @@ fn cancel_moves_an_active_run_toward_cancelling() {
     assert_eq!(
         await_terminal(&coordinator).status,
         RefreshStatus::Succeeded
+    );
+}
+
+struct ScriptedRepairCoordinator {
+    outcome: Mutex<Result<Option<RepairCompletion>, BaselineRepairError>>,
+    calls: Mutex<Vec<Vec<TargetExecutionOutcome>>>,
+}
+
+impl ScriptedRepairCoordinator {
+    fn succeeding() -> Self {
+        Self {
+            outcome: Mutex::new(Ok(Some(RepairCompletion {
+                usage_changed: true,
+            }))),
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn failing() -> Self {
+        Self {
+            outcome: Mutex::new(Err(BaselineRepairError::Database("db error".to_owned()))),
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl AntigravityBaselineRepairCoordinator for ScriptedRepairCoordinator {
+    fn requires_full_scope(&self) -> Result<bool, BaselineRepairError> {
+        Ok(false)
+    }
+
+    fn current_stage(&self) -> Result<AntigravityBaselineRepairStage, BaselineRepairError> {
+        Ok(AntigravityBaselineRepairStage::Complete)
+    }
+
+    fn on_refresh_completed(
+        &self,
+        target_outcomes: &[TargetExecutionOutcome],
+        _now_ms: i64,
+    ) -> Result<Option<RepairCompletion>, BaselineRepairError> {
+        self.calls.lock().unwrap().push(target_outcomes.to_vec());
+        self.outcome.lock().unwrap().clone()
+    }
+}
+
+#[test]
+fn baseline_repair_completion_publishes_usage_changed_true() {
+    let collector = empty_collector();
+    let run_store = Arc::new(FakeRunStore::new());
+    let usage_store = Arc::new(FakeUsageStore::new());
+    let events = Arc::new(RecordingEventSink::new());
+    let repair = Arc::new(ScriptedRepairCoordinator::succeeding());
+
+    let coordinator = RefreshCoordinator::with_event_sink(
+        collector,
+        run_store,
+        usage_store,
+        Arc::new(FakeClock { now_ms: 1_000 }),
+        events.clone(),
+        "0.1.0",
+        "UTC",
+    );
+    coordinator.set_baseline_repair_coordinator(repair);
+
+    coordinator.request_refresh(RefreshTrigger::Manual);
+    await_terminal(&coordinator);
+
+    assert_eq!(
+        events.events(),
+        vec![
+            (RefreshStatus::Running, false),
+            (RefreshStatus::Succeeded, true),
+        ]
+    );
+}
+
+#[test]
+fn baseline_repair_failure_emits_diagnostic_and_does_not_fail_refresh() {
+    let collector = empty_collector();
+    let run_store = Arc::new(FakeRunStore::new());
+    let usage_store = Arc::new(FakeUsageStore::new());
+    let diagnostics = Arc::new(RecordingDiagnosticRecorder::default());
+    let repair = Arc::new(ScriptedRepairCoordinator::failing());
+
+    let coordinator = RefreshCoordinator::new(
+        collector,
+        run_store,
+        usage_store,
+        Arc::new(FakeClock { now_ms: 1_000 }),
+        "0.1.0",
+        "UTC",
+    );
+    coordinator.set_diagnostic_recorder(diagnostics.clone());
+    coordinator.set_baseline_repair_coordinator(repair);
+
+    coordinator.request_refresh(RefreshTrigger::Manual);
+    let snapshot = await_terminal(&coordinator);
+
+    assert_eq!(snapshot.status, RefreshStatus::Succeeded);
+    let events = diagnostics.events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].code.as_str(),
+        "antigravity.baseline_repair_failed"
     );
 }

@@ -143,6 +143,14 @@ pub(crate) trait CollectSyncStore: Send + Sync {
         now_ms: i64,
     ) -> Result<UploadScope, CollectSyncStoreError>;
 
+    /// Merge `scope` into durable pending scope for all accounts.
+    /// Returns the number of accounts updated.
+    fn merge_pending_scope_for_all_accounts(
+        &self,
+        scope: &UploadScope,
+        now_ms: i64,
+    ) -> Result<usize, CollectSyncStoreError>;
+
     /// Persist an immutable outbox generation. Fails if pending batches exist.
     fn create_generation(
         &self,

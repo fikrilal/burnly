@@ -85,6 +85,8 @@ pub(super) struct ExecutionResult {
     pub(super) usage_changed: bool,
     /// Successful daily targets eligible for cloud upload (never blocks refresh).
     pub(super) committed_daily_upload: crate::application::collect_sync::CommittedDailyUpload,
+    pub(super) target_outcomes:
+        Vec<crate::application::ports::baseline_repair::TargetExecutionOutcome>,
 }
 
 /// Carries enough failure context to terminalize an open import and refresh run.
@@ -97,6 +99,8 @@ pub(super) struct ExecutionFailure {
     pub(super) code: &'static str,
     pub(super) summary: &'static str,
     pub(super) committed_daily_upload: crate::application::collect_sync::CommittedDailyUpload,
+    pub(super) target_outcomes:
+        Vec<crate::application::ports::baseline_repair::TargetExecutionOutcome>,
 }
 
 pub(super) fn run_error(code: impl Into<String>, summary: impl Into<String>) -> Option<RunError> {
