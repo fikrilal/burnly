@@ -5,7 +5,9 @@ use thiserror::Error;
 
 use super::product_variant::AntigravityProductVariant;
 use super::AntigravityUsageRecord;
-use crate::application::ports::antigravity_usage_cache::AntigravityTimestampOrigin;
+use crate::application::ports::antigravity_usage_cache::{
+    AntigravityCalendarAttribution, AntigravityTimestampOrigin,
+};
 
 const MAX_BLOB_BYTES: usize = 4 * 1024 * 1024;
 const MAX_TOKEN_VALUE: u64 = 1_000_000_000;
@@ -170,6 +172,7 @@ fn to_usage_record(
             AntigravityTimestampOrigin::Unresolved
         },
         legacy_fallback_at,
+        calendar_attribution: AntigravityCalendarAttribution::Dated,
         input_tokens: parsed.input_tokens,
         output_tokens: parsed.output_tokens,
         thinking_output_tokens: parsed.thinking_output_tokens,

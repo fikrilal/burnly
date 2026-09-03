@@ -88,10 +88,8 @@ pub(crate) trait AntigravityBaselineRepairCoordinator: Send + Sync {
     ) -> Result<Option<RepairCompletion>, BaselineRepairError>;
 }
 
-#[cfg(test)]
 pub(crate) struct NoopBaselineRepairCoordinator;
 
-#[cfg(test)]
 impl AntigravityBaselineRepairCoordinator for NoopBaselineRepairCoordinator {
     fn requires_full_scope(&self) -> Result<bool, BaselineRepairError> {
         Ok(false)

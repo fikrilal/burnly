@@ -11,7 +11,7 @@ mod runtime_metadata_client;
 mod usage_cache;
 mod usage_extractor;
 
-const PROFILE_VERSION: u16 = 2;
+const PROFILE_VERSION: u16 = 3;
 
 pub(crate) use adapter::AntigravityCollector;
 pub(crate) use conversation_index::{ConversationDatabase, ConversationIndex};

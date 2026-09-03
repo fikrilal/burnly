@@ -9,10 +9,12 @@ use chrono::{DateTime, Utc};
 use crate::application::collection::{
     CollectionId, CollectionProjection, CollectionRequest, ProfileDescriptor,
 };
+use crate::application::ports::baseline_repair::AntigravityBaselineRepairCoordinator;
 use crate::application::ports::run_store::RunStore;
 use crate::application::refresh::planner::{
     RefreshPlanMode, RefreshPlanRequest, RefreshPolicyPlanner,
 };
+use crate::domain::source::SourceKey;
 
 use super::target::{local_date, projection_label, RefreshTarget};
 
@@ -50,8 +52,13 @@ impl RequestPlanError {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "request planning coordinates run state, repair state, target, profile, and timing inputs"
+)]
 pub(super) fn planned_collection_request(
     run_store: &dyn RunStore,
+    repair_coordinator: &dyn AntigravityBaselineRepairCoordinator,
     job_id: &str,
     target: RefreshTarget,
     profile: &ProfileDescriptor,
@@ -62,26 +69,34 @@ pub(super) fn planned_collection_request(
     let scope = match scope_policy {
         RefreshScopePolicy::Full => crate::application::collection::CollectionScope::Full,
         RefreshScopePolicy::CatchUp | RefreshScopePolicy::Freshness => {
-            let today = local_date(requested_at, aggregation_timezone)
-                .map_err(|_| RequestPlanError::InvalidTimezone)?;
-            let lookup = target
-                .import_lookup(aggregation_timezone, profile)
-                .map_err(|_| RequestPlanError::InvalidImportState)?;
-            let previous_import = run_store
-                .latest_successful_import(lookup)
-                .map_err(|_| RequestPlanError::ImportStateUnavailable)?;
-            let mode = match scope_policy {
-                RefreshScopePolicy::CatchUp => RefreshPlanMode::CatchUp,
-                RefreshScopePolicy::Freshness => RefreshPlanMode::Freshness,
-                RefreshScopePolicy::Full => unreachable!("full scope returned earlier"),
-            };
-            let plan = RefreshPolicyPlanner::new().plan(RefreshPlanRequest::new(
-                target.plan_target(aggregation_timezone),
-                mode,
-                today,
-                previous_import,
-            ));
-            plan.scope().clone()
+            if target.source == SourceKey::Antigravity
+                && repair_coordinator
+                    .requires_full_scope()
+                    .map_err(|_| RequestPlanError::ImportStateUnavailable)?
+            {
+                crate::application::collection::CollectionScope::Full
+            } else {
+                let today = local_date(requested_at, aggregation_timezone)
+                    .map_err(|_| RequestPlanError::InvalidTimezone)?;
+                let lookup = target
+                    .import_lookup(aggregation_timezone, profile)
+                    .map_err(|_| RequestPlanError::InvalidImportState)?;
+                let previous_import = run_store
+                    .latest_successful_import(lookup)
+                    .map_err(|_| RequestPlanError::ImportStateUnavailable)?;
+                let mode = match scope_policy {
+                    RefreshScopePolicy::CatchUp => RefreshPlanMode::CatchUp,
+                    RefreshScopePolicy::Freshness => RefreshPlanMode::Freshness,
+                    RefreshScopePolicy::Full => unreachable!("full scope returned earlier"),
+                };
+                let plan = RefreshPolicyPlanner::new().plan(RefreshPlanRequest::new(
+                    target.plan_target(aggregation_timezone),
+                    mode,
+                    today,
+                    previous_import,
+                ));
+                plan.scope().clone()
+            }
         }
     };
 
@@ -126,6 +141,7 @@ mod tests {
 
     use super::*;
     use crate::application::collection::CollectionScope;
+    use crate::application::ports::baseline_repair::NoopBaselineRepairCoordinator;
     use crate::application::ports::run_store::RunStoreError;
     use crate::application::reconciliation::{
         ImportRunId, ImportRunLookup, ImportRunSpec, RefreshRunCompletion, RefreshRunId,
@@ -226,6 +242,7 @@ mod tests {
     fn full_daily_request_uses_full_scope_and_timezone() {
         let request = planned_collection_request(
             &FakeRunStore::default(),
+            &NoopBaselineRepairCoordinator,
             "refresh-1",
             target(CollectionProjection::Daily),
             &profile(),
@@ -244,6 +261,7 @@ mod tests {
     fn full_session_request_uses_full_scope_without_timezone() {
         let request = planned_collection_request(
             &FakeRunStore::default(),
+            &NoopBaselineRepairCoordinator,
             "refresh-1",
             target(CollectionProjection::Session),
             &profile(),
@@ -274,6 +292,7 @@ mod tests {
 
         let request = planned_collection_request(
             &run_store,
+            &NoopBaselineRepairCoordinator,
             "refresh-1",
             target(CollectionProjection::Daily),
             &profile(),
@@ -320,6 +339,7 @@ mod tests {
 
             let request = planned_collection_request(
                 &run_store,
+                &NoopBaselineRepairCoordinator,
                 "refresh-1",
                 RefreshTarget {
                     source: SourceKey::OpenCode,
@@ -340,6 +360,7 @@ mod tests {
     fn catch_up_without_baseline_uses_full_scope() {
         let request = planned_collection_request(
             &FakeRunStore::default(),
+            &NoopBaselineRepairCoordinator,
             "refresh-1",
             target(CollectionProjection::Daily),
             &profile(),
@@ -356,6 +377,7 @@ mod tests {
     fn invalid_timezone_returns_stable_error() {
         let error = planned_collection_request(
             &FakeRunStore::default(),
+            &NoopBaselineRepairCoordinator,
             "refresh-1",
             target(CollectionProjection::Daily),
             &profile(),
@@ -379,6 +401,7 @@ mod tests {
 
         let error = planned_collection_request(
             &run_store,
+            &NoopBaselineRepairCoordinator,
             "refresh-1",
             target(CollectionProjection::Daily),
             &profile(),
@@ -393,5 +416,182 @@ mod tests {
             error.summary(),
             "Could not read the latest successful import state."
         );
+    }
+
+    struct MockBaselineRepairCoordinator {
+        requires_full_scope_result:
+            Result<bool, crate::application::ports::baseline_repair::BaselineRepairError>,
+    }
+
+    impl AntigravityBaselineRepairCoordinator for MockBaselineRepairCoordinator {
+        fn requires_full_scope(
+            &self,
+        ) -> Result<bool, crate::application::ports::baseline_repair::BaselineRepairError> {
+            match &self.requires_full_scope_result {
+                Ok(v) => Ok(*v),
+                Err(e) => Err(
+                    crate::application::ports::baseline_repair::BaselineRepairError::Database(
+                        e.to_string(),
+                    ),
+                ),
+            }
+        }
+
+        fn current_stage(
+            &self,
+        ) -> Result<
+            crate::application::ports::baseline_repair::AntigravityBaselineRepairStage,
+            crate::application::ports::baseline_repair::BaselineRepairError,
+        > {
+            Ok(crate::application::ports::baseline_repair::AntigravityBaselineRepairStage::Complete)
+        }
+
+        fn on_refresh_completed(
+            &self,
+            _target_outcomes: &[crate::application::ports::baseline_repair::TargetExecutionOutcome],
+            _now_ms: i64,
+        ) -> Result<
+            Option<crate::application::ports::baseline_repair::RepairCompletion>,
+            crate::application::ports::baseline_repair::BaselineRepairError,
+        > {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn antigravity_targets_force_full_scope_when_repair_coordinator_requires_full_scope() {
+        let previous = SuccessfulImportState::new(
+            SourceKey::Antigravity,
+            CollectionProjection::Daily,
+            CollectionScope::Full,
+            100,
+        );
+        let run_store = FakeRunStore {
+            latest_import: Some(previous),
+            latest_import_identity: Some(("antigravity", 3)),
+            latest_import_error: false,
+        };
+        let repair_coordinator = MockBaselineRepairCoordinator {
+            requires_full_scope_result: Ok(true),
+        };
+        let profile = ProfileDescriptor {
+            collector: crate::application::collection::CollectorKey::new("antigravity")
+                .expect("collector"),
+            source: SourceKey::Antigravity,
+            profile_version: 3,
+            supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],
+        };
+
+        let request = planned_collection_request(
+            &run_store,
+            &repair_coordinator,
+            "refresh-1",
+            RefreshTarget {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Daily,
+            },
+            &profile,
+            requested_at(),
+            "UTC",
+            RefreshScopePolicy::Freshness,
+        )
+        .expect("planned request");
+
+        assert_eq!(request.scope(), &CollectionScope::Full);
+    }
+
+    #[test]
+    fn antigravity_targets_plan_incremental_when_repair_coordinator_requires_no_override() {
+        let previous = SuccessfulImportState::new(
+            SourceKey::Antigravity,
+            CollectionProjection::Daily,
+            CollectionScope::Full,
+            100,
+        );
+        let run_store = FakeRunStore {
+            latest_import: Some(previous),
+            latest_import_identity: Some(("antigravity", 3)),
+            latest_import_error: false,
+        };
+        let repair_coordinator = MockBaselineRepairCoordinator {
+            requires_full_scope_result: Ok(false),
+        };
+        let profile = ProfileDescriptor {
+            collector: crate::application::collection::CollectorKey::new("antigravity")
+                .expect("collector"),
+            source: SourceKey::Antigravity,
+            profile_version: 3,
+            supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],
+        };
+
+        let request = planned_collection_request(
+            &run_store,
+            &repair_coordinator,
+            "refresh-1",
+            RefreshTarget {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Daily,
+            },
+            &profile,
+            requested_at(),
+            "UTC",
+            RefreshScopePolicy::Freshness,
+        )
+        .expect("planned request");
+
+        assert_eq!(
+            request.scope(),
+            &CollectionScope::incremental(
+                chrono::NaiveDate::from_ymd_opt(2026, 7, 4).expect("start date"),
+                chrono::NaiveDate::from_ymd_opt(2026, 7, 4).expect("end date"),
+            )
+            .expect("incremental scope")
+        );
+    }
+
+    #[test]
+    fn antigravity_targets_fail_closed_when_repair_coordinator_returns_database_error() {
+        let previous = SuccessfulImportState::new(
+            SourceKey::Antigravity,
+            CollectionProjection::Daily,
+            CollectionScope::Full,
+            100,
+        );
+        let run_store = FakeRunStore {
+            latest_import: Some(previous),
+            latest_import_identity: Some(("antigravity", 3)),
+            latest_import_error: false,
+        };
+        let repair_coordinator = MockBaselineRepairCoordinator {
+            requires_full_scope_result: Err(
+                crate::application::ports::baseline_repair::BaselineRepairError::Database(
+                    "db error".into(),
+                ),
+            ),
+        };
+        let profile = ProfileDescriptor {
+            collector: crate::application::collection::CollectorKey::new("antigravity")
+                .expect("collector"),
+            source: SourceKey::Antigravity,
+            profile_version: 3,
+            supported_projections: vec![CollectionProjection::Daily, CollectionProjection::Session],
+        };
+
+        let error = planned_collection_request(
+            &run_store,
+            &repair_coordinator,
+            "refresh-1",
+            RefreshTarget {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Daily,
+            },
+            &profile,
+            requested_at(),
+            "UTC",
+            RefreshScopePolicy::Freshness,
+        )
+        .expect_err("should fail closed");
+
+        assert_eq!(error.code(), "refresh.import_state");
     }
 }

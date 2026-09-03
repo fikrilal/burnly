@@ -16,7 +16,8 @@ use crate::infrastructure::collectors::routed::{CollectorRoutes, RoutedCollector
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
 use crate::infrastructure::collectors::zed::{default_zed_data_dir, ZedCollector};
 use crate::infrastructure::database::{
-    Database, SqliteAntigravityUsageCacheStore, SqliteDiagnosticStore, SqliteGrokUsageCacheStore,
+    AntigravityBaselineRepairService, Database, SqliteAntigravityBaselineStore,
+    SqliteAntigravityUsageCacheStore, SqliteDiagnosticStore, SqliteGrokUsageCacheStore,
     SqliteOpenCodeUsageLedgerStore,
 };
 
@@ -63,11 +64,19 @@ pub(super) fn build_collector_graph(
             .with_diagnostic_recorder(diagnostic_recorder.clone()),
     );
     let usage_cache_database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    let baseline_database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    let repair_database = Database::open(database_path).map_err(StartupError::Persistence)?;
     let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(usage_cache_database));
-    let antigravity_collector = Arc::new(AntigravityCollector::with_diagnostic_recorder(
-        diagnostic_recorder.clone(),
-        usage_cache,
+    let baseline_store = Arc::new(SqliteAntigravityBaselineStore::new(baseline_database));
+    let repair_service = Arc::new(AntigravityBaselineRepairService::with_diagnostics(
+        repair_database,
+        Some(diagnostic_recorder.clone()),
     ));
+    let antigravity_collector = Arc::new(
+        AntigravityCollector::with_diagnostic_recorder(diagnostic_recorder.clone(), usage_cache)
+            .with_baseline_store(baseline_store)
+            .with_repair_service(repair_service),
+    );
     let commandcode_collector = Arc::new(
         CommandCodeCollector::from_data_dir(default_commandcode_home()).with_diagnostic_recorder(
             Arc::new(SqliteDiagnosticStore::new(

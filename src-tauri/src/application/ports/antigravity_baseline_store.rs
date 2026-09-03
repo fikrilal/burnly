@@ -105,3 +105,37 @@ pub(crate) trait AntigravityBaselineStore: Send + Sync {
         &self,
     ) -> Result<Vec<AntigravityBaselineRecord>, AntigravityBaselineStoreError>;
 }
+
+#[derive(Debug, Default)]
+pub(crate) struct NoopAntigravityBaselineStore;
+
+impl AntigravityBaselineStore for NoopAntigravityBaselineStore {
+    fn get_status(
+        &self,
+        _variant: AntigravityBaselineVariant,
+    ) -> Result<Option<AntigravityBaselineStatus>, AntigravityBaselineStoreError> {
+        Ok(Some(AntigravityBaselineStatus::Complete))
+    }
+
+    fn begin_baseline(
+        &self,
+        _variant: AntigravityBaselineVariant,
+        _started_at_ms: i64,
+    ) -> Result<(), AntigravityBaselineStoreError> {
+        Ok(())
+    }
+
+    fn complete_baseline(
+        &self,
+        _variant: AntigravityBaselineVariant,
+        _completed_at_ms: i64,
+    ) -> Result<(), AntigravityBaselineStoreError> {
+        Ok(())
+    }
+
+    fn list_statuses(
+        &self,
+    ) -> Result<Vec<AntigravityBaselineRecord>, AntigravityBaselineStoreError> {
+        Ok(Vec::new())
+    }
+}

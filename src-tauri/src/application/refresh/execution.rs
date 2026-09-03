@@ -11,6 +11,7 @@ use crate::application::diagnostics::{
     DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
     DiagnosticSummary,
 };
+use crate::application::ports::baseline_repair::AntigravityBaselineRepairCoordinator;
 use crate::application::ports::clock::Clock;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
@@ -42,6 +43,7 @@ pub(super) struct RefreshExecution<'a> {
     pub(super) budget_evaluator: &'a dyn BudgetEvaluationRunner,
     pub(super) clock: &'a dyn Clock,
     pub(super) diagnostic_recorder: &'a dyn DiagnosticRecorder,
+    pub(super) baseline_repair_coordinator: &'a dyn AntigravityBaselineRepairCoordinator,
     pub(super) app_version: &'a str,
     pub(super) aggregation_timezone: String,
 }
@@ -159,6 +161,7 @@ fn execute_open_refresh(
             })?;
         let request = planned_collection_request(
             context.run_store,
+            context.baseline_repair_coordinator,
             job_id,
             target,
             profile,

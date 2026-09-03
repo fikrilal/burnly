@@ -10,7 +10,9 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::product_variant::AntigravityProductVariant;
-use crate::application::ports::antigravity_usage_cache::AntigravityTimestampOrigin;
+use crate::application::ports::antigravity_usage_cache::{
+    AntigravityCalendarAttribution, AntigravityTimestampOrigin,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AntigravityUsageRecord {
@@ -24,6 +26,7 @@ pub(crate) struct AntigravityUsageRecord {
     pub(crate) observed_at: Option<DateTime<Utc>>,
     pub(crate) timestamp_origin: AntigravityTimestampOrigin,
     pub(crate) legacy_fallback_at: Option<DateTime<Utc>>,
+    pub(crate) calendar_attribution: AntigravityCalendarAttribution,
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
     pub(crate) thinking_output_tokens: u64,
@@ -160,6 +163,7 @@ fn record_from_object(
             AntigravityTimestampOrigin::Unresolved
         },
         legacy_fallback_at: None,
+        calendar_attribution: AntigravityCalendarAttribution::Dated,
         input_tokens: counters.input_tokens,
         output_tokens: counters.output_tokens,
         thinking_output_tokens: counters.thinking_output_tokens,

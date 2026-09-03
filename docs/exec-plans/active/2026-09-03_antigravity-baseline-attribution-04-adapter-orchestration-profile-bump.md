@@ -198,24 +198,24 @@ Add bounded counters to `AntigravityDiagnosticCounters`:
 
 ## Checklist
 
-- [ ] Bump `PROFILE_VERSION = 3` in `src-tauri/src/infrastructure/collectors/antigravity/mod.rs`.
-- [ ] Update `cached_record_from_usage` in `usage_cache.rs` to preserve `Unresolved` for all variants.
-- [ ] Wire `ensure_cache_reclassified` into `AntigravityCollector::collect` entry point.
-- [ ] Add `baseline_repair_coordinator` to `RefreshExecution` in `execution.rs`.
-- [ ] Pass coordinator reference from `RefreshCoordinator` into `RefreshExecution`.
-- [ ] Update `planned_collection_request` signature in `request_plan.rs` to accept `repair_coordinator`.
-- [ ] Implement fallible scope selection override (`requires_full_scope()?`) in `request_plan.rs`.
-- [ ] Update request-planning test fakes and unit tests in `request_plan.rs`.
-- [ ] Update `AntigravityCollector::collect` to manage baseline transitions and zero-artifact cases.
-- [ ] Update `mapper.rs` (`map_daily`, `map_sessions`) to filter `calendar_attribution == UndatedBaseline`.
-- [ ] Add bounded counters to `AntigravityDiagnosticCounters` and include in `antigravity.collection_completed` events.
-- [ ] Add adapter tests with sanitized fixtures verifying:
+- [x] Bump `PROFILE_VERSION = 3` in `src-tauri/src/infrastructure/collectors/antigravity/mod.rs`.
+- [x] Update `cached_record_from_usage` in `usage_cache.rs` to preserve `Unresolved` for all variants.
+- [x] Wire `ensure_cache_reclassified` into `AntigravityCollector::collect` entry point.
+- [x] Add `baseline_repair_coordinator` to `RefreshExecution` in `execution.rs`.
+- [x] Pass coordinator reference from `RefreshCoordinator` into `RefreshExecution`.
+- [x] Update `planned_collection_request` signature in `request_plan.rs` to accept `repair_coordinator`.
+- [x] Implement fallible scope selection override (`requires_full_scope()?`) in `request_plan.rs`.
+- [x] Update request-planning test fakes and unit tests in `request_plan.rs`.
+- [x] Update `AntigravityCollector::collect` to manage baseline transitions and zero-artifact cases.
+- [x] Update `mapper.rs` (`map_daily`, `map_sessions`) to filter `calendar_attribution == UndatedBaseline`.
+- [x] Add bounded counters to `AntigravityDiagnosticCounters` and include in `antigravity.collection_completed` events.
+- [x] Add adapter tests with sanitized fixtures verifying:
   - Initial baseline scan with App/IDE undated records yields 0 daily tokens.
   - Initial baseline scan with CLI undated records yields 0 daily tokens.
   - Initial baseline scan with source-timestamped records yields dated daily tokens.
   - Zero-artifact variant marks baseline complete immediately.
   - Post-baseline new prompt across any variant yields daily tokens with partial quality.
-- [ ] Verify: `cargo test --manifest-path src-tauri/Cargo.toml collectors::antigravity`.
+- [x] Verify: `cargo test --manifest-path src-tauri/Cargo.toml collectors::antigravity`.
 
 ## Test Plan
 
@@ -242,7 +242,13 @@ Add bounded counters to `AntigravityDiagnosticCounters`:
 
 ## Verification
 
-- Queued.
+- `cargo test --manifest-path src-tauri/Cargo.toml collectors::antigravity`: Passed (87 tests, 0 failed).
+- `cargo test --manifest-path src-tauri/Cargo.toml request_plan`: Passed (10 tests, 0 failed).
+- `pnpm architecture:check`: Passed (Architecture boundary check passed).
+- `pnpm collectors:fixtures`: Passed (Collector manifest, process fixtures, and envelope fixture matrices passed).
+- `pnpm verify:fast`: Passed (format, lints, typecheck, unit tests, harness checks).
+- `pnpm verify`: Passed (full test suite across TypeScript and Rust: 693 unit tests, 0 failures, 0 warnings).
+- `pnpm verify:runtime`: Passed (desktop runtime gate and IPC evidence passed).
 
 ## Follow-Up Debt
 
