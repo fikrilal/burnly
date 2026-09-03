@@ -116,17 +116,17 @@ Records with `source_reported` timestamps remain untouched.
 
 ## Checklist
 
-- [ ] Create `src-tauri/src/infrastructure/database/antigravity_baseline_repair.rs`.
-- [ ] Implement strict eligibility check rejecting any prior profile-2 `import_runs` rows.
-- [ ] Implement reclassification covering both `first_seen` and `legacy_unknown` origins within exact bounds.
-- [ ] Persist `stage = 'cache_reclassified'` upon successful commit.
-- [ ] Add unit tests verifying:
+- [x] Create `src-tauri/src/infrastructure/database/antigravity_baseline_repair.rs`.
+- [x] Implement strict eligibility check rejecting any prior profile-2 `import_runs` rows.
+- [x] Implement reclassification covering both `first_seen` and `legacy_unknown` origins within exact bounds.
+- [x] Persist `stage = 'cache_reclassified'` upon successful commit.
+- [x] Add unit tests verifying:
   - Proven initial run reclassifies both CLI `first_seen` and App/IDE `legacy_unknown` rows.
   - Presence of an earlier failed run (even with `records_seen = 0`) safely skips repair (`skip_reason: "prior_profile2_runs_exist"`).
   - Missing matching session import safely skips repair (`skip_reason: "missing_matching_session_run"`).
   - Pruned history safely skips repair (`skip_reason: "no_profile2_full_run"`).
   - Re-invoking an already reclassified repair does not duplicate SQL execution.
-- [ ] Verify: `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_repair`.
+- [x] Verify: `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_repair`.
 
 ## Test Plan
 
@@ -136,7 +136,11 @@ Records with `source_reported` timestamps remain untouched.
   - Both CLI and App/IDE pre-existing cohorts are repaired.
 - **Commands**:
   - `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_repair`
+  - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+  - `pnpm architecture:check`
   - `pnpm verify:fast`
+  - `pnpm verify`
+  - `pnpm verify:runtime`
 
 ## Decisions
 
@@ -145,10 +149,23 @@ Records with `source_reported` timestamps remain untouched.
   not precede the analyzed interval.
 - **Batch size correction**: Aligned documentation with the 20-conversation
   batch constant in `usage_cache.rs`.
+- **Diagnostic event recording**: Integrated `antigravity.baseline_repair_applied`
+  and `antigravity.baseline_repair_skipped` with structured payload context.
 
 ## Verification
 
-- Queued.
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_repair`
+  - Outcome: passed (5 passed, 0 failed; all strict eligibility and idempotency tests passed).
+- Command: `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+  - Outcome: passed (clean, 0 warnings, 0 errors).
+- Command: `pnpm architecture:check`
+  - Outcome: passed ("Architecture boundary check passed.").
+- Command: `pnpm verify:fast`
+  - Outcome: passed (harness checks, Prettier, ESLint, TypeScript, Clippy, jscpd clean).
+- Command: `pnpm verify`
+  - Outcome: passed (full local gate, 688 Rust unit tests passed, 117 Vitest tests passed).
+- Command: `pnpm verify:runtime`
+  - Outcome: passed ("Desktop runtime evidence passed.").
 
 ## Follow-Up Debt
 

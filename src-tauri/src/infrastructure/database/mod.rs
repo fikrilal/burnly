@@ -1,5 +1,6 @@
 //! SQLite infrastructure module exports.
 
+mod antigravity_baseline_repair;
 mod antigravity_baseline_store;
 mod antigravity_cache_store;
 mod bootstrap_store;
@@ -17,6 +18,8 @@ mod settings_store;
 mod test_database;
 mod tray_summary_store;
 
+#[allow(unused_imports)]
+pub(crate) use antigravity_baseline_repair::AntigravityBaselineRepairService;
 #[allow(unused_imports)]
 pub(crate) use antigravity_baseline_store::SqliteAntigravityBaselineStore;
 pub(crate) use antigravity_cache_store::SqliteAntigravityUsageCacheStore;
