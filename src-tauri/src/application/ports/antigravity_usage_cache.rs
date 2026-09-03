@@ -11,6 +11,37 @@ pub(crate) enum AntigravityTimestampOrigin {
     Unresolved,
 }
 
+#[allow(
+    dead_code,
+    reason = "chunk 01 defines calendar attribution enum consumed in chunk 02"
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AntigravityCalendarAttribution {
+    Dated,
+    UndatedBaseline,
+}
+
+#[allow(
+    dead_code,
+    reason = "chunk 01 defines calendar attribution enum consumed in chunk 02"
+)]
+impl AntigravityCalendarAttribution {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dated => "dated",
+            Self::UndatedBaseline => "undated_baseline",
+        }
+    }
+
+    pub(crate) fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "dated" => Some(Self::Dated),
+            "undated_baseline" => Some(Self::UndatedBaseline),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CachedAntigravityUsageRecord {
     pub(crate) variant: String,

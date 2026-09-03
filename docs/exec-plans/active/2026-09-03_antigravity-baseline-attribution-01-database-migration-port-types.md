@@ -157,14 +157,14 @@ CREATE TABLE antigravity_baseline_repair_state (
 
 ## Checklist
 
-- [ ] Create `src-tauri/migrations/0013_antigravity_baseline_attribution.sql`.
-- [ ] Register migration in `src-tauri/src/infrastructure/database/migrations.rs` and update `LATEST_SCHEMA_VERSION = 13`.
-- [ ] Add `AntigravityCalendarAttribution` to `src-tauri/src/application/ports/antigravity_usage_cache.rs`.
-- [ ] Define `AntigravityBaselineStore` in `src-tauri/src/application/ports/antigravity_baseline_store.rs`.
-- [ ] Define `AntigravityBaselineRepairCoordinator`, `TargetExecutionOutcome`, and `RepairCompletion` in `src-tauri/src/application/ports/baseline_repair.rs`.
-- [ ] Implement `SqliteAntigravityBaselineStore` in `src-tauri/src/infrastructure/database/antigravity_baseline_store.rs`.
-- [ ] Add migration tests proving upgrade from version 12 to 13 preserves existing rows as `dated` and enforces constraints.
-- [ ] Verify: `pnpm verify:fast`.
+- [x] Create `src-tauri/migrations/0013_antigravity_baseline_attribution.sql`.
+- [x] Register migration in `src-tauri/src/infrastructure/database/migrations.rs` and update `LATEST_SCHEMA_VERSION = 13`.
+- [x] Add `AntigravityCalendarAttribution` to `src-tauri/src/application/ports/antigravity_usage_cache.rs`.
+- [x] Define `AntigravityBaselineStore` in `src-tauri/src/application/ports/antigravity_baseline_store.rs`.
+- [x] Define `AntigravityBaselineRepairCoordinator`, `TargetExecutionOutcome`, and `RepairCompletion` in `src-tauri/src/application/ports/baseline_repair.rs`.
+- [x] Implement `SqliteAntigravityBaselineStore` in `src-tauri/src/infrastructure/database/antigravity_baseline_store.rs`.
+- [x] Add migration tests proving upgrade from version 12 to 13 preserves existing rows as `dated` and enforces constraints.
+- [x] Verify: `pnpm verify:fast`.
 
 ## Test Plan
 
@@ -175,8 +175,12 @@ CREATE TABLE antigravity_baseline_repair_state (
 - **Test Layer**: Rust unit/migration tests in `migrations.rs` and `antigravity_baseline_store.rs`.
 - **Commands**:
   - `cargo test --manifest-path src-tauri/Cargo.toml migrations`
+  - `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_store`
   - `pnpm migrations:check`
+  - `pnpm architecture:check`
   - `pnpm verify:fast`
+  - `pnpm verify`
+  - `pnpm verify:runtime`
 
 ## Decisions
 
@@ -192,7 +196,20 @@ CREATE TABLE antigravity_baseline_repair_state (
 
 ## Verification
 
-- Queued (pending activation after OpenCode).
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_store`
+  - Outcome: passed (2 passed, 0 failed; transitions and `complete_all_variants` verified).
+- Command: `cargo test --manifest-path src-tauri/Cargo.toml migrations`
+  - Outcome: passed (21 passed, 0 failed; 0013 migration upgrade from v12, default attribution, and check constraints verified).
+- Command: `pnpm migrations:check`
+  - Outcome: passed ("Migration dependency, naming, and schema checks passed.").
+- Command: `pnpm architecture:check`
+  - Outcome: passed ("Architecture boundary check passed.").
+- Command: `pnpm verify:fast`
+  - Outcome: passed (harness checks, Prettier, ESLint, TypeScript, Clippy, jscpd clean).
+- Command: `pnpm verify`
+  - Outcome: passed (full local gate, 682 Rust unit tests passed, Vitest tests passed).
+- Command: `pnpm verify:runtime`
+  - Outcome: passed ("Desktop runtime evidence passed.").
 
 ## Follow-Up Debt
 

@@ -43,6 +43,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
         "../../../migrations/0012_remove_obsolete_collector_compatibility_diagnostics.sql"
     ))
     .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0013_antigravity_baseline_attribution.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -83,7 +87,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 21);
+        assert_eq!(table_count(test_database.database()), 23);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
         assert_integrity_ok(test_database.database());
@@ -106,7 +110,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 21);
+        assert_eq!(table_count(test_database.database()), 23);
     }
 
     #[test]
@@ -318,6 +322,106 @@ mod tests {
         assert!(remaining
             .iter()
             .any(|(_, context)| context == "malformed-json"));
+    }
+
+    #[test]
+    fn antigravity_baseline_attribution_migration_preserves_rows_and_creates_tables() {
+        let mut connection = Connection::open_in_memory().expect("open database");
+        MIGRATIONS
+            .to_version(&mut connection, 12)
+            .expect("apply prior migrations");
+
+        connection
+            .execute(
+                "INSERT INTO antigravity_usage_cache (
+                    dedupe_key, variant, conversation_id, response_id,
+                    raw_model_id, model_label, input_tokens, output_tokens,
+                    thinking_output_tokens, response_output_tokens,
+                    cache_read_tokens, cache_write_tokens, observed_at_ms,
+                    collector_version, first_seen_at_ms, last_seen_at_ms,
+                    source_record_index, timestamp_origin
+                ) VALUES (
+                    'antigravity-cli:conv1:resp1', 'antigravity-cli',
+                    'conv1', 'resp1', 'gemini', 'Gemini', 10, 2,
+                    0, 2, 3, 0, 100, 'local-rpc', 200, 200,
+                    1, 'source_reported'
+                )",
+                [],
+            )
+            .expect("insert cache row under v12");
+
+        MIGRATIONS
+            .to_latest(&mut connection)
+            .expect("apply baseline attribution migration");
+
+        let calendar_attribution: String = connection
+            .query_row(
+                "SELECT calendar_attribution FROM antigravity_usage_cache WHERE dedupe_key = 'antigravity-cli:conv1:resp1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read calendar_attribution");
+        assert_eq!(calendar_attribution, "dated");
+
+        let invalid_attribution = connection.execute(
+            "INSERT INTO antigravity_usage_cache (
+                dedupe_key, variant, conversation_id, response_id,
+                raw_model_id, model_label, input_tokens, output_tokens,
+                thinking_output_tokens, response_output_tokens,
+                cache_read_tokens, cache_write_tokens, observed_at_ms,
+                collector_version, first_seen_at_ms, last_seen_at_ms,
+                source_record_index, timestamp_origin, calendar_attribution
+            ) VALUES (
+                'antigravity-cli:conv2:resp2', 'antigravity-cli',
+                'conv2', 'resp2', 'gemini', 'Gemini', 10, 2,
+                0, 2, 3, 0, 100, 'local-rpc', 200, 200,
+                2, 'source_reported', 'invalid_attribution'
+            )",
+            [],
+        );
+        assert!(invalid_attribution.is_err());
+
+        connection
+            .execute(
+                "INSERT INTO antigravity_baseline_state (
+                    variant, status, started_at_ms, completed_at_ms, updated_at_ms
+                ) VALUES ('antigravity-cli', 'pending', 1000, NULL, 1000)",
+                [],
+            )
+            .expect("insert baseline state");
+
+        let invalid_variant = connection.execute(
+            "INSERT INTO antigravity_baseline_state (
+                variant, status, started_at_ms, completed_at_ms, updated_at_ms
+            ) VALUES ('invalid-variant', 'pending', 1000, NULL, 1000)",
+            [],
+        );
+        assert!(invalid_variant.is_err());
+
+        let invalid_status = connection.execute(
+            "INSERT INTO antigravity_baseline_state (
+                variant, status, started_at_ms, completed_at_ms, updated_at_ms
+            ) VALUES ('antigravity', 'unknown_status', 1000, NULL, 1000)",
+            [],
+        );
+        assert!(invalid_status.is_err());
+
+        connection
+            .execute(
+                "INSERT INTO antigravity_baseline_repair_state (
+                    repair_version, stage, records_reclassified, stage_updated_at_ms
+                ) VALUES (1, 'not_started', 0, 1000)",
+                [],
+            )
+            .expect("insert repair state");
+
+        let invalid_repair_stage = connection.execute(
+            "INSERT INTO antigravity_baseline_repair_state (
+                repair_version, stage, records_reclassified, stage_updated_at_ms
+            ) VALUES (2, 'invalid_stage', 0, 1000)",
+            [],
+        );
+        assert!(invalid_repair_stage.is_err());
     }
 
     #[test]

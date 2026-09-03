@@ -1,4 +1,6 @@
+pub(crate) mod antigravity_baseline_store;
 pub(crate) mod antigravity_usage_cache;
+pub(crate) mod baseline_repair;
 pub(crate) mod clock;
 pub(crate) mod cloud_auth_credentials;
 pub(crate) mod cloud_remote_logout;
