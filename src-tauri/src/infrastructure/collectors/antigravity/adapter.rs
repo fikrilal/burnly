@@ -2436,6 +2436,20 @@ mod tests {
         File::create(directory.join(format!("{name}.db"))).expect("db file");
     }
 
+    fn create_cli_db(root: &std::path::Path, name: &str) {
+        let directory = root
+            .join(AntigravityProductVariant::Cli.data_dir_name())
+            .join("conversations");
+        fs::create_dir_all(&directory).expect("conversation dir");
+        let path = directory.join(format!("{name}.db"));
+        let conn = rusqlite::Connection::open(&path).expect("open cli db");
+        conn.execute(
+            "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)",
+            [],
+        )
+        .expect("create gen_metadata");
+    }
+
     fn detection_request(source: SourceKey) -> DetectionRequest {
         support_detection_request(source, timestamp())
     }
@@ -2797,5 +2811,201 @@ mod tests {
             result.daily_candidates()[0].provenance.data_quality,
             crate::domain::usage::DataQuality::Partial
         );
+    }
+
+    #[test]
+    fn scenario_1_fresh_installation_with_cli_and_app_ide_corpus_yields_zero_today_tokens() {
+        let db_dir = TempDir::new().expect("tempdir");
+        let db_path = db_dir.path().join("test.db");
+        let mut migrator = Database::open(&db_path).expect("open db");
+        migrator.migrate_to_latest().expect("migrate to latest");
+        let baseline_store = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                Database::open(&db_path).expect("open db"),
+            ),
+        );
+        let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(
+            Database::open(&db_path).expect("open db"),
+        ));
+
+        let data_root = TempDir::new().expect("tempdir");
+        create_cli_db(data_root.path(), "cli-1");
+        create_db(data_root.path(), AntigravityProductVariant::App, "app-1");
+        create_db(data_root.path(), AntigravityProductVariant::Ide, "ide-1");
+
+        let cli_rec = record(
+            AntigravityProductVariant::Cli,
+            "cli-1",
+            "gemini-flash",
+            "gemini-flash",
+            1000,
+            500,
+            0,
+            0,
+        );
+        let app_rec = record(
+            AntigravityProductVariant::App,
+            "app-1",
+            "gemini-flash",
+            "gemini-flash",
+            2000,
+            1000,
+            0,
+            0,
+        );
+        let ide_rec = record(
+            AntigravityProductVariant::Ide,
+            "ide-1",
+            "gemini-flash",
+            "gemini-flash",
+            3000,
+            1500,
+            0,
+            0,
+        );
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(vec![
+                ConversationUsage {
+                    database: database(AntigravityProductVariant::Cli, "cli-1"),
+                    records: vec![cli_rec],
+                },
+                ConversationUsage {
+                    database: database(AntigravityProductVariant::App, "app-1"),
+                    records: vec![app_rec],
+                },
+                ConversationUsage {
+                    database: database(AntigravityProductVariant::Ide, "ide-1"),
+                    records: vec![ide_rec],
+                },
+            ]),
+            AntigravityUsageCacheClient::new(usage_cache),
+        )
+        .with_baseline_store(baseline_store.clone());
+
+        // Baseline is not complete yet -> initial scan marks baseline Pending, returns 0 daily candidates
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("collection succeeds");
+
+        assert_eq!(result.daily_candidates().len(), 0);
+
+        // Verify all 3 records in cache are UndatedBaseline
+        let conn = rusqlite::Connection::open(&db_path).expect("open db");
+        let undated_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM antigravity_usage_cache WHERE calendar_attribution = 'undated_baseline'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(undated_count, 3);
+
+        // Complete baseline with a timestamp at or after start
+        let complete_time = chrono::Utc::now().timestamp_millis() + 10_000;
+        baseline_store.complete_all_variants(complete_time).unwrap();
+
+        // Second collection run: no new prompt activity -> 0 candidates, 0 duplicates
+        let result2 = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("second collection succeeds");
+        assert_eq!(result2.daily_candidates().len(), 0);
+        let total_cache_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM antigravity_usage_cache", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(total_cache_count, 3);
+    }
+
+    struct SignalCancelled(std::sync::atomic::AtomicBool);
+    impl CancellationSignal for SignalCancelled {
+        fn is_cancelled(&self) -> bool {
+            self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[test]
+    fn scenario_8_interrupted_baseline_recovery_resumes_without_duplicates() {
+        let db_dir = TempDir::new().expect("tempdir");
+        let db_path = db_dir.path().join("test.db");
+        let mut migrator = Database::open(&db_path).expect("open db");
+        migrator.migrate_to_latest().expect("migrate to latest");
+        let baseline_store = Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                Database::open(&db_path).expect("open db"),
+            ),
+        );
+        let usage_cache = Arc::new(SqliteAntigravityUsageCacheStore::new(
+            Database::open(&db_path).expect("open db"),
+        ));
+
+        let data_root = TempDir::new().expect("tempdir");
+        create_cli_db(data_root.path(), "cli-1");
+        let cli_rec = record(
+            AntigravityProductVariant::Cli,
+            "cli-1",
+            "gemini-flash",
+            "gemini-flash",
+            1000,
+            500,
+            0,
+            0,
+        );
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(vec![ProcessSnapshot::new(
+                10,
+                Some(PathBuf::from("/home/user/.local/bin/agy")),
+                vec!["agy".to_owned()],
+                vec![LocalListener::ipv4(34415)],
+            )]),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(vec![ConversationUsage {
+                database: database(AntigravityProductVariant::Cli, "cli-1"),
+                records: vec![cli_rec],
+            }]),
+            AntigravityUsageCacheClient::new(usage_cache),
+        )
+        .with_baseline_store(baseline_store.clone());
+
+        // Cancelled collection
+        let cancelled = SignalCancelled(std::sync::atomic::AtomicBool::new(true));
+        let err = collector.collect(daily_request(SourceKey::Antigravity), &cancelled);
+        assert!(err.is_err());
+
+        // Baseline state is NOT Complete
+        assert_ne!(
+            baseline_store
+                .get_status(crate::application::ports::antigravity_baseline_store::AntigravityBaselineVariant::Cli)
+                .unwrap(),
+            Some(crate::application::ports::antigravity_baseline_store::AntigravityBaselineStatus::Complete)
+        );
+
+        // Resume with non-cancelled collection
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("resumed collection succeeds");
+        assert_eq!(result.daily_candidates().len(), 0);
+
+        // Complete baseline and verify no duplicate records
+        let complete_time = chrono::Utc::now().timestamp_millis() + 10_000;
+        baseline_store.complete_all_variants(complete_time).unwrap();
+        let conn = rusqlite::Connection::open(&db_path).expect("open db");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM antigravity_usage_cache", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

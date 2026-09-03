@@ -158,18 +158,16 @@ and cloud synchronization for Antigravity).
 
 ## Chunks and Status
 
-All Antigravity plans remain queued while the OpenCode implementation plan
-remains active in `docs/exec-plans/active/`. Once OpenCode is complete, Chunk 01
-will be activated.
+All 6 Antigravity baseline attribution and historical repair chunks are completed.
 
-| Chunk  | Title                                      | Status     | Location                                                                                                      |
-| :----- | :----------------------------------------- | :--------- | :------------------------------------------------------------------------------------------------------------ |
-| **01** | Database Migration & Port Types            | **Queued** | `docs/exec-plans/queued/2026-09-03_antigravity-baseline-attribution-01-database-migration-port-types.md`      |
-| **02** | Usage Cache Store Attribution Logic        | Queued     | `docs/exec-plans/queued/2026-09-03_antigravity-baseline-attribution-02-cache-store-attribution.md`            |
-| **03** | Profile-2 Historical Repair Service        | Queued     | `docs/exec-plans/queued/2026-09-03_antigravity-baseline-attribution-03-profile2-repair-service.md`            |
-| **04** | Adapter Orchestration & Profile Bump       | Queued     | `docs/exec-plans/queued/2026-09-03_antigravity-baseline-attribution-04-adapter-orchestration-profile-bump.md` |
-| **05** | Canonical Repair & Collect-Sync Correction | Queued     | `docs/exec-plans/queued/2026-09-03_antigravity-baseline-attribution-05-canonical-repair-collect-sync.md`      |
-| **06** | End-to-End Verification & Evidence         | Queued     | `docs/exec-plans/queued/2026-09-03_antigravity-baseline-attribution-06-end-to-end-verification.md`            |
+| Chunk  | Title                                      | Status        | Location                                                                                                         |
+| :----- | :----------------------------------------- | :------------ | :--------------------------------------------------------------------------------------------------------------- |
+| **01** | Database Migration & Port Types            | **Completed** | `docs/exec-plans/completed/2026-09-03_antigravity-baseline-attribution-01-database-migration-port-types.md`      |
+| **02** | Usage Cache Store Attribution Logic        | **Completed** | `docs/exec-plans/completed/2026-09-03_antigravity-baseline-attribution-02-cache-store-attribution.md`            |
+| **03** | Profile-2 Historical Repair Service        | **Completed** | `docs/exec-plans/completed/2026-09-03_antigravity-baseline-attribution-03-profile2-repair-service.md`            |
+| **04** | Adapter Orchestration & Profile Bump       | **Completed** | `docs/exec-plans/completed/2026-09-03_antigravity-baseline-attribution-04-adapter-orchestration-profile-bump.md` |
+| **05** | Canonical Repair & Collect-Sync Correction | **Completed** | `docs/exec-plans/completed/2026-09-03_antigravity-baseline-attribution-05-canonical-repair-collect-sync.md`      |
+| **06** | End-to-End Verification & Evidence         | **Completed** | `docs/exec-plans/completed/2026-09-03_antigravity-baseline-attribution-06-end-to-end-verification.md`            |
 
 ## Verification Plan
 

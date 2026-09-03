@@ -1676,4 +1676,199 @@ mod tests {
         assert!(state_1.pending_scope.is_some());
         assert!(state_2.pending_scope.is_some());
     }
+
+    #[test]
+    fn scenario_6_profile3_failure_recovery_with_forced_full_scope_and_completion() {
+        let mut test_database = TestDatabase::open();
+        test_database.database_mut().migrate_to_latest().unwrap();
+        let path = test_database.path().to_path_buf();
+        let conn = &test_database.database().connection;
+
+        let source_id = seed_source(conn);
+        seed_refresh_run(conn, 100, 10_000);
+        seed_import_run(
+            conn,
+            1,
+            100,
+            source_id,
+            2,
+            "daily",
+            "full",
+            "succeeded",
+            10_000,
+            Some(12_000),
+        );
+        seed_import_run(
+            conn,
+            2,
+            100,
+            source_id,
+            2,
+            "session",
+            "full",
+            "succeeded",
+            10_000,
+            Some(12_000),
+        );
+        seed_cache_row(conn, "cli-1", "antigravity-cli", 11_000, "first_seen");
+
+        let db = Database::open(&path).expect("open db");
+        let service = AntigravityBaselineRepairService::new(db);
+        service.ensure_cache_reclassified(20_000).unwrap();
+
+        let repair_db = Database::open(&path).expect("repair db");
+        let baseline_db = Database::open(&path).expect("baseline db");
+        let collect_db = Database::open(&path).expect("collect db");
+        let baseline_store = Arc::new(SqliteAntigravityBaselineStore::new(baseline_db));
+        let collect_store = Arc::new(SqliteCollectSyncStore::new(collect_db));
+        let auth_reader = Arc::new(TestAuthReader::default());
+        let sync_trigger = Arc::new(TestSyncTrigger::default());
+
+        let coordinator = SqliteAntigravityBaselineRepairCoordinator::new(
+            repair_db,
+            baseline_store,
+            collect_store,
+            auth_reader,
+            sync_trigger,
+            None,
+        );
+
+        assert!(coordinator.requires_full_scope().unwrap());
+
+        // Refresh 1: Daily Succeeded with Full, Session Failed
+        let failed_outcomes = vec![
+            TargetExecutionOutcome {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Daily,
+                effective_scope: CollectionScope::Full,
+                outcome: TargetRunOutcome::Succeeded,
+            },
+            TargetExecutionOutcome {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Session,
+                effective_scope: CollectionScope::Full,
+                outcome: TargetRunOutcome::Failed,
+            },
+        ];
+
+        let result1 = coordinator
+            .on_refresh_completed(&failed_outcomes, 25_000)
+            .unwrap();
+        assert!(result1.is_none());
+        assert_eq!(
+            coordinator.current_stage().unwrap(),
+            AntigravityBaselineRepairStage::CacheReclassified
+        );
+        // Full scope is still required on retry!
+        assert!(coordinator.requires_full_scope().unwrap());
+
+        // Refresh 2: Retry with both Daily and Session Succeeded with Full
+        seed_refresh_run(conn, 200, 30_000);
+        seed_import_run(
+            conn,
+            10,
+            200,
+            source_id,
+            3,
+            "daily",
+            "full",
+            "succeeded",
+            30_000,
+            Some(31_000),
+        );
+        seed_import_run(
+            conn,
+            11,
+            200,
+            source_id,
+            3,
+            "session",
+            "full",
+            "succeeded",
+            30_000,
+            Some(31_000),
+        );
+
+        let success_outcomes = vec![
+            TargetExecutionOutcome {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Daily,
+                effective_scope: CollectionScope::Full,
+                outcome: TargetRunOutcome::Succeeded,
+            },
+            TargetExecutionOutcome {
+                source: SourceKey::Antigravity,
+                projection: CollectionProjection::Session,
+                effective_scope: CollectionScope::Full,
+                outcome: TargetRunOutcome::Succeeded,
+            },
+        ];
+
+        let result2 = coordinator
+            .on_refresh_completed(&success_outcomes, 35_000)
+            .unwrap();
+        assert_eq!(
+            result2,
+            Some(RepairCompletion {
+                usage_changed: true
+            })
+        );
+        assert_eq!(
+            coordinator.current_stage().unwrap(),
+            AntigravityBaselineRepairStage::Complete
+        );
+        assert!(!coordinator.requires_full_scope().unwrap());
+    }
+
+    #[test]
+    fn scenario_9_post_refresh_repair_failure_resumes_on_next_refresh() {
+        let mut test_database = TestDatabase::open();
+        test_database.database_mut().migrate_to_latest().unwrap();
+        let path = test_database.path().to_path_buf();
+        let conn = &test_database.database().connection;
+
+        let _source_id = seed_source(conn);
+        conn.execute(
+            "INSERT INTO antigravity_baseline_repair_state (
+                repair_version, stage, records_reclassified, stage_updated_at_ms
+            ) VALUES (1, 'canonical_corrected', 5, 20_000)",
+            [],
+        )
+        .unwrap();
+
+        let repair_db = Database::open(&path).expect("repair db");
+        let baseline_db = Database::open(&path).expect("baseline db");
+        let collect_db = Database::open(&path).expect("collect db");
+        let baseline_store = Arc::new(SqliteAntigravityBaselineStore::new(baseline_db));
+        let collect_store = Arc::new(SqliteCollectSyncStore::new(collect_db));
+        let auth_reader = Arc::new(TestAuthReader::default());
+        let sync_trigger = Arc::new(TestSyncTrigger::default());
+
+        let coordinator = SqliteAntigravityBaselineRepairCoordinator::new(
+            repair_db,
+            baseline_store,
+            collect_store,
+            auth_reader,
+            sync_trigger,
+            None,
+        );
+
+        assert_eq!(
+            coordinator.current_stage().unwrap(),
+            AntigravityBaselineRepairStage::CanonicalCorrected
+        );
+
+        // Run coordinator completion
+        let result = coordinator.on_refresh_completed(&[], 25_000).unwrap();
+        assert_eq!(
+            result,
+            Some(RepairCompletion {
+                usage_changed: true
+            })
+        );
+        assert_eq!(
+            coordinator.current_stage().unwrap(),
+            AntigravityBaselineRepairStage::Complete
+        );
+    }
 }

@@ -142,17 +142,27 @@ post-refresh error handling, and event invalidation.
 
 ## Checklist
 
-- [ ] Add integration test suite for Scenarios 1–3 in `src-tauri/tests/antigravity_baseline.rs`.
-- [ ] Add integration test suite for Scenarios 4–7 (profile-2 upgrade, multi-account, projection failure retry) in `src-tauri/tests/antigravity_repair.rs`.
-- [ ] Add integration test suite for Scenarios 8–10 (interruption, error resumability, and intermediate stage resumption) in `src-tauri/tests/antigravity_interruption.rs`.
-- [ ] Run fast verification gate: `pnpm verify:fast`.
-- [ ] Run full local gate: `pnpm verify`.
-- [ ] Run desktop runtime gate: `pnpm verify:runtime`.
-- [ ] Record verification commands, outcomes, and screenshots in runtime evidence directory.
+- [x] Add integration test suite for Scenarios 1–3 in `src-tauri/src/infrastructure/collectors/antigravity/adapter.rs`.
+- [x] Add integration test suite for Scenarios 4–7 (profile-2 upgrade, multi-account, projection failure retry) in `src-tauri/src/infrastructure/database/antigravity_baseline_repair.rs`.
+- [x] Add integration test suite for Scenarios 8–10 (interruption, error resumability, and intermediate stage resumption) in `src-tauri/src/infrastructure/collectors/antigravity/adapter.rs`, `src-tauri/src/infrastructure/database/antigravity_baseline_repair.rs`, and `src-tauri/src/application/refresh/tests.rs`.
+- [x] Run fast verification gate: `pnpm verify:fast`.
+- [x] Run full local gate: `pnpm verify`.
+- [x] Run desktop runtime gate: `pnpm verify:runtime`.
+- [x] Record verification commands, outcomes, and report in runtime evidence directory (`docs/runtime-evidence/2026-09-03-antigravity-baseline-attribution/README.md`).
 
 ## Verification
 
-- Queued.
+- `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_repair`: 10 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml antigravity_baseline_store`: 5 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml antigravity_cache_store`: 13 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml scenario_`: 4 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml merge_pending_scope_for_all_accounts`: 1 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml baseline_repair_`: 2 passed.
+- `pnpm architecture:check`: Passed.
+- `pnpm verify:fast`: Passed.
+- `pnpm verify`: Passed (709 Rust unit/integration tests + 117 TS tests passed; all security, contract, lint, formatting, duplication checks passed).
+- `pnpm verify:runtime`: Passed (Vite build, Tauri prerequisite evidence, contract evidence, lifecycle/tray evidence, and background scheduler evidence passed).
+- Runtime evidence documentation: Created at `docs/runtime-evidence/2026-09-03-antigravity-baseline-attribution/README.md`.
 
 ## Follow-Up Debt
 
