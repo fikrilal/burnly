@@ -190,6 +190,7 @@ const accountSessionDataSchema: z.ZodType<AccountSessionResponse> = z.object({
     "waiting_for_browser",
     "exchanging",
     "signed_in",
+    "session_expired",
   ]),
   email: z.string().min(1).nullable(),
   userId: z.string().min(1).nullable(),

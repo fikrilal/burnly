@@ -3,12 +3,12 @@
 //! Cloud composition failures are non-fatal: the tray keeps running and account
 //! APIs report signed-out / login unavailable.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::application::account::{AccountService, DesktopLoginConfig};
-use crate::application::cloud_session::CloudSession;
+use crate::application::account::{AccountLifecycleListener, AccountService, DesktopLoginConfig};
+use crate::application::cloud_session::{AccountSummary, CloudSession, CloudSessionObserver};
 use crate::application::ports::cloud_token_store::CloudTokenStore;
 use crate::application::ports::desktop_token_exchanger::DesktopTokenExchanger;
 use crate::infrastructure::cloud::client::{CloudClient, ReqwestTransport};
@@ -19,6 +19,22 @@ use crate::infrastructure::cloud::logout::HttpCloudRemoteLogout;
 use crate::infrastructure::cloud::refresh::HttpCloudTokenRefresher;
 use crate::infrastructure::cloud::token_store::KeyringCloudTokenStore;
 use crate::platform::system_clock::SystemClock;
+
+struct SessionExpirationObserver<R: Runtime> {
+    app: AppHandle<R>,
+    lifecycle: Arc<Mutex<Option<Arc<dyn AccountLifecycleListener>>>>,
+}
+
+impl<R: Runtime> CloudSessionObserver for SessionExpirationObserver<R> {
+    fn on_session_expired(&self, _account: &AccountSummary) {
+        if let Ok(guard) = self.lifecycle.lock() {
+            if let Some(listener) = guard.as_ref() {
+                listener.on_signed_out();
+            }
+        }
+        crate::ipc::emit_account_session_expired(&self.app);
+    }
+}
 
 pub(crate) struct InstalledAccountRuntime {
     pub service: AccountService,
@@ -66,35 +82,33 @@ pub(crate) fn install_account_service<R: Runtime>(
             if let Err(error) = stack.session.restore() {
                 eprintln!("Burnly cloud session restore failed: {error}");
             }
-            match login_config {
+            let service = match login_config {
                 Some(config) => {
                     let exchanger: Arc<dyn DesktopTokenExchanger> =
                         Arc::new(HttpDesktopTokenExchanger::new(stack.public_client));
-                    InstalledAccountRuntime {
-                        service: AccountService::from_session(
-                            stack.session.clone(),
-                            device_id.clone(),
-                            device_name.clone(),
-                            config,
-                            exchanger,
-                        ),
-                        session: Some(stack.session),
-                        authenticated_client: Some(stack.authenticated_client),
-                        device_id,
-                        device_name,
-                    }
-                }
-                None => InstalledAccountRuntime {
-                    service: AccountService::unavailable(
+                    AccountService::from_session(
+                        stack.session.clone(),
                         device_id.clone(),
                         device_name.clone(),
-                        None,
-                    ),
-                    session: Some(stack.session),
-                    authenticated_client: Some(stack.authenticated_client),
-                    device_id,
-                    device_name,
-                },
+                        config,
+                        exchanger,
+                    )
+                }
+                None => AccountService::unavailable(device_id.clone(), device_name.clone(), None),
+            };
+
+            let observer = Arc::new(SessionExpirationObserver {
+                app: app.clone(),
+                lifecycle: service.lifecycle_slot(),
+            });
+            stack.session.set_observer(Some(observer));
+
+            InstalledAccountRuntime {
+                service,
+                session: Some(stack.session),
+                authenticated_client: Some(stack.authenticated_client),
+                device_id,
+                device_name,
             }
         }
         Err(error) => {

@@ -57,7 +57,7 @@ pub(crate) struct AccountService {
     loopback_cancel: Mutex<Option<Arc<AtomicBool>>>,
     exchanging: AtomicBool,
     last_error: Mutex<Option<AccountLoginError>>,
-    lifecycle: Mutex<Option<Arc<dyn AccountLifecycleListener>>>,
+    lifecycle: Arc<Mutex<Option<Arc<dyn AccountLifecycleListener>>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +66,7 @@ pub(crate) enum AccountSessionStatus {
     WaitingForBrowser,
     Exchanging,
     SignedIn,
+    SessionExpired,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,7 +131,7 @@ impl AccountService {
             loopback_cancel: Mutex::new(None),
             exchanging: AtomicBool::new(false),
             last_error: Mutex::new(None),
-            lifecycle: Mutex::new(None),
+            lifecycle: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -151,8 +152,12 @@ impl AccountService {
             loopback_cancel: Mutex::new(None),
             exchanging: AtomicBool::new(false),
             last_error: Mutex::new(None),
-            lifecycle: Mutex::new(None),
+            lifecycle: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub(crate) fn lifecycle_slot(&self) -> Arc<Mutex<Option<Arc<dyn AccountLifecycleListener>>>> {
+        self.lifecycle.clone()
     }
 
     pub(crate) fn set_lifecycle_listener(
@@ -208,6 +213,17 @@ impl AccountService {
                 user_id: None,
                 last_error: None,
             };
+        }
+
+        if let Some(session) = &self.session {
+            if let Ok(SessionSnapshot::SessionExpired { account }) = session.snapshot() {
+                return AccountSessionView {
+                    status: AccountSessionStatus::SessionExpired,
+                    email: Some(account.email),
+                    user_id: Some(account.user_id),
+                    last_error,
+                };
+            }
         }
 
         AccountSessionView {
@@ -756,5 +772,91 @@ mod tests {
         service.start_login().expect("second");
         let second = service.peek_pending_login().expect("pending").state;
         assert_ne!(first, second);
+    }
+
+    struct ExpiredRefresher;
+
+    impl CloudTokenRefresher for ExpiredRefresher {
+        fn refresh(
+            &self,
+            _refresh_token: &str,
+        ) -> Result<CloudTokens, crate::application::cloud_session::CloudSessionError> {
+            Err(
+                crate::application::cloud_session::CloudSessionError::RefreshFailed {
+                    code: Some("AUTH_REFRESH_TOKEN_EXPIRED".into()),
+                },
+            )
+        }
+    }
+
+    #[test]
+    fn session_expired_flow_and_recovery() {
+        let store = Arc::new(MemoryStore::new());
+        let session = Arc::new(CloudSession::new(
+            store,
+            Arc::new(ExpiredRefresher),
+            Arc::new(NoopLogout),
+            Arc::new(FixedClock),
+        ));
+        session
+            .apply_tokens(
+                CloudTokens {
+                    access_token: "access".into(),
+                    refresh_token: "refresh".into(),
+                    access_expires_at_ms: None,
+                },
+                AccountSummary {
+                    user_id: "user-1".into(),
+                    email: "expired@burnly.dev".into(),
+                },
+            )
+            .expect("apply");
+
+        let exchanger = Arc::new(FakeExchanger {
+            calls: AtomicUsize::new(0),
+            result: Mutex::new(None),
+        });
+        let service = AccountService::from_session(
+            session.clone(),
+            None,
+            "device",
+            DesktopLoginConfig {
+                web_origin: "https://burnly.dev".into(),
+                redirect_uri: "http://127.0.0.1/callback".into(),
+            },
+            exchanger,
+        );
+
+        assert_eq!(
+            service.session_view().status,
+            AccountSessionStatus::SignedIn
+        );
+
+        let _ = session.refresh_single_flight();
+
+        let view = service.session_view();
+        assert_eq!(view.status, AccountSessionStatus::SessionExpired);
+        assert_eq!(view.email.as_deref(), Some("expired@burnly.dev"));
+        assert!(view.last_error.is_none());
+
+        let started = service.start_login().expect("start login while expired");
+        assert_eq!(started.view.status, AccountSessionStatus::WaitingForBrowser);
+
+        let failed_view = service.abandon_login_with_error(AccountServiceError::ExchangeFailed {
+            code: Some("AUTH_USER_SUSPENDED".into()),
+            message: "suspended".into(),
+        });
+        assert_eq!(failed_view.status, AccountSessionStatus::SessionExpired);
+        assert_eq!(
+            failed_view.last_error.as_ref().map(|e| e.code.as_str()),
+            Some("AUTH_USER_SUSPENDED")
+        );
+
+        let canceled = service.cancel_login();
+        assert_eq!(canceled.status, AccountSessionStatus::SessionExpired);
+
+        let logged_out = service.logout().expect("logout");
+        assert_eq!(logged_out.status, AccountSessionStatus::SignedOut);
+        assert!(logged_out.last_error.is_none());
     }
 }

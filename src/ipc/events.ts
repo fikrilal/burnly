@@ -28,6 +28,7 @@ const accountSessionChangedSchema = z.object({
     "login_cancelled",
     "login_failed",
     "logged_out",
+    "session_expired",
   ]),
 });
 
