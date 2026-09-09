@@ -36,6 +36,7 @@ impl From<AccountSessionView> for AccountSessionResponse {
             AccountSessionStatus::WaitingForBrowser => "waiting_for_browser",
             AccountSessionStatus::Exchanging => "exchanging",
             AccountSessionStatus::SignedIn => "signed_in",
+            AccountSessionStatus::SessionExpired => "session_expired",
         };
         Self {
             status,
@@ -155,6 +156,10 @@ fn emit_account_session_changed<R: tauri::Runtime>(
         event_names::ACCOUNT_SESSION_CHANGED,
         AccountSessionChangedEvent { reason },
     );
+}
+
+pub(crate) fn emit_account_session_expired<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    emit_account_session_changed(app, AccountSessionChangeReason::SessionExpired);
 }
 
 fn loopback_error(error: LoopbackError) -> IpcError {

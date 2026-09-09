@@ -45,6 +45,7 @@ pub(crate) enum AccountSessionChangeReason {
     LoginCancelled,
     LoginFailed,
     LoggedOut,
+    SessionExpired,
 }
 
 #[derive(Debug, Clone, Serialize)]

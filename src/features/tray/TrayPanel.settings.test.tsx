@@ -5,13 +5,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   copyDiagnosticsReport,
   exportDiagnosticsReport,
+  getAccountSession,
   getDiagnosticsHealth,
   getSettings,
   getTraySummary,
+  startAccountLogin,
   updateSettings,
 } from "../../ipc/client";
 import { openExternalLink } from "../../ipc/external-links";
 import {
+  accountSessionResult,
   capabilities,
   diagnosticsHealthResult,
   renderTrayPanel,
@@ -232,5 +235,78 @@ describe("TrayPanel diagnostics settings", () => {
       await screen.findByText("Diagnostics report copied."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+});
+
+describe("TrayPanel account session", () => {
+  it("renders expired session banner and provides sign in again action", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getAccountSession).mockResolvedValue(
+      accountSessionResult({
+        status: "session_expired",
+        email: "fikrildev@gmail.com",
+        userId: "user-123",
+      }),
+    );
+    vi.mocked(startAccountLogin).mockResolvedValue(
+      accountSessionResult({
+        status: "waiting_for_browser",
+        email: null,
+      }),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(
+      await screen.findByText("fikrildev@gmail.com · Session expired"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Your session has expired. Please sign in again."),
+    ).toBeInTheDocument();
+
+    const signInAgainBtn = screen.getByRole("button", {
+      name: "Sign in again",
+    });
+    expect(signInAgainBtn).toBeInTheDocument();
+    expect(screen.queryByText("Cloud upload")).not.toBeInTheDocument();
+
+    await user.click(signInAgainBtn);
+    expect(startAccountLogin).toHaveBeenCalled();
+  });
+
+  it("renders specific login error when re-authentication fails while expired", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTraySummary).mockResolvedValue(traySummaryResult());
+    vi.mocked(getSettings).mockResolvedValue(settingsResult());
+    vi.mocked(getAccountSession).mockResolvedValue(
+      accountSessionResult({
+        status: "session_expired",
+        email: "fikrildev@gmail.com",
+        userId: "user-123",
+        lastErrorCode: "AUTH_USER_SUSPENDED",
+        lastErrorMessage: "This account is suspended and cannot sign in.",
+      }),
+    );
+
+    renderTrayPanel();
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(
+      await screen.findByText("fikrildev@gmail.com · Session expired"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("This account is suspended and cannot sign in."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Your session has expired. Please sign in again."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Sign in again" }),
+    ).toBeInTheDocument();
   });
 });

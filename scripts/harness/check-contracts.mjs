@@ -477,7 +477,8 @@ export type AccountSessionStatus =
   | "signed_out"
   | "waiting_for_browser"
   | "exchanging"
-  | "signed_in";
+  | "signed_in"
+  | "session_expired";
 
 export interface AccountSessionResponse {
   status: AccountSessionStatus;
@@ -841,7 +842,8 @@ export type AccountSessionChangeReason =
   | "login_completed"
   | "login_cancelled"
   | "login_failed"
-  | "logged_out";
+  | "logged_out"
+  | "session_expired";
 
 export interface AccountSessionChangedEvent {
   reason: AccountSessionChangeReason;

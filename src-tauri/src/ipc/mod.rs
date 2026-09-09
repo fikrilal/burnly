@@ -21,6 +21,7 @@ mod settings;
 mod update;
 mod usage;
 
+pub(crate) use account::emit_account_session_expired;
 pub(crate) use collect_sync::CollectSyncEventSink;
 pub(crate) use commands::refresh_event_sink;
 pub(crate) use response::CONTRACT_VERSION;

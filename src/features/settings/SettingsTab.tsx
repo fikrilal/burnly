@@ -287,6 +287,9 @@ function accountDetail(
   email: string | null,
 ): string {
   if (status === "signed_in") return email ?? "Signed in";
+  if (status === "session_expired") {
+    return email ? `${email} · Session expired` : "Session expired";
+  }
   if (status === "waiting_for_browser") {
     return "Complete sign-in in your browser…";
   }
@@ -304,6 +307,9 @@ function accountErrorText(
       session.lastErrorCode,
       session.lastErrorMessage,
     );
+  }
+  if (session.status === "session_expired") {
+    return "Your session has expired. Please sign in again.";
   }
   return null;
 }
@@ -507,6 +513,16 @@ function AccountSettingActions({
                 ? "Try again"
                 : "Sign in"
           }
+        />
+      ) : null}
+      {status === "session_expired" ? (
+        <AccountActionButton
+          disabled={actionPending}
+          onClick={() => {
+            startLogin.reset();
+            startLogin.mutate();
+          }}
+          label={startLogin.isPending ? "Opening…" : "Sign in again"}
         />
       ) : null}
       {status === "waiting_for_browser" ? (
