@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
@@ -13,12 +14,13 @@ use super::protobuf_usage::{
 };
 use super::ConversationDatabase;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct CliSqliteCollectionReport {
     pub(crate) records_extracted: u32,
     pub(crate) records_rejected: u32,
     pub(crate) conversations_parsed: u32,
     pub(crate) conversations_failed: u32,
+    pub(crate) parsed_conversation_ids: BTreeSet<String>,
 }
 
 #[derive(Debug, Error)]
@@ -45,6 +47,9 @@ pub(crate) fn collect_cli_sqlite_usage(
         match read_cli_conversation(conversation) {
             Ok(records) => {
                 report.conversations_parsed = report.conversations_parsed.saturating_add(1);
+                report
+                    .parsed_conversation_ids
+                    .insert(conversation.conversation_id.clone());
                 report.records_extracted = report
                     .records_extracted
                     .saturating_add(records.len().try_into().unwrap_or(u32::MAX));

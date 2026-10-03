@@ -18,15 +18,23 @@ pub(crate) struct AppIdeSqliteCollectionReport {
     pub(crate) conversations_rejected: u32,
     pub(crate) variants_accepted: BTreeSet<AntigravityProductVariant>,
     pub(crate) variants_rejected: BTreeSet<AntigravityProductVariant>,
+    pub(crate) accepted_conversation_ids: BTreeSet<String>,
 }
 
 impl AppIdeSqliteCollectionReport {
-    fn record_accepted(&mut self, variant: AntigravityProductVariant, records: usize) {
+    fn record_accepted(
+        &mut self,
+        variant: AntigravityProductVariant,
+        conversation_id: &str,
+        records: usize,
+    ) {
         self.conversations_accepted = self.conversations_accepted.saturating_add(1);
         self.records_extracted = self
             .records_extracted
             .saturating_add(records.try_into().unwrap_or(u32::MAX));
         self.variants_accepted.insert(variant);
+        self.accepted_conversation_ids
+            .insert(conversation_id.to_owned());
     }
 
     fn record_rejected(&mut self, variant: AntigravityProductVariant, records_rejected: u32) {
@@ -61,7 +69,11 @@ pub(crate) fn collect_app_ide_sqlite_fallback(
     }) {
         match read_app_ide_conversation(conversation) {
             Ok(records) => {
-                report.record_accepted(conversation.variant, records.len());
+                report.record_accepted(
+                    conversation.variant,
+                    &conversation.conversation_id,
+                    records.len(),
+                );
                 if !records.is_empty() {
                     usage.push(ConversationUsage {
                         database: conversation.clone(),

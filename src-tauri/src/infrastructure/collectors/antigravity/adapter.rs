@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -581,7 +582,13 @@ impl Collector for AntigravityCollector {
             );
         }
 
-        let runtime_targets = conversations_needing_runtime(&conversations, &collected_usage);
+        let runtime_targets = conversations_needing_runtime(
+            &conversations,
+            &collected_usage,
+            &endpoints,
+            &sqlite_report.parsed_conversation_ids,
+            &app_ide_report.accepted_conversation_ids,
+        );
         let default_failure_reason = if discovery.endpoints.is_empty() {
             AntigravityRuntimeCollectionFailureReason::RuntimeNotFound
         } else if endpoints.is_empty() {
@@ -687,7 +694,6 @@ impl Collector for AntigravityCollector {
             usage: collected_usage,
             pending_variants,
             runtime_failure,
-            default_failure_reason,
         })
     }
 }
@@ -711,7 +717,6 @@ struct FinishCollectionInput<'a> {
     usage: Vec<ConversationUsage>,
     pending_variants: Vec<AntigravityBaselineVariant>,
     runtime_failure: Option<AntigravityRuntimeCollectionFailureReason>,
-    default_failure_reason: AntigravityRuntimeCollectionFailureReason,
 }
 
 impl AntigravityCollector {
@@ -728,7 +733,6 @@ impl AntigravityCollector {
             mut usage,
             pending_variants,
             runtime_failure,
-            default_failure_reason,
         } = input;
         let supplement = self
             .usage_cache
@@ -746,21 +750,22 @@ impl AntigravityCollector {
         }
 
         if usage.is_empty() {
-            let reason = runtime_failure.unwrap_or(default_failure_reason);
-            let failure_code = reason.collector_failure_code();
-            self.record_diagnostic(
-                request,
-                AntigravityDiagnosticInput {
-                    severity: DiagnosticSeverity::Warning,
-                    code: reason.diagnostic_code(),
-                    summary: reason.summary(),
-                    counters: diagnostics,
-                    failure_code: Some(failure_code.code()),
-                    failure_reason: Some(reason.failure_reason()),
-                    variants: Vec::new(),
-                },
-            );
-            return Err(failure(request, failure_code));
+            if let Some(reason) = runtime_failure {
+                let failure_code = reason.collector_failure_code();
+                self.record_diagnostic(
+                    request,
+                    AntigravityDiagnosticInput {
+                        severity: DiagnosticSeverity::Warning,
+                        code: reason.diagnostic_code(),
+                        summary: reason.summary(),
+                        counters: diagnostics,
+                        failure_code: Some(failure_code.code()),
+                        failure_reason: Some(reason.failure_reason()),
+                        variants: Vec::new(),
+                    },
+                );
+                return Err(failure(request, failure_code));
+            }
         }
 
         if supplement.used_cache {
@@ -1110,6 +1115,9 @@ fn apply_app_ide_sqlite_diagnostics(
 fn conversations_needing_runtime(
     conversations: &[ConversationDatabase],
     collected: &[ConversationUsage],
+    endpoints: &[RuntimeEndpoint],
+    cli_parsed: &BTreeSet<String>,
+    app_ide_accepted: &BTreeSet<String>,
 ) -> Vec<ConversationDatabase> {
     conversations
         .iter()
@@ -1119,7 +1127,20 @@ fn conversations_needing_runtime(
                     && usage.database.variant == conversation.variant
                     && !usage.records.is_empty()
             });
-            conversation.variant != AntigravityProductVariant::Cli || !has_sqlite_records
+            if has_sqlite_records {
+                return false;
+            }
+            let has_runtime = endpoints
+                .iter()
+                .any(|endpoint| endpoint.variant == conversation.variant);
+            match conversation.variant {
+                AntigravityProductVariant::Cli => {
+                    has_runtime || !cli_parsed.contains(&conversation.conversation_id)
+                }
+                AntigravityProductVariant::App | AntigravityProductVariant::Ide => {
+                    has_runtime || !app_ide_accepted.contains(&conversation.conversation_id)
+                }
+            }
         })
         .cloned()
         .collect()
@@ -1203,6 +1224,9 @@ fn merge_cli_sqlite_report(
     target.conversations_failed = target
         .conversations_failed
         .saturating_add(incoming.conversations_failed);
+    target
+        .parsed_conversation_ids
+        .extend(incoming.parsed_conversation_ids);
 }
 
 fn merge_app_ide_sqlite_report(
@@ -1223,6 +1247,9 @@ fn merge_app_ide_sqlite_report(
         .saturating_add(incoming.conversations_rejected);
     target.variants_accepted.extend(incoming.variants_accepted);
     target.variants_rejected.extend(incoming.variants_rejected);
+    target
+        .accepted_conversation_ids
+        .extend(incoming.accepted_conversation_ids);
 }
 
 fn result_from_usage(
@@ -1534,6 +1561,36 @@ mod tests {
             .expect_err("unsupported source");
 
         assert_eq!(error.code, CollectorFailureCode::UnsupportedSource);
+    }
+
+    #[test]
+    fn collects_empty_cli_usage_from_sqlite_without_runtime_as_successful_empty_result() {
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let data_root = TempDir::new().expect("tempdir");
+        create_cli_db(data_root.path(), "cli-empty");
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Current(RuntimeClient::new()),
+            noop_usage_cache_client(),
+        )
+        .with_test_diagnostics(diagnostics.clone());
+
+        let result = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("empty sqlite collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        assert_eq!(result.daily_candidates().len(), 0);
+        let events = diagnostics.events();
+        assert!(events
+            .iter()
+            .all(|event| event.severity != DiagnosticSeverity::Warning));
+        assert!(events
+            .iter()
+            .any(|event| event.code.as_str() == "antigravity.collection_completed"));
     }
 
     #[test]
