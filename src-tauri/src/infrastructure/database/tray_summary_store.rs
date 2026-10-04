@@ -111,7 +111,7 @@ fn read_model_usage(
         .prepare(
             "SELECT
                 COALESCE(sm.display_name, sm.raw_model_id, 'Unknown') AS model_name,
-                GROUP_CONCAT(DISTINCT sources.source_key),
+                sources.source_key,
                 COALESCE(SUM(dmu.total_tokens), 0)
             FROM daily_model_usage dmu
             INNER JOIN daily_usage du ON du.id = dmu.daily_usage_id
@@ -120,8 +120,8 @@ fn read_model_usage(
             WHERE du.usage_date = ?1
                 AND du.aggregation_timezone = ?2
                 AND du.record_state <> 'removed'
-            GROUP BY model_name
-            ORDER BY SUM(dmu.total_tokens) DESC, model_name ASC",
+            GROUP BY model_name, sources.source_key
+            ORDER BY SUM(dmu.total_tokens) DESC, model_name ASC, sources.source_key ASC",
         )
         .map_err(|_| TraySummaryStoreError::Backend)?;
 
@@ -131,7 +131,7 @@ fn read_model_usage(
             |row| {
                 Ok(ModelUsageRow {
                     model_name: row.get(0)?,
-                    source_keys: row.get(1)?,
+                    source_key: row.get(1)?,
                     total_tokens: row.get(2)?,
                 })
             },
@@ -147,7 +147,7 @@ fn read_model_usage(
 
 struct ModelUsageRow {
     model_name: String,
-    source_keys: Option<String>,
+    source_key: String,
     total_tokens: i64,
 }
 
@@ -156,17 +156,11 @@ fn model_usage_from_row(
 ) -> Result<TraySummaryStoreModelUsage, TraySummaryStoreError> {
     let total_tokens =
         u64::try_from(row.total_tokens).map_err(|_| TraySummaryStoreError::ValueOutOfRange)?;
-    let source_keys = row
-        .source_keys
-        .unwrap_or_default()
-        .split(',')
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| SourceKey::from_storage(value).ok_or(TraySummaryStoreError::Backend))
-        .collect::<Result<Vec<_>, _>>()?;
+    let source = SourceKey::from_storage(&row.source_key).ok_or(TraySummaryStoreError::Backend)?;
 
     Ok(TraySummaryStoreModelUsage {
         model_name: row.model_name,
-        source_keys,
+        source,
         total_tokens,
     })
 }
@@ -317,15 +311,78 @@ mod tests {
             Some(PersistedRefreshStatus::Partial)
         );
         assert_eq!(summary.last_successful_refresh_at_ms, None);
-        assert_eq!(summary.today_models.len(), 3);
+        assert_eq!(summary.today_models.len(), 4);
         assert_eq!(summary.today_models[0].model_name, "GPT-5.1");
-        assert_eq!(summary.today_models[0].total_tokens, 650);
-        assert_eq!(
-            summary.today_models[0].source_keys,
-            vec![SourceKey::Codex, SourceKey::OpenCode]
-        );
+        assert_eq!(summary.today_models[0].source, SourceKey::Codex);
+        assert_eq!(summary.today_models[0].total_tokens, 500);
+        assert_eq!(summary.today_models[1].model_name, "gpt-5");
+        assert_eq!(summary.today_models[1].source, SourceKey::Codex);
+        assert_eq!(summary.today_models[1].total_tokens, 300);
+        assert_eq!(summary.today_models[2].model_name, "GPT-5.1");
+        assert_eq!(summary.today_models[2].source, SourceKey::OpenCode);
+        assert_eq!(summary.today_models[2].total_tokens, 150);
+        assert_eq!(summary.today_models[3].model_name, "mimo");
+        assert_eq!(summary.today_models[3].source, SourceKey::OpenCode);
+        assert_eq!(summary.today_models[3].total_tokens, 50);
+        assert_eq!(summary.yesterday_models.len(), 2);
         assert_eq!(summary.yesterday_models[0].model_name, "GPT-5.1");
+        assert_eq!(summary.yesterday_models[0].source, SourceKey::Codex);
         assert_eq!(summary.yesterday_models[0].total_tokens, 300);
+    }
+
+    #[test]
+    fn zero_token_model_row_is_preserved_and_sorted_last() {
+        let (_directory, store) = migrated_store();
+        {
+            let guard = store.connection();
+            let conn = guard.connection();
+            seed_source(conn, 1, "codex");
+            seed_model(conn, 10, 1, "gpt-5.1", Some("GPT-5.1"));
+            seed_model(conn, 11, 1, "idle", Some("Idle"));
+
+            let refresh_id = seed_refresh(conn, "succeeded", 1_500);
+            let import_id = seed_import(conn, refresh_id, 1);
+            let today = seed_daily(
+                conn,
+                DailySeed::new(1, import_id, "codex-today", "2026-06-25", 100),
+            );
+            seed_daily_model_usage(conn, today, 1, 10, 100, import_id);
+            seed_daily_model_usage(conn, today, 1, 11, 0, import_id);
+        }
+
+        let summary = store.read_tray_summary(&scope()).expect("summary");
+
+        assert_eq!(summary.today_models.len(), 2);
+        assert_eq!(summary.today_models[0].model_name, "GPT-5.1");
+        assert_eq!(summary.today_models[0].total_tokens, 100);
+        assert_eq!(summary.today_models[1].model_name, "Idle");
+        assert_eq!(summary.today_models[1].source, SourceKey::Codex);
+        assert_eq!(summary.today_models[1].total_tokens, 0);
+    }
+
+    #[test]
+    fn unknown_source_key_fails_closed() {
+        let (_directory, store) = migrated_store();
+        {
+            let guard = store.connection();
+            let conn = guard.connection();
+            seed_source(conn, 1, "not-a-real-source");
+            seed_model(conn, 10, 1, "gpt-5.1", Some("GPT-5.1"));
+
+            let refresh_id = seed_refresh(conn, "succeeded", 1_500);
+            let import_id = seed_import(conn, refresh_id, 1);
+            let today = seed_daily(
+                conn,
+                DailySeed::new(1, import_id, "unknown-source", "2026-06-25", 100),
+            );
+            seed_daily_model_usage(conn, today, 1, 10, 100, import_id);
+        }
+
+        let error = store
+            .read_tray_summary(&scope())
+            .expect_err("an unrecognised persisted source key must fail closed");
+
+        assert!(matches!(error, TraySummaryStoreError::Backend));
     }
 
     #[test]

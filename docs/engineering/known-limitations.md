@@ -123,3 +123,53 @@ history.
 - Fork `ccusage` and patch the Pi daily aggregator, then pin the fork as
   the bundled sidecar. Viable and fully in our control; deferred in favor of the
   upstream fix.
+
+## DeepSeek Harness usage has no estimated cost
+
+Status: active experimental limitation. Opened for DeepSeek Harness 2026-10-04
+after phase-5 runtime evidence.
+
+### Summary
+
+DeepSeek Harness tokens are collected and shown, but every model row reports
+cost as unavailable, so the source contributes tokens to tray totals with no
+estimated spend.
+
+### Cause
+
+Burnly prices usage from an embedded models.dev snapshot. The route identifiers
+DeepSeek Harness reports locally do not resolve in that snapshot, so the mapper's
+cost fallback returns unavailable. Runtime evidence on 2026-10-04 found all three
+observed routes unpriced. The reported routes also depend on the provider the
+harness is configured with, so an alias would have to track provider-specific
+identifiers.
+
+### Current workaround
+
+None. Burnly deliberately does not guess an alias such as `deepseek-flash`
+mapping to a priced snapshot entry, because inventing a price would be
+misleading. Usage stays visible and still reconciles with the daily and session
+totals; only the estimated spend is absent.
+
+Code: `aggregate_cost` and `build_model_breakdowns` in
+`src-tauri/src/infrastructure/collectors/deepseek_harness/mapper.rs`.
+
+### Trigger to revisit
+
+Revisit once DeepSeek route identifiers stabilise against the models.dev snapshot
+or a reviewed alias mapping is agreed, then land the alias as a deliberate,
+tested change.
+
+### Alternatives considered
+
+- Add a guessed alias from `deepseek-flash` to a priced snapshot entry. Rejected
+  for now: the engineering proposal's open question 3 keeps option (a) — leave
+  cost unavailable — until model alias semantics are confirmed upstream.
+
+### Resolved alongside this entry
+
+- The `deepseek/deepseek-v4.1-flash` label is also reported by Command Code.
+  Tray model rows used to merge any shared label into one `Multiple agents` row,
+  hiding which agent spent what. Tray model rows now group by model label and
+  source, so each agent gets its own row, total, and trend. See
+  `docs/exec-plans/active/2026-10-04_tray-model-rows-split-by-agent.md`.

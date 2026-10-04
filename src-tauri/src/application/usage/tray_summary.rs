@@ -146,7 +146,7 @@ pub(crate) struct TraySummaryStoreResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TraySummaryStoreModelUsage {
     pub model_name: String,
-    pub source_keys: Vec<SourceKey>,
+    pub source: SourceKey,
     pub total_tokens: u64,
 }
 
@@ -230,11 +230,16 @@ fn read_model(
     result: TraySummaryStoreResult,
     as_of_ms: i64,
 ) -> TraySummaryReadModel {
-    let yesterday_models = result
-        .yesterday_models
-        .into_iter()
-        .map(|model| (model.model_name, model.total_tokens))
-        .collect::<HashMap<_, _>>();
+    let yesterday_models = result.yesterday_models.into_iter().fold(
+        HashMap::<String, HashMap<SourceKey, u64>>::new(),
+        |mut by_model, model| {
+            by_model
+                .entry(model.model_name)
+                .or_default()
+                .insert(model.source, model.total_tokens);
+            by_model
+        },
+    );
     let has_partial_data = result.has_partial_data;
     let latest_refresh_status = result.latest_refresh_status;
     let models = model_rows(result.today_models, &yesterday_models);
@@ -267,13 +272,14 @@ fn read_model(
 
 fn model_rows(
     mut today_models: Vec<TraySummaryStoreModelUsage>,
-    yesterday_models: &HashMap<String, u64>,
+    yesterday_models: &HashMap<String, HashMap<SourceKey, u64>>,
 ) -> Vec<TraySummaryModelRow> {
     today_models.sort_by(|left, right| {
         right
             .total_tokens
             .cmp(&left.total_tokens)
             .then_with(|| left.model_name.cmp(&right.model_name))
+            .then_with(|| source_label(left.source).cmp(source_label(right.source)))
     });
 
     today_models
@@ -284,24 +290,17 @@ fn model_rows(
 
 fn model_row(
     model: &TraySummaryStoreModelUsage,
-    yesterday_models: &HashMap<String, u64>,
+    yesterday_models: &HashMap<String, HashMap<SourceKey, u64>>,
 ) -> TraySummaryModelRow {
     TraySummaryModelRow {
         model_name: model.model_name.clone(),
-        agent_label: agent_label(&model.source_keys),
+        agent_label: source_label(model.source).to_owned(),
         total_tokens: model.total_tokens,
         trend: yesterday_models
             .get(&model.model_name)
+            .and_then(|by_source| by_source.get(&model.source))
             .copied()
             .and_then(|yesterday| trend(model.total_tokens, yesterday)),
-    }
-}
-
-fn agent_label(source_keys: &[SourceKey]) -> String {
-    match source_keys {
-        [source] => source_label(*source).to_owned(),
-        [] => "Unknown agent".to_owned(),
-        _ => "Multiple agents".to_owned(),
     }
 }
 
@@ -316,6 +315,7 @@ fn source_label(source: SourceKey) -> &'static str {
         SourceKey::Antigravity => "Antigravity",
         SourceKey::GrokBuild => "Grok Build",
         SourceKey::CommandCode => "Command Code",
+        SourceKey::DeepSeekHarness => "DeepSeek Harness",
         SourceKey::Zed => "Zed",
         #[cfg(test)]
         SourceKey::TestUnsupported => "Unsupported",
@@ -419,18 +419,20 @@ mod tests {
                 week_total_tokens: 2_000,
                 month_total_tokens: 3_000,
                 today_models: vec![
-                    usage("gpt-5.1", &[SourceKey::Codex], 500),
-                    usage("claude-sonnet", &[SourceKey::ClaudeCode], 300),
-                    usage("mimo", &[SourceKey::OpenCode], 100),
-                    usage("shared", &[SourceKey::Codex, SourceKey::OpenCode], 80),
-                    usage("small", &[SourceKey::Codex], 20),
+                    usage("gpt-5.1", SourceKey::Codex, 500),
+                    usage("claude-sonnet", SourceKey::ClaudeCode, 300),
+                    usage("mimo", SourceKey::OpenCode, 100),
+                    usage("shared", SourceKey::Codex, 80),
+                    usage("shared", SourceKey::OpenCode, 60),
+                    usage("small", SourceKey::Codex, 20),
+                    usage("small", SourceKey::OpenCode, 20),
                 ],
                 yesterday_models: vec![
-                    usage("gpt-5.1", &[SourceKey::Codex], 250),
-                    usage("claude-sonnet", &[SourceKey::ClaudeCode], 600),
-                    usage("mimo", &[SourceKey::OpenCode], 100),
-                    usage("shared", &[SourceKey::Codex, SourceKey::OpenCode], 40),
-                    usage("small", &[SourceKey::Codex], 10),
+                    usage("gpt-5.1", SourceKey::Codex, 250),
+                    usage("claude-sonnet", SourceKey::ClaudeCode, 600),
+                    usage("mimo", SourceKey::OpenCode, 100),
+                    usage("shared", SourceKey::Codex, 40),
+                    usage("small", SourceKey::Codex, 10),
                 ],
                 has_partial_data: false,
                 latest_refresh_status: Some(PersistedRefreshStatus::Succeeded),
@@ -444,9 +446,10 @@ mod tests {
         assert_eq!(model.today.total_tokens, 1_000);
         assert_eq!(model.week.total_tokens, 2_000);
         assert_eq!(model.month.total_tokens, 3_000);
-        assert_eq!(model.models.len(), 5);
+        assert_eq!(model.models.len(), 7);
         assert_eq!(model.models[0].model_name, "gpt-5.1");
         assert_eq!(model.models[0].agent_label, "Codex");
+        assert_eq!(model.models[0].total_tokens, 500);
         assert_eq!(
             model.models[0].trend,
             Some(TraySummaryTrend {
@@ -464,8 +467,10 @@ mod tests {
             model.models[2].trend.map(|trend| trend.direction),
             Some(TraySummaryTrendDirection::Flat)
         );
+        // The same model label from two agents stays split into two rows, each
+        // with its own total and its own agent label.
         assert_eq!(model.models[3].model_name, "shared");
-        assert_eq!(model.models[3].agent_label, "Multiple agents");
+        assert_eq!(model.models[3].agent_label, "Codex");
         assert_eq!(model.models[3].total_tokens, 80);
         assert_eq!(
             model.models[3].trend,
@@ -474,9 +479,31 @@ mod tests {
                 basis_points: 10_000,
             })
         );
-        assert_eq!(model.models[4].model_name, "small");
-        assert_eq!(model.models[4].agent_label, "Codex");
-        assert_eq!(model.models[4].total_tokens, 20);
+        assert_eq!(model.models[4].model_name, "shared");
+        assert_eq!(model.models[4].agent_label, "OpenCode");
+        assert_eq!(model.models[4].total_tokens, 60);
+        // This model/agent pair has no yesterday baseline, so it is new today
+        // rather than inheriting the other agent's trend.
+        assert_eq!(model.models[4].trend, None);
+        // Equal totals fall back to the agent label, keeping order stable.
+        assert_eq!(model.models[5].model_name, "small");
+        assert_eq!(model.models[5].agent_label, "Codex");
+        assert_eq!(model.models[5].total_tokens, 20);
+        assert_eq!(
+            model.models[5].trend,
+            Some(TraySummaryTrend {
+                direction: TraySummaryTrendDirection::Increased,
+                basis_points: 10_000,
+            })
+        );
+        assert_eq!(model.models[6].model_name, "small");
+        assert_eq!(model.models[6].agent_label, "OpenCode");
+        assert_eq!(model.models[6].total_tokens, 20);
+        assert_eq!(model.models[6].trend, None);
+        assert!(model
+            .models
+            .iter()
+            .all(|row| row.agent_label != "Multiple agents"));
         assert_eq!(model.data_status, OverviewDataStatus::Current);
         assert_eq!(model.data_quality, TraySummaryDataQuality::Complete);
         assert_eq!(
@@ -580,7 +607,7 @@ mod tests {
         let today_models = if today_total_tokens == 0 {
             Vec::new()
         } else {
-            vec![usage("gpt-5.1", &[SourceKey::Codex], today_total_tokens)]
+            vec![usage("gpt-5.1", SourceKey::Codex, today_total_tokens)]
         };
         TraySummaryStoreResult {
             today_total_tokens,
@@ -610,14 +637,10 @@ mod tests {
         );
     }
 
-    fn usage(
-        model_name: &str,
-        source_keys: &[SourceKey],
-        total_tokens: u64,
-    ) -> TraySummaryStoreModelUsage {
+    fn usage(model_name: &str, source: SourceKey, total_tokens: u64) -> TraySummaryStoreModelUsage {
         TraySummaryStoreModelUsage {
             model_name: model_name.to_owned(),
-            source_keys: source_keys.to_vec(),
+            source,
             total_tokens,
         }
     }

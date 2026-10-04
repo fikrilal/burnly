@@ -52,7 +52,7 @@ impl RefreshTarget {
 }
 
 /// All supported source/projection pairs refreshed by the coordinator.
-pub(super) const fn refresh_targets() -> [RefreshTarget; 20] {
+pub(super) const fn refresh_targets() -> [RefreshTarget; 22] {
     [
         RefreshTarget {
             source: SourceKey::ClaudeCode,
@@ -127,6 +127,14 @@ pub(super) const fn refresh_targets() -> [RefreshTarget; 20] {
             projection: CollectionProjection::Session,
         },
         RefreshTarget {
+            source: SourceKey::DeepSeekHarness,
+            projection: CollectionProjection::Daily,
+        },
+        RefreshTarget {
+            source: SourceKey::DeepSeekHarness,
+            projection: CollectionProjection::Session,
+        },
+        RefreshTarget {
             source: SourceKey::Zed,
             projection: CollectionProjection::Daily,
         },
@@ -177,20 +185,20 @@ mod tests {
     fn target_catalog_contains_each_supported_source_projection_pair() {
         let targets = refresh_targets();
 
-        assert_eq!(targets.len(), 20);
+        assert_eq!(targets.len(), 22);
         assert_eq!(
             targets
                 .iter()
                 .filter(|target| target.projection == CollectionProjection::Daily)
                 .count(),
-            10
+            11
         );
         assert_eq!(
             targets
                 .iter()
                 .filter(|target| target.projection == CollectionProjection::Session)
                 .count(),
-            10
+            11
         );
 
         for source in [
@@ -203,6 +211,7 @@ mod tests {
             SourceKey::Antigravity,
             SourceKey::GrokBuild,
             SourceKey::CommandCode,
+            SourceKey::DeepSeekHarness,
             SourceKey::Zed,
         ] {
             assert!(targets.iter().any(|target| target.source == source
@@ -210,6 +219,21 @@ mod tests {
             assert!(targets.iter().any(|target| target.source == source
                 && target.projection == CollectionProjection::Session));
         }
+    }
+
+    #[test]
+    fn deepseek_harness_is_a_refresh_target() {
+        let targets = refresh_targets();
+
+        assert_eq!(targets.len(), 22);
+        assert!(targets.iter().any(|target| {
+            target.source == SourceKey::DeepSeekHarness
+                && target.projection == CollectionProjection::Daily
+        }));
+        assert!(targets.iter().any(|target| {
+            target.source == SourceKey::DeepSeekHarness
+                && target.projection == CollectionProjection::Session
+        }));
     }
 
     #[test]

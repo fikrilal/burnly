@@ -18,6 +18,7 @@ use crate::domain::settings::{Settings, SettingsDocument};
 use crate::infrastructure::collectors::antigravity::AntigravityCollector;
 use crate::infrastructure::collectors::ccusage::CcusageCollector;
 use crate::infrastructure::collectors::cline::ClineCollector;
+use crate::infrastructure::collectors::deepseek_harness::DeepSeekHarnessCollector;
 use crate::infrastructure::collectors::opencode::OpenCodeCollector;
 use crate::infrastructure::collectors::routed::{CollectorRoutes, RoutedCollector};
 use crate::infrastructure::collectors::zcode::ZCodeCollector;
@@ -146,6 +147,9 @@ pub(super) fn composed_refresh_collector(data_root: &Path) -> Arc<dyn Collector>
                 data_root.join("missing-commandcode-home"),
             ),
         ),
+        deepseek_harness: Arc::new(DeepSeekHarnessCollector::from_data_dir(
+            data_root.join("missing-deepseek-harness-home"),
+        )),
         zed: Arc::new(
             crate::infrastructure::collectors::zed::ZedCollector::from_data_dir(
                 data_root.join("missing-zed-data"),

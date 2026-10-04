@@ -10,6 +10,18 @@ const expectedTargets = [
 
 const deferredTargets = ["aarch64-pc-windows-msvc"];
 
+// The AppImageHub catalog test starts the Linux AppImage on the oldest
+// still-supported Ubuntu LTS (22.04, glibc 2.35). Building the AppImage on a
+// newer runner raises the required symbol versions and the application then
+// fails to start there, so the Linux matrix entries stay on that baseline.
+// scripts/smoke-linux-appimage.mjs enforces the same baseline on the artifact.
+const linuxAppImageBaseline = {
+  "aarch64-unknown-linux-gnu": "ubuntu-22.04-arm",
+  "x86_64-unknown-linux-gnu": "ubuntu-22.04",
+};
+
+const oldestSupportedLts = "oldest still-supported Ubuntu LTS";
+
 function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
   const failures = [];
   const combined = `${verifyWorkflow}\n${releaseWorkflow}`;
@@ -99,6 +111,23 @@ function validate({ verifyWorkflow, releaseWorkflow, packageDocument }) {
       );
     }
   }
+  for (const [target, baselineRunner] of Object.entries(
+    linuxAppImageBaseline,
+  )) {
+    const matrixEntry = new RegExp(
+      `- os:\\s+(\\S+)\\s*\\n\\s*target:\\s+${target}`,
+    );
+    const match = matrixEntry.exec(releaseWorkflow);
+    if (!match) {
+      failures.push(
+        `release build matrix is missing the Linux entry: ${target}.`,
+      );
+    } else if (match[1] !== baselineRunner) {
+      failures.push(
+        `Linux AppImage target ${target} must build on ${baselineRunner} to run on the ${oldestSupportedLts} (glibc 2.35), but builds on ${match[1]}.`,
+      );
+    }
+  }
   for (const requiredBoundary of [
     "attestations: write",
     "id-token: write",
@@ -172,9 +201,22 @@ if (process.argv.includes("--self-test")) {
   );
   mutated.releaseWorkflow = mutated.releaseWorkflow
     .replace("target: aarch64-unknown-linux-gnu", "target: unsupported-target")
+    .replace(
+      "- os: ubuntu-22.04\n            target: x86_64-unknown-linux-gnu",
+      "- os: ubuntu-24.04\n            target: x86_64-unknown-linux-gnu",
+    )
     .replace("needs:\n      - validate\n      - build", "needs: validate");
-  if (validate(mutated).length < 3) {
+  const mutatedFailures = validate(mutated);
+  if (mutatedFailures.length < 3) {
     console.error("Release workflow harness self-test did not catch drift.");
+    process.exit(1);
+  }
+  if (
+    !mutatedFailures.some((failure) => failure.includes(oldestSupportedLts))
+  ) {
+    console.error(
+      "Release workflow harness self-test did not catch the Linux baseline drift.",
+    );
     process.exit(1);
   }
   console.log("Release workflow harness self-test passed.");
