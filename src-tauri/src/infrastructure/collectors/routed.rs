@@ -38,6 +38,13 @@ impl RoutedCollector {
             SourceKey::Antigravity => Ok(&self.routes.antigravity),
             SourceKey::GrokBuild => Ok(&self.routes.grok),
             SourceKey::CommandCode => Ok(&self.routes.commandcode),
+            // DeepSeek Harness is not wired yet; fail closed until a later
+            // chunk registers the native collector.
+            SourceKey::DeepSeekHarness => Err(CollectorFailure::new(
+                crate::application::collection::CollectorFailureCode::UnsupportedSource,
+                Some(source),
+                None,
+            )),
             SourceKey::Zed => Ok(&self.routes.zed),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
@@ -196,6 +203,27 @@ mod tests {
             .expect("command-code routed");
 
         assert_eq!(commandcode.sources(), vec![SourceKey::CommandCode]);
+    }
+
+    #[test]
+    fn deepseek_harness_fails_closed_until_native_collector_is_wired() {
+        let collector = RoutedCollector::new(CollectorRoutes {
+            ccusage: Arc::new(RecordingCollector::new("ccusage")),
+            opencode: Arc::new(RecordingCollector::new("opencode")),
+            cline: Arc::new(RecordingCollector::new("cline")),
+            zcode: Arc::new(RecordingCollector::new("zcode")),
+            antigravity: Arc::new(RecordingCollector::new("antigravity")),
+            grok: Arc::new(RecordingCollector::new("grok-build")),
+            commandcode: Arc::new(RecordingCollector::new("command-code")),
+            zed: Arc::new(RecordingCollector::new("zed")),
+        });
+
+        let failure = collector
+            .collect(request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect_err("deepseek-harness is not routed yet");
+
+        assert_eq!(failure.code, CollectorFailureCode::UnsupportedSource);
+        assert_eq!(failure.source_key, Some(SourceKey::DeepSeekHarness));
     }
 
     #[test]
@@ -359,6 +387,7 @@ mod tests {
                 SourceKey::Antigravity => "antigravity",
                 SourceKey::GrokBuild => "grok-build",
                 SourceKey::CommandCode => "command-code",
+                SourceKey::DeepSeekHarness => "deepseek-harness",
                 SourceKey::Zed => "zed",
                 SourceKey::TestUnsupported => "unsupported",
             })

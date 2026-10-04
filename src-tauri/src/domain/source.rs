@@ -9,6 +9,7 @@ pub(crate) enum SourceKey {
     Antigravity,
     GrokBuild,
     CommandCode,
+    DeepSeekHarness,
     Zed,
     #[cfg(test)]
     TestUnsupported,
@@ -26,6 +27,7 @@ impl SourceKey {
             Self::Antigravity => "antigravity",
             Self::GrokBuild => "grok-build",
             Self::CommandCode => "command-code",
+            Self::DeepSeekHarness => "deepseek-harness",
             Self::Zed => "zed",
             #[cfg(test)]
             Self::TestUnsupported => "test-unsupported",
@@ -43,6 +45,7 @@ impl SourceKey {
             "antigravity" => Some(Self::Antigravity),
             "grok-build" => Some(Self::GrokBuild),
             "command-code" => Some(Self::CommandCode),
+            "deepseek-harness" => Some(Self::DeepSeekHarness),
             "zed" => Some(Self::Zed),
             _ => None,
         }
@@ -64,6 +67,7 @@ mod tests {
         assert_eq!(SourceKey::Antigravity.as_str(), "antigravity");
         assert_eq!(SourceKey::GrokBuild.as_str(), "grok-build");
         assert_eq!(SourceKey::CommandCode.as_str(), "command-code");
+        assert_eq!(SourceKey::DeepSeekHarness.as_str(), "deepseek-harness");
         assert_eq!(SourceKey::Zed.as_str(), "zed");
     }
 
@@ -104,6 +108,10 @@ mod tests {
         assert_eq!(
             SourceKey::from_storage(SourceKey::CommandCode.as_str()),
             Some(SourceKey::CommandCode)
+        );
+        assert_eq!(
+            SourceKey::from_storage(SourceKey::DeepSeekHarness.as_str()),
+            Some(SourceKey::DeepSeekHarness)
         );
         assert_eq!(
             SourceKey::from_storage(SourceKey::Zed.as_str()),

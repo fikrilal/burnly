@@ -221,6 +221,7 @@ impl Collector for CcusageCollector {
                 | SourceKey::Antigravity
                 | SourceKey::GrokBuild
                 | SourceKey::CommandCode
+                | SourceKey::DeepSeekHarness
                 | SourceKey::Zed,
                 _,
             ) => Err(failure(CollectorFailureCode::UnsupportedSource)),

@@ -213,6 +213,16 @@ mod tests {
     }
 
     #[test]
+    fn deepseek_harness_is_not_yet_a_refresh_target() {
+        let targets = refresh_targets();
+
+        assert_eq!(targets.len(), 20);
+        assert!(!targets
+            .iter()
+            .any(|target| target.source == SourceKey::DeepSeekHarness));
+    }
+
+    #[test]
     fn import_timezone_is_only_stored_for_daily_targets() {
         assert_eq!(
             import_timezone(CollectionProjection::Daily, "Asia/Jakarta"),

@@ -32,3 +32,6 @@ playwright-report/
 screenshots/
 test-results/
 x11_sockets.txt
+
+# Local DeepSeek Harness workspace artifacts
+.dsh/
