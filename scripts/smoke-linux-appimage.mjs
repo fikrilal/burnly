@@ -126,10 +126,15 @@ function compareGlibcVersions(left, right) {
   return 0;
 }
 
+// readelf rather than objdump: objdump -T exits non-zero for a file with no
+// dynamic symbol table ("not a dynamic object"), which the static-pie ccusage
+// sidecar is, so a file with no glibc requirement aborted the scan on aarch64.
+// readelf reports an absent version section as a normal empty result, and it
+// reads foreign-architecture ELF files.
 async function requiredGlibcVersions(filePath) {
   let stdout;
   try {
-    ({ stdout } = await command("objdump", ["-T", filePath]));
+    ({ stdout } = await command("readelf", ["--version-info", filePath]));
   } catch (error) {
     throw new Error(
       `could not read the symbol versions of ${filePath}: ${error.message}`,
