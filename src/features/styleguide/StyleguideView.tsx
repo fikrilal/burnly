@@ -326,8 +326,14 @@ function AllocationSample() {
               trend: null,
             },
             {
-              modelName: "Other",
-              agentLabel: "Multiple agents",
+              modelName: "deepseek/deepseek-v4.1-flash",
+              agentLabel: "DeepSeek Harness",
+              tokens: "5,678",
+              trend: null,
+            },
+            {
+              modelName: "deepseek/deepseek-v4.1-flash",
+              agentLabel: "Command Code",
               tokens: "3,000",
               trend: { direction: "flat", basisPoints: 0 },
             },
