@@ -76,7 +76,7 @@
       "desktop": "gnome",
       "architecture": "x86_64",
       "artifact": "release-linux-x86_64",
-      "runner": "ubuntu-24.04",
+      "runner": "ubuntu-22.04",
       "evidenceMode": "native_installed_smoke",
       "expectedCapabilities": {
         "tray": "host_dependent",
@@ -93,7 +93,7 @@
       "desktop": "gnome",
       "architecture": "aarch64",
       "artifact": "release-linux-aarch64",
-      "runner": "ubuntu-24.04-arm",
+      "runner": "ubuntu-22.04-arm",
       "evidenceMode": "native_installed_smoke",
       "expectedCapabilities": {
         "tray": "host_dependent",
