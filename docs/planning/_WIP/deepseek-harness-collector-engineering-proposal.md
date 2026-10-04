@@ -6,6 +6,20 @@ Engineering proposal, based on read-only local inspection of a DeepSeek Harness
 installation on October 4, 2026. Not an execution plan and does not approve
 implementation by itself.
 
+Implementation is tracked by these execution plans:
+
+- `docs/exec-plans/active/2026-10-04_deepseek-harness-collector-01-source-identity.md`
+- `docs/exec-plans/active/2026-10-04_deepseek-harness-collector-02-session-log-reader.md`
+- `docs/exec-plans/active/2026-10-04_deepseek-harness-collector-03-event-parser-usage-fold.md`
+- `docs/exec-plans/active/2026-10-04_deepseek-harness-collector-04-mapper-collection-wiring.md`
+- `docs/exec-plans/active/2026-10-04_deepseek-harness-collector-05-runtime-evidence-promotion.md`
+
+Phase 5 runtime evidence is recorded in
+`docs/runtime-evidence/2026-10-04-deepseek-harness-runtime/README.md`. Status
+after phase 5: the collector is wired and proven end to end on local data, and
+the source remains **experimental**. Open questions 3 (cost aliases) and 8
+(promotion threshold) remain unresolved.
+
 ## Context
 
 DeepSeek Harness (DSH) is a local, profile-driven coding-agent harness from the
