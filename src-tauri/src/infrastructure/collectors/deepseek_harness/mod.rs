@@ -1,14 +1,16 @@
 //! DeepSeek Harness collector infrastructure.
 //!
-//! Phase 1: source identity and detection only. The adapter fails closed on
-//! collection until a later chunk wires the session-log reader, usage fold,
-//! and mapper.
+//! Phases 1-3 provide source identity, detection, bounded session-log reading,
+//! event parsing, and usage folding. The adapter still fails closed until a
+//! later chunk wires the mapper and refresh integration.
 
 mod adapter;
 mod deepseek_home;
 mod detection;
 mod discovery;
+mod event_parser;
 mod session_log_reader;
+mod usage_fold;
 
 #[allow(
     unused_imports,
