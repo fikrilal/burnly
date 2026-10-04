@@ -942,6 +942,10 @@ fn failed_collection_records_failure_and_changes_no_facts() {
 
 #[test]
 fn collector_failure_for_one_target_keeps_later_targets_and_marks_partial() {
+    let daily_target_count = refresh_targets()
+        .iter()
+        .filter(|target| target.projection == CollectionProjection::Daily)
+        .count();
     let collector = Arc::new(ScriptedCollector::new(|request| {
         if request.source() == SourceKey::Pi && request.projection() == CollectionProjection::Daily
         {
@@ -978,7 +982,7 @@ fn collector_failure_for_one_target_keeps_later_targets_and_marks_partial() {
         uploads[0].clone().into_upload_scope().expect("scope"),
         UploadScope::Incremental { ref source_keys, .. }
             if !source_keys.contains(SourceKey::Pi.as_str())
-                && source_keys.len() == 9
+                && source_keys.len() == daily_target_count - 1
     ));
 }
 

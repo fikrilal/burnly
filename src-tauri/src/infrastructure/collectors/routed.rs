@@ -16,6 +16,7 @@ pub(crate) struct CollectorRoutes {
     pub(crate) antigravity: Arc<dyn Collector>,
     pub(crate) grok: Arc<dyn Collector>,
     pub(crate) commandcode: Arc<dyn Collector>,
+    pub(crate) deepseek_harness: Arc<dyn Collector>,
     pub(crate) zed: Arc<dyn Collector>,
 }
 
@@ -38,13 +39,7 @@ impl RoutedCollector {
             SourceKey::Antigravity => Ok(&self.routes.antigravity),
             SourceKey::GrokBuild => Ok(&self.routes.grok),
             SourceKey::CommandCode => Ok(&self.routes.commandcode),
-            // DeepSeek Harness is not wired yet; fail closed until a later
-            // chunk registers the native collector.
-            SourceKey::DeepSeekHarness => Err(CollectorFailure::new(
-                crate::application::collection::CollectorFailureCode::UnsupportedSource,
-                Some(source),
-                None,
-            )),
+            SourceKey::DeepSeekHarness => Ok(&self.routes.deepseek_harness),
             SourceKey::Zed => Ok(&self.routes.zed),
             #[cfg(test)]
             SourceKey::TestUnsupported => Err(CollectorFailure::new(
@@ -80,6 +75,9 @@ impl Collector for RoutedCollector {
         descriptor
             .profiles
             .extend(self.routes.commandcode.describe()?.profiles);
+        descriptor
+            .profiles
+            .extend(self.routes.deepseek_harness.describe()?.profiles);
         descriptor
             .profiles
             .extend(self.routes.zed.describe()?.profiles);
@@ -128,6 +126,7 @@ mod tests {
         let antigravity = Arc::new(RecordingCollector::new("antigravity"));
         let grok = Arc::new(RecordingCollector::new("grok-build"));
         let commandcode = Arc::new(RecordingCollector::new("command-code"));
+        let deepseek_harness = Arc::new(RecordingCollector::new("deepseek-harness"));
         let zed = Arc::new(RecordingCollector::new("zed"));
         let collector = RoutedCollector::new(CollectorRoutes {
             ccusage: ccusage.clone(),
@@ -137,6 +136,7 @@ mod tests {
             antigravity: antigravity.clone(),
             grok: grok.clone(),
             commandcode: commandcode.clone(),
+            deepseek_harness: deepseek_harness.clone(),
             zed: zed.clone(),
         });
 
@@ -168,6 +168,9 @@ mod tests {
             .collect(request(SourceKey::CommandCode), &NeverCancelled)
             .expect("command-code collection");
         collector
+            .collect(request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect("deepseek-harness collection");
+        collector
             .collect(request(SourceKey::Zed), &NeverCancelled)
             .expect("zed collection");
 
@@ -181,6 +184,7 @@ mod tests {
         assert_eq!(antigravity.sources(), vec![SourceKey::Antigravity]);
         assert_eq!(grok.sources(), vec![SourceKey::GrokBuild]);
         assert_eq!(commandcode.sources(), vec![SourceKey::CommandCode]);
+        assert_eq!(deepseek_harness.sources(), vec![SourceKey::DeepSeekHarness]);
         assert_eq!(zed.sources(), vec![SourceKey::Zed]);
     }
 
@@ -195,6 +199,7 @@ mod tests {
             antigravity: Arc::new(RecordingCollector::new("antigravity")),
             grok: Arc::new(RecordingCollector::new("grok-build")),
             commandcode: commandcode.clone(),
+            deepseek_harness: Arc::new(RecordingCollector::new("deepseek-harness")),
             zed: Arc::new(RecordingCollector::new("zed")),
         });
 
@@ -206,7 +211,8 @@ mod tests {
     }
 
     #[test]
-    fn deepseek_harness_fails_closed_until_native_collector_is_wired() {
+    fn routes_deepseek_harness_to_native_collector() {
+        let deepseek_harness = Arc::new(RecordingCollector::new("deepseek-harness"));
         let collector = RoutedCollector::new(CollectorRoutes {
             ccusage: Arc::new(RecordingCollector::new("ccusage")),
             opencode: Arc::new(RecordingCollector::new("opencode")),
@@ -215,15 +221,15 @@ mod tests {
             antigravity: Arc::new(RecordingCollector::new("antigravity")),
             grok: Arc::new(RecordingCollector::new("grok-build")),
             commandcode: Arc::new(RecordingCollector::new("command-code")),
+            deepseek_harness: deepseek_harness.clone(),
             zed: Arc::new(RecordingCollector::new("zed")),
         });
 
-        let failure = collector
+        collector
             .collect(request(SourceKey::DeepSeekHarness), &NeverCancelled)
-            .expect_err("deepseek-harness is not routed yet");
+            .expect("deepseek-harness routed");
 
-        assert_eq!(failure.code, CollectorFailureCode::UnsupportedSource);
-        assert_eq!(failure.source_key, Some(SourceKey::DeepSeekHarness));
+        assert_eq!(deepseek_harness.sources(), vec![SourceKey::DeepSeekHarness]);
     }
 
     #[test]
@@ -236,6 +242,7 @@ mod tests {
             antigravity: Arc::new(RecordingCollector::new("antigravity")),
             grok: Arc::new(RecordingCollector::new("grok-build")),
             commandcode: Arc::new(RecordingCollector::new("command-code")),
+            deepseek_harness: Arc::new(RecordingCollector::new("deepseek-harness")),
             zed: Arc::new(RecordingCollector::new("zed")),
         });
 
@@ -258,6 +265,7 @@ mod tests {
                 SourceKey::Antigravity,
                 SourceKey::GrokBuild,
                 SourceKey::CommandCode,
+                SourceKey::DeepSeekHarness,
                 SourceKey::Zed,
             ]
         );
@@ -372,6 +380,7 @@ mod tests {
             "antigravity" => vec![profile(SourceKey::Antigravity)],
             "grok-build" => vec![profile(SourceKey::GrokBuild)],
             "command-code" => vec![profile(SourceKey::CommandCode)],
+            "deepseek-harness" => vec![profile(SourceKey::DeepSeekHarness)],
             "zed" => vec![profile(SourceKey::Zed)],
             _ => Vec::new(),
         }

@@ -18,10 +18,6 @@ pub(crate) fn resolve_deepseek_harness_home(override_path: Option<&Path>) -> Pat
         .unwrap_or_else(|| PathBuf::from(".dsh"))
 }
 
-#[allow(
-    dead_code,
-    reason = "default home is consumed once the collector is wired in a later chunk"
-)]
 pub(crate) fn default_deepseek_harness_home() -> PathBuf {
     resolve_deepseek_harness_home(None)
 }

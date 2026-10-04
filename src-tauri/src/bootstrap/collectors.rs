@@ -8,6 +8,9 @@ use crate::infrastructure::collectors::cline::ClineCollector;
 use crate::infrastructure::collectors::commandcode::{
     default_commandcode_home, CommandCodeCollector,
 };
+use crate::infrastructure::collectors::deepseek_harness::{
+    default_deepseek_harness_home, DeepSeekHarnessCollector,
+};
 use crate::infrastructure::collectors::grok::{
     default_grok_home, GrokCollector, GrokUsageCacheClient,
 };
@@ -88,6 +91,9 @@ pub(super) fn build_collector_graph(
         ZedCollector::from_data_dir(default_zed_data_dir())
             .with_diagnostic_recorder(diagnostic_recorder.clone()),
     );
+    let deepseek_harness_collector = Arc::new(DeepSeekHarnessCollector::from_data_dir(
+        default_deepseek_harness_home(),
+    ));
 
     Ok(Arc::new(RoutedCollector::new(CollectorRoutes {
         ccusage: ccusage_collector,
@@ -97,6 +103,7 @@ pub(super) fn build_collector_graph(
         antigravity: antigravity_collector,
         grok: grok_collector,
         commandcode: commandcode_collector,
+        deepseek_harness: deepseek_harness_collector,
         zed: zed_collector,
     })))
 }

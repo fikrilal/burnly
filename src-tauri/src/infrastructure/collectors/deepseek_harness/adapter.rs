@@ -1,36 +1,59 @@
-//! DeepSeek Harness collector adapter (detection stub).
+//! DeepSeek Harness collector adapter.
 //!
-//! Phase 1 wires source identity and detection only. Collection is not yet
-//! implemented; `collect` and `describe` fail closed until a later chunk wires
-//! the session-log reader, usage fold, and mapper.
+//! Wires session-root detection, bounded log reading, usage-only event
+//! parsing, the replacement fold, and candidate mapping into the collector
+//! port. Collection reads `$DSH_HOME/sessions` read-only.
 
 use std::path::{Path, PathBuf};
 
+use chrono::Utc;
+
 use crate::application::collection::{
-    CollectionProjection, CollectionRequest, CollectionResult, CollectorDescriptor,
-    CollectorFailure, CollectorFailureCode, DetectionIssue, DetectionRequest, DetectionResult,
+    CollectionProjection, CollectionRequest, CollectionResult, CollectionWarning,
+    CollectorDescriptor, CollectorFailure, CollectorFailureCode, CollectorIntegrity,
+    DetectionIssue, DetectionRequest, DetectionResult, RejectedRecord,
 };
+use crate::application::cost::BurnlyCostCalculator;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::domain::source::SourceKey;
 use crate::infrastructure::collectors::support::{
-    available_detection, cancelled_detection, detection_issue, invalid_configuration_detection,
-    not_found_detection, unsupported_detection,
+    available_detection, cancelled_detection, collection_metadata, daily_session_projections,
+    detection_issue, empty_collection_result, invalid_configuration_detection, not_found_detection,
+    path_is_missing, request_failure, single_source_descriptor, unsupported_detection,
+    validate_source, validation_failure_preserving_all_rejected, CollectorIdentity,
+    LocalCollectionRun,
 };
 
+use super::deepseek_home::sessions_root;
 use super::detection::{inspect_deepseek_harness_home, DeepSeekHarnessHomeInspection};
+use super::discovery::{inspect_session_directories, CURRENT_SESSION_FORMAT_VERSION};
+use super::event_parser::parse_session_events;
+use super::mapper::{
+    map_daily, map_sessions, DeepSeekHarnessMappingContext, SessionUsage, COLLECTOR_KEY,
+    PROFILE_VERSION,
+};
+use super::session_log_reader::read_session_log;
+use super::usage_fold::fold_events;
 
-#[allow(
-    dead_code,
-    reason = "collector identity used once wired in a later chunk"
-)]
-const COLLECTOR_KEY: &str = "deepseek-harness";
-#[allow(
-    dead_code,
-    reason = "collector identity used once wired in a later chunk"
-)]
 const DISPLAY_NAME: &str = "DeepSeek Harness";
-#[allow(dead_code, reason = "adapter version used once wired in a later chunk")]
+const COLLECTOR_VERSION: &str = "local";
 const ADAPTER_VERSION: u16 = 1;
+
+const REJECTION_UNSUPPORTED_SESSION_FORMAT: &str = "deepseek_harness.unsupported_session_format";
+const REJECTION_OLDER_SESSION_FORMAT: &str = "deepseek_harness.older_session_format";
+const REJECTION_SESSION_DIRECTORY_UNREADABLE: &str =
+    "deepseek_harness.session_directory_unreadable";
+const REJECTION_SESSION_LOG_UNREADABLE: &str = "deepseek_harness.session_log_unreadable";
+const WARNING_TORN_FINAL_FRAME: &str = "deepseek_harness.torn_final_frame";
+
+const IDENTITY: CollectorIdentity = CollectorIdentity {
+    key: COLLECTOR_KEY,
+    display_name: DISPLAY_NAME,
+    runtime_version: COLLECTOR_VERSION,
+    adapter_version: ADAPTER_VERSION,
+    source: SourceKey::DeepSeekHarness,
+    profile_version: PROFILE_VERSION,
+};
 
 /// Issue codes emitted by DeepSeek Harness detection.
 pub(crate) const ISSUE_HOME_MISSING: &str = "deepseek_harness.home_missing";
@@ -43,18 +66,18 @@ pub(crate) const ISSUE_OLDER_FORMAT_ONLY: &str = "deepseek_harness.older_format_
 pub(crate) const ISSUE_UNSUPPORTED_SESSION_FORMAT: &str =
     "deepseek_harness.unsupported_session_format";
 
-#[allow(
-    dead_code,
-    reason = "collector is constructed once wired in a later chunk"
-)]
+#[derive(Debug, Clone)]
 pub(crate) struct DeepSeekHarnessCollector {
     home: PathBuf,
+    calculator: BurnlyCostCalculator,
 }
 
 impl DeepSeekHarnessCollector {
-    #[allow(dead_code, reason = "constructor used once wired in a later chunk")]
     pub(crate) fn from_data_dir(home: PathBuf) -> Self {
-        Self { home }
+        Self {
+            home,
+            calculator: BurnlyCostCalculator::new(),
+        }
     }
 
     fn inspect(&self, override_path: Option<&Path>) -> DeepSeekHarnessHomeInspection {
@@ -66,7 +89,7 @@ impl DeepSeekHarnessCollector {
     }
 
     fn supported_projections(&self) -> Vec<CollectionProjection> {
-        vec![CollectionProjection::Daily, CollectionProjection::Session]
+        daily_session_projections()
     }
 
     fn detection_issues(&self, inspection: &DeepSeekHarnessHomeInspection) -> Vec<DetectionIssue> {
@@ -122,11 +145,11 @@ impl DeepSeekHarnessCollector {
 
 impl Collector for DeepSeekHarnessCollector {
     fn describe(&self) -> Result<CollectorDescriptor, CollectorFailure> {
-        Err(CollectorFailure::new(
-            CollectorFailureCode::UnsupportedSource,
-            Some(SourceKey::DeepSeekHarness),
-            None,
-        ))
+        single_source_descriptor(
+            IDENTITY,
+            self.supported_projections(),
+            CollectorIntegrity::UnverifiedDevelopment,
+        )
     }
 
     fn detect(
@@ -189,27 +212,191 @@ impl Collector for DeepSeekHarnessCollector {
     fn collect(
         &self,
         request: CollectionRequest,
-        _cancellation: &dyn CancellationSignal,
+        cancellation: &dyn CancellationSignal,
     ) -> Result<CollectionResult, CollectorFailure> {
-        Err(CollectorFailure::new(
-            CollectorFailureCode::UnsupportedSource,
-            Some(request.source()),
-            Some(request.projection()),
-        ))
+        let run = LocalCollectionRun::start();
+        validate_source(&request, SourceKey::DeepSeekHarness)?;
+        if cancellation.is_cancelled() {
+            return Err(request_failure(&request, CollectorFailureCode::Cancelled));
+        }
+
+        let sessions_root = sessions_root(&self.home);
+        if path_is_missing(&sessions_root) {
+            return empty_collection_result(IDENTITY, &request, &run);
+        }
+        if !sessions_root.is_dir() {
+            return Err(request_failure(
+                &request,
+                CollectorFailureCode::SourceInvalidLocation,
+            ));
+        }
+
+        let inspection = match inspect_session_directories(&sessions_root) {
+            Ok(inspection) => inspection,
+            Err(_) => {
+                return Err(request_failure(
+                    &request,
+                    CollectorFailureCode::SourcePermissionDenied,
+                ));
+            }
+        };
+        if inspection.current_format_directories == 0 {
+            if inspection.newer_format_directories > 0 {
+                return Err(request_failure(
+                    &request,
+                    CollectorFailureCode::IncompatibleEnvelope,
+                ));
+            }
+            let mut rejections = Vec::new();
+            extend_rejections(
+                &mut rejections,
+                REJECTION_OLDER_SESSION_FORMAT,
+                inspection.older_format_directories,
+            );
+            extend_rejections(
+                &mut rejections,
+                REJECTION_SESSION_DIRECTORY_UNREADABLE,
+                inspection.unreadable_session_directories,
+            );
+            if !rejections.is_empty() {
+                return Err(request_failure(
+                    &request,
+                    CollectorFailureCode::AllRecordsRejected,
+                ));
+            }
+            return empty_collection_result(IDENTITY, &request, &run);
+        }
+
+        let mut rejections = Vec::new();
+        let mut warnings = Vec::new();
+        extend_rejections(
+            &mut rejections,
+            REJECTION_UNSUPPORTED_SESSION_FORMAT,
+            inspection.newer_format_directories,
+        );
+        extend_rejections(
+            &mut rejections,
+            REJECTION_OLDER_SESSION_FORMAT,
+            inspection.older_format_directories,
+        );
+        extend_rejections(
+            &mut rejections,
+            REJECTION_SESSION_DIRECTORY_UNREADABLE,
+            inspection.unreadable_session_directories,
+        );
+
+        let mut sessions = Vec::new();
+        for file in &inspection.files {
+            if cancellation.is_cancelled() {
+                return Err(request_failure(&request, CollectorFailureCode::Cancelled));
+            }
+            if file.format_version != CURRENT_SESSION_FORMAT_VERSION {
+                continue;
+            }
+
+            let decoded = match read_session_log(file) {
+                Ok(decoded) => decoded,
+                Err(_) => {
+                    rejections.push(RejectedRecord {
+                        code: REJECTION_SESSION_LOG_UNREADABLE.to_owned(),
+                        record_index: None,
+                    });
+                    continue;
+                }
+            };
+            let parsed = parse_session_events(&decoded.events_jsonl);
+            for rejection in &parsed.rejections {
+                rejections.push(RejectedRecord {
+                    code: rejection.code.to_owned(),
+                    record_index: rejection.seq.and_then(|seq| u32::try_from(seq).ok()),
+                });
+            }
+            let observations = fold_events(&parsed.events);
+            if decoded.truncated_tail {
+                warnings.push(CollectionWarning {
+                    code: WARNING_TORN_FINAL_FRAME.to_owned(),
+                    message: "DeepSeek Harness session log ended with a torn final frame; complete records were imported."
+                        .to_owned(),
+                });
+            }
+            if !observations.is_empty() {
+                sessions.push(SessionUsage {
+                    header: decoded.header,
+                    observations,
+                });
+            }
+        }
+
+        let finished_at = Utc::now();
+        let metadata = collection_metadata(IDENTITY, &request, run.started_at(), finished_at)?;
+        let context = DeepSeekHarnessMappingContext::new(
+            COLLECTOR_VERSION.to_owned(),
+            request.collection_id().clone(),
+            finished_at,
+        )
+        .map_err(|_| request_failure(&request, CollectorFailureCode::Internal))?;
+        let process_summary = run.process_summary();
+
+        match request.projection() {
+            CollectionProjection::Daily => {
+                let timezone = request.aggregation_timezone().ok_or_else(|| {
+                    request_failure(&request, CollectorFailureCode::ScopeNotRepresentable)
+                })?;
+                let candidates = map_daily(
+                    &sessions,
+                    timezone,
+                    request.scope(),
+                    &context,
+                    &self.calculator,
+                )
+                .map_err(|_| {
+                    request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                })?;
+                CollectionResult::daily(metadata, candidates, rejections, warnings, process_summary)
+                    .map_err(|error| validation_failure_preserving_all_rejected(&request, error))
+            }
+            CollectionProjection::Session => {
+                let candidates =
+                    map_sessions(sessions, &context, &self.calculator).map_err(|_| {
+                        request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+                    })?;
+                CollectionResult::session(
+                    metadata,
+                    candidates,
+                    rejections,
+                    warnings,
+                    process_summary,
+                )
+                .map_err(|error| validation_failure_preserving_all_rejected(&request, error))
+            }
+        }
     }
+}
+
+fn extend_rejections(rejections: &mut Vec<RejectedRecord>, code: &str, count: u32) {
+    rejections.extend((0..count).map(|_| RejectedRecord {
+        code: code.to_owned(),
+        record_index: None,
+    }));
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
     use chrono::{TimeZone, Utc};
     use tempfile::TempDir;
 
     use super::*;
     use crate::application::collection::{
-        CollectionId, CollectionScope, DetectionReason, DetectionState,
+        CollectionId, CollectionOutcome, CollectionScope, DetectionReason, DetectionState,
     };
+
+    const VALID_ROOT: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/collectors/deepseek-harness/sessions/valid-root-session.jsonl"
+    ));
 
     fn timestamp() -> chrono::DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 10, 4, 1, 2, 3)
@@ -225,7 +412,7 @@ mod tests {
         }
     }
 
-    fn collection_request(source: SourceKey) -> CollectionRequest {
+    fn daily_request(source: SourceKey) -> CollectionRequest {
         CollectionRequest::daily(
             CollectionId::new(format!("{}-daily", source.as_str())).expect("collection id"),
             source,
@@ -236,10 +423,31 @@ mod tests {
         .expect("request")
     }
 
+    fn session_request(source: SourceKey) -> CollectionRequest {
+        CollectionRequest::session(
+            CollectionId::new(format!("{}-session", source.as_str())).expect("collection id"),
+            source,
+            CollectionScope::Full,
+            timestamp(),
+        )
+    }
+
     fn write_session_log(home: &Path, project: &str, session: &str, filename: &str) {
         let session_dir = home.join("sessions").join(project).join(session);
         fs::create_dir_all(&session_dir).expect("session dir");
         fs::write(session_dir.join(filename), b"{}").expect("session log");
+    }
+
+    fn write_valid_compressed_session_log(home: &Path) -> PathBuf {
+        let (header, events) = VALID_ROOT.split_once('\n').expect("fixture header");
+        let mut bytes =
+            zstd::stream::encode_all(format!("{header}\n").as_bytes(), 3).expect("header frame");
+        bytes.extend(zstd::stream::encode_all(events.as_bytes(), 3).expect("events frame"));
+        let session_dir = home.join("sessions").join("--project--").join("session-a");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        let path = session_dir.join("session.v4.jsonl.zstd");
+        fs::write(&path, bytes).expect("session log");
+        path
     }
 
     struct NeverCancelled;
@@ -451,18 +659,149 @@ mod tests {
     }
 
     #[test]
-    fn collect_fails_closed_until_native_collector_is_wired() {
+    fn describes_deepseek_harness_profile() {
         let temp = TempDir::new().expect("temp dir");
         let collector = DeepSeekHarnessCollector::from_data_dir(temp.path().join("home"));
 
-        let failure = collector
-            .collect(
-                collection_request(SourceKey::DeepSeekHarness),
-                &NeverCancelled,
-            )
-            .expect_err("collect fails closed");
+        let descriptor = collector.describe().expect("descriptor");
 
-        assert_eq!(failure.code, CollectorFailureCode::UnsupportedSource);
-        assert_eq!(failure.source_key, Some(SourceKey::DeepSeekHarness));
+        assert_eq!(descriptor.collector.as_str(), COLLECTOR_KEY);
+        assert_eq!(descriptor.display_name, DISPLAY_NAME);
+        assert_eq!(descriptor.profiles.len(), 1);
+        assert_eq!(descriptor.profiles[0].source, SourceKey::DeepSeekHarness);
+        assert_eq!(descriptor.profiles[0].profile_version, PROFILE_VERSION);
+        assert_eq!(
+            descriptor.profiles[0].supported_projections,
+            vec![CollectionProjection::Daily, CollectionProjection::Session]
+        );
+    }
+
+    #[test]
+    fn empty_missing_home_collection_is_successful_empty() {
+        let temp = TempDir::new().expect("temp dir");
+        let collector = DeepSeekHarnessCollector::from_data_dir(temp.path().join("missing"));
+
+        let result = collector
+            .collect(daily_request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect("collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Empty);
+        assert!(result.daily_candidates().is_empty());
+    }
+
+    #[test]
+    fn collects_daily_usage_from_compressed_session_log() {
+        let temp = TempDir::new().expect("temp dir");
+        let home = temp.path().join("dsh-home");
+        write_valid_compressed_session_log(&home);
+        let collector = DeepSeekHarnessCollector::from_data_dir(home);
+
+        let result = collector
+            .collect(daily_request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect("collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        assert_eq!(result.rejection_count(), 0);
+        let candidates = result.daily_candidates();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].tokens.total_tokens(), 12);
+        assert_eq!(candidates[0].model_breakdowns.len(), 1);
+        assert_eq!(
+            candidates[0].model_breakdowns[0].raw_model_id,
+            "deepseek-flash"
+        );
+    }
+
+    #[test]
+    fn collects_session_usage_from_compressed_session_log() {
+        let temp = TempDir::new().expect("temp dir");
+        let home = temp.path().join("dsh-home");
+        write_valid_compressed_session_log(&home);
+        let collector = DeepSeekHarnessCollector::from_data_dir(home);
+
+        let result = collector
+            .collect(session_request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect("collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Complete);
+        let candidates = result.session_candidates();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].source_session_id,
+            "session-00000000-0000-0000-0000-000000000000"
+        );
+        assert_eq!(
+            candidates[0].project_path.as_deref(),
+            Some("/redacted/project")
+        );
+        assert_eq!(candidates[0].tokens.total_tokens(), 12);
+    }
+
+    #[test]
+    fn older_format_only_collection_fails_closed() {
+        let temp = TempDir::new().expect("temp dir");
+        let home = temp.path().join("dsh-home");
+        write_session_log(&home, "--project--", "session-a", "session.v3.jsonl.zstd");
+        let collector = DeepSeekHarnessCollector::from_data_dir(home);
+
+        let failure = collector
+            .collect(daily_request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect_err("unsupported older format");
+
+        assert_eq!(failure.code, CollectorFailureCode::AllRecordsRejected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_session_directory_only_collection_fails_closed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new().expect("temp dir");
+        let home = temp.path().join("dsh-home");
+        write_session_log(&home, "--project--", "session-a", "session.v4.jsonl.zstd");
+        let session_dir = home.join("sessions").join("--project--").join("session-a");
+        fs::set_permissions(&session_dir, fs::Permissions::from_mode(0o000))
+            .expect("remove permissions");
+
+        let collector = DeepSeekHarnessCollector::from_data_dir(home);
+        let failure = collector
+            .collect(daily_request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect_err("unreadable session directory");
+
+        fs::set_permissions(&session_dir, fs::Permissions::from_mode(0o700))
+            .expect("restore permissions");
+
+        assert_eq!(failure.code, CollectorFailureCode::AllRecordsRejected);
+    }
+
+    #[test]
+    fn mixed_current_and_older_formats_produce_partial_collection() {
+        let temp = TempDir::new().expect("temp dir");
+        let home = temp.path().join("dsh-home");
+        write_valid_compressed_session_log(&home);
+        write_session_log(&home, "--project--", "session-b", "session.v3.jsonl.zstd");
+        let collector = DeepSeekHarnessCollector::from_data_dir(home);
+
+        let result = collector
+            .collect(daily_request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect("collection");
+
+        assert_eq!(result.outcome(), CollectionOutcome::Partial);
+        assert_eq!(result.rejection_count(), 1);
+        assert_eq!(result.daily_candidates().len(), 1);
+    }
+
+    #[test]
+    fn newer_format_only_collection_fails_closed() {
+        let temp = TempDir::new().expect("temp dir");
+        let home = temp.path().join("dsh-home");
+        write_session_log(&home, "--project--", "session-a", "session.v5.jsonl.zstd");
+        let collector = DeepSeekHarnessCollector::from_data_dir(home);
+
+        let failure = collector
+            .collect(daily_request(SourceKey::DeepSeekHarness), &NeverCancelled)
+            .expect_err("unsupported format");
+
+        assert_eq!(failure.code, CollectorFailureCode::IncompatibleEnvelope);
     }
 }
