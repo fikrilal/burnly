@@ -1,20 +1,14 @@
 //! DeepSeek Harness session-root inspection and detection.
 //!
-//! Detection is read-only and filesystem-based. It identifies canonical
-//! generation-addressed session logs without decompressing them or reading any
-//! event content. The highest generation in each session directory is the only
-//! one considered, matching the harness persistence backend's current-artifact
-//! selection rule.
-//!
-//! Current support is limited to session format 4. Newer formats are reported
-//! as unsupported rather than silently falling back to an older generation.
+//! Detection is read-only and metadata-only. It resolves the harness home,
+//! delegates canonical generation selection to `discovery`, and publishes
+//! counts for the adapter. It never opens or decompresses a session log.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::deepseek_home::{resolve_deepseek_harness_home, sessions_root};
-
-const CURRENT_SESSION_FORMAT_VERSION: u32 = 4;
+use super::discovery::inspect_session_directories;
 
 /// Snapshot of a DeepSeek Harness data root used by detection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,128 +43,19 @@ pub(crate) fn inspect_deepseek_harness_home(
     let sessions = sessions_root(&home);
     let sessions_root_exists = sessions.is_dir();
     let sessions_root_readable = fs::read_dir(&sessions).is_ok();
-
-    let counts = scan_sessions(&sessions, sessions_root_readable);
+    let discovered = inspect_session_directories(&sessions).unwrap_or_default();
 
     DeepSeekHarnessHomeInspection {
         home,
         home_exists,
         sessions_root_exists,
         sessions_root_readable,
-        current_format_session_logs: counts.current_format,
-        newer_format_session_logs: counts.newer_format,
-        older_format_session_logs: counts.older_format,
-        session_directories: counts.session_directories,
-        unreadable_session_directories: counts.unreadable_session_directories,
+        current_format_session_logs: discovered.current_format_directories,
+        newer_format_session_logs: discovered.newer_format_directories,
+        older_format_session_logs: discovered.older_format_directories,
+        session_directories: discovered.session_directories,
+        unreadable_session_directories: discovered.unreadable_session_directories,
     }
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
-struct SessionScanCounts {
-    current_format: u32,
-    newer_format: u32,
-    older_format: u32,
-    session_directories: u32,
-    unreadable_session_directories: u32,
-}
-
-fn scan_sessions(sessions: &Path, readable: bool) -> SessionScanCounts {
-    if !readable {
-        return SessionScanCounts::default();
-    }
-
-    let mut counts = SessionScanCounts::default();
-    let Ok(project_entries) = fs::read_dir(sessions) else {
-        return counts;
-    };
-
-    for project_entry in project_entries.flatten() {
-        if !project_entry
-            .file_type()
-            .map(|file_type| file_type.is_dir())
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let Ok(session_entries) = fs::read_dir(project_entry.path()) else {
-            continue;
-        };
-        for session_entry in session_entries.flatten() {
-            if !session_entry
-                .file_type()
-                .map(|file_type| file_type.is_dir())
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            counts.session_directories = counts.session_directories.saturating_add(1);
-            match highest_session_format(&session_entry.path()) {
-                Ok(Some(version)) => {
-                    if version == CURRENT_SESSION_FORMAT_VERSION {
-                        counts.current_format = counts.current_format.saturating_add(1);
-                    } else if version > CURRENT_SESSION_FORMAT_VERSION {
-                        counts.newer_format = counts.newer_format.saturating_add(1);
-                    } else {
-                        counts.older_format = counts.older_format.saturating_add(1);
-                    }
-                }
-                Ok(None) => {}
-                Err(()) => {
-                    counts.unreadable_session_directories =
-                        counts.unreadable_session_directories.saturating_add(1);
-                }
-            }
-        }
-    }
-
-    counts
-}
-
-fn highest_session_format(session_dir: &Path) -> Result<Option<u32>, ()> {
-    let entries = fs::read_dir(session_dir).map_err(|_| ())?;
-    let mut highest = None;
-
-    for entry in entries.flatten() {
-        if !entry
-            .file_type()
-            .map(|file_type| file_type.is_file())
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let Some(version) = parse_session_log_filename(&entry.file_name().to_string_lossy()) else {
-            continue;
-        };
-        highest = Some(highest.map_or(version, |current: u32| current.max(version)));
-    }
-
-    Ok(highest)
-}
-
-/// Parse a canonical DeepSeek Harness session-log basename.
-///
-/// Canonical generations are `session.jsonl` for version zero and
-/// `session.vN.jsonl` for version `N >= 1`, each optionally carrying the
-/// `.zstd` compression suffix. Leading zeros, uppercase `V`, and unrelated
-/// suffixes are rejected.
-pub(crate) fn parse_session_log_filename(filename: &str) -> Option<u32> {
-    let uncompressed = filename.strip_suffix(".zstd").unwrap_or(filename);
-
-    if uncompressed == "session.jsonl" {
-        return Some(0);
-    }
-
-    let digits = uncompressed
-        .strip_prefix("session.v")?
-        .strip_suffix(".jsonl")?;
-    if digits.is_empty()
-        || digits.starts_with('0')
-        || !digits.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return None;
-    }
-
-    digits.parse::<u32>().ok()
 }
 
 #[cfg(test)]
@@ -185,20 +70,6 @@ mod tests {
         let session_dir = sessions.join(project).join(session);
         fs::create_dir_all(&session_dir).expect("session dir");
         fs::write(session_dir.join(filename), b"{}").expect("session log");
-    }
-
-    #[test]
-    fn parses_canonical_session_log_filenames() {
-        assert_eq!(parse_session_log_filename("session.jsonl"), Some(0));
-        assert_eq!(parse_session_log_filename("session.jsonl.zstd"), Some(0));
-        assert_eq!(parse_session_log_filename("session.v1.jsonl"), Some(1));
-        assert_eq!(parse_session_log_filename("session.v4.jsonl.zstd"), Some(4));
-        assert_eq!(parse_session_log_filename("session.v12.jsonl"), Some(12));
-        assert_eq!(parse_session_log_filename("session.v0.jsonl"), None);
-        assert_eq!(parse_session_log_filename("session.v01.jsonl"), None);
-        assert_eq!(parse_session_log_filename("session.V4.jsonl"), None);
-        assert_eq!(parse_session_log_filename("session.jsonl.gz"), None);
-        assert_eq!(parse_session_log_filename("other.v4.jsonl"), None);
     }
 
     #[test]

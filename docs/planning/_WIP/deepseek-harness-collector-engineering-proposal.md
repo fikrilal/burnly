@@ -519,6 +519,7 @@ src-tauri/src/infrastructure/collectors/deepseek_harness/
   mod.rs
   deepseek_home.rs
   detection.rs
+  discovery.rs
   session_log_reader.rs
   event_parser.rs
   usage_fold.rs

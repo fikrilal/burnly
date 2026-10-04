@@ -1,0 +1,3 @@
+{"type":"session","version":4,"id":"session-00000000-0000-0000-0000-000000000004","createdAt":1790000005000,"isSeeded":false}
+{"type":"assistant/message","seq":1,"time":1790000006000,"data":{"turn":1,"step":1,"usage":{"inputTokens":5,"outputTokens":1,"totalTokens":6}}}
+{"type":"assistant

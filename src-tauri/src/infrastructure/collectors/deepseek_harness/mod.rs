@@ -7,6 +7,8 @@
 mod adapter;
 mod deepseek_home;
 mod detection;
+mod discovery;
+mod session_log_reader;
 
 #[allow(
     unused_imports,
