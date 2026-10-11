@@ -159,7 +159,6 @@ fn backend_from_gdk_backend(value: &str) -> DisplayBackend {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn x_display_reachable(display: &str) -> bool {
     #[cfg(target_os = "linux")]
     {
