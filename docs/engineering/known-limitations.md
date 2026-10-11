@@ -72,6 +72,58 @@ Antigravity updates. Promote App/IDE direct SQLite parsing from experimental
 fallback to the preferred path only after field mapping stays stable across
 multiple sessions.
 
+## Tray panel placement on Linux Wayland sessions uses XWayland
+
+Status: active workaround. Opened 2026-10-11 for the reported centered panel.
+
+### Summary
+
+Wayland gives clients no API to place a toplevel window, so the tray panel
+cannot be positioned when Burnly runs as a native Wayland client; the compositor
+places it near screen center instead of a tray corner. On Linux Wayland
+sessions where a reachable XWayland display exists, Burnly now selects the GTK
+X11 backend at startup by setting `GDK_BACKEND=x11` before GTK initializes,
+which restores the top-right corner placement on the pointer's monitor. X11
+sessions, macOS, and Windows are unchanged; a pre-set `GDK_BACKEND` always wins.
+
+### Cause
+
+`tauri::Window::set_position` is a silent no-op under Wayland (tao issue #566,
+tauri issue #14913), and no Wayland protocol lets a client place a normal
+toplevel. Icon-anchored placement is also impossible on Linux because
+StatusNotifierItem / AppIndicator exposes no icon geometry.
+
+### Current workaround
+
+- Automatic: Wayland sessions with a reachable X display run through XWayland;
+  the decision is recorded once per launch as a `platform.display_backend`
+  diagnostic event in the `runtime` area.
+- Manual: set `GDK_BACKEND=x11` to force XWayland positioning, or
+  `GDK_BACKEND=wayland` to stay native (the panel then uses compositor
+  placement).
+- Sessions without a usable X display still start and keep compositor
+  placement; the diagnostic reason records which case applied.
+
+Code: `src-tauri/src/platform/display_backend.rs` and `placement_monitor` in
+`src-tauri/src/platform/lifecycle.rs`.
+
+### Trigger to revisit
+
+Remove the XWayland selection when Tauri/tao exposes usable Wayland window
+positioning (tauri issue #14913) or GNOME adopts a positioning mechanism that
+covers the tray panel, then place the panel natively and delete the decision
+module.
+
+### Alternatives considered
+
+- wlr-layer-shell: rejected because Mutter (GNOME) does not implement it.
+- GNOME Shell extension: rejected as not shippable in a standalone utility.
+- Full-monitor transparent overlay: rejected for raw-GTK input-region complexity
+  and broken dismiss semantics.
+
+See `docs/planning/_WIP/linux-tray-panel-positioning-engineering-proposal.md`
+and `docs/exec-plans/completed/2026-10-11_linux-tray-panel-positioning.md`.
+
 ## Pi per-model daily usage is collapsed to a single row
 
 Status: active workaround. Opened for Pi 2026-07-01. OpenCode closed 2026-08-22

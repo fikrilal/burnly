@@ -24,8 +24,12 @@ use thiserror::Error;
 use crate::application::bootstrap::{BootstrapService, RuntimeCapabilities, RuntimeSettings};
 
 use crate::application::collection::CollectorFailure;
-use crate::application::diagnostics::DiagnosticsService;
+use crate::application::diagnostics::{
+    DiagnosticArea, DiagnosticCode, DiagnosticContext, DiagnosticEvent, DiagnosticSeverity,
+    DiagnosticSummary, DiagnosticsService,
+};
 use crate::application::ports::collector::Collector;
+use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::application::ports::run_store::RunStoreError;
 use crate::application::ports::window_actions::WindowActions;
 use crate::application::refresh::{
@@ -40,6 +44,7 @@ use crate::infrastructure::database::{
     SqliteReconciliationStore, SqliteSettingsStore, SqliteTraySummaryStore,
 };
 use crate::ipc::CONTRACT_VERSION;
+use crate::platform::display_backend::{self, DisplayBackendReason};
 use crate::platform::lifecycle;
 #[cfg(not(debug_assertions))]
 use crate::platform::single_instance;
@@ -116,6 +121,10 @@ impl StartupError {
 }
 
 pub(crate) fn run() {
+    // Select the GTK backend before GTK initializes: Wayland ignores window
+    // placement, so the tray panel relies on the X11 backend when XWayland is
+    // available.
+    display_backend::select_display_backend();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -219,11 +228,13 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
         updater::TauriUpdateRuntime::new(app.handle().clone()),
     )));
     let diagnostics_database = Database::open(&database_path).map_err(StartupError::Persistence)?;
+    let diagnostics_store = Arc::new(SqliteDiagnosticStore::new(diagnostics_database));
     app.manage(DiagnosticsService::new(
-        Arc::new(SqliteDiagnosticStore::new(diagnostics_database)),
+        diagnostics_store.clone(),
         env!("CARGO_PKG_VERSION").to_owned(),
         reporting_timezone.clone(),
     ));
+    record_display_backend_decision(diagnostics_store.as_ref(), created_at_ms);
 
     app.manage(BootstrapService::new(
         env!("CARGO_PKG_VERSION"),
@@ -264,6 +275,42 @@ fn setup_runtime<R: Runtime>(app: &mut tauri::App<R>) -> Result<(), StartupError
     app.manage(tray_open_refresh);
 
     Ok(())
+}
+
+fn record_display_backend_decision(recorder: &dyn DiagnosticRecorder, now_ms: i64) {
+    let Some(decision) = display_backend::decision() else {
+        return;
+    };
+    if decision.reason == DisplayBackendReason::NotLinux {
+        return;
+    }
+    let Ok(code) = DiagnosticCode::new("platform.display_backend") else {
+        return;
+    };
+    let Ok(summary) = DiagnosticSummary::new("Selected the tray panel display backend at startup.")
+    else {
+        return;
+    };
+    let Ok(context) = DiagnosticContext::new(
+        serde_json::json!({
+            "backend": decision.backend.as_str(),
+            "reason": decision.reason.as_str(),
+        })
+        .to_string(),
+    ) else {
+        return;
+    };
+    let Ok(event) = DiagnosticEvent::new(
+        DiagnosticArea::Runtime,
+        DiagnosticSeverity::Info,
+        code,
+        summary,
+        Some(context),
+        now_ms,
+    ) else {
+        return;
+    };
+    recorder.record(event);
 }
 
 fn parse_runtime_settings(close_behavior: &str) -> Result<RuntimeSettings, StartupError> {
