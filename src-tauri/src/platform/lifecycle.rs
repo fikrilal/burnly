@@ -164,7 +164,7 @@ fn cursor_is_inside_window<R: Runtime>(window: &tauri::Window<R>) -> bool {
 /// Positions the panel near the top-right of its monitor. Tray-icon anchoring is
 /// unreliable across Linux desktops, so a predictable corner is used instead.
 fn position_tray_panel<R: Runtime>(window: &tauri::WebviewWindow<R>) {
-    let Ok(Some(monitor)) = window.current_monitor() else {
+    let Some(monitor) = placement_monitor(window) else {
         return;
     };
 
@@ -176,6 +176,23 @@ fn position_tray_panel<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     let y = position.y + TRAY_PANEL_TOP_OFFSET;
 
     let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+}
+
+/// Prefers the monitor under the pointer: the user just triggered the tray
+/// action, so it is the closest available proxy for the icon's display.
+fn placement_monitor<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<tauri::Monitor> {
+    let pointer_monitor = window
+        .cursor_position()
+        .ok()
+        .and_then(|cursor| window.monitor_from_point(cursor.x, cursor.y).ok().flatten());
+    let current_monitor = window.current_monitor().ok().flatten();
+    let primary_monitor = window.primary_monitor().ok().flatten();
+
+    first_present([pointer_monitor, current_monitor, primary_monitor])
+}
+
+fn first_present<T>(candidates: [Option<T>; 3]) -> Option<T> {
+    candidates.into_iter().flatten().next()
 }
 
 fn position_tray_panel_at_rect<R: Runtime>(window: &tauri::WebviewWindow<R>, anchor: tauri::Rect) {
@@ -403,5 +420,13 @@ mod tests {
         );
 
         assert_eq!(position, PanelPosition { x: 40.0, y: 72.0 });
+    }
+
+    #[test]
+    fn placement_monitor_prefers_pointer_then_current_then_primary() {
+        assert_eq!(first_present([Some(1), Some(2), Some(3)]), Some(1));
+        assert_eq!(first_present([None, Some(2), Some(3)]), Some(2));
+        assert_eq!(first_present([None, None, Some(3)]), Some(3));
+        assert_eq!(first_present([None::<i32>, None, None]), None);
     }
 }

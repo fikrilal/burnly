@@ -55,6 +55,14 @@ Then verify:
 - The native tray icon is visible when the current desktop environment supports
   tray icons.
 - Tray Open Burnly shows, unminimizes, and focuses the main window.
+- Tray Open Summary opens the panel in the top-right corner of the pointer's
+  monitor, not at screen center. Record the session type:
+  - X11: corner placement, unchanged;
+  - Wayland with XWayland: corner placement through the auto-selected X11
+    backend (`GDK_BACKEND=x11`);
+  - native Wayland (`GDK_BACKEND=wayland` set, or no reachable X display):
+    compositor placement, with a `platform.display_backend` diagnostic recording
+    the reason.
 - Tray Refresh now starts a refresh and does not start duplicate concurrent
   refresh jobs.
 - Tray status changes while refresh is active and returns to a terminal state.
