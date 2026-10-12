@@ -122,7 +122,7 @@ pub(crate) fn map_sessions(
     context: &OpenCodeMappingContext,
     calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<SessionUsageCandidate>, OpenCodeMappingError> {
-    let mut fold = ScopedSessionFold::new(chrono_tz::UTC, &CollectionScope::Full);
+    let mut fold = ScopedSessionFold::new();
     for reconciled in reconciled_sessions {
         fold.add_reconciled(reconciled)?;
     }
@@ -216,18 +216,16 @@ impl ScopedDailyFold {
     }
 }
 
+/// Lifetime totals for one session. Catch-up scope decides which sessions to
+/// skip. It does not drop rows inside a session that is folded.
 pub(crate) struct ScopedSessionFold {
-    timezone: Tz,
-    scope: CollectionScope,
     open: Option<OpenSession>,
     pending: Vec<PendingSession>,
 }
 
 impl ScopedSessionFold {
-    pub(crate) fn new(timezone: Tz, scope: &CollectionScope) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            timezone,
-            scope: scope.clone(),
             open: None,
             pending: Vec::new(),
         }
@@ -252,15 +250,11 @@ impl ScopedSessionFold {
         &mut self,
         record: &OpenCodeLedgerRecord,
     ) -> Result<(), OpenCodeMappingError> {
-        let in_scope = session_record_in_scope(record, self.timezone, &self.scope)?;
         let Some(open) = self.open.as_mut() else {
             return Err(OpenCodeMappingError::InconsistentLedger);
         };
         if record.session_id != open.session_id {
             return Err(OpenCodeMappingError::InconsistentLedger);
-        }
-        if !in_scope {
-            return Ok(());
         }
         let quality = session_record_quality(open.state, record);
         open.bucket.add(record, quality)?;
@@ -345,22 +339,6 @@ struct PendingSession {
     bucket: ProjectionBucket,
     first_activity_ms: i64,
     last_activity_ms: i64,
-}
-
-fn session_record_in_scope(
-    record: &OpenCodeLedgerRecord,
-    timezone: Tz,
-    scope: &CollectionScope,
-) -> Result<bool, OpenCodeMappingError> {
-    if matches!(scope, CollectionScope::Full) {
-        return Ok(true);
-    }
-    let usage_date = local_date_from_millis(
-        record.activity_at_ms,
-        timezone,
-        OpenCodeMappingError::InvalidTimestamp,
-    )?;
-    Ok(date_in_scope(usage_date, scope))
 }
 
 fn session_record_quality(

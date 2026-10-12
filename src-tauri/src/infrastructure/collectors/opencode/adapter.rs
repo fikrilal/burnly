@@ -219,9 +219,7 @@ impl Collector for OpenCodeCollector {
             CollectionProjection::Daily => {
                 ProjectionFold::Daily(ScopedDailyFold::from_timezone(timezone, request.scope()))
             }
-            CollectionProjection::Session => {
-                ProjectionFold::Session(ScopedSessionFold::new(timezone, request.scope()))
-            }
+            CollectionProjection::Session => ProjectionFold::Session(ScopedSessionFold::new()),
         };
         self.reconcile_all_sessions(
             &mut store,
@@ -567,8 +565,14 @@ impl OpenCodeCollector {
         projection
             .begin_cached(checkpoint)
             .map_err(|_| incompatible(request))?;
+        // Session rows replace lifetime totals. A windowed ledger read would
+        // store the catch-up slice. Daily rows stay inside the request window.
+        let activity_window = match projection {
+            ProjectionFold::Session(_) => None,
+            ProjectionFold::Daily(_) => window,
+        };
         self.ledger
-            .fold_scoped_records(&checkpoint.session_id, window, &mut |record| {
+            .fold_scoped_records(&checkpoint.session_id, activity_window, &mut |record| {
                 projection
                     .add_cached_record(checkpoint, &record)
                     .map_err(|_| OpenCodeUsageLedgerError::IncompatibleSnapshot)
@@ -1055,12 +1059,14 @@ fn header_regresses(
     header: &OpenCodeSessionHeader,
     cumulative_cost_micros: Option<u64>,
 ) -> bool {
+    // Accepted ledger cost can sit one micro above the source per priced row.
+    // Only a drop below the cost last observed on the header is a shrink.
     token_vector(header.tokens)
         .checked_sub(checkpoint.accepted_tokens)
         .is_none()
         || matches!(
-            (cumulative_cost_micros, checkpoint.accepted_cost_micros),
-            (Some(current), Some(accepted)) if current < accepted
+            (cumulative_cost_micros, checkpoint.observed_source_cost_micros),
+            (Some(current), Some(observed)) if current < observed
         )
 }
 
@@ -1224,7 +1230,7 @@ const fn schema_reason_name(reason: OpenCodeSchemaReason) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use chrono::Utc;
     use rusqlite::{params, Connection};
@@ -2201,7 +2207,11 @@ mod tests {
             deferred_message_ids(&ledger, "session-hole"),
             vec!["message-2".to_owned()]
         );
+        let reconciled_at = checkpoint_reconciled_at(&ledger, "session-hole");
         drop(ledger);
+        while Utc::now().timestamp_millis() <= reconciled_at {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
 
         let second = collector
             .collect(incremental_session_request("hole-second"), &NeverCancelled)
@@ -2222,6 +2232,7 @@ mod tests {
             deferred_message_ids(&ledger, "session-hole"),
             vec!["message-2".to_owned()]
         );
+        assert!(checkpoint_reconciled_at(&ledger, "session-hole") > reconciled_at);
         drop(ledger);
 
         let connection = fixture.source();
@@ -2409,6 +2420,200 @@ mod tests {
     }
 
     #[test]
+    fn incremental_token_growth_reconciles_when_source_cost_trails_accepted_cost() {
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-rounding",
+            Counters::new(2, 4, 6, 8, 10),
+            0.000101,
+            1_000,
+        );
+        insert_v1_message_cost(
+            &connection,
+            "message-1",
+            "session-rounding",
+            1,
+            1_100,
+            0.0000505,
+        );
+        insert_v1_message_cost(
+            &connection,
+            "message-2",
+            "session-rounding",
+            1,
+            1_200,
+            0.0000505,
+        );
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let first = collector
+            .collect(
+                incremental_session_request("rounding-first"),
+                &NeverCancelled,
+            )
+            .expect("priced rows round one micro above the header");
+        assert_eq!(first.session_candidates()[0].tokens.total_tokens(), 30);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_costs(&ledger, "session-rounding"),
+            (Some(102), Some(101))
+        );
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-rounding").as_deref(),
+            Some("message-2")
+        );
+        drop(ledger);
+
+        let connection = fixture.source();
+        update_v1_session(
+            &connection,
+            "session-rounding",
+            Counters::new(3, 6, 9, 12, 15),
+            0.000101,
+            2_000,
+        );
+        insert_v1_message_cost(&connection, "message-3", "session-rounding", 1, 1_300, 0.0);
+        drop(connection);
+        let second = collector
+            .collect(
+                incremental_session_request("rounding-second"),
+                &NeverCancelled,
+            )
+            .expect("token growth reconciles inside the observed source cost");
+        assert_eq!(second.session_candidates()[0].tokens.total_tokens(), 45);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-rounding").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            checkpoint_costs(&ledger, "session-rounding"),
+            (Some(102), Some(101))
+        );
+    }
+
+    #[test]
+    fn unchanged_deferred_header_point_reads_a_completed_message() {
+        let fixture = Fixture::new(false, true);
+        let updated_at = Utc::now().timestamp_millis();
+        let connection = fixture.source();
+        insert_v2_session(
+            &connection,
+            "session-point",
+            Counters::new(15, 6, 9, 12, 15),
+            1.5,
+            updated_at,
+        );
+        insert_v2_message(&connection, "message-1", "session-point", 5, 1_100, true);
+        insert_v2_message(&connection, "message-2", "session-point", 4, 1_200, false);
+        insert_v2_message(&connection, "message-3", "session-point", 6, 1_300, true);
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let first = collector
+            .collect(incremental_session_request("point-first"), &NeverCancelled)
+            .expect("deferred live write");
+        assert_eq!(first.outcome(), CollectionOutcome::Partial);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-point").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-point"),
+            vec!["message-2".to_owned()]
+        );
+        drop(ledger);
+
+        let connection = fixture.source();
+        let payload = v2_payload(1_200, 4, true).to_string();
+        connection
+            .execute(
+                "UPDATE session_message SET data = ?1 WHERE id = 'message-2'",
+                [payload],
+            )
+            .expect("complete deferred message without a header change");
+        drop(connection);
+        let second = collector
+            .collect(incremental_session_request("point-second"), &NeverCancelled)
+            .expect("point-read completed deferred message");
+        assert_eq!(second.outcome(), CollectionOutcome::Complete);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        assert_eq!(latest_stat(&diagnostics, "messagePages"), 0);
+        assert_eq!(model_input(&second), 15);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-point").as_deref(),
+            Some("message-3")
+        );
+        assert!(deferred_message_ids(&ledger, "session-point").is_empty());
+    }
+
+    #[test]
+    fn failed_reconcile_leaves_the_cursor_and_deferred_set() {
+        let fixture = Fixture::new(false, true);
+        let updated_at = Utc::now().timestamp_millis();
+        let connection = fixture.source();
+        insert_v2_session(
+            &connection,
+            "session-fail",
+            Counters::new(11, 4, 6, 8, 10),
+            1.0,
+            updated_at,
+        );
+        insert_v2_message(&connection, "message-1", "session-fail", 5, 1_100, true);
+        insert_v2_message(&connection, "message-2", "session-fail", 4, 1_200, false);
+        insert_v2_message(&connection, "message-3", "session-fail", 6, 1_300, true);
+        drop(connection);
+        let gate = Arc::new(ReconcileGate::new(SqliteOpenCodeUsageLedgerStore::new(
+            Database::open(&fixture.ledger_path).expect("ledger connection"),
+        )));
+        let collector = OpenCodeCollector::from_database_path(
+            &fixture.source_path,
+            Arc::clone(&gate) as Arc<dyn OpenCodeUsageLedger>,
+        );
+
+        collector
+            .collect(incremental_session_request("fail-first"), &NeverCancelled)
+            .expect("store the cursor before reconcile fails");
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-fail").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-fail"),
+            vec!["message-2".to_owned()]
+        );
+        drop(ledger);
+
+        gate.fail_next();
+        let failure = collector
+            .collect(incremental_session_request("fail-second"), &NeverCancelled)
+            .expect_err("reconcile failure");
+        assert_eq!(failure.code, CollectorFailureCode::Internal);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-fail").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-fail"),
+            vec!["message-2".to_owned()]
+        );
+    }
+
+    #[test]
     fn incremental_daily_excludes_activity_outside_the_local_day() {
         let in_scope_ms = chrono::DateTime::parse_from_rfc3339("2026-01-01T16:30:00Z")
             .expect("in-scope timestamp")
@@ -2524,6 +2729,106 @@ mod tests {
     }
 
     #[test]
+    fn incremental_session_keeps_lifetime_totals_across_the_catch_up_window() {
+        let early = chrono::DateTime::parse_from_rfc3339("2026-10-02T12:00:00Z")
+            .expect("early timestamp")
+            .timestamp_millis();
+        let late = chrono::DateTime::parse_from_rfc3339("2026-10-12T12:00:00Z")
+            .expect("late timestamp")
+            .timestamp_millis();
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-span",
+            Counters::new(3, 4, 6, 8, 10),
+            0.50,
+            late,
+        );
+        insert_v1_message(&connection, "message-early", "session-span", 1, early);
+        insert_v1_message(&connection, "message-late", "session-span", 2, late);
+        insert_v1_session(
+            &connection,
+            "session-old",
+            Counters::message(5),
+            0.25,
+            early,
+        );
+        insert_v1_message(&connection, "message-old", "session-old", 5, early);
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (collector, ledger) = fixture.counting_collector(diagnostics.clone());
+        let start = chrono::NaiveDate::from_ymd_opt(2026, 10, 10).expect("start");
+        let end = chrono::NaiveDate::from_ymd_opt(2026, 10, 12).expect("end");
+        let catch_up = CollectionScope::incremental(start, end).expect("catch-up scope");
+        let session_catch_up = |collection_id: &str| {
+            CollectionRequest::session(
+                CollectionId::new(collection_id).expect("collection ID"),
+                SourceKey::OpenCode,
+                catch_up.clone(),
+                Utc::now(),
+            )
+        };
+
+        let first = collector
+            .collect(session_catch_up("lifetime-first"), &NeverCancelled)
+            .expect("first incremental session collection");
+        let span = session_candidate(&first, "session-span");
+        let old = session_candidate(&first, "session-old");
+        assert_eq!(first.session_candidates().len(), 2);
+        assert_eq!(span.tokens.total_tokens(), 31);
+        assert_eq!(span.tokens.input_tokens(), Some(3));
+        assert_eq!(
+            span.first_activity_at,
+            chrono::DateTime::from_timestamp_millis(early + 1)
+        );
+        assert_eq!(old.tokens.total_tokens(), 19);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 3);
+        assert_eq!(ledger.scoped_folds(), 0);
+
+        let second = collector
+            .collect(session_catch_up("lifetime-second"), &NeverCancelled)
+            .expect("second incremental session collection");
+        let span = session_candidate(&second, "session-span");
+        assert_eq!(second.session_candidates().len(), 1);
+        assert_eq!(span.tokens.total_tokens(), 31);
+        assert_eq!(span.tokens.input_tokens(), Some(3));
+        assert_eq!(
+            span.first_activity_at,
+            chrono::DateTime::from_timestamp_millis(early + 1)
+        );
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_eq!(latest_stat(&diagnostics, "sessionsSkipped"), 1);
+        assert_eq!(ledger.scoped_folds(), 1);
+
+        let daily = collector
+            .collect(
+                incremental_daily_request("lifetime-daily", "UTC", start, end),
+                &NeverCancelled,
+            )
+            .expect("windowed daily collection");
+        assert_eq!(daily.daily_candidates().len(), 1);
+        assert_eq!(
+            daily.daily_candidates()[0].usage_date,
+            chrono::NaiveDate::from_ymd_opt(2026, 10, 12).expect("in-window day")
+        );
+        assert_eq!(daily.daily_candidates()[0].tokens.total_tokens(), 16);
+        assert_eq!(daily.daily_candidates()[0].tokens.input_tokens(), Some(2));
+        assert_eq!(ledger.scoped_folds(), 2);
+    }
+
+    fn session_candidate<'a>(
+        result: &'a crate::application::collection::CollectionResult,
+        session_id: &str,
+    ) -> &'a crate::application::collection::SessionUsageCandidate {
+        result
+            .session_candidates()
+            .iter()
+            .find(|candidate| candidate.source_session_id == session_id)
+            .unwrap_or_else(|| panic!("missing {session_id}"))
+    }
+
+    #[test]
     fn redundancy_proof_skips_the_id_scan_until_the_ignored_table_grows() {
         let fixture = Fixture::new(true, true);
         let connection = fixture.source();
@@ -2573,6 +2878,14 @@ mod tests {
                 "PRIVATE_RESPONSE_SENTINEL",
             ],
         );
+
+        collector
+            .collect(
+                session_request("proof-full", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("full scope scans despite a stored proof");
+        assert_eq!(latest_stat(&diagnostics, "redundancyScans"), 1);
 
         fixture
             .source()
@@ -2880,6 +3193,105 @@ mod tests {
         }
     }
 
+    struct ReconcileGate {
+        inner: SqliteOpenCodeUsageLedgerStore,
+        fail: AtomicBool,
+    }
+
+    impl ReconcileGate {
+        fn new(inner: SqliteOpenCodeUsageLedgerStore) -> Self {
+            Self {
+                inner,
+                fail: AtomicBool::new(false),
+            }
+        }
+
+        fn fail_next(&self) {
+            self.fail.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl OpenCodeUsageLedger for ReconcileGate {
+        fn reconcile_session(
+            &self,
+            snapshot: &OpenCodeSessionLedgerSnapshot,
+        ) -> Result<OpenCodeLedgerReconcileResult, OpenCodeUsageLedgerError> {
+            if self.fail.swap(false, Ordering::SeqCst) {
+                return Err(OpenCodeUsageLedgerError::Storage);
+            }
+            self.inner.reconcile_session(snapshot)
+        }
+
+        fn read_checkpoint(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<OpenCodeSessionCheckpoint>, OpenCodeUsageLedgerError> {
+            self.inner.read_checkpoint(session_id)
+        }
+
+        fn read_session_records(
+            &self,
+            session_id: &str,
+        ) -> Result<Vec<OpenCodeLedgerRecord>, OpenCodeUsageLedgerError> {
+            self.inner.read_session_records(session_id)
+        }
+
+        fn session_activity_bounds(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<OpenCodeActivityBounds>, OpenCodeUsageLedgerError> {
+            self.inner.session_activity_bounds(session_id)
+        }
+
+        fn fold_scoped_records(
+            &self,
+            session_id: &str,
+            activity_window_ms: Option<(i64, i64)>,
+            visitor: &mut dyn FnMut(OpenCodeLedgerRecord) -> Result<(), OpenCodeUsageLedgerError>,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner
+                .fold_scoped_records(session_id, activity_window_ms, visitor)
+        }
+
+        fn store_message_cursor(
+            &self,
+            session_id: &str,
+            cursor: Option<&str>,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner.store_message_cursor(session_id, cursor)
+        }
+
+        fn read_deferred_message_ids(
+            &self,
+            session_id: &str,
+        ) -> Result<Vec<String>, OpenCodeUsageLedgerError> {
+            self.inner.read_deferred_message_ids(session_id)
+        }
+
+        fn store_message_progress(
+            &self,
+            session_id: &str,
+            cursor: Option<&str>,
+            deferred_message_ids: &[String],
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner
+                .store_message_progress(session_id, cursor, deferred_message_ids)
+        }
+
+        fn read_redundancy_proof(
+            &self,
+        ) -> Result<Option<OpenCodeRedundancyProof>, OpenCodeUsageLedgerError> {
+            self.inner.read_redundancy_proof()
+        }
+
+        fn write_redundancy_proof(
+            &self,
+            proof: &OpenCodeRedundancyProof,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner.write_redundancy_proof(proof)
+        }
+    }
+
     fn incremental_session_request(collection_id: &str) -> CollectionRequest {
         CollectionRequest::session(
             CollectionId::new(collection_id).expect("collection ID"),
@@ -2961,6 +3373,30 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("cursor")
+    }
+
+    fn checkpoint_costs(ledger: &Connection, session_id: &str) -> (Option<i64>, Option<i64>) {
+        ledger
+            .query_row(
+                "SELECT accepted_cost_micros, observed_cost_micros
+                 FROM opencode_session_checkpoint
+                 WHERE session_id = ?1",
+                [session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("checkpoint costs")
+    }
+
+    fn checkpoint_reconciled_at(ledger: &Connection, session_id: &str) -> i64 {
+        ledger
+            .query_row(
+                "SELECT last_reconciled_at_ms
+                 FROM opencode_session_checkpoint
+                 WHERE session_id = ?1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .expect("reconciled at")
     }
 
     fn deferred_message_ids(ledger: &Connection, session_id: &str) -> Vec<String> {
@@ -3194,6 +3630,17 @@ mod tests {
         input: i64,
         created_at: i64,
     ) {
+        insert_v1_message_cost(connection, id, session_id, input, created_at, 0.25);
+    }
+
+    fn insert_v1_message_cost(
+        connection: &Connection,
+        id: &str,
+        session_id: &str,
+        input: i64,
+        created_at: i64,
+        cost: f64,
+    ) {
         let payload = json!({
             "role": "assistant",
             "providerID": "provider-v1",
@@ -3203,7 +3650,7 @@ mod tests {
                 "input": input, "output": 2, "reasoning": 3,
                 "cache": {"read": 4, "write": 5}
             },
-            "cost": 0.25,
+            "cost": cost,
             "content": {"prompt": "PRIVATE_PROMPT_SENTINEL"}
         })
         .to_string();
