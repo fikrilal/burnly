@@ -55,6 +55,11 @@ pub(crate) trait RunStore: Send + Sync {
         &self,
         lookup: ImportRunLookup,
     ) -> Result<Option<SuccessfulImportState>, RunStoreError>;
+
+    /// Deletes one bounded batch of expired import runs. Keeps the newest
+    /// succeeded row for each lookup key and any row a canonical usage table
+    /// still references.
+    fn delete_expired_import_runs(&self, now_ms: i64) -> Result<u64, RunStoreError>;
 }
 
 /// Failure categories surfaced by the run store, independent of the engine.

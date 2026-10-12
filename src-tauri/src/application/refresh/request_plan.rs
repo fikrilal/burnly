@@ -213,6 +213,10 @@ mod tests {
             }
             Ok(self.latest_import.clone())
         }
+
+        fn delete_expired_import_runs(&self, _now_ms: i64) -> Result<u64, RunStoreError> {
+            Ok(0)
+        }
     }
 
     fn requested_at() -> DateTime<Utc> {
