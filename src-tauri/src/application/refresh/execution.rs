@@ -286,6 +286,15 @@ fn execute_open_refresh(
             })
         })?;
 
+    if matches!(outcome, RunOutcome::Succeeded)
+        && context
+            .run_store
+            .delete_expired_import_runs(finished_at_ms)
+            .is_err()
+    {
+        record_import_retention_failure(context.diagnostic_recorder, finished_at_ms);
+    }
+
     Ok(ExecutionResult {
         outcome,
         finished_at_ms,
@@ -491,6 +500,26 @@ fn record_target_collection_failure(
         code,
         summary,
         Some(context),
+        created_at_ms,
+    ) else {
+        return;
+    };
+    recorder.record(event);
+}
+
+fn record_import_retention_failure(recorder: &dyn DiagnosticRecorder, created_at_ms: i64) {
+    let Ok(code) = DiagnosticCode::new("refresh.import_retention_failed") else {
+        return;
+    };
+    let Ok(summary) = DiagnosticSummary::new("Could not delete expired import runs.") else {
+        return;
+    };
+    let Ok(event) = DiagnosticEvent::new(
+        DiagnosticArea::Refresh,
+        DiagnosticSeverity::Warning,
+        code,
+        summary,
+        None,
         created_at_ms,
     ) else {
         return;

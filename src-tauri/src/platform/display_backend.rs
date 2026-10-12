@@ -101,6 +101,7 @@ pub(crate) fn select_display_backend() -> DisplayBackendDecision {
     if decision.reason == DisplayBackendReason::WaylandX11Selected {
         std::env::set_var("GDK_BACKEND", "x11");
     }
+    apply_linux_compositing_mode(decision);
 
     let _ = DECISION.set(decision);
 
@@ -110,6 +111,11 @@ pub(crate) fn select_display_backend() -> DisplayBackendDecision {
 /// The backend decision made at startup, if selection has run.
 pub(crate) fn decision() -> Option<DisplayBackendDecision> {
     DECISION.get().copied()
+}
+
+fn apply_linux_compositing_mode(_decision: DisplayBackendDecision) {
+    // Packaged measurement on 2026-10-11 kept libLLVM and libnvidia-eglcore
+    // mapped and did not drop idle RSS by 100 MB, so the variable stays unset.
 }
 
 fn decide(
@@ -310,6 +316,39 @@ mod tests {
             decide(&environment, |_| true).backend,
             DisplayBackend::Unspecified
         );
+    }
+
+    #[test]
+    fn compositing_mode_stays_unset_on_every_backend_path() {
+        struct Restore(Option<String>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                match self.0.take() {
+                    Some(value) => std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", value),
+                    None => std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE"),
+                }
+            }
+        }
+        let _restore = Restore(std::env::var("WEBKIT_DISABLE_COMPOSITING_MODE").ok());
+        std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");
+
+        for (backend, reason) in [
+            (DisplayBackend::Unspecified, DisplayBackendReason::NotLinux),
+            (
+                DisplayBackend::X11,
+                DisplayBackendReason::WaylandX11Selected,
+            ),
+            (
+                DisplayBackend::Wayland,
+                DisplayBackendReason::WaylandNoDisplay,
+            ),
+        ] {
+            apply_linux_compositing_mode(DisplayBackendDecision { backend, reason });
+            assert!(
+                std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none(),
+                "{reason:?} must leave compositing mode unset"
+            );
+        }
     }
 
     #[cfg(target_os = "linux")]

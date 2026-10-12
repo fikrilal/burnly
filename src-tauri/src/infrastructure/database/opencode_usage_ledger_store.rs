@@ -3,21 +3,27 @@
     reason = "chunk 2 establishes the ledger store wired into the native adapter in chunk 4"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::application::ports::opencode_usage_ledger::{
-    OpenCodeDataQuality, OpenCodeExactOrigin, OpenCodeExactUsage, OpenCodeLedgerOrigin,
-    OpenCodeLedgerReconcileResult, OpenCodeLedgerRecord, OpenCodeReconciliationState,
-    OpenCodeRecoveryDisposition, OpenCodeSessionCheckpoint, OpenCodeSessionLedgerSnapshot,
-    OpenCodeTimestampOrigin, OpenCodeTokenVector, OpenCodeUsageLedger, OpenCodeUsageLedgerError,
+    OpenCodeActivityBounds, OpenCodeDataQuality, OpenCodeExactOrigin, OpenCodeExactUsage,
+    OpenCodeLedgerOrigin, OpenCodeLedgerReconcileResult, OpenCodeLedgerRecord,
+    OpenCodeReconciliationState, OpenCodeRecoveryDisposition, OpenCodeRedundancyProof,
+    OpenCodeSessionCheckpoint, OpenCodeSessionLedgerSnapshot, OpenCodeTimestampOrigin,
+    OpenCodeTokenVector, OpenCodeUsageLedger, OpenCodeUsageLedgerError,
 };
 
 use super::Database;
 
 const UNATTRIBUTED_MODEL: &str = "OpenCode unattributed";
+const LEDGER_RECORD_COLUMNS: &str = "source_message_id, recovery_sequence, session_id,
+    activity_at_ms, timestamp_origin, provider_id, raw_model_id,
+    input_tokens, output_tokens, reasoning_tokens,
+    cache_read_tokens, cache_write_tokens, cost_micros,
+    origin, data_quality, first_seen_at_ms, last_seen_at_ms";
 
 pub(crate) struct SqliteOpenCodeUsageLedgerStore {
     database: Mutex<Database>,
@@ -143,6 +149,155 @@ impl OpenCodeUsageLedger for SqliteOpenCodeUsageLedgerStore {
             .lock()
             .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
         select_records(database.connection(), session_id)
+    }
+
+    fn session_activity_bounds(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<OpenCodeActivityBounds>, OpenCodeUsageLedgerError> {
+        validate_identity(session_id)?;
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        select_activity_bounds(database.connection(), session_id)
+    }
+
+    fn fold_scoped_records(
+        &self,
+        session_id: &str,
+        activity_window_ms: Option<(i64, i64)>,
+        visitor: &mut dyn FnMut(OpenCodeLedgerRecord) -> Result<(), OpenCodeUsageLedgerError>,
+    ) -> Result<(), OpenCodeUsageLedgerError> {
+        validate_identity(session_id)?;
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        fold_scoped_records(
+            database.connection(),
+            session_id,
+            activity_window_ms,
+            visitor,
+        )
+    }
+
+    fn store_message_cursor(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<(), OpenCodeUsageLedgerError> {
+        validate_identity(session_id)?;
+        if let Some(cursor) = cursor {
+            validate_identity(cursor)?;
+        }
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        let updated = database
+            .connection()
+            .execute(
+                "UPDATE opencode_session_checkpoint
+                 SET last_source_message_id = ?2
+                 WHERE session_id = ?1",
+                params![session_id, cursor],
+            )
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        if updated == 1 {
+            Ok(())
+        } else {
+            Err(OpenCodeUsageLedgerError::Storage)
+        }
+    }
+
+    fn read_deferred_message_ids(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<String>, OpenCodeUsageLedgerError> {
+        validate_identity(session_id)?;
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        select_deferred_message_ids(database.connection(), session_id)
+    }
+
+    fn store_message_progress(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+        deferred_message_ids: &[String],
+    ) -> Result<(), OpenCodeUsageLedgerError> {
+        validate_identity(session_id)?;
+        if let Some(cursor) = cursor {
+            validate_identity(cursor)?;
+        }
+        let mut deferred_ids = BTreeSet::new();
+        for message_id in deferred_message_ids {
+            validate_identity(message_id)?;
+            deferred_ids.insert(message_id.as_str());
+        }
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        let transaction = database
+            .connection_mut()
+            .transaction()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        replace_message_progress(&transaction, session_id, cursor, &deferred_ids)?;
+        transaction
+            .commit()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)
+    }
+
+    fn read_redundancy_proof(
+        &self,
+    ) -> Result<Option<OpenCodeRedundancyProof>, OpenCodeUsageLedgerError> {
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        select_redundancy_proof(database.connection())
+    }
+
+    fn write_redundancy_proof(
+        &self,
+        proof: &OpenCodeRedundancyProof,
+    ) -> Result<(), OpenCodeUsageLedgerError> {
+        validate_redundancy_proof(proof)?;
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        database
+            .connection()
+            .execute(
+                "INSERT INTO opencode_redundancy_proof (
+                    id, file_length, file_mtime_ms, page_count,
+                    ignored_max_rowid, ignored_row_count, generations, proved_redundant
+                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(id) DO UPDATE SET
+                    file_length = excluded.file_length,
+                    file_mtime_ms = excluded.file_mtime_ms,
+                    page_count = excluded.page_count,
+                    ignored_max_rowid = excluded.ignored_max_rowid,
+                    ignored_row_count = excluded.ignored_row_count,
+                    generations = excluded.generations,
+                    proved_redundant = excluded.proved_redundant",
+                params![
+                    sql_u64(proof.file_length)?,
+                    proof.file_mtime_ms,
+                    sql_u64(proof.page_count)?,
+                    proof.ignored_max_rowid,
+                    sql_u64(proof.ignored_row_count)?,
+                    proof.generations,
+                    i64::from(proof.proved_redundant),
+                ],
+            )
+            .map(|_| ())
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)
     }
 }
 
@@ -682,6 +837,7 @@ fn persist_checkpoint(
         next_recovery_sequence,
         first_observed_at_ms,
         last_reconciled_at_ms,
+        last_source_message_id: previous.and_then(|value| value.last_source_message_id.clone()),
     })
 }
 
@@ -811,7 +967,7 @@ fn select_checkpoint(
                     observed_cache_write_tokens, observed_cost_micros,
                     source_updated_at_ms, reconciliation_state,
                     next_recovery_sequence, first_observed_at_ms,
-                    last_reconciled_at_ms
+                    last_reconciled_at_ms, last_source_message_id
              FROM opencode_session_checkpoint WHERE session_id = ?1",
             [session_id],
             map_checkpoint,
@@ -825,16 +981,12 @@ fn select_records(
     session_id: &str,
 ) -> Result<Vec<OpenCodeLedgerRecord>, OpenCodeUsageLedgerError> {
     let mut statement = connection
-        .prepare(
-            "SELECT source_message_id, recovery_sequence, session_id,
-                    activity_at_ms, timestamp_origin, provider_id, raw_model_id,
-                    input_tokens, output_tokens, reasoning_tokens,
-                    cache_read_tokens, cache_write_tokens, cost_micros,
-                    origin, data_quality, first_seen_at_ms, last_seen_at_ms
+        .prepare(&format!(
+            "SELECT {LEDGER_RECORD_COLUMNS}
              FROM opencode_usage_ledger
              WHERE session_id = ?1
-             ORDER BY activity_at_ms ASC, id ASC",
-        )
+             ORDER BY activity_at_ms ASC, id ASC"
+        ))
         .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
     let records = statement
         .query_map([session_id], map_record)
@@ -842,6 +994,65 @@ fn select_records(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
     Ok(records)
+}
+
+fn select_deferred_message_ids(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<Vec<String>, OpenCodeUsageLedgerError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT message_id
+             FROM opencode_deferred_message
+             WHERE session_id = ?1
+             ORDER BY message_id ASC",
+        )
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    let ids = statement
+        .query_map([session_id], |row| row.get(0))
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    Ok(ids)
+}
+
+fn replace_message_progress(
+    transaction: &Transaction<'_>,
+    session_id: &str,
+    cursor: Option<&str>,
+    deferred_ids: &BTreeSet<&str>,
+) -> Result<(), OpenCodeUsageLedgerError> {
+    let updated = transaction
+        .execute(
+            "UPDATE opencode_session_checkpoint
+             SET last_source_message_id = ?2
+             WHERE session_id = ?1",
+            params![session_id, cursor],
+        )
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    if updated != 1 {
+        return Err(OpenCodeUsageLedgerError::Storage);
+    }
+    transaction
+        .execute(
+            "DELETE FROM opencode_deferred_message WHERE session_id = ?1",
+            [session_id],
+        )
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    {
+        let mut insert = transaction
+            .prepare(
+                "INSERT INTO opencode_deferred_message (session_id, message_id)
+                 VALUES (?1, ?2)",
+            )
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        for message_id in deferred_ids {
+            insert
+                .execute(params![session_id, *message_id])
+                .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        }
+    }
+    Ok(())
 }
 
 fn map_checkpoint(row: &rusqlite::Row<'_>) -> Result<OpenCodeSessionCheckpoint, rusqlite::Error> {
@@ -856,7 +1067,99 @@ fn map_checkpoint(row: &rusqlite::Row<'_>) -> Result<OpenCodeSessionCheckpoint, 
         next_recovery_sequence: row_u64(row, 15)?,
         first_observed_at_ms: row.get(16)?,
         last_reconciled_at_ms: row.get(17)?,
+        last_source_message_id: row.get(18)?,
     })
+}
+
+fn select_activity_bounds(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<Option<OpenCodeActivityBounds>, OpenCodeUsageLedgerError> {
+    let (earliest, latest) = connection
+        .query_row(
+            "SELECT MIN(activity_at_ms), MAX(activity_at_ms)
+             FROM opencode_usage_ledger
+             WHERE session_id = ?1",
+            [session_id],
+            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    match (earliest, latest) {
+        (None, None) => Ok(None),
+        (Some(earliest_ms), Some(latest_ms)) => Ok(Some(OpenCodeActivityBounds {
+            earliest_ms,
+            latest_ms,
+        })),
+        _ => Err(OpenCodeUsageLedgerError::Storage),
+    }
+}
+
+fn fold_scoped_records(
+    connection: &Connection,
+    session_id: &str,
+    activity_window_ms: Option<(i64, i64)>,
+    visitor: &mut dyn FnMut(OpenCodeLedgerRecord) -> Result<(), OpenCodeUsageLedgerError>,
+) -> Result<(), OpenCodeUsageLedgerError> {
+    let (start_ms, end_ms) =
+        activity_window_ms.map_or((None, None), |(start, end)| (Some(start), Some(end)));
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {LEDGER_RECORD_COLUMNS}
+             FROM opencode_usage_ledger
+             WHERE session_id = ?1
+               AND (?2 IS NULL OR activity_at_ms >= ?2)
+               AND (?3 IS NULL OR activity_at_ms <= ?3)
+             ORDER BY activity_at_ms ASC, id ASC"
+        ))
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    let mut rows = statement
+        .query(params![session_id, start_ms, end_ms])
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    while let Some(row) = rows.next().map_err(|_| OpenCodeUsageLedgerError::Storage)? {
+        visitor(map_record(row).map_err(|_| OpenCodeUsageLedgerError::Storage)?)?;
+    }
+    Ok(())
+}
+
+fn select_redundancy_proof(
+    connection: &Connection,
+) -> Result<Option<OpenCodeRedundancyProof>, OpenCodeUsageLedgerError> {
+    connection
+        .query_row(
+            "SELECT file_length, file_mtime_ms, page_count, ignored_max_rowid,
+                    ignored_row_count, generations, proved_redundant
+             FROM opencode_redundancy_proof
+             WHERE id = 1",
+            [],
+            |row| {
+                Ok(OpenCodeRedundancyProof {
+                    file_length: row_u64(row, 0)?,
+                    file_mtime_ms: row.get(1)?,
+                    page_count: row_u64(row, 2)?,
+                    ignored_max_rowid: row.get(3)?,
+                    ignored_row_count: row_u64(row, 4)?,
+                    generations: row.get(5)?,
+                    proved_redundant: row.get::<_, i64>(6)? != 0,
+                })
+            },
+        )
+        .optional()
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)
+}
+
+fn validate_redundancy_proof(
+    proof: &OpenCodeRedundancyProof,
+) -> Result<(), OpenCodeUsageLedgerError> {
+    sql_u64(proof.file_length)?;
+    sql_u64(proof.page_count)?;
+    sql_u64(proof.ignored_row_count)?;
+    if proof.ignored_max_rowid.is_some_and(|rowid| rowid < 0) {
+        return Err(OpenCodeUsageLedgerError::IncompatibleSnapshot);
+    }
+    match proof.generations.as_str() {
+        "v1-ignored" | "v2-ignored" => Ok(()),
+        _ => Err(OpenCodeUsageLedgerError::IncompatibleSnapshot),
+    }
 }
 
 fn map_record(row: &rusqlite::Row<'_>) -> Result<OpenCodeLedgerRecord, rusqlite::Error> {
@@ -1488,6 +1791,251 @@ mod tests {
             .read_checkpoint("session-impossible")
             .expect("checkpoint read")
             .is_none());
+    }
+
+    #[test]
+    fn message_cursor_survives_reconcile_and_rejects_an_empty_value() {
+        let (_database, store) = migrated_store();
+        store
+            .reconcile_session(&snapshot(
+                "session-cursor",
+                4,
+                vec![exact("message-cursor", 4, OpenCodeExactOrigin::V2Message)],
+                100,
+                OpenCodeRecoveryDisposition::Ready,
+            ))
+            .expect("initial reconcile");
+        store
+            .store_message_cursor("session-cursor", Some("message-cursor"))
+            .expect("store cursor");
+        store
+            .reconcile_session(&snapshot(
+                "session-cursor",
+                4,
+                vec![exact("message-cursor", 4, OpenCodeExactOrigin::V2Message)],
+                120,
+                OpenCodeRecoveryDisposition::Ready,
+            ))
+            .expect("reconcile keeps the cursor column");
+        assert_eq!(
+            store
+                .read_checkpoint("session-cursor")
+                .expect("checkpoint")
+                .expect("present")
+                .last_source_message_id
+                .as_deref(),
+            Some("message-cursor")
+        );
+        store
+            .store_message_cursor("session-cursor", None)
+            .expect("clear cursor");
+        assert_eq!(
+            store
+                .read_checkpoint("session-cursor")
+                .expect("checkpoint")
+                .expect("present")
+                .last_source_message_id,
+            None
+        );
+        assert_eq!(
+            store
+                .store_message_cursor("session-cursor", Some(" "))
+                .expect_err("empty cursor"),
+            OpenCodeUsageLedgerError::IncompatibleSnapshot
+        );
+        assert_eq!(
+            store
+                .store_message_cursor("missing-session", Some("message-cursor"))
+                .expect_err("missing checkpoint"),
+            OpenCodeUsageLedgerError::Storage
+        );
+    }
+
+    #[test]
+    fn message_progress_round_trips_deferred_ids_and_rejects_a_bad_replacement() {
+        let (_database, store) = migrated_store();
+        store
+            .reconcile_session(&snapshot(
+                "session-progress",
+                4,
+                vec![exact("message-progress", 4, OpenCodeExactOrigin::V2Message)],
+                100,
+                OpenCodeRecoveryDisposition::Ready,
+            ))
+            .expect("initial reconcile");
+        store
+            .store_message_progress(
+                "session-progress",
+                Some("message-3"),
+                &[
+                    "message-2".to_owned(),
+                    "message-2".to_owned(),
+                    "message-1".to_owned(),
+                ],
+            )
+            .expect("store progress");
+        assert_eq!(
+            store
+                .read_deferred_message_ids("session-progress")
+                .expect("deferred ids"),
+            vec!["message-1".to_owned(), "message-2".to_owned()]
+        );
+
+        store
+            .reconcile_session(&snapshot(
+                "session-progress",
+                4,
+                vec![exact("message-progress", 4, OpenCodeExactOrigin::V2Message)],
+                120,
+                OpenCodeRecoveryDisposition::Ready,
+            ))
+            .expect("reconcile keeps progress");
+        assert_eq!(
+            store
+                .read_checkpoint("session-progress")
+                .expect("checkpoint")
+                .expect("present")
+                .last_source_message_id
+                .as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            store
+                .read_deferred_message_ids("session-progress")
+                .expect("deferred ids survive reconcile"),
+            vec!["message-1".to_owned(), "message-2".to_owned()]
+        );
+
+        store
+            .store_message_progress("session-progress", Some("message-3"), &[])
+            .expect("clear deferred ids");
+        assert!(store
+            .read_deferred_message_ids("session-progress")
+            .expect("cleared ids")
+            .is_empty());
+        assert_eq!(
+            store
+                .store_message_progress("session-progress", Some("message-3"), &[" ".to_owned()])
+                .expect_err("empty deferred id"),
+            OpenCodeUsageLedgerError::IncompatibleSnapshot
+        );
+        assert_eq!(
+            store
+                .read_checkpoint("session-progress")
+                .expect("checkpoint")
+                .expect("present")
+                .last_source_message_id
+                .as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            store
+                .store_message_progress("missing-session", Some("message-3"), &[])
+                .expect_err("missing checkpoint"),
+            OpenCodeUsageLedgerError::Storage
+        );
+    }
+
+    #[test]
+    fn activity_bounds_and_scoped_fold_visit_one_window_at_a_time() {
+        let (_database, store) = migrated_store();
+        assert_eq!(
+            store
+                .session_activity_bounds("session-window")
+                .expect("empty bounds"),
+            None
+        );
+        let mut early = exact("message-early", 1, OpenCodeExactOrigin::V2Message);
+        early.activity_at_ms = 1_000;
+        let mut late = exact("message-late", 1, OpenCodeExactOrigin::V2Message);
+        late.activity_at_ms = 5_000;
+        store
+            .reconcile_session(&snapshot(
+                "session-window",
+                2,
+                vec![early, late],
+                100,
+                OpenCodeRecoveryDisposition::Ready,
+            ))
+            .expect("reconcile window");
+
+        let bounds = store
+            .session_activity_bounds("session-window")
+            .expect("bounds")
+            .expect("present");
+        assert_eq!(bounds.earliest_ms, 1_000);
+        assert_eq!(bounds.latest_ms, 5_000);
+
+        let mut seen = Vec::new();
+        store
+            .fold_scoped_records("session-window", Some((0, 2_000)), &mut |record| {
+                seen.push(record.source_message_id);
+                Ok(())
+            })
+            .expect("fold window");
+        assert_eq!(seen, vec![Some("message-early".to_owned())]);
+
+        let mut all = 0_u64;
+        store
+            .fold_scoped_records("session-window", None, &mut |_| {
+                all = all.saturating_add(1);
+                Ok(())
+            })
+            .expect("fold all");
+        assert_eq!(all, 2);
+
+        assert_eq!(
+            store
+                .fold_scoped_records("session-window", None, &mut |_| {
+                    Err(OpenCodeUsageLedgerError::Storage)
+                })
+                .expect_err("visitor failure"),
+            OpenCodeUsageLedgerError::Storage
+        );
+    }
+
+    #[test]
+    fn redundancy_proof_round_trips_without_a_path() {
+        let (_database, store) = migrated_store();
+        assert!(store
+            .read_redundancy_proof()
+            .expect("missing proof")
+            .is_none());
+        let proof = OpenCodeRedundancyProof {
+            file_length: 4_096,
+            file_mtime_ms: 1_700_000_000_000,
+            page_count: 8,
+            ignored_max_rowid: Some(12),
+            ignored_row_count: 3,
+            generations: "v2-ignored".to_owned(),
+            proved_redundant: true,
+        };
+        store.write_redundancy_proof(&proof).expect("write proof");
+        assert_eq!(
+            store.read_redundancy_proof().expect("read proof"),
+            Some(proof.clone())
+        );
+        let mut replaced = proof;
+        replaced.ignored_row_count = 4;
+        replaced.proved_redundant = false;
+        store
+            .write_redundancy_proof(&replaced)
+            .expect("replace proof");
+        assert_eq!(
+            store.read_redundancy_proof().expect("updated proof"),
+            Some(replaced)
+        );
+        let mut invalid = store
+            .read_redundancy_proof()
+            .expect("proof")
+            .expect("present");
+        invalid.generations = "path".to_owned();
+        assert_eq!(
+            store
+                .write_redundancy_proof(&invalid)
+                .expect_err("generation label"),
+            OpenCodeUsageLedgerError::IncompatibleSnapshot
+        );
     }
 
     fn migrated_store() -> (TestDatabase, SqliteOpenCodeUsageLedgerStore) {

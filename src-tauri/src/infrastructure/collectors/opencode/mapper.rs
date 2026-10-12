@@ -13,7 +13,7 @@ use crate::application::collection::{
 use crate::application::cost::BurnlyCostCalculator;
 use crate::application::ports::opencode_usage_ledger::{
     OpenCodeDataQuality, OpenCodeLedgerOrigin, OpenCodeLedgerReconcileResult, OpenCodeLedgerRecord,
-    OpenCodeReconciliationState, OpenCodeTokenVector,
+    OpenCodeReconciliationState, OpenCodeSessionCheckpoint, OpenCodeTokenVector,
 };
 use crate::domain::identity::{daily_source_key, session_source_key, IdentityError};
 use crate::domain::source::SourceKey;
@@ -110,43 +110,11 @@ pub(crate) fn map_daily(
     context: &OpenCodeMappingContext,
     calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<DailyUsageCandidate>, OpenCodeMappingError> {
-    let timezone = timezone
-        .parse::<Tz>()
-        .map_err(|_| OpenCodeMappingError::InvalidTimezone)?;
-    let mut days = BTreeMap::<NaiveDate, ProjectionBucket>::new();
-
+    let mut fold = ScopedDailyFold::new(timezone, scope)?;
     for reconciled in reconciled_sessions {
-        validate_reconciled_session(reconciled)?;
-        for record in &reconciled.records {
-            let usage_date = local_date_from_millis(
-                record.activity_at_ms,
-                timezone,
-                OpenCodeMappingError::InvalidTimestamp,
-            )?;
-            if !date_in_scope(usage_date, scope) {
-                continue;
-            }
-            days.entry(usage_date)
-                .or_default()
-                .add(record, MappingQuality::from_record(reconciled, record))?;
-        }
+        fold.add_reconciled(reconciled)?;
     }
-
-    days.into_iter()
-        .map(|(usage_date, bucket)| {
-            let provenance = context.provenance(bucket.quality);
-            let (tokens, cost, model_breakdowns) = bucket.finish(calculator)?;
-            Ok(DailyUsageCandidate {
-                provenance,
-                source_key: daily_source_key(SourceKey::OpenCode, usage_date, timezone.name())?,
-                usage_date,
-                aggregation_timezone: timezone.name().to_owned(),
-                tokens,
-                cost,
-                model_breakdowns,
-            })
-        })
-        .collect()
+    fold.finish(context, calculator)
 }
 
 pub(crate) fn map_sessions(
@@ -154,44 +122,235 @@ pub(crate) fn map_sessions(
     context: &OpenCodeMappingContext,
     calculator: &BurnlyCostCalculator,
 ) -> Result<Vec<SessionUsageCandidate>, OpenCodeMappingError> {
-    let mut candidates = Vec::with_capacity(reconciled_sessions.len());
+    let mut fold = ScopedSessionFold::new();
     for reconciled in reconciled_sessions {
-        validate_reconciled_session(reconciled)?;
-        if reconciled.records.is_empty() {
-            continue;
-        }
-        let mut bucket = ProjectionBucket::default();
-        let quality = MappingQuality::from_reconciled(reconciled);
-        for record in &reconciled.records {
-            bucket.add(record, quality)?;
-        }
-        let first_activity_ms = reconciled
-            .records
-            .iter()
-            .map(|record| record.activity_at_ms)
-            .min()
-            .expect("non-empty records have a first activity");
-        let last_activity_ms = reconciled
-            .records
-            .iter()
-            .map(|record| record.activity_at_ms)
-            .max()
-            .expect("non-empty records have a last activity");
-        let provenance = context.provenance(bucket.quality);
-        let (tokens, cost, model_breakdowns) = bucket.finish(calculator)?;
-        candidates.push(SessionUsageCandidate {
-            provenance,
-            source_key: session_source_key(SourceKey::OpenCode, &reconciled.checkpoint.session_id)?,
-            source_session_id: reconciled.checkpoint.session_id.clone(),
-            project_path: None,
-            first_activity_at: Some(timestamp(first_activity_ms)?),
-            last_activity_at: Some(timestamp(last_activity_ms)?),
-            tokens,
-            cost,
-            model_breakdowns,
-        });
+        fold.add_reconciled(reconciled)?;
     }
-    Ok(candidates)
+    fold.finish(context, calculator)
+}
+
+pub(crate) struct ScopedDailyFold {
+    timezone: Tz,
+    scope: CollectionScope,
+    days: BTreeMap<NaiveDate, ProjectionBucket>,
+}
+
+impl ScopedDailyFold {
+    pub(crate) fn new(
+        timezone: &str,
+        scope: &CollectionScope,
+    ) -> Result<Self, OpenCodeMappingError> {
+        let timezone = timezone
+            .parse::<Tz>()
+            .map_err(|_| OpenCodeMappingError::InvalidTimezone)?;
+        Ok(Self::from_timezone(timezone, scope))
+    }
+
+    pub(crate) fn from_timezone(timezone: Tz, scope: &CollectionScope) -> Self {
+        Self {
+            timezone,
+            scope: scope.clone(),
+            days: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn add_reconciled(
+        &mut self,
+        reconciled: &OpenCodeLedgerReconcileResult,
+    ) -> Result<(), OpenCodeMappingError> {
+        validate_reconciled_session(reconciled)?;
+        for record in &reconciled.records {
+            self.add_cached_record(&reconciled.checkpoint, record)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn add_cached_record(
+        &mut self,
+        checkpoint: &OpenCodeSessionCheckpoint,
+        record: &OpenCodeLedgerRecord,
+    ) -> Result<(), OpenCodeMappingError> {
+        if record.session_id != checkpoint.session_id {
+            return Err(OpenCodeMappingError::InconsistentLedger);
+        }
+        let usage_date = local_date_from_millis(
+            record.activity_at_ms,
+            self.timezone,
+            OpenCodeMappingError::InvalidTimestamp,
+        )?;
+        if !date_in_scope(usage_date, &self.scope) {
+            return Ok(());
+        }
+        self.days
+            .entry(usage_date)
+            .or_default()
+            .add(record, MappingQuality::from_checkpoint(checkpoint, record))?;
+        Ok(())
+    }
+
+    pub(crate) fn finish(
+        self,
+        context: &OpenCodeMappingContext,
+        calculator: &BurnlyCostCalculator,
+    ) -> Result<Vec<DailyUsageCandidate>, OpenCodeMappingError> {
+        self.days
+            .into_iter()
+            .map(|(usage_date, bucket)| {
+                let provenance = context.provenance(bucket.quality);
+                let (tokens, cost, model_breakdowns) = bucket.finish(calculator)?;
+                Ok(DailyUsageCandidate {
+                    provenance,
+                    source_key: daily_source_key(
+                        SourceKey::OpenCode,
+                        usage_date,
+                        self.timezone.name(),
+                    )?,
+                    usage_date,
+                    aggregation_timezone: self.timezone.name().to_owned(),
+                    tokens,
+                    cost,
+                    model_breakdowns,
+                })
+            })
+            .collect()
+    }
+}
+
+/// Lifetime totals for one session. Catch-up scope decides which sessions to
+/// skip. It does not drop rows inside a session that is folded.
+pub(crate) struct ScopedSessionFold {
+    open: Option<OpenSession>,
+    pending: Vec<PendingSession>,
+}
+
+impl ScopedSessionFold {
+    pub(crate) fn new() -> Self {
+        Self {
+            open: None,
+            pending: Vec::new(),
+        }
+    }
+
+    pub(crate) fn begin_session(
+        &mut self,
+        checkpoint: &OpenCodeSessionCheckpoint,
+    ) -> Result<(), OpenCodeMappingError> {
+        self.finish_open()?;
+        self.open = Some(OpenSession {
+            session_id: checkpoint.session_id.clone(),
+            state: checkpoint.reconciliation_state,
+            bucket: ProjectionBucket::default(),
+            first_activity_ms: None,
+            last_activity_ms: None,
+        });
+        Ok(())
+    }
+
+    pub(crate) fn add_record(
+        &mut self,
+        record: &OpenCodeLedgerRecord,
+    ) -> Result<(), OpenCodeMappingError> {
+        let Some(open) = self.open.as_mut() else {
+            return Err(OpenCodeMappingError::InconsistentLedger);
+        };
+        if record.session_id != open.session_id {
+            return Err(OpenCodeMappingError::InconsistentLedger);
+        }
+        let quality = session_record_quality(open.state, record);
+        open.bucket.add(record, quality)?;
+        open.first_activity_ms = Some(
+            open.first_activity_ms
+                .map_or(record.activity_at_ms, |first| {
+                    first.min(record.activity_at_ms)
+                }),
+        );
+        open.last_activity_ms = Some(open.last_activity_ms.map_or(record.activity_at_ms, |last| {
+            last.max(record.activity_at_ms)
+        }));
+        Ok(())
+    }
+
+    pub(crate) fn finish_open(&mut self) -> Result<(), OpenCodeMappingError> {
+        let Some(open) = self.open.take() else {
+            return Ok(());
+        };
+        let (Some(first_activity_ms), Some(last_activity_ms)) =
+            (open.first_activity_ms, open.last_activity_ms)
+        else {
+            return Ok(());
+        };
+        self.pending.push(PendingSession {
+            session_id: open.session_id,
+            bucket: open.bucket,
+            first_activity_ms,
+            last_activity_ms,
+        });
+        Ok(())
+    }
+
+    pub(crate) fn add_reconciled(
+        &mut self,
+        reconciled: &OpenCodeLedgerReconcileResult,
+    ) -> Result<(), OpenCodeMappingError> {
+        validate_reconciled_session(reconciled)?;
+        self.begin_session(&reconciled.checkpoint)?;
+        for record in &reconciled.records {
+            self.add_record(record)?;
+        }
+        self.finish_open()
+    }
+
+    pub(crate) fn finish(
+        mut self,
+        context: &OpenCodeMappingContext,
+        calculator: &BurnlyCostCalculator,
+    ) -> Result<Vec<SessionUsageCandidate>, OpenCodeMappingError> {
+        self.finish_open()?;
+        let mut candidates = Vec::with_capacity(self.pending.len());
+        for pending in self.pending {
+            let provenance = context.provenance(pending.bucket.quality);
+            let (tokens, cost, model_breakdowns) = pending.bucket.finish(calculator)?;
+            candidates.push(SessionUsageCandidate {
+                provenance,
+                source_key: session_source_key(SourceKey::OpenCode, &pending.session_id)?,
+                source_session_id: pending.session_id,
+                project_path: None,
+                first_activity_at: Some(timestamp(pending.first_activity_ms)?),
+                last_activity_at: Some(timestamp(pending.last_activity_ms)?),
+                tokens,
+                cost,
+                model_breakdowns,
+            });
+        }
+        Ok(candidates)
+    }
+}
+
+struct OpenSession {
+    session_id: String,
+    state: OpenCodeReconciliationState,
+    bucket: ProjectionBucket,
+    first_activity_ms: Option<i64>,
+    last_activity_ms: Option<i64>,
+}
+
+struct PendingSession {
+    session_id: String,
+    bucket: ProjectionBucket,
+    first_activity_ms: i64,
+    last_activity_ms: i64,
+}
+
+fn session_record_quality(
+    state: OpenCodeReconciliationState,
+    record: &OpenCodeLedgerRecord,
+) -> MappingQuality {
+    MappingQuality {
+        has_recovery: record.quality == OpenCodeDataQuality::Partial
+            || record.origin == OpenCodeLedgerOrigin::CumulativeRecovery
+            || state == OpenCodeReconciliationState::Partial,
+        has_deferred_live_write: state == OpenCodeReconciliationState::DeferredLiveWrite,
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -201,26 +360,14 @@ struct MappingQuality {
 }
 
 impl MappingQuality {
-    fn from_record(
-        reconciled: &OpenCodeLedgerReconcileResult,
+    fn from_checkpoint(
+        checkpoint: &OpenCodeSessionCheckpoint,
         record: &OpenCodeLedgerRecord,
     ) -> Self {
         Self {
             has_recovery: record.quality == OpenCodeDataQuality::Partial
                 || record.origin == OpenCodeLedgerOrigin::CumulativeRecovery,
-            has_deferred_live_write: reconciled.checkpoint.reconciliation_state
-                == OpenCodeReconciliationState::DeferredLiveWrite,
-        }
-    }
-
-    fn from_reconciled(reconciled: &OpenCodeLedgerReconcileResult) -> Self {
-        Self {
-            has_recovery: reconciled.records.iter().any(|record| {
-                record.quality == OpenCodeDataQuality::Partial
-                    || record.origin == OpenCodeLedgerOrigin::CumulativeRecovery
-            }) || reconciled.checkpoint.reconciliation_state
-                == OpenCodeReconciliationState::Partial,
-            has_deferred_live_write: reconciled.checkpoint.reconciliation_state
+            has_deferred_live_write: checkpoint.reconciliation_state
                 == OpenCodeReconciliationState::DeferredLiveWrite,
         }
     }
@@ -1085,6 +1232,7 @@ mod tests {
                 next_recovery_sequence: 1,
                 first_observed_at_ms: 1,
                 last_reconciled_at_ms: 2,
+                last_source_message_id: None,
             },
             exact_records_accepted: 0,
             recovery_segments_created: 0,

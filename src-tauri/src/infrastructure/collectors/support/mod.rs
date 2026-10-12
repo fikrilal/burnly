@@ -31,6 +31,8 @@ pub(in crate::infrastructure::collectors) use run::{
 };
 pub(in crate::infrastructure::collectors) use sqlite::open_external_read_only;
 #[cfg(test)]
+pub(crate) use sqlite::{clear_source_open_gate, SourceOpenGate};
+#[cfg(test)]
 pub(in crate::infrastructure::collectors) use test_support::{
     daily_request, date, detection_request, fixed_timestamp, session_request, utc_millis,
     NeverCancelled, RecordingDiagnostics,

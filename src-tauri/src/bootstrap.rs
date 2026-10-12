@@ -395,7 +395,7 @@ fn compose_refresh_coordinator(
     refresh_event_sink: Arc<dyn RefreshEventSink>,
     reporting_timezone: String,
 ) -> Result<RefreshCoordinator, StartupError> {
-    let write_database = Database::open(database_path).map_err(StartupError::Persistence)?;
+    let write_database = Database::open_writer(database_path).map_err(StartupError::Persistence)?;
     let store = Arc::new(SqliteReconciliationStore::new(write_database));
     let clock = Arc::new(SystemClock);
     let diagnostics_database = Database::open(database_path).map_err(StartupError::Persistence)?;
@@ -412,24 +412,28 @@ fn compose_refresh_coordinator(
     );
     coordinator.set_diagnostic_recorder(diagnostic_recorder.clone());
 
-    let repair_db = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let baseline_db = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let collect_db = Database::open(database_path).map_err(StartupError::Persistence)?;
-    let baseline_store =
-        Arc::new(crate::infrastructure::database::SqliteAntigravityBaselineStore::new(baseline_db));
-    let collect_store =
-        Arc::new(crate::infrastructure::database::SqliteCollectSyncStore::new(collect_db));
-    let initial_repair_coordinator = Arc::new(
-        crate::infrastructure::database::SqliteAntigravityBaselineRepairCoordinator::new(
-            repair_db,
-            baseline_store,
-            collect_store,
-            Arc::new(crate::application::ports::baseline_repair::NoopBaselineRepairAuthReader),
-            Arc::new(crate::application::ports::baseline_repair::NoopBaselineRepairSyncTrigger),
-            Some(diagnostic_recorder),
-        ),
-    );
-    coordinator.set_baseline_repair_coordinator(initial_repair_coordinator);
+    let repair_database_path = database_path.to_path_buf();
+    let repair_diagnostics = diagnostic_recorder;
+    let opener: crate::application::refresh::RepairJobOpener = Arc::new(move || {
+        let repair_db = Database::open_read(&repair_database_path).map_err(|_| ())?;
+        let baseline_db = Database::open_read(&repair_database_path).map_err(|_| ())?;
+        let collect_db = Database::open_read(&repair_database_path).map_err(|_| ())?;
+        Ok(Arc::new(
+            crate::infrastructure::database::SqliteAntigravityBaselineRepairCoordinator::new(
+                repair_db,
+                Arc::new(
+                    crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                        baseline_db,
+                    ),
+                ),
+                Arc::new(crate::infrastructure::database::SqliteCollectSyncStore::new(collect_db)),
+                Arc::new(crate::application::ports::baseline_repair::NoopBaselineRepairAuthReader),
+                Arc::new(crate::application::ports::baseline_repair::NoopBaselineRepairSyncTrigger),
+                Some(repair_diagnostics.clone()),
+            ),
+        ))
+    });
+    coordinator.set_repair_job_opener(opener);
 
     Ok(coordinator)
 }
@@ -1043,5 +1047,210 @@ mod tests {
         rows.map(|row| row.expect("import status row"))
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn repair_opener_closes_file_descriptors_when_the_job_returns() {
+        use std::fs;
+        use std::path::Path;
+        use std::sync::{Arc, Condvar, Mutex};
+        use std::time::Duration;
+
+        use tempfile::TempDir;
+
+        use crate::application::collection::{
+            CollectionRequest, CollectionResult, CollectorDescriptor, CollectorFailure,
+            CollectorFailureCode, DetectionRequest, DetectionResult,
+        };
+        use crate::application::ports::collector::{CancellationSignal, Collector};
+        use crate::application::reconciliation::RefreshTrigger;
+        use crate::application::refresh::{RefreshEventSink, RefreshSnapshot, RefreshStatus};
+        use crate::infrastructure::database::Database;
+
+        fn sqlite_fds(path: &Path) -> usize {
+            let Ok(prefix) = path.canonicalize() else {
+                return 0;
+            };
+            let Ok(prefix) = prefix.into_os_string().into_string() else {
+                return 0;
+            };
+            let Ok(entries) = fs::read_dir("/proc/self/fd") else {
+                return 0;
+            };
+            entries
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    let Ok(link) = fs::read_link(entry.path()) else {
+                        return false;
+                    };
+                    let Ok(link) = link.into_os_string().into_string() else {
+                        return false;
+                    };
+                    link == prefix || link.starts_with(&format!("{prefix}-"))
+                })
+                .count()
+        }
+
+        struct Hold {
+            entered: Mutex<bool>,
+            entered_cv: Condvar,
+            release: Mutex<bool>,
+            release_cv: Condvar,
+        }
+
+        impl Hold {
+            fn new() -> Self {
+                Self {
+                    entered: Mutex::new(false),
+                    entered_cv: Condvar::new(),
+                    release: Mutex::new(false),
+                    release_cv: Condvar::new(),
+                }
+            }
+        }
+
+        struct HoldingCollector {
+            hold: Arc<Hold>,
+        }
+
+        impl Collector for HoldingCollector {
+            fn describe(&self) -> Result<CollectorDescriptor, CollectorFailure> {
+                {
+                    let mut entered = self.hold.entered.lock().expect("entered lock");
+                    *entered = true;
+                    self.hold.entered_cv.notify_all();
+                }
+                let mut release = self.hold.release.lock().expect("release lock");
+                while !*release {
+                    release = self.hold.release_cv.wait(release).expect("release wait");
+                }
+                Err(CollectorFailure::new(
+                    CollectorFailureCode::Internal,
+                    None,
+                    None,
+                ))
+            }
+
+            fn detect(
+                &self,
+                _request: DetectionRequest,
+                _cancellation: &dyn CancellationSignal,
+            ) -> Result<DetectionResult, CollectorFailure> {
+                Err(CollectorFailure::new(
+                    CollectorFailureCode::Internal,
+                    None,
+                    None,
+                ))
+            }
+
+            fn collect(
+                &self,
+                _request: CollectionRequest,
+                _cancellation: &dyn CancellationSignal,
+            ) -> Result<CollectionResult, CollectorFailure> {
+                Err(CollectorFailure::new(
+                    CollectorFailureCode::Internal,
+                    None,
+                    None,
+                ))
+            }
+        }
+
+        struct NoopEventSink;
+
+        impl RefreshEventSink for NoopEventSink {
+            fn publish(&self, _snapshot: RefreshSnapshot, _usage_changed: bool) {}
+        }
+
+        let directory = TempDir::new().expect("tempdir");
+        let database_path = directory.path().join("burnly.sqlite3");
+        let mut setup = Database::open(&database_path).expect("setup database");
+        setup.migrate_to_latest().expect("migrate");
+        drop(setup);
+
+        let hold = Arc::new(Hold::new());
+        let collector = Arc::new(HoldingCollector {
+            hold: Arc::clone(&hold),
+        });
+        let coordinator = compose_refresh_coordinator(
+            &database_path,
+            collector,
+            Arc::new(NoopEventSink),
+            "UTC".to_owned(),
+        )
+        .expect("coordinator");
+        fn refresh_thread_alive() -> bool {
+            fs::read_dir("/proc/self/task")
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .any(|entry| {
+                    fs::read_to_string(entry.path().join("comm"))
+                        .unwrap_or_default()
+                        .starts_with("burnly-refresh")
+                })
+        }
+
+        fn wait_until_job_returns(coordinator: &super::RefreshCoordinator) {
+            let started = std::time::Instant::now();
+            loop {
+                let active = coordinator.snapshot().status.is_active();
+                let alive = refresh_thread_alive();
+                if !active && !alive {
+                    break;
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "refresh did not return"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        let baseline = sqlite_fds(&database_path);
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        {
+            let entered = hold.entered.lock().expect("entered lock");
+            let (entered, wait) = hold
+                .entered_cv
+                .wait_timeout(entered, Duration::from_secs(5))
+                .expect("entered wait");
+            assert!(
+                *entered && !wait.timed_out(),
+                "refresh did not open repair state"
+            );
+        }
+        let during = sqlite_fds(&database_path);
+        assert!(
+            during > baseline,
+            "repair opener did not open the refresh database"
+        );
+        {
+            let mut release = hold.release.lock().expect("release lock");
+            *release = true;
+            hold.release_cv.notify_all();
+        }
+
+        wait_until_job_returns(&coordinator);
+        assert_eq!(coordinator.snapshot().status, RefreshStatus::Failed);
+        // SQLite defers close() of main-database descriptors while another
+        // connection in this process still holds a POSIX lock, then reuses
+        // those descriptors. The steady count may stay above the post-compose
+        // baseline. It must fall once the job connections close, and later
+        // jobs must not accumulate descriptors.
+        let steady = sqlite_fds(&database_path);
+        assert!(steady < during, "repair opener left job connections open");
+
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        wait_until_job_returns(&coordinator);
+        assert_eq!(sqlite_fds(&database_path), steady);
+        coordinator.request_refresh(RefreshTrigger::Manual);
+        wait_until_job_returns(&coordinator);
+        assert_eq!(sqlite_fds(&database_path), steady);
+
+        drop(coordinator);
+        assert_eq!(sqlite_fds(&database_path), 0);
     }
 }

@@ -136,6 +136,27 @@ pub(crate) struct OpenCodeSessionCheckpoint {
     pub(crate) next_recovery_sequence: u64,
     pub(crate) first_observed_at_ms: i64,
     pub(crate) last_reconciled_at_ms: i64,
+    /// `None` means the next incremental read starts at the first message.
+    pub(crate) last_source_message_id: Option<String>,
+}
+
+/// Earliest and latest ledger activity for one session, inclusive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OpenCodeActivityBounds {
+    pub(crate) earliest_ms: i64,
+    pub(crate) latest_ms: i64,
+}
+
+/// Path-free proof that the ignored OpenCode generation was redundant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenCodeRedundancyProof {
+    pub(crate) file_length: u64,
+    pub(crate) file_mtime_ms: i64,
+    pub(crate) page_count: u64,
+    pub(crate) ignored_max_rowid: Option<i64>,
+    pub(crate) ignored_row_count: u64,
+    pub(crate) generations: String,
+    pub(crate) proved_redundant: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,4 +193,50 @@ pub(crate) trait OpenCodeUsageLedger: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<Vec<OpenCodeLedgerRecord>, OpenCodeUsageLedgerError>;
+
+    fn session_activity_bounds(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<OpenCodeActivityBounds>, OpenCodeUsageLedgerError>;
+
+    /// Visits ledger rows inside the store lock. `activity_window_ms` is an
+    /// inclusive millisecond range. `None` does not filter activity. The
+    /// visitor must not call back into the ledger.
+    fn fold_scoped_records(
+        &self,
+        session_id: &str,
+        activity_window_ms: Option<(i64, i64)>,
+        visitor: &mut dyn FnMut(OpenCodeLedgerRecord) -> Result<(), OpenCodeUsageLedgerError>,
+    ) -> Result<(), OpenCodeUsageLedgerError>;
+
+    fn store_message_cursor(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<(), OpenCodeUsageLedgerError>;
+
+    fn read_deferred_message_ids(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<String>, OpenCodeUsageLedgerError>;
+
+    /// Replaces the scan high-water mark and the incomplete message ids after
+    /// a successful reconcile. The cursor is the last scanned source row,
+    /// including deferred and non-usage rows. `None` means that read returned
+    /// no rows.
+    fn store_message_progress(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+        deferred_message_ids: &[String],
+    ) -> Result<(), OpenCodeUsageLedgerError>;
+
+    fn read_redundancy_proof(
+        &self,
+    ) -> Result<Option<OpenCodeRedundancyProof>, OpenCodeUsageLedgerError>;
+
+    fn write_redundancy_proof(
+        &self,
+        proof: &OpenCodeRedundancyProof,
+    ) -> Result<(), OpenCodeUsageLedgerError>;
 }

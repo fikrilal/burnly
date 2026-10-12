@@ -21,6 +21,8 @@ const INTERRUPTED_REFRESH_ERROR_SUMMARY: &str =
 pub(super) const INTERRUPTED_IMPORT_ERROR_CODE: &str = "import.interrupted";
 const INTERRUPTED_IMPORT_ERROR_DETAIL: &str =
     "The previous import was interrupted before it completed.";
+pub(super) const IMPORT_RUN_RETENTION_MS: i64 = 14 * 24 * 60 * 60 * 1000;
+pub(super) const IMPORT_RUN_DELETE_BATCH: i64 = 1_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct InterruptedRunRecovery {
@@ -299,6 +301,53 @@ impl RunStore for SqliteReconciliationStore {
                 )
             })
             .transpose()
+        })
+    }
+
+    fn delete_expired_import_runs(&self, now_ms: i64) -> Result<u64, RunStoreError> {
+        let cutoff = now_ms.saturating_sub(IMPORT_RUN_RETENTION_MS);
+        self.with_connection(|connection| {
+            let deleted = connection
+                .execute(
+                    "DELETE FROM import_runs
+                    WHERE id IN (
+                        SELECT candidate.id
+                        FROM import_runs AS candidate
+                        WHERE candidate.finished_at_ms IS NOT NULL
+                            AND candidate.finished_at_ms < ?1
+                            AND candidate.id NOT IN (
+                                SELECT newest.id
+                                FROM (
+                                    SELECT id,
+                                        ROW_NUMBER() OVER (
+                                            PARTITION BY source_id,
+                                                projection,
+                                                IFNULL(aggregation_timezone, ''),
+                                                collector_key,
+                                                profile_version
+                                            ORDER BY finished_at_ms DESC, id DESC
+                                        ) AS rank
+                                    FROM import_runs
+                                    WHERE status = 'succeeded'
+                                        AND finished_at_ms IS NOT NULL
+                                ) AS newest
+                                WHERE newest.rank = 1
+                            )
+                            AND candidate.id NOT IN (SELECT latest_import_id FROM daily_usage)
+                            AND candidate.id NOT IN (
+                                SELECT latest_import_id FROM daily_model_usage
+                            )
+                            AND candidate.id NOT IN (SELECT latest_import_id FROM sessions)
+                            AND candidate.id NOT IN (
+                                SELECT latest_import_id FROM session_model_usage
+                            )
+                        ORDER BY candidate.finished_at_ms ASC, candidate.id ASC
+                        LIMIT ?2
+                    )",
+                    params![cutoff, IMPORT_RUN_DELETE_BATCH],
+                )
+                .map_err(|_| RunStoreError::Backend)?;
+            Ok(deleted as u64)
         })
     }
 }

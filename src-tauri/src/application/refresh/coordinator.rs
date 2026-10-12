@@ -103,6 +103,9 @@ impl CommittedDailyUploadSink for NoopCommittedDailyUploadSink {
     }
 }
 
+pub(crate) type RepairJobOpener =
+    Arc<dyn Fn() -> Result<Arc<dyn AntigravityBaselineRepairCoordinator>, ()> + Send + Sync>;
+
 pub(crate) struct RefreshCoordinatorHooks {
     event_sink: Arc<dyn RefreshEventSink>,
     budget_evaluator: Arc<dyn BudgetEvaluationRunner>,
@@ -159,6 +162,7 @@ pub(crate) struct RefreshCoordinator {
     committed_daily_upload_sink: Arc<Mutex<Arc<dyn CommittedDailyUploadSink>>>,
     diagnostic_recorder: Arc<Mutex<Arc<dyn DiagnosticRecorder>>>,
     baseline_repair_coordinator: Arc<Mutex<Arc<dyn AntigravityBaselineRepairCoordinator>>>,
+    repair_opener: Arc<Mutex<Option<RepairJobOpener>>>,
     app_version: String,
     aggregation_timezone: Arc<Mutex<String>>,
     sequence: Arc<AtomicU64>,
@@ -224,6 +228,7 @@ impl RefreshCoordinator {
             committed_daily_upload_sink: hooks.committed_daily_upload_sink,
             diagnostic_recorder: hooks.diagnostic_recorder,
             baseline_repair_coordinator: hooks.baseline_repair_coordinator,
+            repair_opener: Arc::new(Mutex::new(None)),
             app_version: app_version.into(),
             aggregation_timezone: Arc::new(Mutex::new(aggregation_timezone.into())),
             sequence: Arc::new(AtomicU64::new(0)),
@@ -262,6 +267,17 @@ impl RefreshCoordinator {
             .baseline_repair_coordinator
             .lock()
             .expect("repair coordinator lock is poisoned") = coordinator;
+        *self
+            .repair_opener
+            .lock()
+            .expect("repair opener lock is poisoned") = None;
+    }
+
+    pub(crate) fn set_repair_job_opener(&self, opener: RepairJobOpener) {
+        *self
+            .repair_opener
+            .lock()
+            .expect("repair opener lock is poisoned") = Some(opener);
     }
 
     pub(crate) fn set_aggregation_timezone(&self, timezone: impl Into<String>) {
@@ -359,11 +375,21 @@ impl RefreshCoordinator {
             .lock()
             .expect("diagnostic recorder lock is poisoned")
             .clone();
-        let repair_coordinator = self
+        let stored_repair = self
             .baseline_repair_coordinator
             .lock()
             .expect("repair coordinator lock is poisoned")
             .clone();
+        let opened_repair = self
+            .repair_opener
+            .lock()
+            .expect("repair opener lock is poisoned")
+            .as_ref()
+            .and_then(|open| open().ok());
+        let repair_coordinator: &dyn AntigravityBaselineRepairCoordinator = opened_repair
+            .as_ref()
+            .map(Arc::as_ref)
+            .unwrap_or(stored_repair.as_ref());
         let result = execute_refresh(
             RefreshExecution {
                 collector: self.collector.as_ref(),
@@ -372,7 +398,7 @@ impl RefreshCoordinator {
                 budget_evaluator: self.budget_evaluator.as_ref(),
                 clock: self.clock.as_ref(),
                 diagnostic_recorder: diagnostic_recorder.as_ref(),
-                baseline_repair_coordinator: repair_coordinator.as_ref(),
+                baseline_repair_coordinator: repair_coordinator,
                 app_version: &self.app_version,
                 aggregation_timezone,
             },

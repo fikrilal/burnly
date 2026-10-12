@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -73,6 +75,26 @@ pub(crate) fn collect_cli_sqlite_usage(
     Ok((usage, report))
 }
 
+#[cfg(test)]
+thread_local! {
+    static CONVERSATION_SQLITE_OPENS: Cell<u64> = const { Cell::new(0) };
+}
+
+pub(crate) fn note_conversation_sqlite_open() {
+    #[cfg(test)]
+    CONVERSATION_SQLITE_OPENS.with(|opens| opens.set(opens.get().saturating_add(1)));
+}
+
+#[cfg(test)]
+pub(crate) fn reset_conversation_sqlite_opens() {
+    CONVERSATION_SQLITE_OPENS.with(|opens| opens.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn conversation_sqlite_opens() -> u64 {
+    CONVERSATION_SQLITE_OPENS.with(|opens| opens.get())
+}
+
 pub(crate) fn is_sqlite_artifact(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -88,6 +110,7 @@ fn read_cli_conversation(
 pub(crate) fn read_conversation_gen_metadata_usage(
     conversation: &ConversationDatabase,
 ) -> Result<Vec<super::AntigravityUsageRecord>, ConversationSqliteReaderError> {
+    note_conversation_sqlite_open();
     let connection =
         open_external_read_only(&conversation.path).map_err(ConversationSqliteReaderError::Open)?;
     let session_timestamp_ms = read_session_timestamp_ms(&connection, &conversation.path)?;
@@ -259,6 +282,7 @@ mod tests {
                 .to_owned(),
             path: path.to_path_buf(),
             modified_at: Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0).unwrap(),
+            file_length: 0,
         }
     }
 

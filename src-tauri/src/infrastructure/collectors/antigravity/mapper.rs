@@ -534,6 +534,7 @@ mod tests {
             conversation_id: conversation_id.to_owned(),
             path: conversation_id.into(),
             modified_at,
+            file_length: 0,
         }
     }
 

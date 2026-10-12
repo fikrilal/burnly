@@ -1,8 +1,9 @@
 use chrono::NaiveDate;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use super::runs::{
-    InterruptedRunRecovery, INTERRUPTED_IMPORT_ERROR_CODE, INTERRUPTED_REFRESH_ERROR_CODE,
+    InterruptedRunRecovery, IMPORT_RUN_DELETE_BATCH, IMPORT_RUN_RETENTION_MS,
+    INTERRUPTED_IMPORT_ERROR_CODE, INTERRUPTED_REFRESH_ERROR_CODE,
 };
 use super::store::SqliteReconciliationStore;
 use super::test_support::*;
@@ -1196,4 +1197,187 @@ fn removed_days_are_excluded_from_active_queries() {
         )
         .expect("active count query");
     assert_eq!(active_days, 1);
+}
+
+#[test]
+fn delete_expired_import_runs_keeps_newest_success_and_recent_failures() {
+    let (_directory, store) = migrated_store();
+    let source_id = store
+        .resolve_source(SourceKey::ClaudeCode, 100)
+        .expect("resolve source");
+    let refresh_run_id = store
+        .begin_refresh_run(refresh_spec("retention"), 100)
+        .expect("begin refresh");
+    let now_ms = 1_800_000_000_000;
+    let day_ms = 86_400_000;
+    let old = now_ms - IMPORT_RUN_RETENTION_MS - day_ms;
+    let older = old - day_ms;
+
+    let older_success = begin_utc_daily(&store, refresh_run_id, source_id, 1);
+    complete_import(&store, older_success, ImportOutcome::Succeeded, older, None);
+    let referenced = begin_utc_daily(&store, refresh_run_id, source_id, 1);
+    complete_import(&store, referenced, ImportOutcome::Succeeded, old, None);
+    store
+        .reconcile_daily(request(
+            source_id,
+            referenced,
+            vec![candidate(
+                "claude-code:daily:v1:UTC:2026-06-13",
+                10,
+                "claude-sonnet-4",
+            )],
+        ))
+        .expect("reconcile referenced import");
+    let newest = begin_utc_daily(&store, refresh_run_id, source_id, 1);
+    let newest_finished_at = old + 1_000;
+    complete_import(
+        &store,
+        newest,
+        ImportOutcome::Succeeded,
+        newest_finished_at,
+        None,
+    );
+    let recent_failure = begin_utc_daily(&store, refresh_run_id, source_id, 1);
+    complete_import(
+        &store,
+        recent_failure,
+        ImportOutcome::Failed,
+        now_ms - day_ms,
+        Some(RunError::new("collector.failed", "failed").expect("run error")),
+    );
+    let old_failure = begin_utc_daily(&store, refresh_run_id, source_id, 1);
+    complete_import(
+        &store,
+        old_failure,
+        ImportOutcome::Failed,
+        older,
+        Some(RunError::new("collector.failed", "failed").expect("run error")),
+    );
+    let other_profile = begin_utc_daily(&store, refresh_run_id, source_id, 2);
+    complete_import(&store, other_profile, ImportOutcome::Succeeded, older, None);
+    for _ in 0..IMPORT_RUN_DELETE_BATCH {
+        let filler = begin_utc_daily(&store, refresh_run_id, source_id, 1);
+        complete_import(
+            &store,
+            filler,
+            ImportOutcome::Failed,
+            older,
+            Some(RunError::new("collector.failed", "failed").expect("run error")),
+        );
+    }
+
+    let daily_rows = count(&store, "daily_usage");
+    let model_rows = count(&store, "daily_model_usage");
+    let session_rows = count(&store, "sessions");
+    let session_model_rows = count(&store, "session_model_usage");
+    assert_eq!(daily_rows, 1);
+
+    let first_deleted = store
+        .delete_expired_import_runs(now_ms)
+        .expect("first retention batch");
+    assert_eq!(first_deleted, IMPORT_RUN_DELETE_BATCH as u64);
+    assert!(import_row_exists(&store, newest));
+    assert!(import_row_exists(&store, referenced));
+    assert!(import_row_exists(&store, recent_failure));
+    assert!(import_row_exists(&store, other_profile));
+    assert_eq!(count(&store, "daily_usage"), daily_rows);
+    assert_eq!(count(&store, "daily_model_usage"), model_rows);
+    assert_eq!(count(&store, "sessions"), session_rows);
+    assert_eq!(count(&store, "session_model_usage"), session_model_rows);
+    assert_eq!(referenced_import_id(&store), referenced.value());
+
+    let second_deleted = store
+        .delete_expired_import_runs(now_ms)
+        .expect("second retention batch");
+    assert_eq!(second_deleted, 2);
+    assert!(!import_row_exists(&store, older_success));
+    assert!(!import_row_exists(&store, old_failure));
+    assert_eq!(count(&store, "import_runs"), 4);
+    let state = store
+        .latest_successful_import(
+            ImportRunLookup::compatible(
+                SourceKey::ClaudeCode,
+                CollectionProjection::Daily,
+                Some("UTC".to_owned()),
+                "ccusage",
+                1,
+            )
+            .expect("lookup"),
+        )
+        .expect("lookup")
+        .expect("newest success");
+    assert_eq!(state.finished_at_ms(), newest_finished_at);
+    assert_eq!(count(&store, "daily_usage"), daily_rows);
+
+    let third_deleted = store
+        .delete_expired_import_runs(now_ms)
+        .expect("drained retention");
+    assert_eq!(third_deleted, 0);
+}
+
+fn begin_utc_daily(
+    store: &SqliteReconciliationStore,
+    refresh_run_id: RefreshRunId,
+    source_id: crate::application::reconciliation::SourceId,
+    profile_version: u16,
+) -> ImportRunId {
+    store
+        .begin_import_run(
+            ImportRunSpec::new(
+                refresh_run_id,
+                source_id,
+                ImportCollector::new("ccusage", "20.0.11", profile_version).expect("collector"),
+                CollectionProjection::Daily,
+                CollectionScope::Full,
+                Some("UTC".to_owned()),
+            )
+            .expect("import spec"),
+            110,
+        )
+        .expect("begin import")
+}
+
+fn complete_import(
+    store: &SqliteReconciliationStore,
+    id: ImportRunId,
+    outcome: ImportOutcome,
+    finished_at_ms: i64,
+    error: Option<RunError>,
+) {
+    store
+        .complete_import_run(
+            id,
+            ImportRunCompletion {
+                outcome,
+                records_seen: 1,
+                records_rejected: 0,
+                finished_at_ms,
+                error,
+            },
+        )
+        .expect("complete import");
+}
+
+fn import_row_exists(store: &SqliteReconciliationStore, id: ImportRunId) -> bool {
+    let database = store.database.lock().expect("lock store");
+    database
+        .connection()
+        .query_row(
+            "SELECT 1 FROM import_runs WHERE id = ?1",
+            params![id.value()],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .expect("import existence")
+        .is_some()
+}
+
+fn referenced_import_id(store: &SqliteReconciliationStore) -> i64 {
+    let database = store.database.lock().expect("lock store");
+    database
+        .connection()
+        .query_row("SELECT latest_import_id FROM daily_usage", [], |row| {
+            row.get(0)
+        })
+        .expect("referenced import")
 }

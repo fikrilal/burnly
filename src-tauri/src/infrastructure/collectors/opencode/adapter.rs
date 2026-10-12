@@ -1,23 +1,27 @@
 //! Native OpenCode collector orchestration.
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
-use chrono::Utc;
+use chrono::{NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono_tz::Tz;
 
 use crate::application::collection::{
-    CollectionProjection, CollectionRequest, CollectionResult, CollectorDescriptor,
-    CollectorFailure, CollectorFailureCode, CollectorIntegrity, DetectionRequest, DetectionResult,
-    RejectedRecord,
+    CollectionProjection, CollectionRequest, CollectionResult, CollectionScope,
+    CollectorDescriptor, CollectorFailure, CollectorFailureCode, CollectorIntegrity,
+    DailyUsageCandidate, DetectionRequest, DetectionResult, RejectedRecord, SessionUsageCandidate,
 };
 use crate::application::cost::BurnlyCostCalculator;
 use crate::application::diagnostics::DiagnosticSeverity;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::application::ports::opencode_usage_ledger::{
-    OpenCodeExactOrigin, OpenCodeExactUsage, OpenCodeLedgerReconcileResult,
-    OpenCodeReconciliationState, OpenCodeRecoveryDisposition, OpenCodeSessionLedgerSnapshot,
-    OpenCodeTokenVector, OpenCodeUsageLedger,
+    OpenCodeActivityBounds, OpenCodeExactOrigin, OpenCodeExactUsage, OpenCodeLedgerReconcileResult,
+    OpenCodeLedgerRecord, OpenCodeReconciliationState, OpenCodeRecoveryDisposition,
+    OpenCodeRedundancyProof, OpenCodeSessionCheckpoint, OpenCodeSessionLedgerSnapshot,
+    OpenCodeTokenVector, OpenCodeUsageLedger, OpenCodeUsageLedgerError,
 };
 use crate::domain::source::SourceKey;
 
@@ -29,10 +33,10 @@ use super::super::support::{
     CollectorDiagnosticCounter, CollectorIdentity, LocalCollectionRun,
 };
 use super::{
-    default_opencode_database, map_daily, map_sessions, open_failure_code,
-    source_cost_usd_to_micros, OpenCodeGeneration, OpenCodeMappingContext, OpenCodeMessageUsage,
-    OpenCodePageSize, OpenCodeSchemaInspection, OpenCodeSchemaReason, OpenCodeSessionHeader,
-    OpenCodeStore, OpenCodeStoreError, OpenCodeTokenCounters,
+    default_opencode_database, open_failure_code, source_cost_usd_to_micros, OpenCodeGeneration,
+    OpenCodeMappingContext, OpenCodeMappingError, OpenCodeMessageUsage, OpenCodePageSize,
+    OpenCodeSchemaInspection, OpenCodeSchemaReason, OpenCodeSessionHeader, OpenCodeStore,
+    OpenCodeStoreError, OpenCodeTokenCounters, ScopedDailyFold, ScopedSessionFold,
 };
 
 const COLLECTOR_VERSION: &str = "local";
@@ -180,31 +184,65 @@ impl Collector for OpenCodeCollector {
             }
         };
         let inspection = store.capabilities();
+        let mut stats = CollectionStats::default();
         let has_incomplete_residue = inspection.ignored_reason().is_some();
         if let Some(reason) = inspection.ignored_reason() {
             self.record_ignored_generation(&request, inspection, reason);
-            if !self.residual_is_redundant(&mut store, &request) {
-                return Err(incompatible(&request));
-            }
         }
-        let observed_at = Utc::now();
-        let (reconciled, stats) = self
-            .reconcile_all_sessions(
+        if has_incomplete_residue {
+            self.prove_redundancy(
                 &mut store,
-                observed_at.timestamp_millis(),
-                cancellation,
+                path,
                 &request,
-            )
-            .inspect_err(|failure| {
-                self.record_failure(&request, failure.code, CollectionStats::default())
-            })?;
+                &mut stats,
+                ProofMoment::BeforeRead,
+            )?;
+        }
+
+        let observed_at = Utc::now();
+        let timezone = match projection_timezone(&request) {
+            Ok(timezone) => timezone,
+            Err(failure) => {
+                if failure.code == CollectorFailureCode::IncompatibleEnvelope {
+                    self.record_failure(&request, failure.code, stats);
+                }
+                return Err(failure);
+            }
+        };
+        let context = OpenCodeMappingContext::new(
+            COLLECTOR_VERSION.to_owned(),
+            request.collection_id().clone(),
+            observed_at,
+        )
+        .map_err(|_| request_failure(&request, CollectorFailureCode::Internal))?;
+        let mut projection = match request.projection() {
+            CollectionProjection::Daily => {
+                ProjectionFold::Daily(ScopedDailyFold::from_timezone(timezone, request.scope()))
+            }
+            CollectionProjection::Session => ProjectionFold::Session(ScopedSessionFold::new()),
+        };
+        self.reconcile_all_sessions(
+            &mut store,
+            observed_at.timestamp_millis(),
+            cancellation,
+            &request,
+            &mut projection,
+            &mut stats,
+        )
+        .inspect_err(|failure| self.record_failure(&request, failure.code, stats))?;
         ensure_not_cancelled(&request, cancellation)?;
         // Re-prove redundancy after every collection read: a unique row added
         // to the incomplete generation mid-collection must not be silently
         // ignored, so the proof must hold at the end of collection, not only
-        // at the start.
-        if has_incomplete_residue && !self.residual_is_redundant(&mut store, &request) {
-            return Err(incompatible(&request));
+        // at the start. A matching high-water mark skips the second id scan.
+        if has_incomplete_residue {
+            self.prove_redundancy(
+                &mut store,
+                path,
+                &request,
+                &mut stats,
+                ProofMoment::AfterRead,
+            )?;
         }
 
         if stats.counter_regressions > 0 {
@@ -214,94 +252,104 @@ impl Collector for OpenCodeCollector {
             self.record_non_usage_errors(&request, stats);
         }
         let metadata = collection_metadata(IDENTITY, &request, run.started_at(), observed_at)?;
-        let context = OpenCodeMappingContext::new(
-            COLLECTOR_VERSION.to_owned(),
-            request.collection_id().clone(),
-            observed_at,
-        )
-        .map_err(|_| request_failure(&request, CollectorFailureCode::Internal))?;
         let rejections = partial_rejections(stats);
-
-        let result = match request.projection() {
-            CollectionProjection::Daily => {
-                let timezone = request.aggregation_timezone().ok_or_else(|| {
-                    request_failure(&request, CollectorFailureCode::ScopeNotRepresentable)
-                })?;
-                let candidates = map_daily(
-                    &reconciled,
-                    timezone,
-                    request.scope(),
-                    &context,
-                    &self.calculator,
-                )
-                .map_err(|_| {
-                    self.record_failure(
-                        &request,
-                        CollectorFailureCode::IncompatibleEnvelope,
-                        stats,
-                    );
-                    request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
-                })?;
-                CollectionResult::daily(
-                    metadata,
-                    candidates,
-                    rejections,
-                    Vec::new(),
-                    run.process_summary(),
-                )
-            }
-            CollectionProjection::Session => {
-                let candidates =
-                    map_sessions(&reconciled, &context, &self.calculator).map_err(|_| {
-                        self.record_failure(
-                            &request,
-                            CollectorFailureCode::IncompatibleEnvelope,
-                            stats,
-                        );
-                        request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
-                    })?;
-                CollectionResult::session(
-                    metadata,
-                    candidates,
-                    rejections,
-                    Vec::new(),
-                    run.process_summary(),
-                )
-            }
+        let finished = projection.finish(&context, &self.calculator).map_err(|_| {
+            self.record_failure(&request, CollectorFailureCode::IncompatibleEnvelope, stats);
+            request_failure(&request, CollectorFailureCode::IncompatibleEnvelope)
+        })?;
+        let result = match finished {
+            FinishedProjection::Daily(candidates) => CollectionResult::daily(
+                metadata,
+                candidates,
+                rejections,
+                Vec::new(),
+                run.process_summary(),
+            ),
+            FinishedProjection::Session(candidates) => CollectionResult::session(
+                metadata,
+                candidates,
+                rejections,
+                Vec::new(),
+                run.process_summary(),
+            ),
         };
-        result.map_err(|error| {
+        let result = result.map_err(|error| {
             let failure = validation_failure_preserving_all_rejected(&request, error);
             self.record_failure(&request, failure.code, stats);
             failure
-        })
+        })?;
+        self.record_collection_stats(&request, stats);
+        Ok(result)
     }
 }
 
 impl OpenCodeCollector {
     /// Re-proves that every residual row of the ignored generation is
-    /// redundant with the selected generation. A failure is recorded as
-    /// `collector.incompatible_envelope` because ignoring a non-redundant
-    /// generation would silently understate usage.
-    fn residual_is_redundant(
+    /// redundant with the selected generation. A stored proof skips the id
+    /// scan. A failure is recorded as `collector.incompatible_envelope`
+    /// because ignoring a non-redundant generation would silently understate
+    /// usage. Full scope does not reuse the proof at the start of a collect.
+    fn prove_redundancy(
+        &self,
+        store: &mut OpenCodeStore,
+        path: &Path,
+        request: &CollectionRequest,
+        stats: &mut CollectionStats,
+        moment: ProofMoment,
+    ) -> Result<(), CollectorFailure> {
+        let fingerprint = source_fingerprint(store, path);
+        let stored = self.ledger.read_redundancy_proof().map_err(|_| {
+            self.record_failure(request, CollectorFailureCode::Internal, *stats);
+            internal(request)
+        })?;
+        let full = matches!(request.scope(), CollectionScope::Full);
+        let proved = match moment {
+            ProofMoment::BeforeRead if !full => stored
+                .as_ref()
+                .zip(fingerprint.as_ref())
+                .is_some_and(|(proof, fingerprint)| proof_matches(proof, fingerprint)),
+            ProofMoment::AfterRead => stored
+                .as_ref()
+                .zip(fingerprint.as_ref())
+                .is_some_and(|(proof, fingerprint)| proof_matches_high_water(proof, fingerprint)),
+            ProofMoment::BeforeRead => false,
+        };
+        if proved {
+            return Ok(());
+        }
+        self.scan_redundancy(store, request, stats, fingerprint)
+    }
+
+    fn scan_redundancy(
         &self,
         store: &mut OpenCodeStore,
         request: &CollectionRequest,
-    ) -> bool {
+        stats: &mut CollectionStats,
+        fingerprint: Option<SourceFingerprint>,
+    ) -> Result<(), CollectorFailure> {
+        stats.redundancy_scans = stats.redundancy_scans.saturating_add(1);
         // `redundancy_exceeded` returns true when residue is NOT redundant.
+        // A query failure fails closed: ignoring an unproved generation would
+        // silently drop usage.
         let redundant = store
             .begin_snapshot()
             .ok()
             .and_then(|snapshot| snapshot.redundancy_exceeded().ok())
             .map(|exceeded| !exceeded)
             .unwrap_or(false);
-        if !redundant {
-            self.record_failure(
-                request,
-                CollectorFailureCode::IncompatibleEnvelope,
-                CollectionStats::default(),
-            );
+        if let Some(fingerprint) = fingerprint.as_ref() {
+            let proof = fingerprint.proof(redundant);
+            if self.ledger.write_redundancy_proof(&proof).is_err() && redundant {
+                self.record_failure(request, CollectorFailureCode::Internal, *stats);
+                return Err(internal(request));
+            }
         }
-        redundant
+        if redundant {
+            Ok(())
+        } else {
+            self.record_failure(request, CollectorFailureCode::IncompatibleEnvelope, *stats);
+            Err(incompatible(request))
+        }
     }
 
     fn reconcile_all_sessions(
@@ -310,10 +358,16 @@ impl OpenCodeCollector {
         observed_at_ms: i64,
         cancellation: &dyn CancellationSignal,
         request: &CollectionRequest,
-    ) -> Result<(Vec<OpenCodeLedgerReconcileResult>, CollectionStats), CollectorFailure> {
+        projection: &mut ProjectionFold,
+        stats: &mut CollectionStats,
+    ) -> Result<(), CollectorFailure> {
+        // `collect` already rejected a missing or invalid timezone. A second
+        // parse here keeps the activity window next to the session loop
+        // without another argument.
+        let timezone = projection_timezone(request)?;
+        let window = activity_window(request.scope(), timezone);
         let mut after_session_id = None::<String>;
-        let mut reconciled = Vec::new();
-        let mut stats = CollectionStats::default();
+        let incremental = !matches!(request.scope(), CollectionScope::Full);
 
         loop {
             ensure_not_cancelled(request, cancellation)?;
@@ -346,68 +400,100 @@ impl OpenCodeCollector {
                                 && observed_at_ms.saturating_sub(session.updated_at_ms)
                                     >= LIVE_WRITE_STABILITY_AGE_MS
                         });
-                        if !matches!(
-                            request.scope(),
-                            crate::application::collection::CollectionScope::Full
-                        ) && checkpoint.as_ref().is_some_and(|checkpoint| {
-                            checkpoint_matches_header(checkpoint, &session, cumulative_cost_micros)
-                        }) {
+                        let header_matches = incremental
+                            && checkpoint.as_ref().is_some_and(|checkpoint| {
+                                checkpoint_matches_header(
+                                    checkpoint,
+                                    &session,
+                                    cumulative_cost_micros,
+                                )
+                            });
+                        if header_matches {
                             let checkpoint = checkpoint.expect("matching checkpoint exists");
-                            let records = self
-                                .ledger
-                                .read_session_records(&session.id)
-                                .map_err(|_| internal(request))?;
-                            work.push(SessionWork::Cached(OpenCodeLedgerReconcileResult {
-                                records,
+                            work.push(SessionWork::Cached {
+                                session_id: session.id,
                                 checkpoint,
-                                exact_records_accepted: 0,
-                                recovery_segments_created: 0,
-                                late_exact_reclassified: 0,
-                                late_exact_ignored: 0,
-                                counter_regressions: 0,
-                            }));
+                            });
+                            continue;
+                        }
+
+                        let after_message_id = if incremental {
+                            checkpoint
+                                .as_ref()
+                                .and_then(|checkpoint| checkpoint.last_source_message_id.as_deref())
                         } else {
-                            let (
-                                messages,
-                                incomplete_live_rows,
-                                non_usage_error_rows,
-                                message_pages,
-                            ) = self.read_all_messages(
+                            None
+                        };
+                        // Full scope replaces the deferred set from its scan.
+                        // Incremental scope point-reads only ids still open.
+                        let stored_deferred = if incremental {
+                            self.ledger
+                                .read_deferred_message_ids(&session.id)
+                                .map_err(|_| internal(request))?
+                        } else {
+                            Vec::new()
+                        };
+                        let mut read = self.read_messages_after(
+                            &snapshot,
+                            &session.id,
+                            after_message_id,
+                            cancellation,
+                            request,
+                        )?;
+                        if incremental {
+                            self.retry_deferred_messages(
                                 &snapshot,
                                 &session.id,
-                                cancellation,
+                                &stored_deferred,
+                                &mut read,
                                 request,
                             )?;
-                            stats.message_pages = stats.message_pages.saturating_add(message_pages);
-                            stats.messages_read = stats
-                                .messages_read
-                                .saturating_add(u64::try_from(messages.len()).unwrap_or(u64::MAX));
-                            stats.non_usage_error_rows = stats
-                                .non_usage_error_rows
-                                .saturating_add(non_usage_error_rows);
-                            let recovery_disposition =
-                                match (incomplete_live_rows > 0, stable_deferred_retry) {
-                                    (true, true) => OpenCodeRecoveryDisposition::StableIncomplete,
-                                    (true, false) => OpenCodeRecoveryDisposition::DeferredLiveWrite,
-                                    (false, _) => OpenCodeRecoveryDisposition::Ready,
-                                };
-                            let deferred_live_rows = u64::from(
-                                recovery_disposition
-                                    == OpenCodeRecoveryDisposition::DeferredLiveWrite,
-                            )
-                            .saturating_mul(incomplete_live_rows);
-                            stats.deferred_live_rows =
-                                stats.deferred_live_rows.saturating_add(deferred_live_rows);
-                            work.push(SessionWork::Reconcile(
-                                session_snapshot(
-                                    session,
-                                    messages,
-                                    recovery_disposition,
-                                    observed_at_ms,
-                                )
-                                .map_err(|()| incompatible(request))?,
-                            ));
                         }
+                        stats.message_pages = stats.message_pages.saturating_add(read.pages);
+                        stats.messages_read =
+                            stats.messages_read.saturating_add(read.messages_read);
+                        stats.non_usage_error_rows = stats
+                            .non_usage_error_rows
+                            .saturating_add(read.non_usage_error_rows);
+                        let recovery_disposition = match (read.deferred > 0, stable_deferred_retry)
+                        {
+                            (true, true) => OpenCodeRecoveryDisposition::StableIncomplete,
+                            (true, false) => OpenCodeRecoveryDisposition::DeferredLiveWrite,
+                            (false, _) => OpenCodeRecoveryDisposition::Ready,
+                        };
+                        let deferred_live_rows = u64::from(
+                            recovery_disposition == OpenCodeRecoveryDisposition::DeferredLiveWrite,
+                        )
+                        .saturating_mul(read.deferred);
+                        stats.deferred_live_rows =
+                            stats.deferred_live_rows.saturating_add(deferred_live_rows);
+                        // A suffix read must not rebuild the session. Rebuild
+                        // deletes ledger rows this incremental pass did not
+                        // read. Keep the stored facts and let a full collect
+                        // repair the older correction.
+                        if incremental
+                            && checkpoint.as_ref().is_some_and(|checkpoint| {
+                                header_regresses(checkpoint, &session, cumulative_cost_micros)
+                            })
+                        {
+                            let checkpoint = checkpoint.expect("regressed checkpoint exists");
+                            work.push(SessionWork::Cached {
+                                session_id: session.id,
+                                checkpoint,
+                            });
+                            continue;
+                        }
+                        work.push(SessionWork::Reconcile {
+                            snapshot: session_snapshot(
+                                session,
+                                read.messages,
+                                recovery_disposition,
+                                observed_at_ms,
+                            )
+                            .map_err(|()| incompatible(request))?,
+                            next_cursor: read.next_cursor,
+                            deferred_ids: read.deferred_ids,
+                        });
                     }
                     work
                 }
@@ -422,58 +508,173 @@ impl OpenCodeCollector {
                 .saturating_add(u64::try_from(batch.len()).unwrap_or(u64::MAX));
             for work in batch {
                 ensure_not_cancelled(request, cancellation)?;
-                let result = match work {
-                    SessionWork::Cached(result) => result,
-                    SessionWork::Reconcile(snapshot) => self
-                        .ledger
-                        .reconcile_session(&snapshot)
-                        .map_err(|_| internal(request))?,
-                };
-                stats.include(&result);
-                after_session_id = Some(result.checkpoint.session_id.clone());
-                reconciled.push(result);
+                match work {
+                    SessionWork::Cached {
+                        session_id,
+                        checkpoint,
+                    } => {
+                        let bounds = self
+                            .ledger
+                            .session_activity_bounds(&session_id)
+                            .map_err(|_| internal(request))?;
+                        match cached_read(bounds, window) {
+                            CachedRead::Skip => {
+                                stats.sessions_skipped = stats.sessions_skipped.saturating_add(1);
+                            }
+                            CachedRead::Fold(filter) => {
+                                self.fold_cached(projection, &checkpoint, filter, request)?;
+                            }
+                        }
+                        after_session_id = Some(session_id);
+                    }
+                    SessionWork::Reconcile {
+                        snapshot,
+                        next_cursor,
+                        deferred_ids,
+                    } => {
+                        let result = self
+                            .ledger
+                            .reconcile_session(&snapshot)
+                            .map_err(|_| internal(request))?;
+                        self.ledger
+                            .store_message_progress(
+                                &snapshot.session_id,
+                                next_cursor.as_deref(),
+                                &deferred_ids,
+                            )
+                            .map_err(|_| internal(request))?;
+                        stats.include(&result);
+                        projection
+                            .add_reconciled(&result)
+                            .map_err(|_| incompatible(request))?;
+                        after_session_id = Some(snapshot.session_id);
+                    }
+                }
             }
         }
-        Ok((reconciled, stats))
+        Ok(())
     }
 
-    fn read_all_messages(
+    fn fold_cached(
+        &self,
+        projection: &mut ProjectionFold,
+        checkpoint: &OpenCodeSessionCheckpoint,
+        window: Option<(i64, i64)>,
+        request: &CollectionRequest,
+    ) -> Result<(), CollectorFailure> {
+        projection
+            .begin_cached(checkpoint)
+            .map_err(|_| incompatible(request))?;
+        // Session rows replace lifetime totals. A windowed ledger read would
+        // store the catch-up slice. Daily rows stay inside the request window.
+        let activity_window = match projection {
+            ProjectionFold::Session(_) => None,
+            ProjectionFold::Daily(_) => window,
+        };
+        self.ledger
+            .fold_scoped_records(&checkpoint.session_id, activity_window, &mut |record| {
+                projection
+                    .add_cached_record(checkpoint, &record)
+                    .map_err(|_| OpenCodeUsageLedgerError::IncompatibleSnapshot)
+            })
+            .map_err(|error| match error {
+                OpenCodeUsageLedgerError::Storage => internal(request),
+                OpenCodeUsageLedgerError::IncompatibleSnapshot => incompatible(request),
+            })?;
+        projection.end_cached().map_err(|_| incompatible(request))?;
+        Ok(())
+    }
+
+    fn read_messages_after(
         &self,
         snapshot: &super::OpenCodeReadSnapshot<'_>,
         session_id: &str,
+        after: Option<&str>,
         cancellation: &dyn CancellationSignal,
         request: &CollectionRequest,
-    ) -> Result<(Vec<OpenCodeMessageUsage>, u64, u64, u64), CollectorFailure> {
-        let mut after_message_id = None::<String>;
+    ) -> Result<MessageRead, CollectorFailure> {
+        let mut page_cursor = after.map(str::to_owned);
+        let mut next_cursor = after.map(str::to_owned);
         let mut messages = Vec::new();
+        let mut deferred_ids = Vec::new();
+        let mut seen_ids = HashSet::new();
         let mut deferred = 0_u64;
+        let mut messages_read = 0_u64;
         let mut non_usage_error_rows = 0_u64;
         let mut pages = 0_u64;
         loop {
             ensure_not_cancelled(request, cancellation)?;
             let page = snapshot
-                .read_messages_page(
-                    session_id,
-                    after_message_id.as_deref(),
-                    self.message_page_size,
-                )
+                .read_messages_page(session_id, page_cursor.as_deref(), self.message_page_size)
                 .map_err(|_| incompatible(request))?;
             if !page.has_rows() {
                 break;
             }
             pages = pages.saturating_add(1);
             non_usage_error_rows = non_usage_error_rows.saturating_add(page.non_usage_error_rows);
-            after_message_id = page.last_row_id;
+            // High water includes deferred and non-usage rows. Stopping at
+            // the last completed id makes the next pass re-read the tail.
+            next_cursor.clone_from(&page.last_row_id);
+            page_cursor = page.last_row_id;
             for message in page.messages {
-                if message.generation == OpenCodeGeneration::V2 && message.completed_at_ms.is_none()
-                {
+                let incomplete_live_row = message.generation == OpenCodeGeneration::V2
+                    && message.completed_at_ms.is_none();
+                seen_ids.insert(message.id.clone());
+                if incomplete_live_row {
+                    deferred_ids.push(message.id);
                     deferred = deferred.saturating_add(1);
                 } else {
+                    messages_read = messages_read.saturating_add(1);
                     messages.push(message);
                 }
             }
         }
-        Ok((messages, deferred, non_usage_error_rows, pages))
+        Ok(MessageRead {
+            messages,
+            deferred_ids,
+            seen_ids,
+            deferred,
+            messages_read,
+            non_usage_error_rows,
+            pages,
+            next_cursor,
+        })
+    }
+
+    fn retry_deferred_messages(
+        &self,
+        snapshot: &super::OpenCodeReadSnapshot<'_>,
+        session_id: &str,
+        stored_ids: &[String],
+        read: &mut MessageRead,
+        request: &CollectionRequest,
+    ) -> Result<(), CollectorFailure> {
+        let mut pending = Vec::new();
+        for message_id in stored_ids {
+            // A page that still overlaps the old cursor already classified
+            // this id. Point-reading it again repeats the JSON row.
+            if read.seen_ids.insert(message_id.clone()) {
+                pending.push(message_id.as_str());
+            }
+        }
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let found = snapshot
+            .read_messages_by_id(session_id, &pending)
+            .map_err(|_| incompatible(request))?;
+        for message in found.into_iter().flatten() {
+            let still_incomplete =
+                message.generation == OpenCodeGeneration::V2 && message.completed_at_ms.is_none();
+            if still_incomplete {
+                read.deferred_ids.push(message.id);
+                read.deferred = read.deferred.saturating_add(1);
+            } else {
+                read.messages_read = read.messages_read.saturating_add(1);
+                read.messages.push(message);
+            }
+        }
+        Ok(())
     }
 
     fn record_failure(
@@ -553,11 +754,143 @@ impl OpenCodeCollector {
             &stats.counters(),
         );
     }
+
+    fn record_collection_stats(&self, request: &CollectionRequest, stats: CollectionStats) {
+        record_collector_diagnostic(
+            self.diagnostics.as_deref(),
+            request,
+            DiagnosticSeverity::Info,
+            "opencode.collection_stats",
+            "OpenCode collection finished.",
+            None,
+            &stats.scope_counters(),
+        );
+    }
 }
 
 enum SessionWork {
-    Cached(OpenCodeLedgerReconcileResult),
-    Reconcile(OpenCodeSessionLedgerSnapshot),
+    Cached {
+        session_id: String,
+        checkpoint: OpenCodeSessionCheckpoint,
+    },
+    Reconcile {
+        snapshot: OpenCodeSessionLedgerSnapshot,
+        next_cursor: Option<String>,
+        deferred_ids: Vec<String>,
+    },
+}
+
+enum ProofMoment {
+    BeforeRead,
+    AfterRead,
+}
+
+#[derive(Clone, Copy)]
+enum ActivityWindow {
+    Range(i64, i64),
+    Unbounded,
+}
+
+enum CachedRead {
+    Skip,
+    Fold(Option<(i64, i64)>),
+}
+
+struct MessageRead {
+    messages: Vec<OpenCodeMessageUsage>,
+    deferred_ids: Vec<String>,
+    seen_ids: HashSet<String>,
+    deferred: u64,
+    messages_read: u64,
+    non_usage_error_rows: u64,
+    pages: u64,
+    next_cursor: Option<String>,
+}
+
+struct SourceFingerprint {
+    file_length: u64,
+    file_mtime_ms: i64,
+    page_count: u64,
+    ignored_max_rowid: Option<i64>,
+    ignored_row_count: u64,
+    generations: &'static str,
+}
+
+impl SourceFingerprint {
+    fn proof(&self, proved_redundant: bool) -> OpenCodeRedundancyProof {
+        OpenCodeRedundancyProof {
+            file_length: self.file_length,
+            file_mtime_ms: self.file_mtime_ms,
+            page_count: self.page_count,
+            ignored_max_rowid: self.ignored_max_rowid,
+            ignored_row_count: self.ignored_row_count,
+            generations: self.generations.to_owned(),
+            proved_redundant,
+        }
+    }
+}
+
+enum ProjectionFold {
+    Daily(ScopedDailyFold),
+    Session(ScopedSessionFold),
+}
+
+impl ProjectionFold {
+    fn begin_cached(
+        &mut self,
+        checkpoint: &OpenCodeSessionCheckpoint,
+    ) -> Result<(), OpenCodeMappingError> {
+        match self {
+            Self::Daily(_) => Ok(()),
+            Self::Session(fold) => fold.begin_session(checkpoint),
+        }
+    }
+
+    fn add_cached_record(
+        &mut self,
+        checkpoint: &OpenCodeSessionCheckpoint,
+        record: &OpenCodeLedgerRecord,
+    ) -> Result<(), OpenCodeMappingError> {
+        match self {
+            Self::Daily(fold) => fold.add_cached_record(checkpoint, record),
+            Self::Session(fold) => fold.add_record(record),
+        }
+    }
+
+    fn end_cached(&mut self) -> Result<(), OpenCodeMappingError> {
+        match self {
+            Self::Daily(_) => Ok(()),
+            Self::Session(fold) => fold.finish_open(),
+        }
+    }
+
+    fn add_reconciled(
+        &mut self,
+        reconciled: &OpenCodeLedgerReconcileResult,
+    ) -> Result<(), OpenCodeMappingError> {
+        match self {
+            Self::Daily(fold) => fold.add_reconciled(reconciled),
+            Self::Session(fold) => fold.add_reconciled(reconciled),
+        }
+    }
+
+    fn finish(
+        self,
+        context: &OpenCodeMappingContext,
+        calculator: &BurnlyCostCalculator,
+    ) -> Result<FinishedProjection, OpenCodeMappingError> {
+        match self {
+            Self::Daily(fold) => Ok(FinishedProjection::Daily(fold.finish(context, calculator)?)),
+            Self::Session(fold) => Ok(FinishedProjection::Session(
+                fold.finish(context, calculator)?,
+            )),
+        }
+    }
+}
+
+enum FinishedProjection {
+    Daily(Vec<DailyUsageCandidate>),
+    Session(Vec<SessionUsageCandidate>),
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -565,6 +898,7 @@ struct CollectionStats {
     session_pages: u64,
     message_pages: u64,
     sessions_processed: u64,
+    sessions_skipped: u64,
     messages_read: u64,
     deferred_live_rows: u64,
     non_usage_error_rows: u64,
@@ -573,6 +907,7 @@ struct CollectionStats {
     late_exact_reclassified: u64,
     late_exact_ignored: u64,
     counter_regressions: u64,
+    redundancy_scans: u64,
 }
 
 impl CollectionStats {
@@ -612,6 +947,127 @@ impl CollectionStats {
             CollectorDiagnosticCounter::new("counterRegressions", self.counter_regressions),
         ]
     }
+
+    fn scope_counters(self) -> [CollectorDiagnosticCounter; 5] {
+        [
+            CollectorDiagnosticCounter::new("sessionsProcessed", self.sessions_processed),
+            CollectorDiagnosticCounter::new("sessionsSkipped", self.sessions_skipped),
+            CollectorDiagnosticCounter::new("messagesRead", self.messages_read),
+            CollectorDiagnosticCounter::new("messagePages", self.message_pages),
+            CollectorDiagnosticCounter::new("redundancyScans", self.redundancy_scans),
+        ]
+    }
+}
+
+fn projection_timezone(request: &CollectionRequest) -> Result<Tz, CollectorFailure> {
+    match request.projection() {
+        CollectionProjection::Session => Ok(chrono_tz::UTC),
+        CollectionProjection::Daily => {
+            let name = request.aggregation_timezone().ok_or_else(|| {
+                request_failure(request, CollectorFailureCode::ScopeNotRepresentable)
+            })?;
+            name.parse::<Tz>().map_err(|_| incompatible(request))
+        }
+    }
+}
+
+fn activity_window(scope: &CollectionScope, timezone: Tz) -> ActivityWindow {
+    let CollectionScope::Incremental(scope) = scope else {
+        return ActivityWindow::Unbounded;
+    };
+    let start = local_midnight_ms(timezone, scope.start_date());
+    let end = scope
+        .end_date()
+        .succ_opt()
+        .and_then(|next| local_midnight_ms(timezone, next))
+        .map(|end_exclusive| end_exclusive.saturating_sub(1));
+    match (start, end) {
+        (Some(start), Some(end)) if start <= end => ActivityWindow::Range(start, end),
+        _ => ActivityWindow::Unbounded,
+    }
+}
+
+fn local_midnight_ms(timezone: Tz, date: NaiveDate) -> Option<i64> {
+    timezone
+        .from_local_datetime(&date.and_time(NaiveTime::MIN))
+        .earliest()
+        .map(|value| value.timestamp_millis())
+}
+
+fn cached_read(bounds: Option<OpenCodeActivityBounds>, window: ActivityWindow) -> CachedRead {
+    match window {
+        ActivityWindow::Unbounded => CachedRead::Fold(None),
+        ActivityWindow::Range(start, end) => match bounds {
+            Some(bounds) if bounds.latest_ms < start || bounds.earliest_ms > end => {
+                CachedRead::Skip
+            }
+            None => CachedRead::Skip,
+            Some(_) => CachedRead::Fold(Some((start, end))),
+        },
+    }
+}
+
+fn source_fingerprint(store: &mut OpenCodeStore, path: &Path) -> Option<SourceFingerprint> {
+    let inspection = store.capabilities();
+    let generations = inspection.redundancy_generations()?;
+    let table = inspection.ignored_detail_table()?;
+    let metadata = std::fs::metadata(path).ok()?;
+    let file_mtime_ms = i64::try_from(
+        metadata
+            .modified()
+            .ok()?
+            .duration_since(UNIX_EPOCH)
+            .ok()?
+            .as_millis(),
+    )
+    .ok()?;
+    let snapshot = store.begin_snapshot().ok()?;
+    let page_count = snapshot.page_count().ok()?;
+    let (ignored_max_rowid, ignored_row_count) = snapshot.detail_high_water(table).ok()?;
+    Some(SourceFingerprint {
+        file_length: metadata.len(),
+        file_mtime_ms,
+        page_count,
+        ignored_max_rowid,
+        ignored_row_count,
+        generations,
+    })
+}
+
+fn proof_matches(proof: &OpenCodeRedundancyProof, fingerprint: &SourceFingerprint) -> bool {
+    proof.proved_redundant
+        && proof.file_length == fingerprint.file_length
+        && proof.file_mtime_ms == fingerprint.file_mtime_ms
+        && proof.page_count == fingerprint.page_count
+        && proof.ignored_max_rowid == fingerprint.ignored_max_rowid
+        && proof.ignored_row_count == fingerprint.ignored_row_count
+        && proof.generations == fingerprint.generations
+}
+
+fn proof_matches_high_water(
+    proof: &OpenCodeRedundancyProof,
+    fingerprint: &SourceFingerprint,
+) -> bool {
+    proof.proved_redundant
+        && proof.ignored_max_rowid == fingerprint.ignored_max_rowid
+        && proof.ignored_row_count == fingerprint.ignored_row_count
+        && proof.generations == fingerprint.generations
+}
+
+fn header_regresses(
+    checkpoint: &OpenCodeSessionCheckpoint,
+    header: &OpenCodeSessionHeader,
+    cumulative_cost_micros: Option<u64>,
+) -> bool {
+    // Accepted ledger cost can sit one micro above the source per priced row.
+    // Only a drop below the cost last observed on the header is a shrink.
+    token_vector(header.tokens)
+        .checked_sub(checkpoint.accepted_tokens)
+        .is_none()
+        || matches!(
+            (cumulative_cost_micros, checkpoint.observed_source_cost_micros),
+            (Some(current), Some(observed)) if current < observed
+        )
 }
 
 fn session_snapshot(
@@ -774,7 +1230,7 @@ const fn schema_reason_name(reason: OpenCodeSchemaReason) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use chrono::Utc;
     use rusqlite::{params, Connection};
@@ -1189,12 +1645,15 @@ mod tests {
             .all(|model| model.raw_model_id != "provider-v2/model"));
 
         let events = diagnostics.events();
-        assert_eq!(events.len(), 2);
-        assert!(events.iter().all(|event| {
-            event.code.as_str() == "opencode.incomplete_generation_ignored"
-                && event.severity == DiagnosticSeverity::Info
-        }));
-        for event in &events {
+        let ignored: Vec<_> = events
+            .iter()
+            .filter(|event| event.code.as_str() == "opencode.incomplete_generation_ignored")
+            .collect();
+        assert_eq!(ignored.len(), 2);
+        assert!(ignored
+            .iter()
+            .all(|event| event.severity == DiagnosticSeverity::Info));
+        for event in ignored {
             let context = event.context.as_ref().expect("context").as_str();
             assert!(context.contains(r#""ignoredGeneration":"v2""#));
             assert!(context.contains(r#""reason":"missing_session_table""#));
@@ -1698,15 +2157,790 @@ mod tests {
             .expect("partial regression collection");
         assert_eq!(regressed.outcome(), CollectionOutcome::Partial);
         let events = diagnostics.events();
-        assert_eq!(events.len(), 1);
-        assert_eq!(
-            events[0].code.as_str(),
-            "opencode.session_counter_regressed"
-        );
-        let context = events[0].context.as_ref().expect("context").as_str();
+        let regression = events
+            .iter()
+            .find(|event| event.code.as_str() == "opencode.session_counter_regressed")
+            .expect("regression diagnostic");
+        let context = regression.context.as_ref().expect("context").as_str();
         assert!(context.contains(r#""counterRegressions":1"#));
-        assert!(!context.contains("session-regressed"));
+        for event in &events {
+            let context = event.context.as_ref().expect("context").as_str();
+            assert!(!context.contains("session-regressed"));
+            assert!(!context.contains(fixture.directory.path().to_string_lossy().as_ref()));
+        }
+    }
+
+    #[test]
+    fn incremental_deferred_live_row_does_not_reread_the_completed_tail() {
+        let fixture = Fixture::new(false, true);
+        let updated_at = Utc::now().timestamp_millis();
+        let connection = fixture.source();
+        insert_v2_session(
+            &connection,
+            "session-hole",
+            Counters::new(11, 4, 6, 8, 10),
+            1.0,
+            updated_at,
+        );
+        insert_v2_message(&connection, "message-1", "session-hole", 5, 1_100, true);
+        insert_v2_message(&connection, "message-2", "session-hole", 4, 1_200, false);
+        insert_v2_message(&connection, "message-3", "session-hole", 6, 1_300, true);
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let first = collector
+            .collect(incremental_session_request("hole-first"), &NeverCancelled)
+            .expect("first incremental collection");
+        assert_eq!(first.outcome(), CollectionOutcome::Partial);
+        assert_eq!(first.session_candidates()[0].tokens.total_tokens(), 39);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 2);
+        assert!(latest_stat(&diagnostics, "messagePages") >= 1);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-hole").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-hole"),
+            vec!["message-2".to_owned()]
+        );
+        let reconciled_at = checkpoint_reconciled_at(&ledger, "session-hole");
+        drop(ledger);
+        while Utc::now().timestamp_millis() <= reconciled_at {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
+        let second = collector
+            .collect(incremental_session_request("hole-second"), &NeverCancelled)
+            .expect("unchanged incremental collection");
+        assert_eq!(second.outcome(), CollectionOutcome::Partial);
+        assert_eq!(
+            second.session_candidates()[0].tokens,
+            first.session_candidates()[0].tokens
+        );
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_eq!(latest_stat(&diagnostics, "messagePages"), 0);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-hole").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-hole"),
+            vec!["message-2".to_owned()]
+        );
+        assert!(checkpoint_reconciled_at(&ledger, "session-hole") > reconciled_at);
+        drop(ledger);
+
+        let connection = fixture.source();
+        update_v2_session(
+            &connection,
+            "session-hole",
+            Counters::new(20, 6, 9, 12, 15),
+            1.5,
+            Utc::now().timestamp_millis(),
+        );
+        let payload = v2_payload(1_200, 9, true).to_string();
+        connection
+            .execute(
+                "UPDATE session_message SET data = ?1 WHERE id = 'message-2'",
+                [payload],
+            )
+            .expect("complete deferred message");
+        drop(connection);
+        let third = collector
+            .collect(incremental_session_request("hole-third"), &NeverCancelled)
+            .expect("completed deferred message");
+        assert_eq!(third.outcome(), CollectionOutcome::Complete);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        assert_eq!(latest_stat(&diagnostics, "messagePages"), 0);
+        assert_eq!(third.session_candidates()[0].tokens.total_tokens(), 62);
+        assert_eq!(model_input(&third), 20);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-hole").as_deref(),
+            Some("message-3")
+        );
+        assert!(deferred_message_ids(&ledger, "session-hole").is_empty());
+    }
+
+    #[test]
+    fn incremental_collect_reads_only_new_messages_and_matches_full_totals() {
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-append",
+            Counters::message(5),
+            0.25,
+            1_000,
+        );
+        insert_v1_message(&connection, "message-1", "session-append", 5, 1_100);
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (collector, ledger) = fixture.counting_collector(diagnostics.clone());
+
+        let first = collector
+            .collect(incremental_session_request("append-first"), &NeverCancelled)
+            .expect("first incremental collection");
+        assert_eq!(first.session_candidates()[0].tokens.total_tokens(), 19);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        assert_eq!(ledger.session_record_reads(), 0);
+
+        let second = collector
+            .collect(
+                incremental_session_request("append-second"),
+                &NeverCancelled,
+            )
+            .expect("unchanged incremental collection");
+        assert_eq!(
+            second.session_candidates()[0].tokens,
+            first.session_candidates()[0].tokens
+        );
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_eq!(latest_stat(&diagnostics, "messagePages"), 0);
+        assert_eq!(ledger.session_record_reads(), 0);
+        assert!(ledger.scoped_folds() >= 1);
+        assert_stats_are_redacted(&diagnostics, &fixture, &["session-append", "message-1"]);
+
+        let connection = fixture.source();
+        update_v1_session(
+            &connection,
+            "session-append",
+            Counters::new(11, 4, 6, 8, 10),
+            0.50,
+            2_000,
+        );
+        insert_v1_message(&connection, "message-2", "session-append", 6, 1_200);
+        drop(connection);
+        let third = collector
+            .collect(incremental_session_request("append-third"), &NeverCancelled)
+            .expect("appended incremental collection");
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        assert_eq!(third.session_candidates()[0].tokens.total_tokens(), 39);
+
+        let full = fixture
+            .isolated_collector("append-full.sqlite3")
+            .collect(
+                session_request("append-full", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("full session collection");
+        assert_eq!(
+            third.session_candidates()[0].tokens,
+            full.session_candidates()[0].tokens
+        );
+        assert_eq!(
+            third.session_candidates()[0].model_breakdowns,
+            full.session_candidates()[0].model_breakdowns
+        );
+
+        let (start, end) = wide_dates();
+        let daily = collector
+            .collect(
+                incremental_daily_request("append-daily", "UTC", start, end),
+                &NeverCancelled,
+            )
+            .expect("incremental daily collection");
+        let full_daily = fixture
+            .isolated_collector("append-daily-full.sqlite3")
+            .collect(
+                daily_request(
+                    "append-daily-full",
+                    SourceKey::OpenCode,
+                    CollectionScope::Full,
+                    "UTC",
+                    Utc::now(),
+                ),
+                &NeverCancelled,
+            )
+            .expect("full daily collection");
+        assert_eq!(
+            daily.daily_candidates()[0].tokens,
+            full_daily.daily_candidates()[0].tokens
+        );
+    }
+
+    #[test]
+    fn incremental_keeps_older_correction_until_full_reread() {
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-correct",
+            Counters::message(5),
+            0.25,
+            1_000,
+        );
+        insert_v1_message(&connection, "message-1", "session-correct", 5, 1_100);
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        collector
+            .collect(
+                incremental_session_request("correct-first"),
+                &NeverCancelled,
+            )
+            .expect("initial incremental collection");
+
+        let connection = fixture.source();
+        update_v1_session(
+            &connection,
+            "session-correct",
+            Counters::message(3),
+            0.25,
+            2_000,
+        );
+        update_v1_message(&connection, "message-1", 3, 1_100);
+        drop(connection);
+        let corrected = collector
+            .collect(
+                incremental_session_request("correct-second"),
+                &NeverCancelled,
+            )
+            .expect("incremental collection keeps the stored correction boundary");
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_eq!(model_input(&corrected), 5);
+
+        let repaired = collector
+            .collect(
+                session_request("correct-full", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("full collection repairs the older message");
+        assert!(latest_stat(&diagnostics, "messagesRead") >= 1);
+        assert_eq!(model_input(&repaired), 3);
+        assert_eq!(repaired.session_candidates()[0].tokens.total_tokens(), 17);
+    }
+
+    #[test]
+    fn incremental_token_growth_reconciles_when_source_cost_trails_accepted_cost() {
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-rounding",
+            Counters::new(2, 4, 6, 8, 10),
+            0.000101,
+            1_000,
+        );
+        insert_v1_message_cost(
+            &connection,
+            "message-1",
+            "session-rounding",
+            1,
+            1_100,
+            0.0000505,
+        );
+        insert_v1_message_cost(
+            &connection,
+            "message-2",
+            "session-rounding",
+            1,
+            1_200,
+            0.0000505,
+        );
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let first = collector
+            .collect(
+                incremental_session_request("rounding-first"),
+                &NeverCancelled,
+            )
+            .expect("priced rows round one micro above the header");
+        assert_eq!(first.session_candidates()[0].tokens.total_tokens(), 30);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_costs(&ledger, "session-rounding"),
+            (Some(102), Some(101))
+        );
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-rounding").as_deref(),
+            Some("message-2")
+        );
+        drop(ledger);
+
+        let connection = fixture.source();
+        update_v1_session(
+            &connection,
+            "session-rounding",
+            Counters::new(3, 6, 9, 12, 15),
+            0.000101,
+            2_000,
+        );
+        insert_v1_message_cost(&connection, "message-3", "session-rounding", 1, 1_300, 0.0);
+        drop(connection);
+        let second = collector
+            .collect(
+                incremental_session_request("rounding-second"),
+                &NeverCancelled,
+            )
+            .expect("token growth reconciles inside the observed source cost");
+        assert_eq!(second.session_candidates()[0].tokens.total_tokens(), 45);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-rounding").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            checkpoint_costs(&ledger, "session-rounding"),
+            (Some(102), Some(101))
+        );
+    }
+
+    #[test]
+    fn unchanged_deferred_header_point_reads_a_completed_message() {
+        let fixture = Fixture::new(false, true);
+        let updated_at = Utc::now().timestamp_millis();
+        let connection = fixture.source();
+        insert_v2_session(
+            &connection,
+            "session-point",
+            Counters::new(15, 6, 9, 12, 15),
+            1.5,
+            updated_at,
+        );
+        insert_v2_message(&connection, "message-1", "session-point", 5, 1_100, true);
+        insert_v2_message(&connection, "message-2", "session-point", 4, 1_200, false);
+        insert_v2_message(&connection, "message-3", "session-point", 6, 1_300, true);
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let first = collector
+            .collect(incremental_session_request("point-first"), &NeverCancelled)
+            .expect("deferred live write");
+        assert_eq!(first.outcome(), CollectionOutcome::Partial);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-point").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-point"),
+            vec!["message-2".to_owned()]
+        );
+        drop(ledger);
+
+        let connection = fixture.source();
+        let payload = v2_payload(1_200, 4, true).to_string();
+        connection
+            .execute(
+                "UPDATE session_message SET data = ?1 WHERE id = 'message-2'",
+                [payload],
+            )
+            .expect("complete deferred message without a header change");
+        drop(connection);
+        let second = collector
+            .collect(incremental_session_request("point-second"), &NeverCancelled)
+            .expect("point-read completed deferred message");
+        assert_eq!(second.outcome(), CollectionOutcome::Complete);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        assert_eq!(latest_stat(&diagnostics, "messagePages"), 0);
+        assert_eq!(model_input(&second), 15);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-point").as_deref(),
+            Some("message-3")
+        );
+        assert!(deferred_message_ids(&ledger, "session-point").is_empty());
+    }
+
+    #[test]
+    fn failed_reconcile_leaves_the_cursor_and_deferred_set() {
+        let fixture = Fixture::new(false, true);
+        let updated_at = Utc::now().timestamp_millis();
+        let connection = fixture.source();
+        insert_v2_session(
+            &connection,
+            "session-fail",
+            Counters::new(11, 4, 6, 8, 10),
+            1.0,
+            updated_at,
+        );
+        insert_v2_message(&connection, "message-1", "session-fail", 5, 1_100, true);
+        insert_v2_message(&connection, "message-2", "session-fail", 4, 1_200, false);
+        insert_v2_message(&connection, "message-3", "session-fail", 6, 1_300, true);
+        drop(connection);
+        let gate = Arc::new(ReconcileGate::new(SqliteOpenCodeUsageLedgerStore::new(
+            Database::open(&fixture.ledger_path).expect("ledger connection"),
+        )));
+        let collector = OpenCodeCollector::from_database_path(
+            &fixture.source_path,
+            Arc::clone(&gate) as Arc<dyn OpenCodeUsageLedger>,
+        );
+
+        collector
+            .collect(incremental_session_request("fail-first"), &NeverCancelled)
+            .expect("store the cursor before reconcile fails");
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-fail").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-fail"),
+            vec!["message-2".to_owned()]
+        );
+        drop(ledger);
+
+        gate.fail_next();
+        let failure = collector
+            .collect(incremental_session_request("fail-second"), &NeverCancelled)
+            .expect_err("reconcile failure");
+        assert_eq!(failure.code, CollectorFailureCode::Internal);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-fail").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-fail"),
+            vec!["message-2".to_owned()]
+        );
+    }
+
+    #[test]
+    fn incremental_daily_excludes_activity_outside_the_local_day() {
+        let in_scope_ms = chrono::DateTime::parse_from_rfc3339("2026-01-01T16:30:00Z")
+            .expect("in-scope timestamp")
+            .timestamp_millis();
+        let out_of_scope_ms = chrono::DateTime::parse_from_rfc3339("2026-01-01T17:30:00Z")
+            .expect("out-of-scope timestamp")
+            .timestamp_millis();
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-timezone",
+            Counters::new(12, 4, 6, 8, 10),
+            0.50,
+            out_of_scope_ms,
+        );
+        insert_v1_message(
+            &connection,
+            "message-in",
+            "session-timezone",
+            5,
+            in_scope_ms,
+        );
+        insert_v1_message(
+            &connection,
+            "message-out",
+            "session-timezone",
+            7,
+            out_of_scope_ms,
+        );
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (collector, ledger) = fixture.counting_collector(diagnostics.clone());
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).expect("scope day");
+
+        let first = collector
+            .collect(
+                incremental_daily_request("timezone-first", "Asia/Jakarta", day, day),
+                &NeverCancelled,
+            )
+            .expect("first scoped daily collection");
+        assert_eq!(first.daily_candidates().len(), 1);
+        assert_eq!(first.daily_candidates()[0].tokens.total_tokens(), 19);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 2);
+
+        let folds_after_first = ledger.scoped_folds();
+        let second = collector
+            .collect(
+                incremental_daily_request("timezone-second", "Asia/Jakarta", day, day),
+                &NeverCancelled,
+            )
+            .expect("second scoped daily collection");
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_eq!(second.daily_candidates()[0].tokens.total_tokens(), 19);
+        assert!(ledger.scoped_folds() > folds_after_first);
+        assert_eq!(ledger.session_record_reads(), 0);
+        assert_stats_are_redacted(
+            &diagnostics,
+            &fixture,
+            &[
+                "session-timezone",
+                "message-in",
+                "message-out",
+                "PRIVATE_PROMPT_SENTINEL",
+            ],
+        );
+    }
+
+    #[test]
+    fn incremental_skips_sessions_outside_the_scope_without_loading_records() {
+        let out_of_scope_ms = chrono::DateTime::parse_from_rfc3339("2026-01-01T17:30:00Z")
+            .expect("out-of-scope timestamp")
+            .timestamp_millis();
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-outside",
+            Counters::message(5),
+            0.25,
+            out_of_scope_ms,
+        );
+        insert_v1_message(
+            &connection,
+            "message-outside",
+            "session-outside",
+            5,
+            out_of_scope_ms,
+        );
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (collector, ledger) = fixture.counting_collector(diagnostics.clone());
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).expect("scope day");
+        let request = || incremental_daily_request("outside", "Asia/Jakarta", day, day);
+
+        let first = collector
+            .collect(request(), &NeverCancelled)
+            .expect("first collection reads the session once");
+        assert_eq!(first.outcome(), CollectionOutcome::Empty);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        assert_eq!(ledger.scoped_folds(), 0);
+        assert_eq!(ledger.session_record_reads(), 0);
+
+        let second = collector
+            .collect(request(), &NeverCancelled)
+            .expect("second collection skips the session");
+        assert_eq!(second.outcome(), CollectionOutcome::Empty);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_eq!(latest_stat(&diagnostics, "messagePages"), 0);
+        assert!(latest_stat(&diagnostics, "sessionsSkipped") >= 1);
+        assert_eq!(ledger.scoped_folds(), 0);
+        assert_eq!(ledger.session_record_reads(), 0);
+    }
+
+    #[test]
+    fn incremental_session_keeps_lifetime_totals_across_the_catch_up_window() {
+        let early = chrono::DateTime::parse_from_rfc3339("2026-10-02T12:00:00Z")
+            .expect("early timestamp")
+            .timestamp_millis();
+        let late = chrono::DateTime::parse_from_rfc3339("2026-10-12T12:00:00Z")
+            .expect("late timestamp")
+            .timestamp_millis();
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-span",
+            Counters::new(3, 4, 6, 8, 10),
+            0.50,
+            late,
+        );
+        insert_v1_message(&connection, "message-early", "session-span", 1, early);
+        insert_v1_message(&connection, "message-late", "session-span", 2, late);
+        insert_v1_session(
+            &connection,
+            "session-old",
+            Counters::message(5),
+            0.25,
+            early,
+        );
+        insert_v1_message(&connection, "message-old", "session-old", 5, early);
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (collector, ledger) = fixture.counting_collector(diagnostics.clone());
+        let start = chrono::NaiveDate::from_ymd_opt(2026, 10, 10).expect("start");
+        let end = chrono::NaiveDate::from_ymd_opt(2026, 10, 12).expect("end");
+        let catch_up = CollectionScope::incremental(start, end).expect("catch-up scope");
+        let session_catch_up = |collection_id: &str| {
+            CollectionRequest::session(
+                CollectionId::new(collection_id).expect("collection ID"),
+                SourceKey::OpenCode,
+                catch_up.clone(),
+                Utc::now(),
+            )
+        };
+
+        let first = collector
+            .collect(session_catch_up("lifetime-first"), &NeverCancelled)
+            .expect("first incremental session collection");
+        let span = session_candidate(&first, "session-span");
+        let old = session_candidate(&first, "session-old");
+        assert_eq!(first.session_candidates().len(), 2);
+        assert_eq!(span.tokens.total_tokens(), 31);
+        assert_eq!(span.tokens.input_tokens(), Some(3));
+        assert_eq!(
+            span.first_activity_at,
+            chrono::DateTime::from_timestamp_millis(early + 1)
+        );
+        assert_eq!(old.tokens.total_tokens(), 19);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 3);
+        assert_eq!(ledger.scoped_folds(), 0);
+
+        let second = collector
+            .collect(session_catch_up("lifetime-second"), &NeverCancelled)
+            .expect("second incremental session collection");
+        let span = session_candidate(&second, "session-span");
+        assert_eq!(second.session_candidates().len(), 1);
+        assert_eq!(span.tokens.total_tokens(), 31);
+        assert_eq!(span.tokens.input_tokens(), Some(3));
+        assert_eq!(
+            span.first_activity_at,
+            chrono::DateTime::from_timestamp_millis(early + 1)
+        );
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_eq!(latest_stat(&diagnostics, "sessionsSkipped"), 1);
+        assert_eq!(ledger.scoped_folds(), 1);
+
+        let daily = collector
+            .collect(
+                incremental_daily_request("lifetime-daily", "UTC", start, end),
+                &NeverCancelled,
+            )
+            .expect("windowed daily collection");
+        assert_eq!(daily.daily_candidates().len(), 1);
+        assert_eq!(
+            daily.daily_candidates()[0].usage_date,
+            chrono::NaiveDate::from_ymd_opt(2026, 10, 12).expect("in-window day")
+        );
+        assert_eq!(daily.daily_candidates()[0].tokens.total_tokens(), 16);
+        assert_eq!(daily.daily_candidates()[0].tokens.input_tokens(), Some(2));
+        assert_eq!(ledger.scoped_folds(), 2);
+    }
+
+    fn session_candidate<'a>(
+        result: &'a crate::application::collection::CollectionResult,
+        session_id: &str,
+    ) -> &'a crate::application::collection::SessionUsageCandidate {
+        result
+            .session_candidates()
+            .iter()
+            .find(|candidate| candidate.source_session_id == session_id)
+            .unwrap_or_else(|| panic!("missing {session_id}"))
+    }
+
+    #[test]
+    fn redundancy_proof_skips_the_id_scan_until_the_ignored_table_grows() {
+        let fixture = Fixture::new(true, true);
+        let connection = fixture.source();
+        insert_v1_session(
+            &connection,
+            "session-proof",
+            Counters::message(5),
+            0.25,
+            1_000,
+        );
+        insert_v1_message(&connection, "message-proof", "session-proof", 5, 1_100);
+        insert_v2_message(
+            &connection,
+            "message-proof",
+            "session-proof",
+            9,
+            1_200,
+            true,
+        );
+        drop(connection);
+        fixture
+            .source()
+            .execute("DROP TABLE session_v2", [])
+            .expect("drop residual V2 session table");
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        collector
+            .collect(incremental_session_request("proof-first"), &NeverCancelled)
+            .expect("first proof");
+        assert_eq!(latest_stat(&diagnostics, "redundancyScans"), 1);
+
+        collector
+            .collect(incremental_session_request("proof-second"), &NeverCancelled)
+            .expect("stored proof skips the scan");
+        assert_eq!(latest_stat(&diagnostics, "redundancyScans"), 0);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_stats_are_redacted(
+            &diagnostics,
+            &fixture,
+            &[
+                "session-proof",
+                "message-proof",
+                "PRIVATE_PROMPT_SENTINEL",
+                "PRIVATE_RESPONSE_SENTINEL",
+            ],
+        );
+
+        collector
+            .collect(
+                session_request("proof-full", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect("full scope scans despite a stored proof");
+        assert_eq!(latest_stat(&diagnostics, "redundancyScans"), 1);
+
+        fixture
+            .source()
+            .execute(
+                "INSERT INTO session_message (
+                    id, session_id, type, seq, time_created, time_updated, data
+                 ) VALUES (
+                    'late-residual', 'session-proof', 'assistant', 2, 1_300, 1_300, '{}'
+                 )",
+                [],
+            )
+            .expect("unmatched ignored row");
+        let failure = collector
+            .collect(incremental_session_request("proof-third"), &NeverCancelled)
+            .expect_err("new ignored id fails closed");
+        assert_eq!(failure.code, CollectorFailureCode::IncompatibleEnvelope);
+        let events = diagnostics.events();
+        let failed = events
+            .iter()
+            .rev()
+            .find(|event| event.code.as_str() == "opencode.collection_failed")
+            .expect("failure diagnostic");
+        let context = failed.context.as_ref().expect("context").as_str();
+        assert!(!context.contains("late-residual"));
+        assert!(!context.contains("session-proof"));
+        assert!(!context.contains("PRIVATE_PROMPT_SENTINEL"));
         assert!(!context.contains(fixture.directory.path().to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn missing_ignored_detail_table_fails_closed() {
+        let fixture = Fixture::new(true, false);
+        let connection = fixture.source();
+        insert_v1_session(&connection, "session-v1", Counters::message(5), 0.25, 1_000);
+        insert_v1_message(&connection, "message-v1", "session-v1", 5, 1_100);
+        connection
+            .execute_batch(
+                "CREATE TABLE session_v2 (
+                    id TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER,
+                    tokens_reasoning INTEGER, tokens_cache_read INTEGER,
+                    tokens_cache_write INTEGER, time_created INTEGER,
+                    time_updated INTEGER, time_idle INTEGER
+                );",
+            )
+            .expect("incomplete V2 session table");
+        drop(connection);
+
+        let failure = fixture
+            .collector()
+            .collect(
+                session_request("missing-detail", SourceKey::OpenCode, Utc::now()),
+                &NeverCancelled,
+            )
+            .expect_err("missing ignored detail table");
+        assert_eq!(failure.code, CollectorFailureCode::IncompatibleEnvelope);
     }
 
     struct Fixture {
@@ -1803,6 +3037,36 @@ mod tests {
         fn collector(&self) -> OpenCodeCollector {
             OpenCodeCollector::from_database_path(&self.source_path, self.ledger())
         }
+
+        fn counting_collector(
+            &self,
+            diagnostics: Arc<RecordingDiagnostics>,
+        ) -> (OpenCodeCollector, Arc<CountingLedger>) {
+            let ledger = Arc::new(CountingLedger::new(SqliteOpenCodeUsageLedgerStore::new(
+                Database::open(&self.ledger_path).expect("ledger connection"),
+            )));
+            let collector = OpenCodeCollector::from_database_path(
+                &self.source_path,
+                Arc::clone(&ledger) as Arc<dyn OpenCodeUsageLedger>,
+            )
+            .with_diagnostic_recorder(diagnostics);
+            (collector, ledger)
+        }
+
+        fn isolated_collector(&self, name: &str) -> OpenCodeCollector {
+            let ledger_path = self.directory.path().join(name);
+            let mut database = Database::open(&ledger_path).expect("isolated ledger");
+            database
+                .migrate_to_latest()
+                .expect("migrate isolated ledger");
+            drop(database);
+            OpenCodeCollector::from_database_path(
+                &self.source_path,
+                Arc::new(SqliteOpenCodeUsageLedgerStore::new(
+                    Database::open(&ledger_path).expect("reopen isolated ledger"),
+                )),
+            )
+        }
     }
 
     struct CancelAfter {
@@ -1825,6 +3089,209 @@ mod tests {
         }
     }
 
+    struct CountingLedger {
+        inner: SqliteOpenCodeUsageLedgerStore,
+        session_record_reads: AtomicUsize,
+        scoped_folds: AtomicUsize,
+    }
+
+    impl CountingLedger {
+        fn new(inner: SqliteOpenCodeUsageLedgerStore) -> Self {
+            Self {
+                inner,
+                session_record_reads: AtomicUsize::new(0),
+                scoped_folds: AtomicUsize::new(0),
+            }
+        }
+
+        fn session_record_reads(&self) -> usize {
+            self.session_record_reads.load(Ordering::SeqCst)
+        }
+
+        fn scoped_folds(&self) -> usize {
+            self.scoped_folds.load(Ordering::SeqCst)
+        }
+    }
+
+    impl OpenCodeUsageLedger for CountingLedger {
+        fn reconcile_session(
+            &self,
+            snapshot: &OpenCodeSessionLedgerSnapshot,
+        ) -> Result<OpenCodeLedgerReconcileResult, OpenCodeUsageLedgerError> {
+            self.inner.reconcile_session(snapshot)
+        }
+
+        fn read_checkpoint(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<OpenCodeSessionCheckpoint>, OpenCodeUsageLedgerError> {
+            self.inner.read_checkpoint(session_id)
+        }
+
+        fn read_session_records(
+            &self,
+            session_id: &str,
+        ) -> Result<Vec<OpenCodeLedgerRecord>, OpenCodeUsageLedgerError> {
+            self.session_record_reads.fetch_add(1, Ordering::SeqCst);
+            self.inner.read_session_records(session_id)
+        }
+
+        fn session_activity_bounds(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<OpenCodeActivityBounds>, OpenCodeUsageLedgerError> {
+            self.inner.session_activity_bounds(session_id)
+        }
+
+        fn fold_scoped_records(
+            &self,
+            session_id: &str,
+            activity_window_ms: Option<(i64, i64)>,
+            visitor: &mut dyn FnMut(OpenCodeLedgerRecord) -> Result<(), OpenCodeUsageLedgerError>,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.scoped_folds.fetch_add(1, Ordering::SeqCst);
+            self.inner
+                .fold_scoped_records(session_id, activity_window_ms, visitor)
+        }
+
+        fn store_message_cursor(
+            &self,
+            session_id: &str,
+            cursor: Option<&str>,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner.store_message_cursor(session_id, cursor)
+        }
+
+        fn read_deferred_message_ids(
+            &self,
+            session_id: &str,
+        ) -> Result<Vec<String>, OpenCodeUsageLedgerError> {
+            self.inner.read_deferred_message_ids(session_id)
+        }
+
+        fn store_message_progress(
+            &self,
+            session_id: &str,
+            cursor: Option<&str>,
+            deferred_message_ids: &[String],
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner
+                .store_message_progress(session_id, cursor, deferred_message_ids)
+        }
+
+        fn read_redundancy_proof(
+            &self,
+        ) -> Result<Option<OpenCodeRedundancyProof>, OpenCodeUsageLedgerError> {
+            self.inner.read_redundancy_proof()
+        }
+
+        fn write_redundancy_proof(
+            &self,
+            proof: &OpenCodeRedundancyProof,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner.write_redundancy_proof(proof)
+        }
+    }
+
+    struct ReconcileGate {
+        inner: SqliteOpenCodeUsageLedgerStore,
+        fail: AtomicBool,
+    }
+
+    impl ReconcileGate {
+        fn new(inner: SqliteOpenCodeUsageLedgerStore) -> Self {
+            Self {
+                inner,
+                fail: AtomicBool::new(false),
+            }
+        }
+
+        fn fail_next(&self) {
+            self.fail.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl OpenCodeUsageLedger for ReconcileGate {
+        fn reconcile_session(
+            &self,
+            snapshot: &OpenCodeSessionLedgerSnapshot,
+        ) -> Result<OpenCodeLedgerReconcileResult, OpenCodeUsageLedgerError> {
+            if self.fail.swap(false, Ordering::SeqCst) {
+                return Err(OpenCodeUsageLedgerError::Storage);
+            }
+            self.inner.reconcile_session(snapshot)
+        }
+
+        fn read_checkpoint(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<OpenCodeSessionCheckpoint>, OpenCodeUsageLedgerError> {
+            self.inner.read_checkpoint(session_id)
+        }
+
+        fn read_session_records(
+            &self,
+            session_id: &str,
+        ) -> Result<Vec<OpenCodeLedgerRecord>, OpenCodeUsageLedgerError> {
+            self.inner.read_session_records(session_id)
+        }
+
+        fn session_activity_bounds(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<OpenCodeActivityBounds>, OpenCodeUsageLedgerError> {
+            self.inner.session_activity_bounds(session_id)
+        }
+
+        fn fold_scoped_records(
+            &self,
+            session_id: &str,
+            activity_window_ms: Option<(i64, i64)>,
+            visitor: &mut dyn FnMut(OpenCodeLedgerRecord) -> Result<(), OpenCodeUsageLedgerError>,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner
+                .fold_scoped_records(session_id, activity_window_ms, visitor)
+        }
+
+        fn store_message_cursor(
+            &self,
+            session_id: &str,
+            cursor: Option<&str>,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner.store_message_cursor(session_id, cursor)
+        }
+
+        fn read_deferred_message_ids(
+            &self,
+            session_id: &str,
+        ) -> Result<Vec<String>, OpenCodeUsageLedgerError> {
+            self.inner.read_deferred_message_ids(session_id)
+        }
+
+        fn store_message_progress(
+            &self,
+            session_id: &str,
+            cursor: Option<&str>,
+            deferred_message_ids: &[String],
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner
+                .store_message_progress(session_id, cursor, deferred_message_ids)
+        }
+
+        fn read_redundancy_proof(
+            &self,
+        ) -> Result<Option<OpenCodeRedundancyProof>, OpenCodeUsageLedgerError> {
+            self.inner.read_redundancy_proof()
+        }
+
+        fn write_redundancy_proof(
+            &self,
+            proof: &OpenCodeRedundancyProof,
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner.write_redundancy_proof(proof)
+        }
+    }
+
     fn incremental_session_request(collection_id: &str) -> CollectionRequest {
         CollectionRequest::session(
             CollectionId::new(collection_id).expect("collection ID"),
@@ -1836,6 +3303,123 @@ mod tests {
             .expect("incremental scope"),
             Utc::now(),
         )
+    }
+
+    fn wide_dates() -> (chrono::NaiveDate, chrono::NaiveDate) {
+        (
+            chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("start date"),
+            chrono::NaiveDate::from_ymd_opt(2099, 12, 31).expect("end date"),
+        )
+    }
+
+    fn incremental_daily_request(
+        collection_id: &str,
+        timezone: &str,
+        start: chrono::NaiveDate,
+        end: chrono::NaiveDate,
+    ) -> CollectionRequest {
+        daily_request(
+            collection_id,
+            SourceKey::OpenCode,
+            CollectionScope::incremental(start, end).expect("incremental scope"),
+            timezone,
+            Utc::now(),
+        )
+    }
+
+    fn latest_stat(diagnostics: &RecordingDiagnostics, key: &str) -> u64 {
+        let events = diagnostics.events();
+        let event = events
+            .iter()
+            .rev()
+            .find(|event| event.code.as_str() == "opencode.collection_stats")
+            .expect("collection stats");
+        let context = event.context.as_ref().expect("context").as_str();
+        let value: serde_json::Value = serde_json::from_str(context).expect("stats json");
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or_else(|| panic!("missing {key}"))
+    }
+
+    fn assert_stats_are_redacted(
+        diagnostics: &RecordingDiagnostics,
+        fixture: &Fixture,
+        forbidden: &[&str],
+    ) {
+        let events = diagnostics.events();
+        let event = events
+            .iter()
+            .rev()
+            .find(|event| event.code.as_str() == "opencode.collection_stats")
+            .expect("collection stats");
+        let context = event.context.as_ref().expect("context").as_str();
+        assert!(!context.contains(fixture.directory.path().to_string_lossy().as_ref()));
+        for token in forbidden {
+            assert!(
+                !context.contains(token),
+                "{token} leaked into collection stats"
+            );
+        }
+    }
+
+    fn checkpoint_cursor(ledger: &Connection, session_id: &str) -> Option<String> {
+        ledger
+            .query_row(
+                "SELECT last_source_message_id
+                 FROM opencode_session_checkpoint
+                 WHERE session_id = ?1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .expect("cursor")
+    }
+
+    fn checkpoint_costs(ledger: &Connection, session_id: &str) -> (Option<i64>, Option<i64>) {
+        ledger
+            .query_row(
+                "SELECT accepted_cost_micros, observed_cost_micros
+                 FROM opencode_session_checkpoint
+                 WHERE session_id = ?1",
+                [session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("checkpoint costs")
+    }
+
+    fn checkpoint_reconciled_at(ledger: &Connection, session_id: &str) -> i64 {
+        ledger
+            .query_row(
+                "SELECT last_reconciled_at_ms
+                 FROM opencode_session_checkpoint
+                 WHERE session_id = ?1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .expect("reconciled at")
+    }
+
+    fn deferred_message_ids(ledger: &Connection, session_id: &str) -> Vec<String> {
+        let mut statement = ledger
+            .prepare(
+                "SELECT message_id
+                 FROM opencode_deferred_message
+                 WHERE session_id = ?1
+                 ORDER BY message_id ASC",
+            )
+            .expect("deferred query");
+        statement
+            .query_map([session_id], |row| row.get(0))
+            .expect("deferred rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("deferred ids")
+    }
+
+    fn model_input(result: &crate::application::collection::CollectionResult) -> u64 {
+        result.session_candidates()[0].model_breakdowns[0]
+            .tokens
+            .input_tokens()
+            .expect("model input")
     }
 
     #[derive(Clone, Copy)]
@@ -1989,13 +3573,35 @@ mod tests {
             .expect("update V2 session");
     }
 
-    fn insert_v1_message(
+    fn update_v1_session(
         connection: &Connection,
         id: &str,
-        session_id: &str,
-        input: i64,
-        created_at: i64,
+        counters: Counters,
+        cost: f64,
+        updated_at: i64,
     ) {
+        connection
+            .execute(
+                "UPDATE session SET
+                    cost = ?2, tokens_input = ?3, tokens_output = ?4,
+                    tokens_reasoning = ?5, tokens_cache_read = ?6,
+                    tokens_cache_write = ?7, time_updated = ?8
+                 WHERE id = ?1",
+                params![
+                    id,
+                    cost,
+                    counters.input,
+                    counters.output,
+                    counters.reasoning,
+                    counters.cache_read,
+                    counters.cache_write,
+                    updated_at
+                ],
+            )
+            .expect("update V1 session");
+    }
+
+    fn update_v1_message(connection: &Connection, id: &str, input: i64, created_at: i64) {
         let payload = json!({
             "role": "assistant",
             "providerID": "provider-v1",
@@ -2006,6 +3612,45 @@ mod tests {
                 "cache": {"read": 4, "write": 5}
             },
             "cost": 0.25,
+            "content": {"prompt": "PRIVATE_PROMPT_SENTINEL"}
+        })
+        .to_string();
+        connection
+            .execute(
+                "UPDATE message SET time_created = ?2, time_updated = ?2, data = ?3 WHERE id = ?1",
+                params![id, created_at, payload],
+            )
+            .expect("update V1 message");
+    }
+
+    fn insert_v1_message(
+        connection: &Connection,
+        id: &str,
+        session_id: &str,
+        input: i64,
+        created_at: i64,
+    ) {
+        insert_v1_message_cost(connection, id, session_id, input, created_at, 0.25);
+    }
+
+    fn insert_v1_message_cost(
+        connection: &Connection,
+        id: &str,
+        session_id: &str,
+        input: i64,
+        created_at: i64,
+        cost: f64,
+    ) {
+        let payload = json!({
+            "role": "assistant",
+            "providerID": "provider-v1",
+            "modelID": "model",
+            "time": {"created": created_at, "completed": created_at + 1},
+            "tokens": {
+                "input": input, "output": 2, "reasoning": 3,
+                "cache": {"read": 4, "write": 5}
+            },
+            "cost": cost,
             "content": {"prompt": "PRIVATE_PROMPT_SENTINEL"}
         })
         .to_string();

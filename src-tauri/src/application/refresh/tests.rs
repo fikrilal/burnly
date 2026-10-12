@@ -47,6 +47,7 @@ struct FakeRunStore {
     import_outcomes: Mutex<Vec<ImportOutcome>>,
     import_scopes: Mutex<Vec<CollectionScope>>,
     latest_imports: Mutex<Vec<SuccessfulImportState>>,
+    retention_calls: Mutex<Vec<i64>>,
     failure: Mutex<Option<RunStoreFailure>>,
     next_id: AtomicUsize,
 }
@@ -68,6 +69,7 @@ enum RunStoreFailure {
     BeginImport,
     CompleteImport,
     CompleteRefresh,
+    DeleteExpired,
 }
 
 impl FakeRunStore {
@@ -77,6 +79,7 @@ impl FakeRunStore {
             import_outcomes: Mutex::new(Vec::new()),
             import_scopes: Mutex::new(Vec::new()),
             latest_imports: Mutex::new(Vec::new()),
+            retention_calls: Mutex::new(Vec::new()),
             failure: Mutex::new(None),
             next_id: AtomicUsize::new(1),
         }
@@ -106,6 +109,10 @@ impl FakeRunStore {
 
     fn refresh_outcomes(&self) -> Vec<RefreshOutcome> {
         self.refresh_outcomes.lock().expect("lock").clone()
+    }
+
+    fn retention_calls(&self) -> Vec<i64> {
+        self.retention_calls.lock().expect("lock").clone()
     }
 
     fn import_outcomes(&self) -> Vec<ImportOutcome> {
@@ -191,6 +198,14 @@ impl RunStore for FakeRunStore {
                 state.source() == lookup.source() && state.projection() == lookup.projection()
             })
             .cloned())
+    }
+
+    fn delete_expired_import_runs(&self, now_ms: i64) -> Result<u64, RunStoreError> {
+        self.retention_calls.lock().expect("lock").push(now_ms);
+        if self.take_failure(RunStoreFailure::DeleteExpired) {
+            return Err(RunStoreError::Backend);
+        }
+        Ok(0)
     }
 }
 
@@ -657,6 +672,7 @@ fn complete_collection_reconciles_and_succeeds() {
         run_store.refresh_outcomes(),
         repeated_refresh_outcomes(RefreshOutcome::Succeeded)
     );
+    assert_eq!(run_store.retention_calls(), vec![1_000]);
 }
 
 #[test]
@@ -916,6 +932,7 @@ fn partial_collection_reports_partial_without_failing() {
         run_store.refresh_outcomes(),
         repeated_refresh_outcomes(RefreshOutcome::Partial)
     );
+    assert!(run_store.retention_calls().is_empty());
 }
 
 #[test]
@@ -938,6 +955,37 @@ fn failed_collection_records_failure_and_changes_no_facts() {
     assert!(usage_store.reconciled_outcomes().is_empty());
     assert!(run_store.import_outcomes().is_empty());
     assert_eq!(run_store.refresh_outcomes(), vec![RefreshOutcome::Failed]);
+    assert!(run_store.retention_calls().is_empty());
+}
+
+#[test]
+fn retention_error_keeps_the_successful_refresh() {
+    let collector = empty_collector();
+    let (coordinator, run_store, _usage_store) = coordinator_with(collector);
+    let diagnostics = Arc::new(RecordingDiagnosticRecorder::default());
+    coordinator.set_diagnostic_recorder(diagnostics.clone());
+    run_store.fail_once(RunStoreFailure::DeleteExpired);
+
+    coordinator.request_refresh(RefreshTrigger::Manual);
+    let snapshot = await_terminal(&coordinator);
+
+    assert_eq!(snapshot.status, RefreshStatus::Succeeded);
+    assert_eq!(
+        run_store.refresh_outcomes(),
+        repeated_refresh_outcomes(RefreshOutcome::Succeeded)
+    );
+    assert_eq!(run_store.retention_calls().len(), 1);
+    let events = diagnostics.events();
+    assert_eq!(events.len(), 1);
+    let event = &events[0];
+    assert_eq!(event.area, DiagnosticArea::Refresh);
+    assert_eq!(event.severity, DiagnosticSeverity::Warning);
+    assert_eq!(event.code.as_str(), "refresh.import_retention_failed");
+    assert_eq!(
+        event.summary.as_str(),
+        "Could not delete expired import runs."
+    );
+    assert!(event.context.is_none());
 }
 
 #[test]

@@ -97,6 +97,7 @@ pub(crate) fn collect_app_ide_sqlite_fallback(
 fn read_app_ide_conversation(
     conversation: &ConversationDatabase,
 ) -> Result<Vec<super::AntigravityUsageRecord>, AppIdeSqliteFallbackOutcome> {
+    super::cli_sqlite_reader::note_conversation_sqlite_open();
     let connection = match open_external_read_only(&conversation.path) {
         Ok(connection) => connection,
         Err(_) => return Err(AppIdeSqliteFallbackOutcome::OpenFailed),
@@ -197,6 +198,7 @@ mod tests {
                 .to_owned(),
             path: path.to_path_buf(),
             modified_at: Utc.with_ymd_and_hms(2026, 7, 2, 8, 0, 0).unwrap(),
+            file_length: 0,
         }
     }
 

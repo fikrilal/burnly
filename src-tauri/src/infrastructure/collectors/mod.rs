@@ -8,5 +8,7 @@ pub(crate) mod grok;
 pub(crate) mod opencode;
 pub(crate) mod routed;
 mod support;
+#[cfg(test)]
+pub(crate) use support::{clear_source_open_gate, SourceOpenGate};
 pub(crate) mod zcode;
 pub(crate) mod zed;
