@@ -294,24 +294,7 @@ impl OpenCodeReadSnapshot<'_> {
         let rows = statement
             .query_map(
                 params![session_id, after_id, page_size.sqlite_limit()],
-                |row| {
-                    Ok(RawMessageUsage {
-                        id: row.get(0)?,
-                        session_id: row.get(1)?,
-                        generation: row.get(2)?,
-                        created_at_ms: row.get(3)?,
-                        completed_at_ms: row.get(4)?,
-                        provider_id: row.get(5)?,
-                        model_id: row.get(6)?,
-                        input: row.get(7)?,
-                        output: row.get(8)?,
-                        reasoning: row.get(9)?,
-                        cache_read: row.get(10)?,
-                        cache_write: row.get(11)?,
-                        cost_usd: row.get(12)?,
-                        has_error_object: row.get::<_, i64>(13)? != 0,
-                    })
-                },
+                raw_message_from_row,
             )
             .map_err(OpenCodeStoreError::Query)?
             .collect::<Result<Vec<_>, _>>()
@@ -330,6 +313,58 @@ impl OpenCodeReadSnapshot<'_> {
             last_row_id,
             non_usage_error_rows,
         })
+    }
+
+    /// Point-reads one assistant row. `Ok(None)` is a missing row or a
+    /// non-usage error row. V2 wins when the same id exists in both
+    /// generations.
+    pub(crate) fn read_message_by_id(
+        &self,
+        session_id: &str,
+        message_id: &str,
+    ) -> Result<Option<OpenCodeMessageUsage>, OpenCodeStoreError> {
+        let mut rows = self.read_messages_by_id(session_id, &[message_id])?;
+        Ok(rows.pop().flatten())
+    }
+
+    /// Point-reads assistant rows with one prepared statement. Order matches
+    /// `message_ids`. `Ok(None)` is a missing row or a non-usage error row.
+    pub(crate) fn read_messages_by_id(
+        &self,
+        session_id: &str,
+        message_ids: &[&str],
+    ) -> Result<Vec<Option<OpenCodeMessageUsage>>, OpenCodeStoreError> {
+        if session_id.trim().is_empty() {
+            return Err(OpenCodeStoreError::InvalidCursor);
+        }
+        if message_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = message_by_id_query(self.inspection);
+        let mut statement = self
+            .transaction
+            .prepare(sql)
+            .map_err(OpenCodeStoreError::Query)?;
+        let mut found = Vec::with_capacity(message_ids.len());
+        for message_id in message_ids {
+            if message_id.trim().is_empty() {
+                return Err(OpenCodeStoreError::InvalidCursor);
+            }
+            let rows = statement
+                .query_map(params![session_id, message_id], raw_message_from_row)
+                .map_err(OpenCodeStoreError::Query)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(OpenCodeStoreError::Query)?;
+            if rows.len() > 1 {
+                return Err(OpenCodeStoreError::Incompatible);
+            }
+            let usage = match rows.into_iter().next() {
+                Some(row) => row.into_usage()?,
+                None => None,
+            };
+            found.push(usage);
+        }
+        Ok(found)
     }
 }
 
@@ -375,6 +410,25 @@ impl TryFrom<RawSessionHeader> for OpenCodeSessionHeader {
             cost_usd: value.cost_usd,
         })
     }
+}
+
+fn raw_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawMessageUsage> {
+    Ok(RawMessageUsage {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        generation: row.get(2)?,
+        created_at_ms: row.get(3)?,
+        completed_at_ms: row.get(4)?,
+        provider_id: row.get(5)?,
+        model_id: row.get(6)?,
+        input: row.get(7)?,
+        output: row.get(8)?,
+        reasoning: row.get(9)?,
+        cache_read: row.get(10)?,
+        cache_write: row.get(11)?,
+        cost_usd: row.get(12)?,
+        has_error_object: row.get::<_, i64>(13)? != 0,
+    })
 }
 
 struct RawMessageUsage {
@@ -529,6 +583,15 @@ fn message_query(inspection: OpenCodeSchemaInspection) -> &'static str {
     }
 }
 
+fn message_by_id_query(inspection: OpenCodeSchemaInspection) -> &'static str {
+    match (inspection.has_v1(), inspection.has_v2()) {
+        (true, false) => V1_MESSAGE_BY_ID_QUERY,
+        (false, true) => V2_MESSAGE_BY_ID_QUERY,
+        (true, true) => COMBINED_MESSAGE_BY_ID_QUERY,
+        (false, false) => unreachable!("schema inspection rejects unsupported databases"),
+    }
+}
+
 const V1_SESSION_QUERY: &str = "
     SELECT
         s.id, 1 AS generation, s.time_created, s.time_updated, NULL AS time_idle,
@@ -644,6 +707,80 @@ const COMBINED_MESSAGE_QUERY: &str = "
       AND NOT EXISTS (SELECT 1 FROM session_message v WHERE v.id = m.id)
     ORDER BY id ASC
     LIMIT ?3";
+
+const V1_MESSAGE_BY_ID_QUERY: &str = "
+    SELECT
+        m.id, m.session_id, 1 AS generation,
+        json_extract(m.data, '$.time.created'),
+        json_extract(m.data, '$.time.completed'),
+        json_extract(m.data, '$.providerID'),
+        json_extract(m.data, '$.modelID'),
+        json_extract(m.data, '$.tokens.input'),
+        json_extract(m.data, '$.tokens.output'),
+        json_extract(m.data, '$.tokens.reasoning'),
+        json_extract(m.data, '$.tokens.cache.read'),
+        json_extract(m.data, '$.tokens.cache.write'),
+        json_extract(m.data, '$.cost'),
+        0
+    FROM message m
+    WHERE m.session_id = ?1
+      AND m.id = ?2
+      AND json_extract(m.data, '$.role') = 'assistant'";
+const V2_MESSAGE_BY_ID_QUERY: &str = "
+    SELECT
+        m.id, m.session_id, 2 AS generation,
+        json_extract(m.data, '$.time.created'),
+        json_extract(m.data, '$.time.completed'),
+        json_extract(m.data, '$.model.providerID'),
+        json_extract(m.data, '$.model.id'),
+        json_extract(m.data, '$.tokens.input'),
+        json_extract(m.data, '$.tokens.output'),
+        json_extract(m.data, '$.tokens.reasoning'),
+        json_extract(m.data, '$.tokens.cache.read'),
+        json_extract(m.data, '$.tokens.cache.write'),
+        json_extract(m.data, '$.cost'),
+        CASE WHEN json_type(m.data, '$.error') = 'object' THEN 1 ELSE 0 END
+    FROM session_message m
+    WHERE m.session_id = ?1
+      AND m.id = ?2
+      AND m.type = 'assistant'";
+const COMBINED_MESSAGE_BY_ID_QUERY: &str = "
+    SELECT
+        m.id, m.session_id, 2 AS generation,
+        json_extract(m.data, '$.time.created'),
+        json_extract(m.data, '$.time.completed'),
+        json_extract(m.data, '$.model.providerID'),
+        json_extract(m.data, '$.model.id'),
+        json_extract(m.data, '$.tokens.input'),
+        json_extract(m.data, '$.tokens.output'),
+        json_extract(m.data, '$.tokens.reasoning'),
+        json_extract(m.data, '$.tokens.cache.read'),
+        json_extract(m.data, '$.tokens.cache.write'),
+        json_extract(m.data, '$.cost'),
+        CASE WHEN json_type(m.data, '$.error') = 'object' THEN 1 ELSE 0 END
+    FROM session_message m
+    WHERE m.session_id = ?1
+      AND m.id = ?2
+      AND m.type = 'assistant'
+    UNION ALL
+    SELECT
+        m.id, m.session_id, 1 AS generation,
+        json_extract(m.data, '$.time.created'),
+        json_extract(m.data, '$.time.completed'),
+        json_extract(m.data, '$.providerID'),
+        json_extract(m.data, '$.modelID'),
+        json_extract(m.data, '$.tokens.input'),
+        json_extract(m.data, '$.tokens.output'),
+        json_extract(m.data, '$.tokens.reasoning'),
+        json_extract(m.data, '$.tokens.cache.read'),
+        json_extract(m.data, '$.tokens.cache.write'),
+        json_extract(m.data, '$.cost'),
+        0
+    FROM message m
+    WHERE m.session_id = ?1
+      AND m.id = ?2
+      AND json_extract(m.data, '$.role') = 'assistant'
+      AND NOT EXISTS (SELECT 1 FROM session_message v WHERE v.id = m.id)";
 
 #[cfg(test)]
 mod tests {
@@ -1106,7 +1243,14 @@ mod tests {
         assert!(!debug.contains("PRIVATE_PROMPT_SENTINEL"));
         assert!(!debug.contains("PRIVATE_RESPONSE_SENTINEL"));
         assert!(!debug.contains("PRIVATE_TOOL_SENTINEL"));
-        for sql in [V1_MESSAGE_QUERY, V2_MESSAGE_QUERY, COMBINED_MESSAGE_QUERY] {
+        for sql in [
+            V1_MESSAGE_QUERY,
+            V2_MESSAGE_QUERY,
+            COMBINED_MESSAGE_QUERY,
+            V1_MESSAGE_BY_ID_QUERY,
+            V2_MESSAGE_BY_ID_QUERY,
+            COMBINED_MESSAGE_BY_ID_QUERY,
+        ] {
             assert!(!sql.contains("$.content"));
             assert!(!sql.contains("$.title"));
             assert!(!sql.contains("$.directory"));
@@ -1183,6 +1327,66 @@ mod tests {
             snapshot.read_messages_page("", None, page_size(1)),
             Err(OpenCodeStoreError::InvalidCursor)
         ));
+        assert!(matches!(
+            snapshot.read_message_by_id(" ", "message-1"),
+            Err(OpenCodeStoreError::InvalidCursor)
+        ));
+        assert!(matches!(
+            snapshot.read_message_by_id("session-1", " "),
+            Err(OpenCodeStoreError::InvalidCursor)
+        ));
+    }
+
+    #[test]
+    fn point_read_prefers_v2_and_skips_non_usage_error_rows() {
+        let database = FixtureDatabase::new(true, true);
+        let connection = database.write();
+        insert_v2_session(&connection, "session-point", 20);
+        insert_v1_message(&connection, "message-shared", "session-point", 11, 7);
+        insert_v2_message(&connection, "message-shared", "session-point", 21, 9, true);
+        insert_v1_message(&connection, "message-v1-only", "session-point", 12, 3);
+        insert_v2_message(&connection, "message-live", "session-point", 22, 4, false);
+        let error_payload = json!({
+            "model": {"providerID": "provider-v2", "id": "shared-model"},
+            "time": {"created": 23, "completed": 24},
+            "error": {"name": "ProviderError"}
+        })
+        .to_string();
+        connection
+            .execute(
+                "INSERT INTO session_message
+                    (id, session_id, type, seq, time_created, time_updated, data)
+                 VALUES ('message-error', 'session-point', 'assistant', 23, 23, 23, ?1)",
+                [error_payload],
+            )
+            .expect("error row");
+        drop(connection);
+
+        let mut store = OpenCodeStore::open_read_only(&database.path).expect("store");
+        let snapshot = store.begin_snapshot().expect("snapshot");
+        let rows = snapshot
+            .read_messages_by_id(
+                "session-point",
+                &[
+                    "message-shared",
+                    "message-v1-only",
+                    "message-live",
+                    "message-error",
+                    "message-missing",
+                ],
+            )
+            .expect("point reads");
+
+        let shared = rows[0].as_ref().expect("shared row");
+        assert_eq!(shared.generation, OpenCodeGeneration::V2);
+        assert_eq!(shared.tokens.input, 9);
+        let v1_only = rows[1].as_ref().expect("v1 row");
+        assert_eq!(v1_only.generation, OpenCodeGeneration::V1);
+        assert_eq!(v1_only.tokens.input, 3);
+        let live = rows[2].as_ref().expect("live row");
+        assert!(live.completed_at_ms.is_none());
+        assert!(rows[3].is_none());
+        assert!(rows[4].is_none());
     }
 
     fn page_size(value: usize) -> OpenCodePageSize {

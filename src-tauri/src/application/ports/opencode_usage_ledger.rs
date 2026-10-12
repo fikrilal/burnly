@@ -215,6 +215,22 @@ pub(crate) trait OpenCodeUsageLedger: Send + Sync {
         cursor: Option<&str>,
     ) -> Result<(), OpenCodeUsageLedgerError>;
 
+    fn read_deferred_message_ids(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<String>, OpenCodeUsageLedgerError>;
+
+    /// Replaces the scan high-water mark and the incomplete message ids after
+    /// a successful reconcile. The cursor is the last scanned source row,
+    /// including deferred and non-usage rows. `None` means that read returned
+    /// no rows.
+    fn store_message_progress(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+        deferred_message_ids: &[String],
+    ) -> Result<(), OpenCodeUsageLedgerError>;
+
     fn read_redundancy_proof(
         &self,
     ) -> Result<Option<OpenCodeRedundancyProof>, OpenCodeUsageLedgerError>;

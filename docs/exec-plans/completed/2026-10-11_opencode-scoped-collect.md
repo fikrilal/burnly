@@ -199,6 +199,11 @@ existing full collect, which production refresh does not request.
 - The cursor stays at the last completed id before the first deferred live
   row. Later completed messages in that pass are still reconciled. The next
   incremental collect re-reads from the hole, and reconcile dedupes.
+  Superseded by
+  `docs/exec-plans/completed/2026-10-11_opencode-deferred-message-progress.md`:
+  `last_source_message_id` is the last scanned row, including deferred and
+  non-usage rows, and incomplete ids are point-read from
+  `opencode_deferred_message`.
 - Session scope has no aggregation timezone. Its activity window uses UTC.
   Daily scope uses the request timezone. A window that cannot be computed
   does not skip and does not add a SQL filter.

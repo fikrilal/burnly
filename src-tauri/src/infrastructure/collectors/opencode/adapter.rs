@@ -1,5 +1,6 @@
 //! Native OpenCode collector orchestration.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
@@ -425,13 +426,31 @@ impl OpenCodeCollector {
                         } else {
                             None
                         };
-                        let read = self.read_messages_after(
+                        // Full scope replaces the deferred set from its scan.
+                        // Incremental scope point-reads only ids still open.
+                        let stored_deferred = if incremental {
+                            self.ledger
+                                .read_deferred_message_ids(&session.id)
+                                .map_err(|_| internal(request))?
+                        } else {
+                            Vec::new()
+                        };
+                        let mut read = self.read_messages_after(
                             &snapshot,
                             &session.id,
                             after_message_id,
                             cancellation,
                             request,
                         )?;
+                        if incremental {
+                            self.retry_deferred_messages(
+                                &snapshot,
+                                &session.id,
+                                &stored_deferred,
+                                &mut read,
+                                request,
+                            )?;
+                        }
                         stats.message_pages = stats.message_pages.saturating_add(read.pages);
                         stats.messages_read =
                             stats.messages_read.saturating_add(read.messages_read);
@@ -475,6 +494,7 @@ impl OpenCodeCollector {
                             )
                             .map_err(|()| incompatible(request))?,
                             next_cursor: read.next_cursor,
+                            deferred_ids: read.deferred_ids,
                         });
                     }
                     work
@@ -512,13 +532,18 @@ impl OpenCodeCollector {
                     SessionWork::Reconcile {
                         snapshot,
                         next_cursor,
+                        deferred_ids,
                     } => {
                         let result = self
                             .ledger
                             .reconcile_session(&snapshot)
                             .map_err(|_| internal(request))?;
                         self.ledger
-                            .store_message_cursor(&snapshot.session_id, next_cursor.as_deref())
+                            .store_message_progress(
+                                &snapshot.session_id,
+                                next_cursor.as_deref(),
+                                &deferred_ids,
+                            )
                             .map_err(|_| internal(request))?;
                         stats.include(&result);
                         projection
@@ -566,8 +591,9 @@ impl OpenCodeCollector {
     ) -> Result<MessageRead, CollectorFailure> {
         let mut page_cursor = after.map(str::to_owned);
         let mut next_cursor = after.map(str::to_owned);
-        let mut hole = false;
         let mut messages = Vec::new();
+        let mut deferred_ids = Vec::new();
+        let mut seen_ids = HashSet::new();
         let mut deferred = 0_u64;
         let mut messages_read = 0_u64;
         let mut non_usage_error_rows = 0_u64;
@@ -582,17 +608,18 @@ impl OpenCodeCollector {
             }
             pages = pages.saturating_add(1);
             non_usage_error_rows = non_usage_error_rows.saturating_add(page.non_usage_error_rows);
+            // High water includes deferred and non-usage rows. Stopping at
+            // the last completed id makes the next pass re-read the tail.
+            next_cursor.clone_from(&page.last_row_id);
             page_cursor = page.last_row_id;
             for message in page.messages {
                 let incomplete_live_row = message.generation == OpenCodeGeneration::V2
                     && message.completed_at_ms.is_none();
+                seen_ids.insert(message.id.clone());
                 if incomplete_live_row {
-                    hole = true;
+                    deferred_ids.push(message.id);
                     deferred = deferred.saturating_add(1);
                 } else {
-                    if !hole {
-                        next_cursor = Some(message.id.clone());
-                    }
                     messages_read = messages_read.saturating_add(1);
                     messages.push(message);
                 }
@@ -600,12 +627,50 @@ impl OpenCodeCollector {
         }
         Ok(MessageRead {
             messages,
+            deferred_ids,
+            seen_ids,
             deferred,
             messages_read,
             non_usage_error_rows,
             pages,
             next_cursor,
         })
+    }
+
+    fn retry_deferred_messages(
+        &self,
+        snapshot: &super::OpenCodeReadSnapshot<'_>,
+        session_id: &str,
+        stored_ids: &[String],
+        read: &mut MessageRead,
+        request: &CollectionRequest,
+    ) -> Result<(), CollectorFailure> {
+        let mut pending = Vec::new();
+        for message_id in stored_ids {
+            // A page that still overlaps the old cursor already classified
+            // this id. Point-reading it again repeats the JSON row.
+            if read.seen_ids.insert(message_id.clone()) {
+                pending.push(message_id.as_str());
+            }
+        }
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let found = snapshot
+            .read_messages_by_id(session_id, &pending)
+            .map_err(|_| incompatible(request))?;
+        for message in found.into_iter().flatten() {
+            let still_incomplete =
+                message.generation == OpenCodeGeneration::V2 && message.completed_at_ms.is_none();
+            if still_incomplete {
+                read.deferred_ids.push(message.id);
+                read.deferred = read.deferred.saturating_add(1);
+            } else {
+                read.messages_read = read.messages_read.saturating_add(1);
+                read.messages.push(message);
+            }
+        }
+        Ok(())
     }
 
     fn record_failure(
@@ -707,6 +772,7 @@ enum SessionWork {
     Reconcile {
         snapshot: OpenCodeSessionLedgerSnapshot,
         next_cursor: Option<String>,
+        deferred_ids: Vec<String>,
     },
 }
 
@@ -728,6 +794,8 @@ enum CachedRead {
 
 struct MessageRead {
     messages: Vec<OpenCodeMessageUsage>,
+    deferred_ids: Vec<String>,
+    seen_ids: HashSet<String>,
     deferred: u64,
     messages_read: u64,
     non_usage_error_rows: u64,
@@ -2097,6 +2165,98 @@ mod tests {
     }
 
     #[test]
+    fn incremental_deferred_live_row_does_not_reread_the_completed_tail() {
+        let fixture = Fixture::new(false, true);
+        let updated_at = Utc::now().timestamp_millis();
+        let connection = fixture.source();
+        insert_v2_session(
+            &connection,
+            "session-hole",
+            Counters::new(11, 4, 6, 8, 10),
+            1.0,
+            updated_at,
+        );
+        insert_v2_message(&connection, "message-1", "session-hole", 5, 1_100, true);
+        insert_v2_message(&connection, "message-2", "session-hole", 4, 1_200, false);
+        insert_v2_message(&connection, "message-3", "session-hole", 6, 1_300, true);
+        drop(connection);
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let collector = fixture
+            .collector()
+            .with_diagnostic_recorder(diagnostics.clone());
+
+        let first = collector
+            .collect(incremental_session_request("hole-first"), &NeverCancelled)
+            .expect("first incremental collection");
+        assert_eq!(first.outcome(), CollectionOutcome::Partial);
+        assert_eq!(first.session_candidates()[0].tokens.total_tokens(), 39);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 2);
+        assert!(latest_stat(&diagnostics, "messagePages") >= 1);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-hole").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-hole"),
+            vec!["message-2".to_owned()]
+        );
+        drop(ledger);
+
+        let second = collector
+            .collect(incremental_session_request("hole-second"), &NeverCancelled)
+            .expect("unchanged incremental collection");
+        assert_eq!(second.outcome(), CollectionOutcome::Partial);
+        assert_eq!(
+            second.session_candidates()[0].tokens,
+            first.session_candidates()[0].tokens
+        );
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 0);
+        assert_eq!(latest_stat(&diagnostics, "messagePages"), 0);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-hole").as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            deferred_message_ids(&ledger, "session-hole"),
+            vec!["message-2".to_owned()]
+        );
+        drop(ledger);
+
+        let connection = fixture.source();
+        update_v2_session(
+            &connection,
+            "session-hole",
+            Counters::new(20, 6, 9, 12, 15),
+            1.5,
+            Utc::now().timestamp_millis(),
+        );
+        let payload = v2_payload(1_200, 9, true).to_string();
+        connection
+            .execute(
+                "UPDATE session_message SET data = ?1 WHERE id = 'message-2'",
+                [payload],
+            )
+            .expect("complete deferred message");
+        drop(connection);
+        let third = collector
+            .collect(incremental_session_request("hole-third"), &NeverCancelled)
+            .expect("completed deferred message");
+        assert_eq!(third.outcome(), CollectionOutcome::Complete);
+        assert_eq!(latest_stat(&diagnostics, "messagesRead"), 1);
+        assert_eq!(latest_stat(&diagnostics, "messagePages"), 0);
+        assert_eq!(third.session_candidates()[0].tokens.total_tokens(), 62);
+        assert_eq!(model_input(&third), 20);
+        let ledger = Connection::open(&fixture.ledger_path).expect("ledger reader");
+        assert_eq!(
+            checkpoint_cursor(&ledger, "session-hole").as_deref(),
+            Some("message-3")
+        );
+        assert!(deferred_message_ids(&ledger, "session-hole").is_empty());
+    }
+
+    #[test]
     fn incremental_collect_reads_only_new_messages_and_matches_full_totals() {
         let fixture = Fixture::new(true, false);
         let connection = fixture.source();
@@ -2689,6 +2849,23 @@ mod tests {
             self.inner.store_message_cursor(session_id, cursor)
         }
 
+        fn read_deferred_message_ids(
+            &self,
+            session_id: &str,
+        ) -> Result<Vec<String>, OpenCodeUsageLedgerError> {
+            self.inner.read_deferred_message_ids(session_id)
+        }
+
+        fn store_message_progress(
+            &self,
+            session_id: &str,
+            cursor: Option<&str>,
+            deferred_message_ids: &[String],
+        ) -> Result<(), OpenCodeUsageLedgerError> {
+            self.inner
+                .store_message_progress(session_id, cursor, deferred_message_ids)
+        }
+
         fn read_redundancy_proof(
             &self,
         ) -> Result<Option<OpenCodeRedundancyProof>, OpenCodeUsageLedgerError> {
@@ -2772,6 +2949,34 @@ mod tests {
                 "{token} leaked into collection stats"
             );
         }
+    }
+
+    fn checkpoint_cursor(ledger: &Connection, session_id: &str) -> Option<String> {
+        ledger
+            .query_row(
+                "SELECT last_source_message_id
+                 FROM opencode_session_checkpoint
+                 WHERE session_id = ?1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .expect("cursor")
+    }
+
+    fn deferred_message_ids(ledger: &Connection, session_id: &str) -> Vec<String> {
+        let mut statement = ledger
+            .prepare(
+                "SELECT message_id
+                 FROM opencode_deferred_message
+                 WHERE session_id = ?1
+                 ORDER BY message_id ASC",
+            )
+            .expect("deferred query");
+        statement
+            .query_map([session_id], |row| row.get(0))
+            .expect("deferred rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("deferred ids")
     }
 
     fn model_input(result: &crate::application::collection::CollectionResult) -> u64 {

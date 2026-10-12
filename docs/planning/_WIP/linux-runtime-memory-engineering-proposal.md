@@ -12,14 +12,19 @@ is not an execution plan.
 
 The OpenCode scope-delta chunk is complete at
 `docs/exec-plans/completed/2026-10-11_opencode-scoped-collect.md`.
+The deferred live-write tail re-read, the remaining OpenCode source read
+from that chunk, is fixed at
+`docs/exec-plans/completed/2026-10-11_opencode-deferred-message-progress.md`.
 Antigravity unread files, collector connection lifetime, `import_runs`
 retention, and the Linux compositing experiment stay in this proposal. They
 do not start until a later plan is moved to `docs/exec-plans/active/`.
 
-The completed plan supersedes three sentences below. The cursor commits once
-per successful session reconcile, not once per page. A successful full
-collect stores the last completed message id from that read, and stores null
-only when the read had no completed message. A shrinking incremental header
+The completed plans supersede the sentences below. The cursor commits once
+per successful session reconcile, not once per page. That cursor is the last
+scanned source row, including deferred and non-usage rows. It stores null
+only when the read returned no rows. Incomplete message ids are stored
+separately and point-read on the next incremental pass, so a completed tail
+after a live row is not range-read again. A shrinking incremental header
 folds the existing ledger and does not reconcile a suffix. The redundancy
 proof stores no database path.
 

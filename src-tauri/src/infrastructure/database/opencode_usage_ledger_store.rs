@@ -3,7 +3,7 @@
     reason = "chunk 2 establishes the ledger store wired into the native adapter in chunk 4"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -209,6 +209,47 @@ impl OpenCodeUsageLedger for SqliteOpenCodeUsageLedgerStore {
         } else {
             Err(OpenCodeUsageLedgerError::Storage)
         }
+    }
+
+    fn read_deferred_message_ids(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<String>, OpenCodeUsageLedgerError> {
+        validate_identity(session_id)?;
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        select_deferred_message_ids(database.connection(), session_id)
+    }
+
+    fn store_message_progress(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+        deferred_message_ids: &[String],
+    ) -> Result<(), OpenCodeUsageLedgerError> {
+        validate_identity(session_id)?;
+        if let Some(cursor) = cursor {
+            validate_identity(cursor)?;
+        }
+        let mut deferred_ids = BTreeSet::new();
+        for message_id in deferred_message_ids {
+            validate_identity(message_id)?;
+            deferred_ids.insert(message_id.as_str());
+        }
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        let transaction = database
+            .connection_mut()
+            .transaction()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        replace_message_progress(&transaction, session_id, cursor, &deferred_ids)?;
+        transaction
+            .commit()
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)
     }
 
     fn read_redundancy_proof(
@@ -953,6 +994,65 @@ fn select_records(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
     Ok(records)
+}
+
+fn select_deferred_message_ids(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<Vec<String>, OpenCodeUsageLedgerError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT message_id
+             FROM opencode_deferred_message
+             WHERE session_id = ?1
+             ORDER BY message_id ASC",
+        )
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    let ids = statement
+        .query_map([session_id], |row| row.get(0))
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    Ok(ids)
+}
+
+fn replace_message_progress(
+    transaction: &Transaction<'_>,
+    session_id: &str,
+    cursor: Option<&str>,
+    deferred_ids: &BTreeSet<&str>,
+) -> Result<(), OpenCodeUsageLedgerError> {
+    let updated = transaction
+        .execute(
+            "UPDATE opencode_session_checkpoint
+             SET last_source_message_id = ?2
+             WHERE session_id = ?1",
+            params![session_id, cursor],
+        )
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    if updated != 1 {
+        return Err(OpenCodeUsageLedgerError::Storage);
+    }
+    transaction
+        .execute(
+            "DELETE FROM opencode_deferred_message WHERE session_id = ?1",
+            [session_id],
+        )
+        .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+    {
+        let mut insert = transaction
+            .prepare(
+                "INSERT INTO opencode_deferred_message (session_id, message_id)
+                 VALUES (?1, ?2)",
+            )
+            .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        for message_id in deferred_ids {
+            insert
+                .execute(params![session_id, *message_id])
+                .map_err(|_| OpenCodeUsageLedgerError::Storage)?;
+        }
+    }
+    Ok(())
 }
 
 fn map_checkpoint(row: &rusqlite::Row<'_>) -> Result<OpenCodeSessionCheckpoint, rusqlite::Error> {
@@ -1746,6 +1846,91 @@ mod tests {
         assert_eq!(
             store
                 .store_message_cursor("missing-session", Some("message-cursor"))
+                .expect_err("missing checkpoint"),
+            OpenCodeUsageLedgerError::Storage
+        );
+    }
+
+    #[test]
+    fn message_progress_round_trips_deferred_ids_and_rejects_a_bad_replacement() {
+        let (_database, store) = migrated_store();
+        store
+            .reconcile_session(&snapshot(
+                "session-progress",
+                4,
+                vec![exact("message-progress", 4, OpenCodeExactOrigin::V2Message)],
+                100,
+                OpenCodeRecoveryDisposition::Ready,
+            ))
+            .expect("initial reconcile");
+        store
+            .store_message_progress(
+                "session-progress",
+                Some("message-3"),
+                &[
+                    "message-2".to_owned(),
+                    "message-2".to_owned(),
+                    "message-1".to_owned(),
+                ],
+            )
+            .expect("store progress");
+        assert_eq!(
+            store
+                .read_deferred_message_ids("session-progress")
+                .expect("deferred ids"),
+            vec!["message-1".to_owned(), "message-2".to_owned()]
+        );
+
+        store
+            .reconcile_session(&snapshot(
+                "session-progress",
+                4,
+                vec![exact("message-progress", 4, OpenCodeExactOrigin::V2Message)],
+                120,
+                OpenCodeRecoveryDisposition::Ready,
+            ))
+            .expect("reconcile keeps progress");
+        assert_eq!(
+            store
+                .read_checkpoint("session-progress")
+                .expect("checkpoint")
+                .expect("present")
+                .last_source_message_id
+                .as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            store
+                .read_deferred_message_ids("session-progress")
+                .expect("deferred ids survive reconcile"),
+            vec!["message-1".to_owned(), "message-2".to_owned()]
+        );
+
+        store
+            .store_message_progress("session-progress", Some("message-3"), &[])
+            .expect("clear deferred ids");
+        assert!(store
+            .read_deferred_message_ids("session-progress")
+            .expect("cleared ids")
+            .is_empty());
+        assert_eq!(
+            store
+                .store_message_progress("session-progress", Some("message-3"), &[" ".to_owned()])
+                .expect_err("empty deferred id"),
+            OpenCodeUsageLedgerError::IncompatibleSnapshot
+        );
+        assert_eq!(
+            store
+                .read_checkpoint("session-progress")
+                .expect("checkpoint")
+                .expect("present")
+                .last_source_message_id
+                .as_deref(),
+            Some("message-3")
+        );
+        assert_eq!(
+            store
+                .store_message_progress("missing-session", Some("message-3"), &[])
                 .expect_err("missing checkpoint"),
             OpenCodeUsageLedgerError::Storage
         );
