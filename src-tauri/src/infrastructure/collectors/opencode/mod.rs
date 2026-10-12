@@ -28,7 +28,7 @@ pub(crate) use discovery::resolve_opencode_database;
 )]
 pub(crate) use mapper::{
     map_daily, map_sessions, source_cost_usd_to_micros, OpenCodeMappingContext,
-    OpenCodeMappingError,
+    OpenCodeMappingError, ScopedDailyFold, ScopedSessionFold,
 };
 #[allow(
     unused_imports,

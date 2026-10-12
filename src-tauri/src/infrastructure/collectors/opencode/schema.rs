@@ -19,6 +19,21 @@ pub(crate) enum OpenCodeGenerationState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpenCodeDetailTable {
+    Message,
+    SessionMessage,
+}
+
+impl OpenCodeDetailTable {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Message => "message",
+            Self::SessionMessage => "session_message",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OpenCodeSchemaReason {
     MissingSessionTable,
     MissingDetailTable,
@@ -62,6 +77,29 @@ impl OpenCodeSchemaInspection {
                 _ => None,
             },
             None => None,
+        }
+    }
+
+    pub(crate) const fn ignored_detail_table(self) -> Option<OpenCodeDetailTable> {
+        if self.redundancy_generations().is_none() {
+            return None;
+        }
+        match self.ignored_generation() {
+            Some(OpenCodeGeneration::V1) => Some(OpenCodeDetailTable::Message),
+            Some(OpenCodeGeneration::V2) => Some(OpenCodeDetailTable::SessionMessage),
+            None => None,
+        }
+    }
+
+    /// Generations label stored in the path-free redundancy proof.
+    /// `v2-ignored` means a complete V1 schema and an incomplete V2 schema.
+    pub(crate) const fn redundancy_generations(self) -> Option<&'static str> {
+        if self.has_v1() && matches!(self.v2, OpenCodeGenerationState::Incomplete(_)) {
+            Some("v2-ignored")
+        } else if self.has_v2() && matches!(self.v1, OpenCodeGenerationState::Incomplete(_)) {
+            Some("v1-ignored")
+        } else {
+            None
         }
     }
 }
@@ -214,9 +252,11 @@ fn table_names(connection: &Connection) -> Result<HashSet<String>, OpenCodeSchem
 /// selected row, which means ignoring would silently drop usage.
 pub(crate) fn redundancy_exceeded(
     connection: &Connection,
-    ignored_message_table: &'static str,
-    selected_message_table: &'static str,
+    ignored_message_table: OpenCodeDetailTable,
+    selected_message_table: OpenCodeDetailTable,
 ) -> Result<bool, OpenCodeSchemaError> {
+    let ignored_message_table = ignored_message_table.name();
+    let selected_message_table = selected_message_table.name();
     let sql = format!(
         "SELECT EXISTS(
             SELECT 1 FROM {ignored_message_table} i

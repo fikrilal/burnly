@@ -9,7 +9,8 @@ use thiserror::Error;
 
 use super::super::support::open_external_read_only;
 use super::schema::{
-    inspect_schema, OpenCodeGeneration, OpenCodeSchemaError, OpenCodeSchemaInspection,
+    inspect_schema, redundancy_exceeded, OpenCodeDetailTable, OpenCodeGeneration,
+    OpenCodeSchemaError, OpenCodeSchemaInspection,
 };
 use crate::application::collection::CollectorFailureCode;
 
@@ -200,12 +201,44 @@ impl OpenCodeReadSnapshot<'_> {
     /// when the residue is NOT fully redundant (ignoring would drop usage).
     pub(crate) fn redundancy_exceeded(&self) -> Result<bool, OpenCodeStoreError> {
         let (ignored, selected) = match (self.inspection.has_v1(), self.inspection.has_v2()) {
-            (true, false) => ("session_message", "message"),
-            (false, true) => ("message", "session_message"),
+            (true, false) => (
+                OpenCodeDetailTable::SessionMessage,
+                OpenCodeDetailTable::Message,
+            ),
+            (false, true) => (
+                OpenCodeDetailTable::Message,
+                OpenCodeDetailTable::SessionMessage,
+            ),
             _ => return Ok(false),
         };
-        super::schema::redundancy_exceeded(&self.transaction, ignored, selected)
+        redundancy_exceeded(&self.transaction, ignored, selected)
             .map_err(OpenCodeStoreError::Schema)
+    }
+
+    pub(crate) fn page_count(&self) -> Result<u64, OpenCodeStoreError> {
+        let count: i64 = self
+            .transaction
+            .query_row("PRAGMA page_count", [], |row| row.get(0))
+            .map_err(OpenCodeStoreError::Query)?;
+        u64::try_from(count).map_err(|_| OpenCodeStoreError::Incompatible)
+    }
+
+    pub(crate) fn detail_high_water(
+        &self,
+        table: OpenCodeDetailTable,
+    ) -> Result<(Option<i64>, u64), OpenCodeStoreError> {
+        let sql = match table {
+            OpenCodeDetailTable::Message => "SELECT MAX(rowid), COUNT(*) FROM message",
+            OpenCodeDetailTable::SessionMessage => {
+                "SELECT MAX(rowid), COUNT(*) FROM session_message"
+            }
+        };
+        let (max_rowid, count): (Option<i64>, i64) = self
+            .transaction
+            .query_row(sql, [], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(OpenCodeStoreError::Query)?;
+        let count = u64::try_from(count).map_err(|_| OpenCodeStoreError::Incompatible)?;
+        Ok((max_rowid, count))
     }
 
     pub(crate) fn read_sessions_page(
