@@ -15,9 +15,13 @@ The OpenCode scope-delta chunk is complete at
 The deferred live-write tail re-read, the remaining OpenCode source read
 from that chunk, is fixed at
 `docs/exec-plans/completed/2026-10-11_opencode-deferred-message-progress.md`.
-Antigravity unread files, collector connection lifetime, `import_runs`
-retention, and the Linux compositing experiment stay in this proposal. They
-do not start until a later plan is moved to `docs/exec-plans/active/`.
+The Antigravity unchanged-file skip is complete at
+`docs/exec-plans/completed/2026-10-11_antigravity-unchanged-file-skip.md`.
+Collector connection lifetime and `import_runs` retention are implemented.
+The Linux compositing trial was reverted: the packaged run kept `libLLVM`
+and `libnvidia-eglcore` mapped and did not drop idle RSS by 100 MB. The
+reverted AppImage passed the read gates. See
+`docs/exec-plans/completed/2026-10-11_linux-compositing-live-gate.md`.
 
 The completed plans supersede the sentences below. The cursor commits once
 per successful session reconcile, not once per page. That cursor is the last
