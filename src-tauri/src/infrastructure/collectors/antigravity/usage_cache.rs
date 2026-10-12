@@ -8,6 +8,7 @@ use crate::application::ports::antigravity_usage_cache::{
     AntigravityUsageCacheError, AntigravityUsageCacheReconcileResult, AntigravityUsageCacheUpsert,
     CachedAntigravityUsageRecord,
 };
+use crate::infrastructure::database::AntigravityConversationCheckpoint;
 
 use super::mapper::ConversationUsage;
 use super::product_variant::AntigravityProductVariant;
@@ -102,13 +103,37 @@ impl AntigravityUsageCache for NoOpAntigravityUsageCache {
     }
 }
 
+impl AntigravityConversationCheckpoint for NoOpAntigravityUsageCache {
+    fn unchanged_conversation_is_cached(
+        &self,
+        _fingerprint: &str,
+        _file_length: i64,
+        _file_mtime_ms: i64,
+        _variant: &str,
+        _conversation_id: &str,
+    ) -> Result<bool, AntigravityUsageCacheError> {
+        Ok(false)
+    }
+
+    fn store_conversation_checkpoint(
+        &self,
+        _fingerprint: &str,
+        _file_length: i64,
+        _file_mtime_ms: i64,
+        _variant: &str,
+        _conversation_id: &str,
+    ) -> Result<(), AntigravityUsageCacheError> {
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct AntigravityUsageCacheClient {
-    cache: Arc<dyn AntigravityUsageCache>,
+    cache: Arc<dyn AntigravityConversationCheckpoint>,
 }
 
 impl AntigravityUsageCacheClient {
-    pub(crate) fn new(cache: Arc<dyn AntigravityUsageCache>) -> Self {
+    pub(crate) fn new(cache: Arc<dyn AntigravityConversationCheckpoint>) -> Self {
         Self { cache }
     }
 
@@ -222,6 +247,40 @@ impl AntigravityUsageCacheClient {
             records_used,
             used_cache: records_used > 0,
         })
+    }
+
+    pub(crate) fn unchanged_conversation_is_cached(
+        &self,
+        fingerprint: &str,
+        file_length: i64,
+        file_mtime_ms: i64,
+        variant: &str,
+        conversation_id: &str,
+    ) -> Result<bool, AntigravityUsageCacheError> {
+        self.cache.unchanged_conversation_is_cached(
+            fingerprint,
+            file_length,
+            file_mtime_ms,
+            variant,
+            conversation_id,
+        )
+    }
+
+    pub(crate) fn store_conversation_checkpoint(
+        &self,
+        fingerprint: &str,
+        file_length: i64,
+        file_mtime_ms: i64,
+        variant: &str,
+        conversation_id: &str,
+    ) -> Result<(), AntigravityUsageCacheError> {
+        self.cache.store_conversation_checkpoint(
+            fingerprint,
+            file_length,
+            file_mtime_ms,
+            variant,
+            conversation_id,
+        )
     }
 }
 
@@ -352,6 +411,30 @@ pub(crate) mod tests {
         }
     }
 
+    impl AntigravityConversationCheckpoint for RecordingUsageCache {
+        fn unchanged_conversation_is_cached(
+            &self,
+            _fingerprint: &str,
+            _file_length: i64,
+            _file_mtime_ms: i64,
+            _variant: &str,
+            _conversation_id: &str,
+        ) -> Result<bool, AntigravityUsageCacheError> {
+            Ok(false)
+        }
+
+        fn store_conversation_checkpoint(
+            &self,
+            _fingerprint: &str,
+            _file_length: i64,
+            _file_mtime_ms: i64,
+            _variant: &str,
+            _conversation_id: &str,
+        ) -> Result<(), AntigravityUsageCacheError> {
+            Ok(())
+        }
+    }
+
     impl RecordingUsageCache {
         pub(crate) fn seed(self, records: Vec<CachedAntigravityUsageRecord>) -> Self {
             *self.records.lock().expect("records") = records;
@@ -369,6 +452,7 @@ pub(crate) mod tests {
             conversation_id: conversation_id.to_owned(),
             path: conversation_id.into(),
             modified_at,
+            file_length: 0,
         }
     }
 

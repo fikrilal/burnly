@@ -1,10 +1,11 @@
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use crate::application::collection::{
     CollectionMetadata, CollectionPeriod, CollectionProjection, CollectionRequest,
@@ -21,6 +22,7 @@ use crate::application::ports::antigravity_baseline_store::{
     AntigravityBaselineStatus, AntigravityBaselineStore, AntigravityBaselineVariant,
     NoopAntigravityBaselineStore,
 };
+use crate::application::ports::antigravity_usage_cache::AntigravityUsageCacheError;
 use crate::application::ports::collector::{CancellationSignal, Collector};
 use crate::application::ports::diagnostic_recorder::DiagnosticRecorder;
 use crate::domain::source::SourceKey;
@@ -97,9 +99,7 @@ impl AntigravityCollector {
 
     pub(crate) fn with_diagnostic_recorder(
         diagnostics: Arc<dyn DiagnosticRecorder>,
-        usage_cache: Arc<
-            dyn crate::application::ports::antigravity_usage_cache::AntigravityUsageCache,
-        >,
+        usage_cache: Arc<dyn crate::infrastructure::database::AntigravityConversationCheckpoint>,
     ) -> Self {
         Self {
             diagnostics: Some(diagnostics),
@@ -467,6 +467,9 @@ impl Collector for AntigravityCollector {
             .filter(|conversation| is_sqlite_artifact(&conversation.path))
             .count();
         diagnostics.conversations_found = conversations.len();
+        let opened = self
+            .conversations_to_open(&conversations, request.scope())
+            .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
 
         let mut pending_variants = Vec::new();
         for baseline_variant in AntigravityBaselineVariant::all() {
@@ -522,7 +525,7 @@ impl Collector for AntigravityCollector {
         let mut collected_usage = Vec::new();
         let mut sqlite_report = CliSqliteCollectionReport::default();
         let mut app_ide_report = AppIdeSqliteCollectionReport::default();
-        for batch in conversations.chunks(CONVERSATION_BATCH_SIZE) {
+        for batch in opened.chunks(CONVERSATION_BATCH_SIZE) {
             if cancellation.is_cancelled() {
                 return Err(failure(&request, CollectorFailureCode::Cancelled));
             }
@@ -583,7 +586,7 @@ impl Collector for AntigravityCollector {
         }
 
         let runtime_targets = conversations_needing_runtime(
-            &conversations,
+            &opened,
             &collected_usage,
             &endpoints,
             &sqlite_report.parsed_conversation_ids,
@@ -685,6 +688,13 @@ impl Collector for AntigravityCollector {
             diagnostics.dated_first_seen_records = resolution.dated_first_seen_records;
         }
 
+        self.persist_opened_checkpoints(
+            &opened,
+            &sqlite_report.parsed_conversation_ids,
+            &app_ide_report.accepted_conversation_ids,
+        )
+        .map_err(|_| failure(&request, CollectorFailureCode::Internal))?;
+
         self.finish_collection(FinishCollectionInput {
             request: &request,
             started,
@@ -720,6 +730,67 @@ struct FinishCollectionInput<'a> {
 }
 
 impl AntigravityCollector {
+    fn conversations_to_open(
+        &self,
+        conversations: &[ConversationDatabase],
+        scope: &CollectionScope,
+    ) -> Result<Vec<ConversationDatabase>, AntigravityUsageCacheError> {
+        if matches!(scope, CollectionScope::Full) {
+            return Ok(conversations.to_vec());
+        }
+
+        let mut opened = Vec::new();
+        for conversation in conversations {
+            let Ok(file_length) = i64::try_from(conversation.file_length) else {
+                opened.push(conversation.clone());
+                continue;
+            };
+            let unchanged = self.usage_cache.unchanged_conversation_is_cached(
+                &conversation_fingerprint(&conversation.path),
+                file_length,
+                conversation.modified_at.timestamp_millis(),
+                conversation.variant.as_str(),
+                &conversation.conversation_id,
+            )?;
+            if !unchanged {
+                opened.push(conversation.clone());
+            }
+        }
+        Ok(opened)
+    }
+
+    fn persist_opened_checkpoints(
+        &self,
+        opened: &[ConversationDatabase],
+        cli_parsed: &BTreeSet<String>,
+        app_ide_accepted: &BTreeSet<String>,
+    ) -> Result<(), AntigravityUsageCacheError> {
+        for conversation in opened {
+            let parsed = match conversation.variant {
+                AntigravityProductVariant::Cli => {
+                    cli_parsed.contains(&conversation.conversation_id)
+                }
+                AntigravityProductVariant::App | AntigravityProductVariant::Ide => {
+                    app_ide_accepted.contains(&conversation.conversation_id)
+                }
+            };
+            if !parsed {
+                continue;
+            }
+            let Ok(file_length) = i64::try_from(conversation.file_length) else {
+                continue;
+            };
+            self.usage_cache.store_conversation_checkpoint(
+                &conversation_fingerprint(&conversation.path),
+                file_length,
+                conversation.modified_at.timestamp_millis(),
+                conversation.variant.as_str(),
+                &conversation.conversation_id,
+            )?;
+        }
+        Ok(())
+    }
+
     fn finish_collection(
         &self,
         input: FinishCollectionInput<'_>,
@@ -734,10 +805,17 @@ impl AntigravityCollector {
             pending_variants,
             runtime_failure,
         } = input;
+        // Session candidates replace lifetime totals, so cached history outside
+        // the catch-up window still belongs in the fold. Daily stays windowed.
+        let full_scope = CollectionScope::Full;
+        let supplement_scope = match request.projection() {
+            CollectionProjection::Session => &full_scope,
+            CollectionProjection::Daily => request.scope(),
+        };
         let supplement = self
             .usage_cache
             .supplement_usage(
-                request.scope(),
+                supplement_scope,
                 request.aggregation_timezone().unwrap_or("UTC"),
                 conversations,
                 &mut usage,
@@ -989,6 +1067,7 @@ fn conversation_for_summary(
             conversation_id: summary.cascade_id.clone(),
             path: PathBuf::new(),
             modified_at: Utc::now(),
+            file_length: 0,
         })
 }
 
@@ -1188,6 +1267,10 @@ fn dedupe_records(
         }
     }
     deduped
+}
+
+fn conversation_fingerprint(path: &Path) -> String {
+    format!("{:x}", Sha256::digest(path.as_os_str().as_encoded_bytes()))
 }
 
 fn bounded_conversations(
@@ -1974,6 +2057,609 @@ mod tests {
     }
 
     #[test]
+    fn incremental_collect_skips_unchanged_cli_file_and_keeps_cached_usage() {
+        use std::time::Duration;
+
+        use chrono::NaiveDate;
+        use rusqlite::{params, Connection};
+
+        use crate::infrastructure::collectors::antigravity::cli_sqlite_reader::{
+            conversation_sqlite_opens, reset_conversation_sqlite_opens,
+        };
+        use crate::infrastructure::collectors::antigravity::protobuf_usage::tests::{
+            sample_gen_metadata_blob, sample_trajectory_metadata_blob,
+        };
+
+        let data_root = TempDir::new().expect("tempdir");
+        let source_path = data_root
+            .path()
+            .join("antigravity-cli/conversations/cli-session.db");
+        if let Some(parent) = source_path.parent() {
+            fs::create_dir_all(parent).expect("parent dir");
+        }
+        let connection = Connection::open(&source_path).expect("open source");
+        connection
+            .execute_batch(
+                "CREATE TABLE gen_metadata (idx integer, data blob, size integer);
+                 CREATE TABLE trajectory_metadata_blob (id text, data blob);",
+            )
+            .expect("schema");
+        connection
+            .execute(
+                "INSERT INTO gen_metadata (idx, data, size) VALUES (0, ?1, 0)",
+                params![sample_gen_metadata_blob("response-cli")],
+            )
+            .expect("insert gen_metadata");
+        connection
+            .execute(
+                "INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?1)",
+                params![sample_trajectory_metadata_blob()],
+            )
+            .expect("insert trajectory metadata");
+        drop(connection);
+
+        let cache_dir = TempDir::new().expect("cache dir");
+        let cache_path = cache_dir.path().join("burnly.sqlite3");
+        let mut cache_database = Database::open(&cache_path).expect("open cache");
+        cache_database.migrate_to_latest().expect("migrate cache");
+        drop(cache_database);
+        let baseline = Connection::open(&cache_path).expect("baseline connection");
+        baseline
+            .execute(
+                "INSERT INTO antigravity_baseline_state (
+                    variant, status, started_at_ms, completed_at_ms, updated_at_ms
+                 ) VALUES ('antigravity-cli', 'complete', 1, 1, 1)",
+                [],
+            )
+            .expect("complete cli baseline");
+        drop(baseline);
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(Vec::new()),
+            AntigravityUsageCacheClient::new(Arc::new(SqliteAntigravityUsageCacheStore::new(
+                Database::open(&cache_path).expect("open cache store"),
+            ))),
+        );
+        let request = |collection_id: &str| {
+            support_daily_request(
+                collection_id,
+                SourceKey::Antigravity,
+                CollectionScope::incremental(
+                    NaiveDate::from_ymd_opt(1970, 1, 1).expect("start"),
+                    NaiveDate::from_ymd_opt(2099, 12, 31).expect("end"),
+                )
+                .expect("scope"),
+                "UTC",
+                Utc::now(),
+            )
+        };
+
+        reset_conversation_sqlite_opens();
+        let first = collector
+            .collect(request("unchanged-first"), &NeverCancelled)
+            .expect("first incremental collection");
+        assert_eq!(conversation_sqlite_opens(), 1);
+        assert_eq!(first.daily_candidates().len(), 1);
+        assert_eq!(first.daily_candidates()[0].tokens.input_tokens(), Some(150));
+        assert_eq!(first.daily_candidates()[0].tokens.output_tokens(), Some(25));
+
+        let second = collector
+            .collect(request("unchanged-second"), &NeverCancelled)
+            .expect("unchanged incremental collection");
+        assert_eq!(conversation_sqlite_opens(), 1);
+        assert_eq!(second.daily_candidates().len(), 1);
+        assert_eq!(
+            second.daily_candidates()[0].tokens,
+            first.daily_candidates()[0].tokens
+        );
+
+        let checkpoint = Connection::open(&cache_path).expect("checkpoint reader");
+        let mut column_statement = checkpoint
+            .prepare(
+                "SELECT name FROM pragma_table_info('antigravity_conversation_checkpoint') ORDER BY cid",
+            )
+            .expect("checkpoint columns");
+        let columns = column_statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("column rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("column names");
+        drop(column_statement);
+        assert_eq!(
+            columns,
+            vec![
+                "fingerprint",
+                "file_length",
+                "file_mtime_ms",
+                "variant",
+                "conversation_id",
+            ]
+        );
+        let (fingerprint, file_length, file_mtime_ms, variant, conversation_id): (
+            String,
+            i64,
+            i64,
+            String,
+            String,
+        ) = checkpoint
+            .query_row(
+                "SELECT fingerprint, file_length, file_mtime_ms, variant, conversation_id
+                 FROM antigravity_conversation_checkpoint",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("checkpoint row");
+        let cache_rows: i64 = checkpoint
+            .query_row(
+                "SELECT COUNT(*) FROM antigravity_usage_cache
+                 WHERE variant = 'antigravity-cli' AND conversation_id = 'cli-session'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("cache rows");
+        drop(checkpoint);
+        assert_eq!(cache_rows, 1);
+        assert_eq!(fingerprint, conversation_fingerprint(&source_path));
+        assert_eq!(fingerprint.len(), 64);
+        assert!(!fingerprint.contains(data_root.path().to_string_lossy().as_ref()));
+        assert!(!fingerprint.contains("cli-session"));
+        assert_eq!(variant, "antigravity-cli");
+        assert_eq!(conversation_id, "cli-session");
+        assert_eq!(
+            u64::try_from(file_length).expect("length"),
+            std::fs::metadata(&source_path)
+                .expect("source metadata")
+                .len()
+        );
+
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&source_path)
+            .expect("reopen source");
+        let modified = file
+            .metadata()
+            .expect("metadata")
+            .modified()
+            .expect("mtime");
+        file.set_modified(modified + Duration::from_secs(3600))
+            .expect("change mtime");
+        drop(file);
+
+        let third = collector
+            .collect(request("changed-mtime"), &NeverCancelled)
+            .expect("changed mtime collection");
+        assert_eq!(conversation_sqlite_opens(), 2);
+        assert_eq!(
+            third.daily_candidates()[0].tokens,
+            first.daily_candidates()[0].tokens
+        );
+        let updated_mtime: i64 = Connection::open(&cache_path)
+            .expect("updated checkpoint")
+            .query_row(
+                "SELECT file_mtime_ms FROM antigravity_conversation_checkpoint",
+                [],
+                |row| row.get(0),
+            )
+            .expect("updated mtime");
+        assert_ne!(updated_mtime, file_mtime_ms);
+    }
+
+    #[test]
+    fn unchanged_session_keeps_usage_from_before_the_incremental_window() {
+        use rusqlite::{params, Connection};
+
+        use crate::application::collection::CollectionId;
+        use crate::infrastructure::collectors::antigravity::cli_sqlite_reader::{
+            conversation_sqlite_opens, reset_conversation_sqlite_opens,
+        };
+
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let (_data_root, _cache_dir, _source_path, cache_path, collector) = cli_cache_fixture();
+        let collector = collector.with_test_diagnostics(diagnostics.clone());
+        reset_conversation_sqlite_opens();
+
+        let first = collector
+            .collect(
+                support_session_request(
+                    "lifetime-session-first",
+                    SourceKey::Antigravity,
+                    Utc::now(),
+                ),
+                &NeverCancelled,
+            )
+            .expect("full session collection");
+        assert_eq!(conversation_sqlite_opens(), 1);
+        assert_eq!(
+            first.session_candidates()[0].tokens.input_tokens(),
+            Some(150)
+        );
+
+        let cached_at_ms: i64 = Connection::open(&cache_path)
+            .expect("cache")
+            .query_row(
+                "SELECT observed_at_ms FROM antigravity_usage_cache
+                 WHERE variant = 'antigravity-cli' AND conversation_id = 'cli-session'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("cached activity");
+        let cached_day = chrono::DateTime::<Utc>::from_timestamp_millis(cached_at_ms)
+            .expect("cached time")
+            .date_naive();
+        let older_ms = cached_at_ms - 10 * 24 * 60 * 60 * 1000;
+        Connection::open(&cache_path)
+            .expect("cache")
+            .execute(
+                "INSERT INTO antigravity_usage_cache (
+                    dedupe_key, variant, conversation_id, response_id, raw_model_id,
+                    model_label, api_provider, input_tokens, output_tokens,
+                    thinking_output_tokens, response_output_tokens, cache_read_tokens,
+                    cache_write_tokens, observed_at_ms, collector_version,
+                    first_seen_at_ms, last_seen_at_ms, source_record_index,
+                    timestamp_origin, calendar_attribution
+                 ) VALUES (
+                    'antigravity-cli:cli-session:response-older', 'antigravity-cli',
+                    'cli-session', 'response-older', 'gemini-3-flash-a', 'gemini-3-flash-a',
+                    NULL, 40, 0, 0, 0, 0, 0, ?1, 'local-rpc', ?1, ?1, 1,
+                    'source_reported', 'dated'
+                 )",
+                params![older_ms],
+            )
+            .expect("older cache row");
+
+        let day_scope = CollectionScope::incremental(cached_day, cached_day).expect("day scope");
+        let second = collector
+            .collect(
+                CollectionRequest::session(
+                    CollectionId::new("lifetime-session-second").expect("collection id"),
+                    SourceKey::Antigravity,
+                    day_scope.clone(),
+                    Utc::now(),
+                ),
+                &NeverCancelled,
+            )
+            .expect("unchanged session collection");
+        let candidate = &second.session_candidates()[0];
+        assert_eq!(conversation_sqlite_opens(), 1);
+        assert_eq!(candidate.tokens.input_tokens(), Some(190));
+        assert_eq!(
+            candidate.first_activity_at,
+            chrono::DateTime::from_timestamp_millis(older_ms)
+        );
+        assert_eq!(
+            candidate.last_activity_at,
+            chrono::DateTime::from_timestamp_millis(cached_at_ms)
+        );
+        assert_eq!(latest_cache_records_read(&diagnostics), 2);
+
+        let daily = collector
+            .collect(
+                support_daily_request(
+                    "lifetime-daily",
+                    SourceKey::Antigravity,
+                    day_scope,
+                    "UTC",
+                    Utc::now(),
+                ),
+                &NeverCancelled,
+            )
+            .expect("windowed daily collection");
+        assert_eq!(conversation_sqlite_opens(), 1);
+        assert_eq!(daily.daily_candidates().len(), 1);
+        assert_eq!(daily.daily_candidates()[0].tokens.input_tokens(), Some(150));
+        assert_eq!(daily.daily_candidates()[0].usage_date, cached_day);
+        assert_eq!(latest_cache_records_read(&diagnostics), 1);
+    }
+
+    fn latest_cache_records_read(diagnostics: &RecordingDiagnostics) -> u64 {
+        let events = diagnostics.events();
+        let event = events
+            .iter()
+            .rev()
+            .find(|event| event.code.as_str() == "antigravity.collection_completed")
+            .expect("collection completed");
+        let context = event.context.as_ref().expect("context").as_str();
+        let value: serde_json::Value = serde_json::from_str(context).expect("diagnostic json");
+        value
+            .get("cacheRecordsRead")
+            .and_then(serde_json::Value::as_u64)
+            .expect("cacheRecordsRead")
+    }
+
+    fn cli_cache_fixture() -> (TempDir, TempDir, PathBuf, PathBuf, AntigravityCollector) {
+        use rusqlite::{params, Connection};
+
+        use crate::infrastructure::collectors::antigravity::protobuf_usage::tests::{
+            sample_gen_metadata_blob, sample_trajectory_metadata_blob,
+        };
+
+        let data_root = TempDir::new().expect("tempdir");
+        let source_path = data_root
+            .path()
+            .join("antigravity-cli/conversations/cli-session.db");
+        fs::create_dir_all(source_path.parent().expect("parent")).expect("parent dir");
+        let connection = Connection::open(&source_path).expect("open source");
+        connection
+            .execute_batch(
+                "CREATE TABLE gen_metadata (idx integer, data blob, size integer);
+                 CREATE TABLE trajectory_metadata_blob (id text, data blob);",
+            )
+            .expect("schema");
+        connection
+            .execute(
+                "INSERT INTO gen_metadata (idx, data, size) VALUES (0, ?1, 0)",
+                params![sample_gen_metadata_blob("response-cli")],
+            )
+            .expect("insert gen_metadata");
+        connection
+            .execute(
+                "INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?1)",
+                params![sample_trajectory_metadata_blob()],
+            )
+            .expect("insert trajectory metadata");
+        drop(connection);
+
+        let cache_dir = TempDir::new().expect("cache dir");
+        let cache_path = cache_dir.path().join("burnly.sqlite3");
+        let mut cache_database = Database::open(&cache_path).expect("open cache");
+        cache_database.migrate_to_latest().expect("migrate cache");
+        drop(cache_database);
+        let baseline = Connection::open(&cache_path).expect("baseline connection");
+        baseline
+            .execute(
+                "INSERT INTO antigravity_baseline_state (
+                    variant, status, started_at_ms, completed_at_ms, updated_at_ms
+                 ) VALUES ('antigravity-cli', 'complete', 1, 1, 1)",
+                [],
+            )
+            .expect("complete cli baseline");
+        drop(baseline);
+
+        let collector = AntigravityCollector::from_parts(
+            ConversationIndex::from_data_root(data_root.path()),
+            RuntimeDiscovery::from_processes(Vec::new()),
+            EndpointValidationSource::Passthrough,
+            RuntimeUsageSource::Fixed(Vec::new()),
+            AntigravityUsageCacheClient::new(Arc::new(SqliteAntigravityUsageCacheStore::new(
+                Database::open(&cache_path).expect("open cache store"),
+            ))),
+        );
+        (data_root, cache_dir, source_path, cache_path, collector)
+    }
+
+    fn wide_incremental(collection_id: &str) -> CollectionRequest {
+        use chrono::NaiveDate;
+
+        support_daily_request(
+            collection_id,
+            SourceKey::Antigravity,
+            CollectionScope::incremental(
+                NaiveDate::from_ymd_opt(1970, 1, 1).expect("start"),
+                NaiveDate::from_ymd_opt(2099, 12, 31).expect("end"),
+            )
+            .expect("scope"),
+            "UTC",
+            Utc::now(),
+        )
+    }
+
+    fn checkpoint_count(cache_path: &std::path::Path) -> i64 {
+        use rusqlite::Connection;
+
+        Connection::open(cache_path)
+            .expect("checkpoint reader")
+            .query_row(
+                "SELECT COUNT(*) FROM antigravity_conversation_checkpoint",
+                [],
+                |row| row.get(0),
+            )
+            .expect("checkpoint count")
+    }
+
+    #[test]
+    fn real_store_opens_unless_the_cached_file_identity_matches() {
+        use std::time::Duration;
+
+        use rusqlite::Connection;
+
+        use crate::infrastructure::collectors::antigravity::cli_sqlite_reader::{
+            conversation_sqlite_opens, reset_conversation_sqlite_opens,
+        };
+
+        let (_data_root, _cache_dir, source_path, cache_path, collector) = cli_cache_fixture();
+        reset_conversation_sqlite_opens();
+        let first = collector
+            .collect(wide_incremental("identity-first"), &NeverCancelled)
+            .expect("first incremental collection");
+        assert_eq!(conversation_sqlite_opens(), 1);
+        assert_eq!(first.daily_candidates()[0].tokens.input_tokens(), Some(150));
+
+        let full = collector
+            .collect(daily_request(SourceKey::Antigravity), &NeverCancelled)
+            .expect("full scope still opens a matching file");
+        assert_eq!(conversation_sqlite_opens(), 2);
+        assert_eq!(full.daily_candidates()[0].tokens.input_tokens(), Some(150));
+
+        Connection::open(&cache_path)
+            .expect("cache")
+            .execute("DELETE FROM antigravity_usage_cache", [])
+            .expect("drop cached usage");
+        collector
+            .collect(wide_incremental("identity-missing-cache"), &NeverCancelled)
+            .expect("missing cache row opens the file");
+        assert_eq!(conversation_sqlite_opens(), 3);
+        let cache_rows: i64 = Connection::open(&cache_path)
+            .expect("cache")
+            .query_row("SELECT COUNT(*) FROM antigravity_usage_cache", [], |row| {
+                row.get(0)
+            })
+            .expect("cache rows");
+        assert_eq!(cache_rows, 1);
+
+        Connection::open(&cache_path)
+            .expect("cache")
+            .execute(
+                "UPDATE antigravity_conversation_checkpoint SET file_length = file_length + 1",
+                [],
+            )
+            .expect("change length");
+        collector
+            .collect(wide_incremental("identity-length"), &NeverCancelled)
+            .expect("length change opens the file");
+        assert_eq!(conversation_sqlite_opens(), 4);
+
+        Connection::open(&cache_path)
+            .expect("cache")
+            .execute(
+                "UPDATE antigravity_conversation_checkpoint SET variant = 'antigravity'",
+                [],
+            )
+            .expect("change variant");
+        collector
+            .collect(wide_incremental("identity-variant"), &NeverCancelled)
+            .expect("variant change opens the file");
+        assert_eq!(conversation_sqlite_opens(), 5);
+
+        Connection::open(&cache_path)
+            .expect("cache")
+            .execute(
+                "UPDATE antigravity_conversation_checkpoint SET conversation_id = 'other'",
+                [],
+            )
+            .expect("change conversation id");
+        collector
+            .collect(wide_incremental("identity-conversation"), &NeverCancelled)
+            .expect("conversation id change opens the file");
+        assert_eq!(conversation_sqlite_opens(), 6);
+
+        Connection::open(&cache_path)
+            .expect("cache")
+            .execute(
+                "UPDATE antigravity_conversation_checkpoint
+                 SET fingerprint = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+                [],
+            )
+            .expect("change fingerprint");
+        collector
+            .collect(wide_incremental("identity-fingerprint"), &NeverCancelled)
+            .expect("fingerprint change opens the file");
+        assert_eq!(conversation_sqlite_opens(), 7);
+        let real_fingerprint = conversation_fingerprint(&source_path);
+        let stored_real: i64 = Connection::open(&cache_path)
+            .expect("cache")
+            .query_row(
+                "SELECT COUNT(*) FROM antigravity_conversation_checkpoint
+                 WHERE fingerprint = ?1 AND variant = 'antigravity-cli'
+                   AND conversation_id = 'cli-session'",
+                [real_fingerprint],
+                |row| row.get(0),
+            )
+            .expect("restored fingerprint");
+        assert_eq!(stored_real, 1);
+
+        let stored_mtime: i64 = Connection::open(&cache_path)
+            .expect("cache")
+            .query_row(
+                "SELECT file_mtime_ms FROM antigravity_conversation_checkpoint
+                 WHERE variant = 'antigravity-cli' AND conversation_id = 'cli-session'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("mtime before failed reconcile");
+        Connection::open(&cache_path)
+            .expect("cache")
+            .execute_batch(
+                "CREATE TRIGGER fail_cache_insert BEFORE INSERT ON antigravity_usage_cache
+                 BEGIN SELECT RAISE(ABORT, 'fail'); END;
+                 CREATE TRIGGER fail_cache_update BEFORE UPDATE ON antigravity_usage_cache
+                 BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+            )
+            .expect("fail cache writes");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(&source_path)
+            .expect("reopen source");
+        let modified = file
+            .metadata()
+            .expect("metadata")
+            .modified()
+            .expect("mtime");
+        file.set_modified(modified + Duration::from_secs(3600))
+            .expect("change mtime");
+        drop(file);
+        let failure = collector
+            .collect(
+                wide_incremental("identity-reconcile-fails"),
+                &NeverCancelled,
+            )
+            .expect_err("reconcile failure writes no checkpoint");
+        assert_eq!(failure.code, CollectorFailureCode::Internal);
+        assert_eq!(conversation_sqlite_opens(), 8);
+        let mtime_after: i64 = Connection::open(&cache_path)
+            .expect("cache")
+            .query_row(
+                "SELECT file_mtime_ms FROM antigravity_conversation_checkpoint
+                 WHERE variant = 'antigravity-cli' AND conversation_id = 'cli-session'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("mtime after failed reconcile");
+        assert_eq!(mtime_after, stored_mtime);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_error_is_not_stored_as_an_unchanged_skip() {
+        use std::os::unix::fs::PermissionsExt;
+
+        use crate::infrastructure::collectors::antigravity::cli_sqlite_reader::{
+            conversation_sqlite_opens, reset_conversation_sqlite_opens,
+        };
+
+        let (_data_root, _cache_dir, source_path, cache_path, collector) = cli_cache_fixture();
+        struct RestoreMode(PathBuf);
+        impl Drop for RestoreMode {
+            fn drop(&mut self) {
+                if let Ok(metadata) = fs::metadata(&self.0) {
+                    let mut perms = metadata.permissions();
+                    perms.set_mode(0o644);
+                    let _ = fs::set_permissions(&self.0, perms);
+                }
+            }
+        }
+        let _restore = RestoreMode(source_path.clone());
+        let mut perms = fs::metadata(&source_path).expect("metadata").permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&source_path, perms).expect("unreadable conversation");
+
+        reset_conversation_sqlite_opens();
+        let first = collector
+            .collect(wide_incremental("open-error-first"), &NeverCancelled)
+            .expect_err("an unreadable conversation is not a cached skip");
+        assert_eq!(first.code, CollectorFailureCode::SourceNotFound);
+        assert_eq!(conversation_sqlite_opens(), 1);
+        assert_eq!(checkpoint_count(&cache_path), 0);
+
+        let second = collector
+            .collect(wide_incremental("open-error-second"), &NeverCancelled)
+            .expect_err("the next incremental opens the file again");
+        assert_eq!(second.code, CollectorFailureCode::SourceNotFound);
+        assert_eq!(conversation_sqlite_opens(), 2);
+        assert_eq!(checkpoint_count(&cache_path), 0);
+    }
+
+    #[test]
     fn collects_daily_usage_from_runtime_records() {
         let (_directory, collector) = collector_with_usage();
 
@@ -2352,6 +3038,7 @@ mod tests {
             conversation_id: conversation_id.to_owned(),
             path: conversation_id.into(),
             modified_at: timestamp(),
+            file_length: 0,
         }
     }
 

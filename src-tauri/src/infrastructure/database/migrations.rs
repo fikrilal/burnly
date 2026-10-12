@@ -55,6 +55,10 @@ const MIGRATION_LIST: &[M<'static>] = &[
         "../../../migrations/0015_opencode_deferred_messages.sql"
     ))
     .foreign_key_check(),
+    M::up(include_str!(
+        "../../../migrations/0016_antigravity_conversation_checkpoint.sql"
+    ))
+    .foreign_key_check(),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -95,7 +99,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 25);
+        assert_eq!(table_count(test_database.database()), 26);
         assert!(all_product_tables_are_strict(test_database.database()));
         assert_foreign_keys_clean(test_database.database());
         assert_integrity_ok(test_database.database());
@@ -118,7 +122,7 @@ mod tests {
             schema_version(test_database.database()),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(table_count(test_database.database()), 25);
+        assert_eq!(table_count(test_database.database()), 26);
     }
 
     #[test]

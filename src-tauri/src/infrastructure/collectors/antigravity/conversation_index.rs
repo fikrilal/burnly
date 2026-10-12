@@ -16,6 +16,7 @@ pub(crate) struct ConversationDatabase {
     pub(crate) conversation_id: String,
     pub(crate) path: PathBuf,
     pub(crate) modified_at: DateTime<Utc>,
+    pub(crate) file_length: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +119,7 @@ impl ConversationIndex {
                 conversation_id: conversation_id.clone(),
                 path,
                 modified_at,
+                file_length: metadata.len(),
             };
             match databases.get(&conversation_id) {
                 Some(existing) if existing.modified_at >= database.modified_at => {}

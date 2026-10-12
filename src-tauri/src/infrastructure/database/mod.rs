@@ -23,7 +23,9 @@ pub(crate) use antigravity_baseline_repair::{
 };
 #[allow(unused_imports)]
 pub(crate) use antigravity_baseline_store::SqliteAntigravityBaselineStore;
-pub(crate) use antigravity_cache_store::SqliteAntigravityUsageCacheStore;
+pub(crate) use antigravity_cache_store::{
+    AntigravityConversationCheckpoint, SqliteAntigravityUsageCacheStore,
+};
 pub(crate) use bootstrap_store::SqliteBootstrapStore;
 #[allow(unused_imports)] // constructed by later collect-sync composition
 pub(crate) use collect_sync_store::SqliteCollectSyncStore;

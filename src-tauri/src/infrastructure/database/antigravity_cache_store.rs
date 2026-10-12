@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
-use rusqlite::{params, params_from_iter, ToSql};
+use rusqlite::{params, params_from_iter, OptionalExtension, ToSql};
 
 use crate::application::collection::CollectionScope;
 use crate::application::ports::antigravity_baseline_store::AntigravityBaselineStatus;
@@ -213,6 +213,112 @@ impl AntigravityUsageCache for SqliteAntigravityUsageCacheStore {
 
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|_| AntigravityUsageCacheError::Storage)
+    }
+}
+
+/// File identity for an unchanged conversation stays in the cache store.
+/// Application code does not see fingerprint, length, or mtime.
+pub(crate) trait AntigravityConversationCheckpoint: AntigravityUsageCache {
+    fn unchanged_conversation_is_cached(
+        &self,
+        fingerprint: &str,
+        file_length: i64,
+        file_mtime_ms: i64,
+        variant: &str,
+        conversation_id: &str,
+    ) -> Result<bool, AntigravityUsageCacheError>;
+
+    fn store_conversation_checkpoint(
+        &self,
+        fingerprint: &str,
+        file_length: i64,
+        file_mtime_ms: i64,
+        variant: &str,
+        conversation_id: &str,
+    ) -> Result<(), AntigravityUsageCacheError>;
+}
+
+impl AntigravityConversationCheckpoint for SqliteAntigravityUsageCacheStore {
+    fn unchanged_conversation_is_cached(
+        &self,
+        fingerprint: &str,
+        file_length: i64,
+        file_mtime_ms: i64,
+        variant: &str,
+        conversation_id: &str,
+    ) -> Result<bool, AntigravityUsageCacheError> {
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| AntigravityUsageCacheError::Storage)?;
+        let connection = database.connection_mut();
+        let checkpoint_matches = connection
+            .query_row(
+                "SELECT 1 FROM antigravity_conversation_checkpoint
+                 WHERE fingerprint = ?1 AND file_length = ?2 AND file_mtime_ms = ?3
+                   AND variant = ?4 AND conversation_id = ?5
+                 LIMIT 1",
+                params![
+                    fingerprint,
+                    file_length,
+                    file_mtime_ms,
+                    variant,
+                    conversation_id
+                ],
+                |_| Ok(true),
+            )
+            .optional()
+            .map_err(|_| AntigravityUsageCacheError::Storage)?
+            .unwrap_or(false);
+        if !checkpoint_matches {
+            return Ok(false);
+        }
+        connection
+            .query_row(
+                "SELECT 1 FROM antigravity_usage_cache
+                 WHERE variant = ?1 AND conversation_id = ?2
+                 LIMIT 1",
+                params![variant, conversation_id],
+                |_| Ok(true),
+            )
+            .optional()
+            .map_err(|_| AntigravityUsageCacheError::Storage)
+            .map(|row| row.unwrap_or(false))
+    }
+
+    fn store_conversation_checkpoint(
+        &self,
+        fingerprint: &str,
+        file_length: i64,
+        file_mtime_ms: i64,
+        variant: &str,
+        conversation_id: &str,
+    ) -> Result<(), AntigravityUsageCacheError> {
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| AntigravityUsageCacheError::Storage)?;
+        database
+            .connection_mut()
+            .execute(
+                "INSERT INTO antigravity_conversation_checkpoint (
+                    fingerprint, file_length, file_mtime_ms, variant, conversation_id
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(fingerprint) DO UPDATE SET
+                    file_length = excluded.file_length,
+                    file_mtime_ms = excluded.file_mtime_ms,
+                    variant = excluded.variant,
+                    conversation_id = excluded.conversation_id",
+                params![
+                    fingerprint,
+                    file_length,
+                    file_mtime_ms,
+                    variant,
+                    conversation_id
+                ],
+            )
+            .map_err(|_| AntigravityUsageCacheError::Storage)?;
+        Ok(())
     }
 }
 
