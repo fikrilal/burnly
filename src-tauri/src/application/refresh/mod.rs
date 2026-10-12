@@ -18,7 +18,7 @@ mod tests;
 )]
 pub(crate) use coordinator::{
     CommittedDailyUploadSink, NoopCommittedDailyUploadSink, RefreshCoordinator,
-    RefreshCoordinatorHooks, RefreshEventSink,
+    RefreshCoordinatorHooks, RefreshEventSink, RepairJobOpener,
 };
 #[allow(
     unused_imports,

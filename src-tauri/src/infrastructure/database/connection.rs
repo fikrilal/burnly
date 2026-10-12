@@ -13,6 +13,8 @@ const BUSY_TIMEOUT_MS: i64 = 5_000;
 const JOURNAL_MODE: &str = "wal";
 const SYNCHRONOUS_FULL: i64 = 2;
 const DEFAULT_REFRESH_INTERVAL_MINUTES: i64 = 15;
+const READ_CACHE_KIB: i64 = -512;
+const WRITER_CACHE_KIB: i64 = -2_048;
 
 pub struct Database {
     pub(super) connection: Connection,
@@ -20,13 +22,25 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PersistenceError> {
+        Self::open_read(path)
+    }
+
+    pub fn open_read(path: impl AsRef<Path>) -> Result<Self, PersistenceError> {
+        Self::open_with_cache(path, READ_CACHE_KIB)
+    }
+
+    pub fn open_writer(path: impl AsRef<Path>) -> Result<Self, PersistenceError> {
+        Self::open_with_cache(path, WRITER_CACHE_KIB)
+    }
+
+    fn open_with_cache(path: impl AsRef<Path>, cache_kib: i64) -> Result<Self, PersistenceError> {
         let path = path.as_ref();
         ensure_parent_directory(path)?;
 
         let connection = Connection::open(path)
             .map_err(|source| PersistenceError::open(path.to_path_buf(), source))?;
 
-        configure_connection(&connection)?;
+        configure_connection(&connection, cache_kib)?;
 
         Ok(Self { connection })
     }
@@ -167,7 +181,7 @@ fn ensure_parent_directory(path: &Path) -> Result<(), PersistenceError> {
         .map_err(|source| PersistenceError::create_directory(parent.to_path_buf(), source))
 }
 
-fn configure_connection(connection: &Connection) -> Result<(), PersistenceError> {
+fn configure_connection(connection: &Connection, cache_kib: i64) -> Result<(), PersistenceError> {
     connection
         .pragma_update(None, "foreign_keys", true)
         .map_err(|source| PersistenceError::configure("foreign_keys", source))?;
@@ -182,11 +196,18 @@ fn configure_connection(connection: &Connection) -> Result<(), PersistenceError>
     connection
         .pragma_update(None, "synchronous", "FULL")
         .map_err(|source| PersistenceError::configure("synchronous", source))?;
+    connection
+        .pragma_update(None, "cache_size", cache_kib)
+        .map_err(|source| PersistenceError::configure("cache_size", source))?;
 
-    verify_policy(connection, journal_mode)
+    verify_policy(connection, journal_mode, cache_kib)
 }
 
-fn verify_policy(connection: &Connection, journal_mode: String) -> Result<(), PersistenceError> {
+fn verify_policy(
+    connection: &Connection,
+    journal_mode: String,
+    cache_kib: i64,
+) -> Result<(), PersistenceError> {
     verify_value(
         "foreign_keys",
         "1",
@@ -202,6 +223,11 @@ fn verify_policy(connection: &Connection, journal_mode: String) -> Result<(), Pe
         "synchronous",
         &SYNCHRONOUS_FULL.to_string(),
         query_integer_policy(connection, "synchronous")?.to_string(),
+    )?;
+    verify_value(
+        "cache_size",
+        &cache_kib.to_string(),
+        query_integer_policy(connection, "cache_size")?.to_string(),
     )
 }
 
@@ -247,6 +273,17 @@ mod tests {
         assert_eq!(pragma_i64(&database.connection, "foreign_keys"), 1);
         assert_eq!(pragma_i64(&database.connection, "busy_timeout"), 5_000);
         assert_eq!(pragma_text(&database.connection, "journal_mode"), "wal");
+        assert_eq!(pragma_i64(&database.connection, "synchronous"), 2);
+        assert_eq!(pragma_i64(&database.connection, "cache_size"), -512);
+    }
+
+    #[test]
+    fn writer_connection_uses_the_larger_cache_and_keeps_full_sync() {
+        let temp_dir = tempfile::TempDir::new().expect("create temporary directory");
+        let database =
+            Database::open_writer(temp_dir.path().join("burnly.sqlite3")).expect("open writer");
+
+        assert_eq!(pragma_i64(&database.connection, "cache_size"), -2_048);
         assert_eq!(pragma_i64(&database.connection, "synchronous"), 2);
     }
 

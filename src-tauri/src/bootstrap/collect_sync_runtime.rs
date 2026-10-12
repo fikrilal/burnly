@@ -136,38 +136,44 @@ pub(crate) fn install_collect_sync<R: Runtime>(
     account.set_lifecycle_listener(Some(bridge.clone()));
     refresh_coordinator.set_committed_daily_upload_sink(bridge.clone());
 
-    if let (Ok(repair_db), Ok(baseline_db)) =
-        (Database::open(database_path), Database::open(database_path))
-    {
-        let baseline_store = Arc::new(
-            crate::infrastructure::database::SqliteAntigravityBaselineStore::new(baseline_db),
-        );
-        let auth_reader: Arc<
-            dyn crate::application::ports::baseline_repair::BaselineRepairAuthReader,
-        > = Arc::new(SessionAuthReader(session));
-        let sync_trigger: Arc<
-            dyn crate::application::ports::baseline_repair::BaselineRepairSyncTrigger,
-        > = bridge;
-        let diag_recorder: Option<
-            Arc<dyn crate::application::ports::diagnostic_recorder::DiagnosticRecorder>,
-        > = Database::open(database_path).ok().map(|db| {
+    let repair_database_path = database_path.to_path_buf();
+    let repair_session = session.clone();
+    let repair_bridge = bridge.clone();
+    let opener: crate::application::refresh::RepairJobOpener = Arc::new(move || {
+        let repair_db = Database::open_read(&repair_database_path).map_err(|_| ())?;
+        let baseline_db = Database::open_read(&repair_database_path).map_err(|_| ())?;
+        let collect_db = Database::open_read(&repair_database_path).map_err(|_| ())?;
+        let diagnostics = Database::open_read(&repair_database_path).ok().map(|db| {
             Arc::new(crate::infrastructure::database::SqliteDiagnosticStore::new(
                 db,
             ))
                 as Arc<dyn crate::application::ports::diagnostic_recorder::DiagnosticRecorder>
         });
-        let repair_coordinator = Arc::new(
+        let coordinator =
             crate::infrastructure::database::SqliteAntigravityBaselineRepairCoordinator::new(
                 repair_db,
-                baseline_store,
-                collect_store,
-                auth_reader,
-                sync_trigger,
-                diag_recorder,
-            ),
-        );
-        refresh_coordinator.set_baseline_repair_coordinator(repair_coordinator);
-    }
+                Arc::new(
+                    crate::infrastructure::database::SqliteAntigravityBaselineStore::new(
+                        baseline_db,
+                    ),
+                ),
+                Arc::new(crate::infrastructure::database::SqliteCollectSyncStore::new(collect_db)),
+                Arc::new(SessionAuthReader(repair_session.clone()))
+                    as Arc<
+                        dyn crate::application::ports::baseline_repair::BaselineRepairAuthReader,
+                    >,
+                repair_bridge.clone()
+                    as Arc<
+                        dyn crate::application::ports::baseline_repair::BaselineRepairSyncTrigger,
+                    >,
+                diagnostics,
+            );
+        Ok(Arc::new(coordinator)
+            as Arc<
+                dyn crate::application::ports::baseline_repair::AntigravityBaselineRepairCoordinator,
+            >)
+    });
+    refresh_coordinator.set_repair_job_opener(opener);
 
     service.on_startup();
     app.manage(service.clone());
